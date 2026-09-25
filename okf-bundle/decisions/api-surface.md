@@ -10,7 +10,7 @@ sources:
     resource: ../../badspace.md
     title: "BADSPACE: Database spaziale real-time per gioco — note di progettazione"
     author: human:someone
-    last_modified: 2026-09-22T00:00:00Z
+    last_modified: 2026-09-25T18:30:23Z
 ---
 
 # Stato
