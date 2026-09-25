@@ -12,7 +12,7 @@ Più strutture possibili, con trade-off diversi: **grid uniforme** (semplice, O(
 
 ## Supporto a 2D e 3D
 
-Soluzione scelta: **implementazioni parallele** (`Point2`/`Point3`, `Quadtree`/`Octree`) dietro un **trait comune** per le operazioni condivise, invece di forzare una genericità unica su N dimensioni.
+Soluzione scelta: **implementazioni parallele** (`Point2`/`Point3`, `Quadtree`/`Octree`) dietro un'**interfaccia comune** per le operazioni condivise, invece di forzare una genericità unica su N dimensioni.
 
 ## Entità statiche vs dinamiche
 

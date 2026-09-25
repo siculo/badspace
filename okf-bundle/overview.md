@@ -4,7 +4,7 @@ title: Panoramica di BADSPACE
 description: Panoramica di progettazione di BADSPACE, un database spaziale real-time embedded per giochi, e delle sue decisioni architetturali principali.
 tags: [badspace, game-dev, design]
 status: stable
-generated: { by: claude-code/claude-sonnet-5, at: 2026-09-25T10:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-25T12:00:00Z }
 sources:
   - id: badspace-notes
     resource: ../badspace.md
@@ -29,7 +29,7 @@ traccia della posizione delle entità e risponde a query di prossimità
 - [Indicizzazione spaziale](/decisions/spatial-indexing.md) — ancora
   aperta: grid, quadtree/octree o R-tree.
 - [Supporto a 2D e 3D](/decisions/2d-3d-support.md) — implementazioni
-  parallele dietro un trait comune.
+  parallele dietro un'interfaccia comune.
 - [Entità statiche vs dinamiche](/decisions/static-vs-dynamic-entities.md)
   — strutture dati separate, query di prossimità unificate.
 - [Concorrenza](/decisions/concurrency.md) — ancora aperta:

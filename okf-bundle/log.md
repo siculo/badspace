@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Edit**: Resa indipendente dal linguaggio di implementazione la decisione [Supporto a 2D e 3D](/decisions/2d-3d-support.md): "trait comune" → "interfaccia comune", rimosso il tag `rust`, aggiunta in [Tipo di strumento](/decisions/tool-type.md) la sezione "Terminologia", con la definizione di *interfaccia* e la sua realizzazione per linguaggio (Java, C, C++, Rust); allineati indice, panoramica e fonte badspace.md.
 * **Update**: Rimosso Scala dai linguaggi proposti per i prototipi in [Tipo di strumento](/decisions/tool-type.md).
 * **Update**: Separato in [Tipo di strumento](/decisions/tool-type.md) il linguaggio dei prototipi (Java o Scala) da quello dell'implementazione finale.
 * **Update**: Riaperta in [Tipo di strumento](/decisions/tool-type.md) la scelta del linguaggio di implementazione, con C, C++ e Rust come alternative (status: draft).

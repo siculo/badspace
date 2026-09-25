@@ -4,7 +4,7 @@ title: Tipo di strumento
 description: Decisione di costruire BADSPACE come libreria embedded, pensata per evolvere in seguito verso un servizio gRPC; prototipi proposti in Java, linguaggio dell'implementazione finale (C, C++ o Rust) ancora da decidere.
 tags: [badspace, design, architecture, language, prototyping]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-25T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-25T12:30:00Z }
 sources:
   - id: badspace-notes
     resource: ../../badspace.md
@@ -58,6 +58,24 @@ Ancora da decidere, anche alla luce dei prototipi, tra:
   poco conosciuto da chi sviluppa; le strutture ad albero si scontrano con
   il borrow checker.
 
+# Terminologia
+
+## Interfaccia
+
+Per "interfaccia" qui si intende un contratto astratto: un insieme
+di operazioni con la stessa semantica. Non si intende un
+costrutto di un linguaggio specifico. La forma concreta di questo
+contratto dipende dal linguaggio di implementazione.
+
+Come si realizza, nei diversi linguaggi, una interfaccia:
+
+- **Java** (prototipi): `interface` implementate dalle classi concrete.
+- **C**: funzioni separate per ciascuna implementazione, con firme
+  parallele, oppure
+  una struct di puntatori a funzione.
+- **C++**: template o classi base astratte.
+- **Rust**: trait.
+
 # Correlati
 
 - La [concorrenza](/decisions/concurrency.md) è condizionata dal restare
@@ -66,6 +84,7 @@ Ancora da decidere, anche alla luce dei prototipi, tra:
   prototipi minimali motiva l'uso di un linguaggio familiare per i
   prototipi.
 - Il [supporto a 2D e 3D](/decisions/2d-3d-support.md) si esprime in modo
-  diverso a seconda del linguaggio (trait, template o funzioni separate).
+  diverso a seconda del linguaggio (vedi
+  [Interfaccia](#interfaccia)).
 
 [^badspace-notes]: Note di progettazione di BADSPACE
