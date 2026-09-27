@@ -5,17 +5,11 @@ description: Decisione di costruire BADSPACE come libreria embedded, pensata per
 tags: [badspace, design, architecture, language, prototyping]
 status: draft
 generated: { by: claude-code/claude-opus-5-5, at: 2026-09-25T12:30:00Z }
-sources:
-  - id: badspace-notes
-    resource: ../../badspace.md
-    title: "BADSPACE: Database spaziale real-time per gioco — note di progettazione"
-    author: human:someone
-    last_modified: 2026-09-25T18:30:23Z
 ---
 
 # Opzioni considerate
 
-Sono stati considerati tre approcci:[^badspace-notes]
+Sono stati considerati tre approcci:
 
 - **Libreria embedded** — integrata nel processo del server di gioco,
   massima velocità.
@@ -26,7 +20,7 @@ Sono stati considerati tre approcci:[^badspace-notes]
 # Decisione
 
 Si parte dalla libreria embedded, pensata per poter evolvere in seguito
-verso un servizio esposto via gRPC.[^badspace-notes]
+verso un servizio esposto via gRPC.
 
 # Linguaggio
 
@@ -86,5 +80,3 @@ Come si realizza, nei diversi linguaggi, una interfaccia:
 - Il [supporto a 2D e 3D](/decisions/2d-3d-support.md) si esprime in modo
   diverso a seconda del linguaggio (vedi
   [Interfaccia](#interfaccia)).
-
-[^badspace-notes]: Note di progettazione di BADSPACE

@@ -1,0 +1,40 @@
+---
+type: Architecture Primitive
+title: Commit della partizione
+description: Le scritture del writer sono raggruppate in commit atomici, unica transazione del sistema, identificati da un contatore monotono il cui significato (tick locale, tick globale, batch) è deciso sopra il livello base.
+tags: [badspace, architecture, partitioning, transactions]
+status: stable
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+---
+
+# Primitiva
+
+Le scritture del writer sono raggruppate in **commit**: ogni commit è
+una transazione limitata alla partizione. I lettori vedono solo commit
+completi, mai uno stato intermedio, e con la [durabilità
+osservabile](/architecture/observable-durability.md) il commit è anche
+durevole.
+
+Non esistono transazioni tra partizioni. Con un solo writer (vedi
+[proprietà della partizione](/architecture/partition-ownership.md)) il
+commit non richiede lock, gestione dei conflitti né abort per
+concorrenza.
+
+# Commit e tick
+
+Ogni commit è identificato da un **contatore monotono**. Il livello
+base conosce il commit, non il tick: il significato del contatore lo
+stabiliscono i livelli superiori. Nel caso tipico si fa un commit per
+tick, e il contatore è:
+
+- il tick locale della partizione, per partizioni indipendenti;
+- il tick globale, quando servono [letture
+  coerenti](/mechanisms/consistent-reads.md) su più partizioni.
+
+Un uso non legato al gioco potrebbe invece fare commit a batch.
+
+# Correlati
+
+- [Architettura minima](/architecture/minimal-core.md) — primitiva 2.
+- I [metadati delle entità](/architecture/entity-metadata.md) cambiano
+  nello stesso commit dei dati.

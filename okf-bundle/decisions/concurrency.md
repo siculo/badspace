@@ -1,34 +1,37 @@
 ---
 type: Design Decision
 title: Concorrenza
-description: Trade-off ancora indeciso tra single-writer con lettori su snapshot e multi-writer per la gestione della concorrenza in BADSPACE.
-tags: [badspace, design, concurrency]
-status: draft
-generated: { by: claude-code/claude-sonnet-5, at: 2026-09-25T10:00:00Z }
-sources:
-  - id: badspace-notes
-    resource: ../../badspace.md
-    title: "BADSPACE: Database spaziale real-time per gioco — note di progettazione"
-    author: human:someone
-    last_modified: 2026-09-25T18:30:23Z
+description: Concorrenza di BADSPACE risolta con un solo writer per partizione e più reader; il sistema nel suo insieme ha più writer senza lock granulari.
+tags: [badspace, design, concurrency, partitioning]
+status: stable
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
 ---
 
 # Opzioni considerate
-
-Da valutare tra:[^badspace-notes]
 
 - **Single-writer** — un solo scrittore, tipicamente il game loop, con
   lettori concorrenti su snapshot. Semplice e deterministico.
 - **Multi-writer** — lock granulari o strutture lock-free. Più
   scalabile, ma molto più complesso da mantenere coerente.
 
-# Stato
+# Decisione
 
-Nessuna decisione definitiva ancora.
+**Un solo writer per partizione**, con più reader. Con il
+[partizionamento del DB](/decisions/partitioning.md) ogni partizione
+resta single-writer, semplice e deterministica, ma il sistema nel suo
+insieme ha più writer senza lock granulari: il trade-off tra
+single-writer e multi-writer è di fatto risolto.
+
+L'esclusività di scrittura si può acquisire, rilasciare e trasferire,
+con un numero di generazione che blocca i writer non più proprietari
+(vedi [proprietà della partizione](/architecture/partition-ownership.md)).
+Le scritture sono raggruppate in [commit](/architecture/partition-commit.md)
+che, con un solo writer, non richiedono lock né gestione dei conflitti.
 
 # Correlati
 
 - Il [tipo di strumento](/decisions/tool-type.md) — partire da una
   libreria embedded in-process mantiene questa decisione locale per ora.
-
-[^badspace-notes]: Note di progettazione di BADSPACE
+- Le operazioni che coinvolgono più partizioni si costruiscono sopra
+  senza transazioni: [migrazione](/mechanisms/entity-migration.md) e
+  [letture coerenti](/mechanisms/consistent-reads.md).

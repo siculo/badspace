@@ -5,12 +5,6 @@ description: BADSPACE supporta 2D e 3D tramite implementazioni parallele Point2/
 tags: [badspace, design, 2d3d]
 status: stable
 generated: { by: claude-code/claude-opus-5-5, at: 2026-09-25T12:30:00Z }
-sources:
-  - id: badspace-notes
-    resource: ../../badspace.md
-    title: "BADSPACE: Database spaziale real-time per gioco — note di progettazione"
-    author: human:someone
-    last_modified: 2026-09-25T18:30:23Z
 ---
 
 # Decisione
@@ -18,7 +12,7 @@ sources:
 Soluzione scelta: **implementazioni parallele** (`Point2`/`Point3`,
 `Quadtree`/`Octree`) che espongono un'**[interfaccia](/decisions/tool-type.md#interfaccia) comune** per le
 operazioni condivise, invece di forzare una genericità unica su N
-dimensioni.[^badspace-notes]
+dimensioni.
 
 # Correlati
 
@@ -27,5 +21,3 @@ dimensioni.[^badspace-notes]
   scelta aperta tra i tipi di indicizzazione.
 - Il [tipo di strumento](/decisions/tool-type.md) — definisce il termine
   *interfaccia* e come si realizza nei linguaggi candidati.
-
-[^badspace-notes]: Note di progettazione di BADSPACE
