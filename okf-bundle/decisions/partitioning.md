@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: Partizionamento del DB
-description: Il DB di BADSPACE è diviso in partizioni indipendenti, single-writer e con indice proprio; la strategia di partizionamento la sceglie il software utilizzatore.
-tags: [badspace, design, partitioning]
+description: Il DB di BADSPACE è diviso in partizioni indipendenti, single-writer e con indice proprio, create e rimosse dinamicamente per scalare; la strategia di partizionamento la sceglie il software.
+tags: [badspace, design, partitioning, scalability]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
 ---
 
 # Decisione
@@ -21,18 +21,28 @@ partizionamento fuori dal livello più basso di gestione dei dati.
   (vedi [proprietà della partizione](/architecture/partition-ownership.md)).
 - Ogni partizione ha la propria **strategia di indicizzazione** (vedi
   [indicizzazione spaziale](/decisions/spatial-indexing.md)).
-- La **strategia di partizionamento** è scelta dal software
-  utilizzatore, che decide su quali partizioni scrivere e da quali
-  leggere.
+- La **strategia di partizionamento** è scelta dal software, che
+  decide su quali partizioni scrivere e da quali leggere.
 
 Le partizioni possono essere gestite da processi diversi, e anche il
 software che usa il DB tramite le API può essere distribuito su più
 processi. La struttura a livelli è descritta in
 [architettura a livelli](/architecture/layers.md).
 
+# Partizioni dinamiche e scalabilità
+
+- Il DB **non prevede partizioni predefinite**: il software crea tutte
+  quelle che gli servono e configura ciascuna in modo diverso (tipo di
+  indice, numero k di [versioni conservate](/architecture/version-retention.md)).
+- Le partizioni si **creano e si rimuovono dinamicamente**, mentre il
+  sistema è in funzione.
+- È questo che rende il DB **scalabile**: il carico si ridistribuisce
+  aggiungendo partizioni dove serve e togliendole quando non servono
+  più.
+
 # Vantaggi
 
-- **Strategie libere.** Il software utilizzatore adotta la strategia
+- **Strategie libere.** Il software adotta la strategia
   migliore caso per caso: per tipologia di entità, per suddivisione
   dello spazio o miste (per esempio la geometria statica divisa per
   zone e i proiettili in un'unica partizione globale).
@@ -51,7 +61,7 @@ processi. La struttura a livelli è descritta in
 
 # Problemi spostati fuori dal livello base
 
-- **Strategie con zone disgiunte.** Se il software utilizzatore
+- **Strategie con zone disgiunte.** Se il software
   partiziona per zone, tornano i problemi di confine: entità a cavallo
   di due zone, query da allargare, migrazioni. Sono conseguenza della
   strategia scelta, non del livello base. Strategie pronte potranno

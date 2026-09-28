@@ -9,7 +9,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
 
 # Opzioni considerate
 
-- **Single-writer** — un solo scrittore, tipicamente il game loop, con
+- **Single-writer** — un solo scrittore, tipicamente il ciclo principale del software (il game loop in un gioco), con
   lettori concorrenti su snapshot. Semplice e deterministico.
 - **Multi-writer** — lock granulari o strutture lock-free. Più
   scalabile, ma molto più complesso da mantenere coerente.

@@ -12,7 +12,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
 - Gli ID sono **univoci per tutte le partizioni**.
 - La generazione è **esterna al layer delle partizioni** ed è
   responsabilità dell'[API comune](/architecture/layers.md), non del
-  software utilizzatore.
+  software.
 - Schema scelto: **stile Snowflake**. Un ID a 64 bit composto da un
   identificativo del generatore (assegnato una volta sola) e un
   contatore locale: univoco senza coordinamento a runtime, regge anche
@@ -24,7 +24,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
   dall'ID, altrimenti una [migrazione](/mechanisms/entity-migration.md)
   rompe l'invariante.
 
-La mappa ID → partizione è del software utilizzatore; l'API potrebbe
+La mappa ID → partizione è del software; l'API potrebbe
 offrirla in futuro come aiuto opzionale.
 
 # Punti aperti

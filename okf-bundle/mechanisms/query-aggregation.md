@@ -10,11 +10,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
 # Principio
 
 Una query su un intorno di un punto equivale a n query sulle n
-partizioni scelte dal software utilizzatore, con risultati da
+partizioni scelte dal software, con risultati da
 aggregare. Due aspetti distinti:
 
 - **Su quali partizioni interrogare**: dipende dalla strategia, quindi
-  la decide il software utilizzatore.
+  la decide il software.
 - **Come aggregare**: dipende solo dal tipo di query. È generica e la
   offre l'[API comune](/architecture/layers.md).
 
@@ -43,7 +43,7 @@ si deduplica per ID: vince la copia con l'epoca più alta, e una copia
 Con indici logaritmici, n query su partizioni più piccole costano poco
 più di una query su una partizione unica. Il fan-out pesa con molte
 partizioni o con partizioni remote, dove comanda la più lenta; la
-strategia del software utilizzatore serve a limitarlo.
+strategia del software serve a limitarlo.
 
 # Punti aperti
 

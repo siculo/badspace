@@ -4,7 +4,7 @@ title: Migrazione di entità tra partizioni
 description: Handoff asincrono di proprietà tra partizioni con writer diversi — entità congelata, batch per tick, ACK dopo persistenza, rimozione condizionata — senza transazioni né lock.
 tags: [badspace, partitioning, migration, protocol]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
 ---
 
 # Problema
@@ -31,6 +31,11 @@ Primitive usate: [commit](/architecture/partition-commit.md),
 [durabilità osservabile](/architecture/observable-durability.md).
 
 # Protocollo
+
+Il protocollo è descritto in tick, nel caso tipico di un
+[commit](/architecture/partition-commit.md) per tick. Se una partizione
+fa un commit ogni più tick, ogni passo va letto come il commit
+successivo di quella partizione, con una latenza maggiore.
 
 | Tick | Writer A (origine) | Writer B (destinazione) |
 |---|---|---|
@@ -68,7 +73,7 @@ persistenza di B è più lenta di un tick.
 - **Doppioni in lettura.** L'[aggregazione](/mechanisms/query-aggregation.md)
   deduplica per ID: vince la copia con l'epoca più alta, e una copia
   "in uscita" perde se esiste anche l'altra.
-- **Mappa ID → partizione.** Il software utilizzatore la aggiorna già
+- **Mappa ID → partizione.** Il software la aggiorna già
   al tick t.
 
 # Casi di guasto

@@ -11,7 +11,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
 
 Ogni entità ha, accanto ai dati, dei metadati divisi in due spazi.
 
-**Metadati di sistema**, in sola lettura per il software utilizzatore:
+**Metadati di sistema**, in sola lettura per il software:
 
 - **epoca**: contatore che cresce a ogni migrazione e viaggia con
   l'entità;
@@ -20,10 +20,10 @@ Ogni entità ha, accanto ai dati, dei metadati divisi in due spazi.
 
 Cambiano solo attraverso le operazioni dei protocolli (per esempio la
 [migrazione](/mechanisms/entity-migration.md)), perché da loro
-dipendono le garanzie: se il software utilizzatore potesse scrivere
+dipendono le garanzie: se il software potesse scrivere
 l'epoca, potrebbe rompere il protocollo senza accorgersene.
 
-**Metadati applicativi**: slot liberi per il software utilizzatore,
+**Metadati applicativi**: slot liberi per il software,
 leggibili e scrivibili.
 
 Proprietà comuni:
@@ -52,7 +52,7 @@ richiesto esplicitamente al momento della rimozione.
 # API dei metadati
 
 I metadati aprono a estensioni sia dell'API comune sia di meccaniche
-implementate dal software utilizzatore, quindi hanno un'API propria:
+implementate dal software, quindi hanno un'API propria:
 
 - lettura dei metadati di sistema e applicativi, per ID;
 - scrittura dei metadati applicativi, semplice o condizionata;

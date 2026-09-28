@@ -4,7 +4,7 @@ title: Architettura minima del layer delle partizioni
 description: Le cinque primitive minime del layer delle partizioni e come i meccanismi (migrazione, letture coerenti, aggregazione, ribilanciamento) si costruiscono sopra di esse.
 tags: [badspace, architecture, partitioning]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
 ---
 
 # Obiettivo
@@ -25,6 +25,20 @@ Nessuna transazione tra partizioni: l'unica transazione è il
 partizione. Con un solo writer non servono lock, gestione dei conflitti
 né abort per concorrenza, che sono le parti costose di una
 transazione.
+
+# Principi
+
+Tre principi reggono l'insieme:
+
+- **Nucleo minimo.** Nel layer delle partizioni va solo ciò che non si
+  può costruire sopra senza rompere le garanzie; il resto è un
+  meccanismo opzionale dell'API comune.
+- **Nessuna transazione tra partizioni.** L'unica transazione è il
+  commit dentro una singola partizione; le operazioni su più partizioni
+  sono protocolli a messaggi.
+- **Paga solo chi usa.** I meccanismi costosi, come la
+  [conservazione delle versioni](/architecture/version-retention.md), si
+  attivano partizione per partizione.
 
 # Primitive del livello base
 
@@ -66,7 +80,7 @@ transazione.
 - Forma concreta delle chiamate per commit, scritture condizionate,
   API dei metadati e gestione delle tombstone.
 - Trasporto dei messaggi di migrazione: fornito dall'API o lasciato al
-  software utilizzatore.
+  software.
 - Implementazione e costo della conservazione delle versioni.
 - Servizio del tick globale e della barriera nella forma a cluster.
 

@@ -10,7 +10,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-25T12:30:00Z }
 # Decisione
 
 Soluzione scelta: **implementazioni parallele** (`Point2`/`Point3`,
-`Quadtree`/`Octree`) che espongono un'**[interfaccia](/decisions/tool-type.md#interfaccia) comune** per le
+`Quadtree`/`Octree`) che espongono un'**[interfaccia](/decisions/language.md#interfaccia) comune** per le
 operazioni condivise, invece di forzare una genericità unica su N
 dimensioni.
 
@@ -19,5 +19,5 @@ dimensioni.
 - L'[indicizzazione spaziale](/decisions/spatial-indexing.md) — le
   strutture duplicate per dimensione (quadtree/octree) restano una
   scelta aperta tra i tipi di indicizzazione.
-- Il [tipo di strumento](/decisions/tool-type.md) — definisce il termine
+- Il [linguaggio](/decisions/language.md) — definisce il termine
   *interfaccia* e come si realizza nei linguaggi candidati.

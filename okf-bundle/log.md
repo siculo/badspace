@@ -1,5 +1,19 @@
 # Bundle Update Log
 
+## 2026-09-28
+* **Creation**: Aggiunto [Glossario](/glossary.md) — definizioni dei termini ricorrenti di BADSPACE.
+* **Creation**: Aggiunto [Casi d'uso](/use-cases.md) — casi d'uso da supportare, con configurazione e meccanismi attivi.
+* **Split**: Separata da [Tipo di strumento](/decisions/tool-type.md) la decisione [Linguaggio](/decisions/language.md) (draft), con la terminologia sull'interfaccia; Tipo di strumento passa a `stable`.
+* **Update**: Aggiornata la [Panoramica di BADSPACE](/overview.md) — ambito generico (simulazione, monitoraggio, gaming) invece di "database per giochi", stato del progetto, scalabilità.
+* **Update**: Aggiornato il [Partizionamento del DB](/decisions/partitioning.md) — partizioni non predefinite, create e rimosse dinamicamente; scalabilità.
+* **Update**: Aggiornata l'[Architettura minima](/architecture/minimal-core.md) — sezione "Principi" (nucleo minimo, nessuna transazione tra partizioni, paga solo chi usa).
+* **Update**: Aggiornato il [Commit della partizione](/architecture/partition-commit.md) — al più un commit per tick; un commit può coprire più tick.
+* **Update**: Aggiornata la [Migrazione di entità](/mechanisms/entity-migration.md) — lettura del protocollo con commit su più tick.
+* **Update**: Aggiornata l'[API da esporre](/decisions/api-surface.md) — tabella delle operazioni di base.
+* **Update**: Aggiornato l'[Approccio di sviluppo](/process/development-approach.md) — uno o più client di test, non necessariamente un gioco.
+* **Edit**: Uniformato il termine "software utilizzatore" in "software" in tutti i concetti.
+* Fonte: `okf-sources/BADSPACE — Panoramica del progetto.md`.
+
 ## 2026-09-27
 * **Creation**: Aggiunto [Partizionamento del DB](/decisions/partitioning.md) — partizioni indipendenti, single-writer e con indice proprio; strategia scelta dal software utilizzatore.
 * **Creation**: Aggiunto [ID delle entità](/decisions/entity-ids.md) — ID Snowflake a 64 bit, univoci su tutte le partizioni.
