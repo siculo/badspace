@@ -9,5 +9,5 @@
 * [Tipo delle coordinate](./coordinate-type.md) - `double` nei prototipi; scelta finale rimandata tra double, interi a 64 bit o tipo generico.
 * [Entità statiche vs dinamiche](./static-vs-dynamic-entities.md) - strutture dati separate, query di prossimità unificate; caso particolare di partizionamento.
 * [Concorrenza](./concurrency.md) - un solo writer per partizione, più reader.
-* [API da esporre](./api-surface.md) - operazioni di base individuate, forma da definire; il partizionamento ne fissa già alcuni elementi.
+* [API da esporre](./api-surface.md) - operazioni di base individuate; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, batch, tutto-o-niente); il partizionamento ne fissa già alcuni elementi.
 * [Persistenza](./persistence.md) - rimandata; snapshot per partizione e ultimo commit persistito esposto.

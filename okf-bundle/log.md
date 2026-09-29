@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-29
+* **Edit**: Aggiornata l'[API da esporre](/decisions/api-surface.md) — nuova sezione "Forma delle chiamate nel prototipo": record `Point2`/`Point3` ed `Entity2`/`Entity3`, operazioni di inserimento, lettura per ID, aggiornamento e rimozione su una o più entità, contratto del nodo solo batch, scritture tutto-o-niente; aggiornato di conseguenza il [Tipo delle coordinate](/decisions/coordinate-type.md).
 * **Update**: Aggiornata l'[Architettura a livelli](/architecture/layers.md) — nuova sezione "Nodi": le partizioni sono ospitate da nodi locali o remoti scelti dal software; il futuro confine gRPC passa tra l'API e i nodi.
 * **Update**: Aggiornato il [Tipo di strumento](/decisions/tool-type.md) — la superficie di rete è il contratto dei nodi, non l'API comune, che resta una libreria nel processo del software.
 * **Update**: Aggiornato [ID delle entità](/decisions/entity-ids.md) — anche gli ID delle partizioni li genera l'API; punto aperto sui nodi condivisi tra spazi.

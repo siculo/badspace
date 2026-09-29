@@ -1,7 +1,9 @@
 package badspace.service;
 
+import badspace.common.Entity3;
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode3;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -19,8 +21,23 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
-    public void insert(PartitionId partition, long entityId, double x, double y, double z) {
-        find(partition).insert(entityId, x, y, z);
+    public void insertAll(PartitionId partition, List<Entity3> entities) {
+        find(partition).insertAll(entities);
+    }
+
+    @Override
+    public List<Entity3> getAll(PartitionId partition, long[] entityIds) {
+        return find(partition).getAll(entityIds);
+    }
+
+    @Override
+    public void updateAll(PartitionId partition, List<Entity3> entities) {
+        find(partition).updateAll(entities);
+    }
+
+    @Override
+    public void removeAll(PartitionId partition, long[] entityIds) {
+        find(partition).removeAll(entityIds);
     }
 
     @Override

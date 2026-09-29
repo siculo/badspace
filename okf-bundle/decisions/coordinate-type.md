@@ -4,14 +4,14 @@ title: Tipo delle coordinate
 description: Nei prototipi le coordinate sono double; la scelta per l'implementazione finale (double, interi a 64 bit o tipo generico) è rimandata, con i limiti di precisione, rappresentazione e determinismo di ciascuna opzione.
 tags: [badspace, design, coordinates, precision]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T07:36:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T15:21:01Z }
 ---
 
 # Decisione
 
 - **Prototipi**: coordinate `double`, in metri. Il tipo resta confinato
-  negli array privati delle partizioni e nei parametri dell'API, così
-  da poterlo cambiare con un intervento meccanico.
+  negli array privati delle partizioni e nei record `Point2`/`Point3`
+  dell'API, così da poterlo cambiare con un intervento meccanico.
 - **Implementazione finale**: scelta **rimandata**. L'argomento è
   delicato e va ripreso alla luce dei prototipi e del
   [linguaggio](/decisions/language.md) scelto.

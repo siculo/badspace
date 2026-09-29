@@ -3,7 +3,13 @@ package badspace.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import badspace.common.Entity2;
 import badspace.common.PartitionId;
+import badspace.common.Point2;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.NoSuchElementException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class LocalPartitionNode2Test {
@@ -11,36 +17,102 @@ class LocalPartitionNode2Test {
     private static final PartitionId P1 = new PartitionId(1);
     private static final PartitionId P2 = new PartitionId(2);
 
-    @Test
-    void insertAddsEntityToItsPartitionOnly() {
-        LocalPartitionNode2 node = new LocalPartitionNode2();
+    private LocalPartitionNode2 node;
+
+    @BeforeEach
+    void setUp() {
+        node = new LocalPartitionNode2();
         node.createPartition(P1);
+    }
+
+    private static Entity2 entity(long id, double x, double y) {
+        return new Entity2(id, new Point2(x, y));
+    }
+
+    @Test
+    void insertAddsEntitiesToTheirPartitionOnly() {
         node.createPartition(P2);
-        node.insert(P1, 42, 1.0, 2.0);
-        assertEquals(1, node.size(P1));
+        node.insertAll(P1, List.of(entity(42, 1, 2), entity(43, 3, 4)));
+        assertEquals(2, node.size(P1));
         assertEquals(0, node.size(P2));
     }
 
     @Test
+    void getReturnsFoundEntitiesInOrderAndSkipsUnknownIds() {
+        node.insertAll(P1, List.of(entity(1, 1, 2), entity(2, 3, 4)));
+        assertEquals(List.of(entity(2, 3, 4), entity(1, 1, 2)), node.getAll(P1, new long[] {2, 99, 1}));
+    }
+
+    @Test
     void growsBeyondInitialCapacity() {
-        LocalPartitionNode2 node = new LocalPartitionNode2();
-        node.createPartition(P1);
+        List<Entity2> entities = new ArrayList<>();
         for (int i = 0; i < 1000; i++) {
-            node.insert(P1, i, i, -i);
+            entities.add(entity(i, i, -i));
         }
+        node.insertAll(P1, entities.subList(0, 10));
+        node.insertAll(P1, entities.subList(10, 1000));
         assertEquals(1000, node.size(P1));
+        assertEquals(List.of(entity(999, 999, -999)), node.getAll(P1, new long[] {999}));
+    }
+
+    @Test
+    void insertRejectsDuplicateIdsAndChangesNothing() {
+        node.insertAll(P1, List.of(entity(1, 0, 0)));
+        assertThrows(IllegalArgumentException.class,
+                () -> node.insertAll(P1, List.of(entity(2, 0, 0), entity(1, 0, 0))));
+        assertThrows(IllegalArgumentException.class,
+                () -> node.insertAll(P1, List.of(entity(3, 0, 0), entity(3, 0, 0))));
+        assertEquals(1, node.size(P1));
+    }
+
+    @Test
+    void updateMovesEntities() {
+        node.insertAll(P1, List.of(entity(1, 1, 2), entity(2, 3, 4)));
+        node.updateAll(P1, List.of(entity(2, 5, 6), entity(1, 7, 8)));
+        assertEquals(List.of(entity(1, 7, 8), entity(2, 5, 6)), node.getAll(P1, new long[] {1, 2}));
+    }
+
+    @Test
+    void updateRejectsUnknownIdAndChangesNothing() {
+        node.insertAll(P1, List.of(entity(1, 1, 2)));
+        assertThrows(NoSuchElementException.class,
+                () -> node.updateAll(P1, List.of(entity(1, 9, 9), entity(99, 0, 0))));
+        assertEquals(List.of(entity(1, 1, 2)), node.getAll(P1, new long[] {1}));
+    }
+
+    @Test
+    void removeKeepsTheOtherEntities() {
+        node.insertAll(P1, List.of(entity(1, 1, 1), entity(2, 2, 2), entity(3, 3, 3), entity(4, 4, 4)));
+        node.removeAll(P1, new long[] {1, 3});
+        assertEquals(2, node.size(P1));
+        assertEquals(List.of(entity(2, 2, 2), entity(4, 4, 4)), node.getAll(P1, new long[] {1, 2, 3, 4}));
+        node.removeAll(P1, new long[] {4, 2});
+        assertEquals(0, node.size(P1));
+    }
+
+    @Test
+    void removedIdCanBeUsedAgain() {
+        node.insertAll(P1, List.of(entity(1, 1, 1)));
+        node.removeAll(P1, new long[] {1});
+        node.insertAll(P1, List.of(entity(1, 2, 2)));
+        assertEquals(List.of(entity(1, 2, 2)), node.getAll(P1, new long[] {1}));
+    }
+
+    @Test
+    void removeRejectsBadIdsAndChangesNothing() {
+        node.insertAll(P1, List.of(entity(1, 1, 1), entity(2, 2, 2)));
+        assertThrows(NoSuchElementException.class, () -> node.removeAll(P1, new long[] {1, 99}));
+        assertThrows(IllegalArgumentException.class, () -> node.removeAll(P1, new long[] {1, 1}));
+        assertEquals(2, node.size(P1));
     }
 
     @Test
     void rejectsDuplicatePartition() {
-        LocalPartitionNode2 node = new LocalPartitionNode2();
-        node.createPartition(P1);
         assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1));
     }
 
     @Test
     void rejectsUnknownPartition() {
-        LocalPartitionNode2 node = new LocalPartitionNode2();
-        assertThrows(IllegalArgumentException.class, () -> node.insert(P1, 1, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> node.insertAll(P2, List.of(entity(1, 0, 0))));
     }
 }
