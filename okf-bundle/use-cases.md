@@ -4,7 +4,7 @@ title: Casi d'uso
 description: I casi d'uso che BADSPACE vuole supportare, ciascuno con la sua configurazione delle partizioni e i soli meccanismi che gli servono.
 tags: [badspace, use-cases, partitioning]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T10:47:38Z }
 ---
 
 # Principio
@@ -26,7 +26,7 @@ indicati con "Gioco".
 | Gioco: entità effimere, come i proiettili | Metadato di scadenza: l'entità scade dopo un certo tick | [Metadati applicativi](/architecture/entity-metadata.md) |
 | Modifiche da processi che non sono il writer | Versione applicativa per entità: "applica se la versione è ancora v", il writer accetta o rifiuta senza lock | Concorrenza ottimistica sui metadati |
 | Carico sbilanciato tra zone | Si cede un'intera partizione calda a un altro writer, o la si divide | [Ribilanciamento e split](/mechanisms/rebalancing-and-split.md) |
-| Server distribuito o cluster | Partizioni come processi o nodi separati, API esposta via gRPC | Tutti, con coordinamento esterno del tick |
+| Server distribuito o cluster | Partizioni su [nodi](/architecture/layers.md#nodi) separati (processi o macchine), contratto dei nodi esposto via gRPC; l'API resta nel processo del software | Tutti, con coordinamento esterno del tick |
 | Uso non legato al gioco | Commit a batch invece che a tick, per esempio per dati di posizione aggiornati a intervalli | A scelta |
 
 # Ricerche di base

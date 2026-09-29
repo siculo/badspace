@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit, ma la forma delle chiamate è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T10:47:38Z }
 ---
 
 # Stato
@@ -47,7 +47,8 @@ a livelli](/architecture/layers.md) fissano già alcuni elementi:
 - **Generazione degli [ID](/decisions/entity-ids.md)** a carico
   dell'API comune.
 - **Creazione e configurazione delle partizioni**, incluso l'indice da
-  usare per ciascuna.
+  usare per ciascuna e il [nodo](/architecture/layers.md#nodi) che la
+  ospita, scelto dal software.
 - **[Aggregazione](/mechanisms/query-aggregation.md)** dei risultati di
   query su più partizioni.
 - **Commit e scritture condizionate** del livello base (vedi

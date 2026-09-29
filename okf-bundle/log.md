@@ -1,6 +1,10 @@
 # Bundle Update Log
 
 ## 2026-09-29
+* **Update**: Aggiornata l'[Architettura a livelli](/architecture/layers.md) — nuova sezione "Nodi": le partizioni sono ospitate da nodi locali o remoti scelti dal software; il futuro confine gRPC passa tra l'API e i nodi.
+* **Update**: Aggiornato il [Tipo di strumento](/decisions/tool-type.md) — la superficie di rete è il contratto dei nodi, non l'API comune, che resta una libreria nel processo del software.
+* **Update**: Aggiornato [ID delle entità](/decisions/entity-ids.md) — anche gli ID delle partizioni li genera l'API; punto aperto sui nodi condivisi tra spazi.
+* **Edit**: Allineati al concetto di nodo [Glossario](/glossary.md), [Partizionamento del DB](/decisions/partitioning.md), [Casi d'uso](/use-cases.md), [API da esporre](/decisions/api-surface.md) e [Panoramica di BADSPACE](/overview.md).
 * **Creation**: Aggiunto [Tipo delle coordinate](/decisions/coordinate-type.md) (draft) — `double` nei prototipi; limiti di precisione, alternativa a interi a 64 bit, portabilità e modi di rinviare la scelta.
 * **Update**: Collegato il tipo delle coordinate da [Linguaggio](/decisions/language.md), [Supporto a 2D e 3D](/decisions/2d-3d-support.md) e [Panoramica di BADSPACE](/overview.md).
 

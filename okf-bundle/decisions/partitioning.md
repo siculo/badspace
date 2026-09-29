@@ -4,7 +4,7 @@ title: Partizionamento del DB
 description: Il DB di BADSPACE è diviso in partizioni indipendenti, single-writer e con indice proprio, create e rimosse dinamicamente per scalare; la strategia di partizionamento la sceglie il software.
 tags: [badspace, design, partitioning, scalability]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T10:47:38Z }
 ---
 
 # Decisione
@@ -54,8 +54,9 @@ processi. La struttura a livelli è descritta in
 - **Generalizza statici/dinamici.** La separazione tra
   [entità statiche e dinamiche](/decisions/static-vs-dynamic-entities.md)
   diventa un caso particolare di partizionamento.
-- **Clustering.** Una partizione può diventare un processo o un nodo
-  separato nella futura forma a servizio.
+- **Clustering.** Ogni partizione è ospitata da un
+  [nodo](/architecture/layers.md#nodi), che può essere un processo o una
+  macchina separata; il software sceglie il nodo di ogni partizione.
 - **Persistenza.** Snapshot indipendenti per ogni partizione (vedi
   [persistenza](/decisions/persistence.md)).
 

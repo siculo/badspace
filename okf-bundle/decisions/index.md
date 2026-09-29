@@ -1,6 +1,6 @@
 # Decisioni di progetto
 
-* [Tipo di strumento](./tool-type.md) - libreria embedded in prima battuta, pensata per evolvere verso un servizio gRPC.
+* [Tipo di strumento](./tool-type.md) - libreria embedded in prima battuta, pensata per evolvere verso nodi di partizioni esposti via gRPC; l'API resta una libreria.
 * [Linguaggio](./language.md) - prototipi in Java, linguaggio finale aperto tra C11, C++ e Rust.
 * [Partizionamento del DB](./partitioning.md) - partizioni indipendenti, single-writer e con indice proprio, create e rimosse dinamicamente; strategia scelta dal software.
 * [ID delle entità](./entity-ids.md) - ID Snowflake a 64 bit, univoci su tutte le partizioni, mai riusati, senza indicazione della partizione.

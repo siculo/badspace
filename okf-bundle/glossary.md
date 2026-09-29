@@ -1,10 +1,10 @@
 ---
 type: Glossary
 title: Glossario
-description: Definizioni dei termini ricorrenti di BADSPACE — partizione, software, API comune, commit, tick, fencing token, epoca, tombstone, scrittura condizionata, k, interfaccia.
+description: Definizioni dei termini ricorrenti di BADSPACE — partizione, nodo, software, API comune, commit, tick, fencing token, epoca, tombstone, scrittura condizionata, k, interfaccia.
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T10:47:38Z }
 ---
 
 # Termini
@@ -12,6 +12,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
 | Termine | Significato |
 |---|---|
 | Partizione | Istanza indipendente del DB con un solo writer, più reader e indice proprio; in teoria copre tutto lo spazio. Vedi [partizionamento](/decisions/partitioning.md). |
+| Nodo | Processo, locale o remoto, che ospita una o più partizioni; per ora serve un solo spazio. Il suo contratto è il futuro servizio gRPC. Vedi [architettura a livelli](/architecture/layers.md#nodi). |
 | Software | Il software che usa BADSPACE (simulazione, monitoraggio, gaming e altro) e sceglie la strategia di partizionamento. Vedi [architettura a livelli](/architecture/layers.md). |
 | API comune | Livello di supporto sopra le partizioni: ID, aggregazione, configurazione e meccanismi. Vedi [API da esporre](/decisions/api-surface.md). |
 | Commit | Gruppo atomico di scritture di una partizione, identificato da un contatore monotono; è l'unica transazione del sistema e non coincide necessariamente con un tick. Vedi [commit della partizione](/architecture/partition-commit.md). |
