@@ -1,11 +1,13 @@
 package badspace.client;
 
+import badspace.api.Partition;
 import badspace.api.Partition2;
 import badspace.api.Partition3;
 import badspace.api.Space2;
 import badspace.api.Space3;
 import badspace.service.LocalPartitionNode2;
 import badspace.service.LocalPartitionNode3;
+import java.util.List;
 
 /** Test client: creates a 2D and a 3D space with partitions on local nodes, and inserts entities. */
 public class Main {
@@ -21,6 +23,14 @@ public class Main {
         Space3 space3 = new Space3();
         Partition3 p3 = space3.createPartition(new LocalPartitionNode3());
         long c = p3.insert(1.0, 2.0, 3.0);
-        System.out.printf("3D: entity %d, partition size %d%n", c, p3.size());
+        System.out.printf("3D: entity %d%n", c);
+
+        // 2D and 3D partitions through the common interface
+        List<Partition> partitions = List.of(p2a, p2b, p3);
+        int total = 0;
+        for (Partition p : partitions) {
+            total += p.size();
+        }
+        System.out.printf("%d partitions, %d entities%n", partitions.size(), total);
     }
 }

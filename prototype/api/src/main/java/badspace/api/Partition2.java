@@ -4,7 +4,7 @@ import badspace.common.PartitionId;
 import badspace.common.PartitionNode2;
 
 /** Proxy of a 2D partition that lives on a node. It has a single writer and is not thread-safe. */
-public final class Partition2 {
+public final class Partition2 implements Partition {
 
     private final Space2 space;
     private final PartitionNode2 node;
@@ -23,6 +23,7 @@ public final class Partition2 {
         return entityId;
     }
 
+    @Override
     public int size() {
         return node.size(id);
     }
