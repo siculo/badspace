@@ -9,13 +9,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * It generates entity IDs and partition IDs, unique within the space.
  * Its partitions can live on different nodes.
  */
-public final class Space3 {
+public final class Space3 implements Space<PartitionNode3, Partition3> {
 
     // Partitions may have writers on different threads, and they share these generators.
     private final AtomicLong nextEntityId = new AtomicLong(1);
     private final AtomicLong nextPartitionId = new AtomicLong(1);
 
-    /** Creates a partition on the given node. The node must serve only this space. */
+    @Override
     public Partition3 createPartition(PartitionNode3 node) {
         PartitionId id = new PartitionId(nextPartitionId.getAndIncrement());
         node.createPartition(id);
