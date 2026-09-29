@@ -1,2 +1,24 @@
 .claude/invocation-log.jsonl
 okf-sources/
+
+# Maven
+target/
+
+# Java
+*.class
+*.log
+hs_err_pid*
+replay_pid*
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+.factorypath
+
+# OS
+.DS_Store
+Thumbs.db
