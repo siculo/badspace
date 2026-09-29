@@ -6,6 +6,7 @@
 * [ID delle entità](./entity-ids.md) - ID Snowflake a 64 bit, univoci su tutte le partizioni, mai riusati, senza indicazione della partizione.
 * [Indicizzazione spaziale](./spatial-indexing.md) - indice scelto per partizione; trade-off aperto tra grid, quadtree/octree e R-tree.
 * [Supporto a 2D e 3D](./2d-3d-support.md) - implementazioni parallele dietro un'interfaccia comune.
+* [Tipo delle coordinate](./coordinate-type.md) - `double` nei prototipi; scelta finale rimandata tra double, interi a 64 bit o tipo generico.
 * [Entità statiche vs dinamiche](./static-vs-dynamic-entities.md) - strutture dati separate, query di prossimità unificate; caso particolare di partizionamento.
 * [Concorrenza](./concurrency.md) - un solo writer per partizione, più reader.
 * [API da esporre](./api-surface.md) - operazioni di base individuate, forma da definire; il partizionamento ne fissa già alcuni elementi.

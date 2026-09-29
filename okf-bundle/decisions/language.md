@@ -4,7 +4,7 @@ title: Linguaggio
 description: Prototipi in Java, con codice da buttare, per iterare in fretta; il linguaggio dell'implementazione finale (C11, C++ o Rust) si sceglierà alla luce dei prototipi.
 tags: [badspace, design, language, prototyping]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T07:36:20Z }
 ---
 
 # Decisione
@@ -67,3 +67,6 @@ Come si realizza, nei diversi linguaggi, una interfaccia:
 - Il [supporto a 2D e 3D](/decisions/2d-3d-support.md) si esprime in modo
   diverso a seconda del linguaggio (vedi
   [Interfaccia](#interfaccia)).
+- Il [tipo delle coordinate](/decisions/coordinate-type.md) — nei
+  prototipi `double`; il modo di renderlo generico dipende dal
+  linguaggio (generici in Rust e C++, `typedef` in C).

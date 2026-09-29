@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-09-29
+* **Creation**: Aggiunto [Tipo delle coordinate](/decisions/coordinate-type.md) (draft) — `double` nei prototipi; limiti di precisione, alternativa a interi a 64 bit, portabilità e modi di rinviare la scelta.
+* **Update**: Collegato il tipo delle coordinate da [Linguaggio](/decisions/language.md), [Supporto a 2D e 3D](/decisions/2d-3d-support.md) e [Panoramica di BADSPACE](/overview.md).
+
 ## 2026-09-28
 * **Creation**: Aggiunto [Glossario](/glossary.md) — definizioni dei termini ricorrenti di BADSPACE.
 * **Creation**: Aggiunto [Casi d'uso](/use-cases.md) — casi d'uso da supportare, con configurazione e meccanismi attivi.

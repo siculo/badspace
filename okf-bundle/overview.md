@@ -4,7 +4,7 @@ title: Panoramica di BADSPACE
 description: Panoramica di progettazione di BADSPACE, un database real-time per entità in uno spazio 2D o 3D, base per software di simulazione, monitoraggio o gaming, e delle sue decisioni architetturali principali.
 tags: [badspace, design]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T07:36:20Z }
 ---
 
 # Cos'è BADSPACE
@@ -34,8 +34,8 @@ dinamicamente, distribuendo il carico man mano che cresce o cala (vedi
 BADSPACE non esiste ancora: il bundle ne descrive la forma attesa, che
 potrà cambiare man mano che i prototipi porteranno informazioni nuove.
 Il progetto è in fase di design: le fondamenta architetturali sono
-stabili, mentre linguaggio finale, strutture di indice, API di dettaglio
-e persistenza sono ancora aperti.
+stabili, mentre linguaggio finale, tipo delle coordinate, strutture di
+indice, API di dettaglio e persistenza sono ancora aperti.
 
 # Decisioni principali
 
@@ -55,6 +55,8 @@ partizione: quasi tutte le altre decisioni ne discendono.
   partizione; strutture ancora aperte: grid, quadtree/octree o R-tree.
 - [Supporto a 2D e 3D](/decisions/2d-3d-support.md) — implementazioni
   parallele dietro un'interfaccia comune.
+- [Tipo delle coordinate](/decisions/coordinate-type.md) — `double` nei
+  prototipi; scelta finale rimandata.
 - [Entità statiche vs dinamiche](/decisions/static-vs-dynamic-entities.md)
   — strutture dati separate, query di prossimità unificate; caso
   particolare di partizionamento.
