@@ -1,0 +1,7 @@
+# Fine riga LF per tutti i file di testo, su qualunque sistema operativo.
+# Ha la precedenza sull'impostazione core.autocrlf della macchina.
+* text=auto eol=lf
+
+# Script Windows: richiedono CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
