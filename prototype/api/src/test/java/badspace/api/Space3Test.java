@@ -71,9 +71,16 @@ class Space3Test {
         }
     }
 
+    // Short drift limit, so the constructor waits only a little
+    private static final SnowflakeIdGenerator IDS = new SnowflakeIdGenerator(0, 10);
+
+    private static Space3 newSpace() {
+        return new Space3(IDS);
+    }
+
     @Test
     void partitionsOnDifferentNodesGetDifferentIds() {
-        Space3 space = new Space3();
+        Space3 space = newSpace();
         MapNode nodeA = new MapNode();
         MapNode nodeB = new MapNode();
         space.createPartition(nodeA);
@@ -83,7 +90,7 @@ class Space3Test {
 
     @Test
     void insertGoesToTheNodeOfThePartition() {
-        Space3 space = new Space3();
+        Space3 space = newSpace();
         MapNode nodeA = new MapNode();
         MapNode nodeB = new MapNode();
         Partition3 pa = space.createPartition(nodeA);
@@ -97,7 +104,7 @@ class Space3Test {
     @Test
     void insertAllMakesOneCallAndReturnsIdsInOrder() {
         MapNode node = new MapNode();
-        Partition3 p = new Space3().createPartition(node);
+        Partition3 p = newSpace().createPartition(node);
         List<Point3> positions = List.of(new Point3(1, 1, 1), new Point3(2, 2, 2), new Point3(3, 3, 3));
         long[] ids = p.insertAll(positions);
         assertEquals(1, node.calls);
@@ -108,7 +115,7 @@ class Space3Test {
 
     @Test
     void getUpdateAndRemoveUseTheEntityId() {
-        Partition3 p = new Space3().createPartition(new MapNode());
+        Partition3 p = newSpace().createPartition(new MapNode());
         long[] ids = p.insertAll(List.of(new Point3(1, 1, 1), new Point3(2, 2, 2)));
         assertEquals(Optional.of(new Point3(1, 1, 1)), p.get(ids[0]));
 
@@ -125,7 +132,7 @@ class Space3Test {
 
     @Test
     void entityIdsAreUniqueAcrossPartitions() {
-        Space3 space = new Space3();
+        Space3 space = newSpace();
         Partition3 p1 = space.createPartition(new MapNode());
         Partition3 p2 = space.createPartition(new MapNode());
         Set<Long> ids = new HashSet<>();

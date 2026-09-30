@@ -4,7 +4,7 @@ title: ID delle entità
 description: Gli ID delle entità sono univoci su tutte le partizioni, generati dall'API comune in stile Snowflake a 64 bit, mai riusati e senza indicazione della partizione; un generatore per processo API, con generatorId assegnato a ogni avvio.
 tags: [badspace, design, partitioning, ids]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T08:29:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T10:22:27Z }
 ---
 
 # Decisione
@@ -41,7 +41,10 @@ offrirla in futuro come aiuto opzionale.
 Un generatore produce al massimo 4096 ID al millisecondo, cioè
 4.096.000 al secondo.
 
-L'**epoca** e la **divisione dei bit** si fissano una volta per tutte
+L'**epoca** è il **2026-01-01T00:00:00Z**: il campo timestamp copre
+quindi fino al 2095 circa.
+
+L'epoca e la **divisione dei bit** si fissano una volta per tutte
 come costanti: gli ID vivono a lungo nei riferimenti del software, e
 cambiarle dopo può far coincidere ID nuovi con ID vecchi. La divisione
 dei bit resta da confermare (vedi [Punti aperti](#punti-aperti)).

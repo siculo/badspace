@@ -56,7 +56,7 @@
 <a id="fare-basi"></a>
 ### Basi [↑](#blocchi)
 
-- [ ] Generatore di ID in stile Snowflake a 64 bit
+- [x] Generatore di ID in stile Snowflake a 64 bit
 - [ ] Rimozione dinamica delle partizioni
 
 <a id="fare-indice"></a>

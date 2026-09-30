@@ -6,14 +6,20 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * A 3-dimensional space: it is the database and the entry point of the common API.
- * It generates entity IDs and partition IDs, unique within the space.
+ * It generates partition IDs, unique within the space. Entity IDs come from
+ * a generator shared by all the spaces of the process, so they are unique across spaces.
  * Its partitions can live on different nodes.
  */
 public final class Space3 implements Space<PartitionNode3, Partition3> {
 
     // Partitions may have writers on different threads, and they share these generators.
-    private final AtomicLong nextEntityId = new AtomicLong(1);
+    private final SnowflakeIdGenerator entityIds;
     private final AtomicLong nextPartitionId = new AtomicLong(1);
+
+    /** Creates a space. All the spaces of a process must share the same entity ID generator. */
+    public Space3(SnowflakeIdGenerator entityIds) {
+        this.entityIds = entityIds;
+    }
 
     @Override
     public Partition3 createPartition(PartitionNode3 node) {
@@ -23,6 +29,6 @@ public final class Space3 implements Space<PartitionNode3, Partition3> {
     }
 
     long nextEntityId() {
-        return nextEntityId.getAndIncrement();
+        return entityIds.nextId();
     }
 }

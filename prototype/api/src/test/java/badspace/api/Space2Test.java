@@ -71,9 +71,16 @@ class Space2Test {
         }
     }
 
+    // Short drift limit, so the constructor waits only a little
+    private static final SnowflakeIdGenerator IDS = new SnowflakeIdGenerator(0, 10);
+
+    private static Space2 newSpace() {
+        return new Space2(IDS);
+    }
+
     @Test
     void partitionsOnDifferentNodesGetDifferentIds() {
-        Space2 space = new Space2();
+        Space2 space = newSpace();
         MapNode nodeA = new MapNode();
         MapNode nodeB = new MapNode();
         space.createPartition(nodeA);
@@ -83,7 +90,7 @@ class Space2Test {
 
     @Test
     void insertGoesToTheNodeOfThePartition() {
-        Space2 space = new Space2();
+        Space2 space = newSpace();
         MapNode nodeA = new MapNode();
         MapNode nodeB = new MapNode();
         Partition2 pa = space.createPartition(nodeA);
@@ -97,7 +104,7 @@ class Space2Test {
     @Test
     void insertAllMakesOneCallAndReturnsIdsInOrder() {
         MapNode node = new MapNode();
-        Partition2 p = new Space2().createPartition(node);
+        Partition2 p = newSpace().createPartition(node);
         List<Point2> positions = List.of(new Point2(1, 1), new Point2(2, 2), new Point2(3, 3));
         long[] ids = p.insertAll(positions);
         assertEquals(1, node.calls);
@@ -108,7 +115,7 @@ class Space2Test {
 
     @Test
     void getUpdateAndRemoveUseTheEntityId() {
-        Partition2 p = new Space2().createPartition(new MapNode());
+        Partition2 p = newSpace().createPartition(new MapNode());
         long[] ids = p.insertAll(List.of(new Point2(1, 1), new Point2(2, 2)));
         assertEquals(Optional.of(new Point2(1, 1)), p.get(ids[0]));
 
@@ -125,7 +132,7 @@ class Space2Test {
 
     @Test
     void entityIdsAreUniqueAcrossPartitions() {
-        Space2 space = new Space2();
+        Space2 space = newSpace();
         Partition2 p1 = space.createPartition(new MapNode());
         Partition2 p2 = space.createPartition(new MapNode());
         Set<Long> ids = new HashSet<>();
