@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-30
+* **Edit**: Documentato l'orientamento alla gestione centralizzata — nuovo principio "Istanze dentro un sistema" nell'[Architettura minima](/architecture/minimal-core.md): le istanze non sono autonome, il livello base offre meccanismi e le decisioni sul ciclo di vita sono prese più in alto; richiamato in [Architettura a livelli](/architecture/layers.md) e nell'assegnazione del generatorId in [ID delle entità](/decisions/entity-ids.md).
 * **Update**: Aggiornato [ID delle entità](/decisions/entity-ids.md) — nuova sezione "Generatore": formato 1/41/10/12 con epoca e divisione dei bit fissate come costanti, un generatore per processo API condiviso dagli spazi, tempo logico con prestito dei millisecondi e limite di anticipo (`nextId()` sincrona), generatorId assegnato a ogni avvio con riuso dopo un periodo di attesa e lease nel cluster, forma semplificata nel prototipo; resta aperta la divisione dei bit.
 
 ## 2026-09-29

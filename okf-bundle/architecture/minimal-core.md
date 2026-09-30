@@ -1,10 +1,10 @@
 ---
 type: Reference
 title: Architettura minima del layer delle partizioni
-description: Le cinque primitive minime del layer delle partizioni e come i meccanismi (migrazione, letture coerenti, aggregazione, ribilanciamento) si costruiscono sopra di esse.
+description: Le cinque primitive minime del layer delle partizioni, i principi che le reggono e come i meccanismi (migrazione, letture coerenti, aggregazione, ribilanciamento) si costruiscono sopra di esse.
 tags: [badspace, architecture, partitioning]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T08:29:03Z }
 ---
 
 # Obiettivo
@@ -28,7 +28,7 @@ transazione.
 
 # Principi
 
-Tre principi reggono l'insieme:
+Quattro principi reggono l'insieme:
 
 - **Nucleo minimo.** Nel layer delle partizioni va solo ciò che non si
   può costruire sopra senza rompere le garanzie; il resto è un
@@ -39,6 +39,14 @@ Tre principi reggono l'insieme:
 - **Paga solo chi usa.** I meccanismi costosi, come la
   [conservazione delle versioni](/architecture/version-retention.md), si
   attivano partizione per partizione.
+- **Istanze dentro un sistema.** Partizioni, nodi e istanze dell'API
+  non sono entità autonome: nascono e muoiono perché un livello più
+  alto decide quali e quante ne servono. Il livello base offre
+  meccanismi; le decisioni (quante istanze, dove, con quali
+  identificativi, quando crearle o rimuoverle) sono prese più in alto.
+  I meccanismi restano corretti anche se quelle decisioni arrivano in
+  ritardo, come fa il [fencing token](/architecture/partition-ownership.md)
+  con un writer non più proprietario.
 
 # Primitive del livello base
 

@@ -1,7 +1,7 @@
 # Architettura
 
 * [Architettura a livelli](./layers.md) - i tre livelli di BADSPACE partizionato e chi decide cosa.
-* [Architettura minima del layer delle partizioni](./minimal-core.md) - le cinque primitive minime e i meccanismi costruiti sopra di esse.
+* [Architettura minima del layer delle partizioni](./minimal-core.md) - le cinque primitive minime, i principi che le reggono e i meccanismi costruiti sopra di esse.
 
 # Primitive del livello base
 

@@ -4,7 +4,7 @@ title: Architettura a livelli
 description: I tre livelli di BADSPACE partizionato — software, API comune di supporto, layer delle partizioni ospitato dai nodi — chi decide cosa e dove passa il futuro confine di rete.
 tags: [badspace, architecture, partitioning, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T10:47:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T08:29:03Z }
 ---
 
 # Livelli
@@ -37,6 +37,11 @@ migrazione devono vedere più partizioni, quindi stanno sopra.
 | Software | strategia di partizionamento, nodo su cui creare ogni partizione, mappa ID → partizione, quando migrare un'entità, quali partizioni interrogare |
 | API comune | generazione degli [ID](/decisions/entity-ids.md) di entità e partizioni, [aggregazione](/mechanisms/query-aggregation.md), creazione e configurazione delle partizioni (incluso l'indice), meccanismi come la [migrazione](/mechanisms/entity-migration.md) e le [letture coerenti](/mechanisms/consistent-reads.md) |
 | Layer delle partizioni | le primitive dell'[architettura minima](/architecture/minimal-core.md), offerte dai nodi |
+
+Le decisioni sul ciclo di vita delle istanze (quali e quante
+partizioni, nodi e istanze dell'API) stanno sopra i meccanismi che le
+realizzano: vedi il principio "Istanze dentro un sistema"
+nell'[architettura minima](/architecture/minimal-core.md#principi).
 
 Le partizioni sono **esplicite**: una scrittura indica la partizione di
 destinazione, una query l'insieme di partizioni da interrogare.

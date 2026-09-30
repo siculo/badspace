@@ -4,7 +4,7 @@ title: ID delle entità
 description: Gli ID delle entità sono univoci su tutte le partizioni, generati dall'API comune in stile Snowflake a 64 bit, mai riusati e senza indicazione della partizione; un generatore per processo API, con generatorId assegnato a ogni avvio.
 tags: [badspace, design, partitioning, ids]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T08:14:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T08:29:03Z }
 ---
 
 # Decisione
@@ -72,9 +72,12 @@ blocca mai**.
 ## Assegnazione del generatorId
 
 Il `generatorId` arriva **dall'esterno** del generatore, e ogni istanza
-ne riceve **uno nuovo a ogni avvio**. Lo assegna un componente con
-**stato persistente**, che sa quali `generatorId` sono in uso e quando
-sono stati rilasciati.
+ne riceve **uno nuovo a ogni avvio**. Lo assegna il **livello che
+gestisce le istanze**, con uno stato persistente che dice quali
+`generatorId` sono in uso e quando sono stati rilasciati. Il generatore
+offre il meccanismo; l'assegnazione è una decisione presa più in alto
+(vedi il principio "Istanze dentro un sistema"
+nell'[architettura minima](/architecture/minimal-core.md#principi)).
 
 - Un `generatorId` rilasciato si riusa solo dopo un **periodo di
   attesa** almeno pari al limite di anticipo: così il nuovo proprietario
