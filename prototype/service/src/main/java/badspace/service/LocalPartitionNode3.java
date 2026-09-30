@@ -21,6 +21,22 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
+    public void removePartition(PartitionId partition) {
+        // find() fails if the partition is unknown. Check and removal are two steps,
+        // but only the writer of the partition changes it.
+        if (find(partition).size() > 0) {
+            throw new IllegalStateException("Partition is not empty: " + partition);
+        }
+        partitions.remove(partition);
+    }
+
+    @Override
+    public void dropPartition(PartitionId partition) {
+        find(partition);
+        partitions.remove(partition);
+    }
+
+    @Override
     public void insertAll(PartitionId partition, List<Entity3> entities) {
         find(partition).insertAll(entities);
     }

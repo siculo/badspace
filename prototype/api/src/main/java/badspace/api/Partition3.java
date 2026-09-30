@@ -12,17 +12,41 @@ import java.util.Optional;
  * Proxy of a 3D partition that lives on a node. It has a single writer and is not thread-safe.
  * Single-entity operations are batches of one entity: to write many entities,
  * the batch operations make fewer calls to the node.
+ * After the space removes the partition, every operation fails with IllegalStateException.
  */
 public final class Partition3 implements Partition {
 
     private final Space3 space;
     private final PartitionNode3 node;
     private final PartitionId id;
+    private final RemovalPolicy removalPolicy;
+    private boolean removed;
 
-    Partition3(Space3 space, PartitionNode3 node, PartitionId id) {
+    Partition3(Space3 space, PartitionNode3 node, PartitionId id, RemovalPolicy removalPolicy) {
         this.space = space;
         this.node = node;
         this.id = id;
+        this.removalPolicy = removalPolicy;
+    }
+
+    Space3 space() {
+        return space;
+    }
+
+    /** Removes the partition from its node, following its removal policy. */
+    void removeFromNode() {
+        checkNotRemoved();
+        switch (removalPolicy) {
+            case REQUIRE_EMPTY -> node.removePartition(id);
+            case DISCARD_ENTITIES -> node.dropPartition(id);
+        }
+        removed = true;
+    }
+
+    private void checkNotRemoved() {
+        if (removed) {
+            throw new IllegalStateException("Partition was removed: " + id);
+        }
     }
 
     /** Adds a new entity and returns its ID. */
@@ -37,6 +61,7 @@ public final class Partition3 implements Partition {
 
     /** Adds many entities in one call and returns their IDs, in the same order as the positions. */
     public long[] insertAll(List<Point3> positions) {
+        checkNotRemoved();
         long[] entityIds = new long[positions.size()];
         List<Entity3> entities = new ArrayList<>(positions.size());
         for (int i = 0; i < entityIds.length; i++) {
@@ -49,6 +74,7 @@ public final class Partition3 implements Partition {
 
     /** Returns the position of an entity, or empty if the ID is not in the partition. */
     public Optional<Point3> get(long entityId) {
+        checkNotRemoved();
         List<Entity3> found = node.getAll(id, new long[] {entityId});
         return found.stream().findFirst().map(Entity3::position);
     }
@@ -58,6 +84,7 @@ public final class Partition3 implements Partition {
      * IDs that are not in the partition are skipped.
      */
     public List<Entity3> getAll(long[] entityIds) {
+        checkNotRemoved();
         return node.getAll(id, entityIds);
     }
 
@@ -71,6 +98,7 @@ public final class Partition3 implements Partition {
      * in the partition; in this case no entity moves.
      */
     public void updateAll(List<Entity3> entities) {
+        checkNotRemoved();
         node.updateAll(id, entities);
     }
 
@@ -81,11 +109,18 @@ public final class Partition3 implements Partition {
 
     @Override
     public void removeAll(long[] entityIds) {
+        checkNotRemoved();
         node.removeAll(id, entityIds);
     }
 
     @Override
+    public RemovalPolicy removalPolicy() {
+        return removalPolicy;
+    }
+
+    @Override
     public int size() {
+        checkNotRemoved();
         return node.size(id);
     }
 }

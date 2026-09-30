@@ -57,7 +57,7 @@
 ### Basi [↑](#blocchi)
 
 - [x] Generatore di ID in stile Snowflake a 64 bit
-- [ ] Rimozione dinamica delle partizioni
+- [x] Rimozione dinamica delle partizioni (politica di rimozione scelta alla creazione)
 
 <a id="fare-indice"></a>
 ### Indice e query [↑](#blocchi)
@@ -164,6 +164,7 @@
 
 - [ ] Struttura dell'indice spaziale (grid, quadtree/octree, R-tree)
 - [ ] Più di un indice per partizione
+- [ ] Gruppi di partizioni con configurazione condivisa (indice, k, politica di rimozione), distinti dagli insiemi di partizioni da interrogare
 - [ ] Forma delle chiamate per le query su più partizioni
 
 <a id="decisioni-metadati"></a>

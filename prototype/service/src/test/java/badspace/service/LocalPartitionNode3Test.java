@@ -107,6 +107,34 @@ class LocalPartitionNode3Test {
     }
 
     @Test
+    void removedPartitionIsGoneAndItsIdCanBeUsedAgain() {
+        node.removePartition(P1);
+        assertThrows(IllegalArgumentException.class, () -> node.size(P1));
+        node.createPartition(P1);
+        assertEquals(0, node.size(P1));
+    }
+
+    @Test
+    void removeRejectsNonEmptyPartitionAndChangesNothing() {
+        node.insertAll(P1, List.of(new Entity3(1, new Point3(1, 1, 1))));
+        assertThrows(IllegalStateException.class, () -> node.removePartition(P1));
+        assertEquals(1, node.size(P1));
+    }
+
+    @Test
+    void dropRemovesPartitionWithItsEntities() {
+        node.insertAll(P1, List.of(new Entity3(1, new Point3(1, 1, 1))));
+        node.dropPartition(P1);
+        assertThrows(IllegalArgumentException.class, () -> node.size(P1));
+    }
+
+    @Test
+    void removeAndDropRejectUnknownPartition() {
+        assertThrows(IllegalArgumentException.class, () -> node.removePartition(P2));
+        assertThrows(IllegalArgumentException.class, () -> node.dropPartition(P2));
+    }
+
+    @Test
     void rejectsDuplicatePartition() {
         assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1));
     }

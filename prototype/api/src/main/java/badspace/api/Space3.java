@@ -2,6 +2,7 @@ package badspace.api;
 
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode3;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -22,10 +23,19 @@ public final class Space3 implements Space<PartitionNode3, Partition3> {
     }
 
     @Override
-    public Partition3 createPartition(PartitionNode3 node) {
+    public Partition3 createPartition(PartitionNode3 node, RemovalPolicy removalPolicy) {
+        Objects.requireNonNull(removalPolicy);
         PartitionId id = new PartitionId(nextPartitionId.getAndIncrement());
         node.createPartition(id);
-        return new Partition3(this, node, id);
+        return new Partition3(this, node, id, removalPolicy);
+    }
+
+    @Override
+    public void removePartition(Partition3 partition) {
+        if (partition.space() != this) {
+            throw new IllegalArgumentException("Partition belongs to another space");
+        }
+        partition.removeFromNode();
     }
 
     long nextEntityId() {

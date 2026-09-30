@@ -3,6 +3,7 @@ package badspace.client;
 import badspace.api.Partition;
 import badspace.api.Partition2;
 import badspace.api.Partition3;
+import badspace.api.RemovalPolicy;
 import badspace.api.SnowflakeIdGenerator;
 import badspace.api.Space2;
 import badspace.api.Space3;
@@ -16,7 +17,7 @@ import java.util.List;
 /**
  * Test client: creates a 2D and a 3D space with partitions on local nodes,
  * sharing one entity ID generator,
- * then inserts, reads, updates and removes entities.
+ * then inserts, reads, updates and removes entities, and at last removes partitions.
  */
 public class Main {
 
@@ -39,7 +40,7 @@ public class Main {
         System.out.printf("2D: after the batch, node A has %s%n", p2a.getAll(new long[] {a, ids[0], ids[1], ids[2]}));
 
         Space3 space3 = new Space3(entityIds);
-        Partition3 p3 = space3.createPartition(new LocalPartitionNode3());
+        Partition3 p3 = space3.createPartition(new LocalPartitionNode3(), RemovalPolicy.DISCARD_ENTITIES);
         long c = p3.insert(1.0, 2.0, 3.0);
         p3.update(c, new Point3(4.0, 5.0, 6.0));
         System.out.printf("3D: entity %d is at %s%n", c, p3.get(c).orElseThrow());
@@ -51,5 +52,11 @@ public class Main {
             total += p.size();
         }
         System.out.printf("%d partitions, %d entities%n", partitions.size(), total);
+
+        // Removal follows the policy chosen at creation: p2b must be empty, p3 discards its entities
+        p2b.remove(b);
+        space2.removePartition(p2b);
+        space3.removePartition(p3);
+        System.out.println("Removed the emptied 2D partition and the 3D partition with its entities");
     }
 }

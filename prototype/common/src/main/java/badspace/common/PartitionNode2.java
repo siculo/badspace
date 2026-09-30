@@ -15,6 +15,15 @@ public interface PartitionNode2 {
     void createPartition(PartitionId partition);
 
     /**
+     * Removes an empty partition. Fails with IllegalArgumentException if the ID is unknown,
+     * and with IllegalStateException if the partition still has entities.
+     */
+    void removePartition(PartitionId partition);
+
+    /** Removes a partition together with its entities. Fails with IllegalArgumentException if the ID is unknown. */
+    void dropPartition(PartitionId partition);
+
+    /**
      * Adds new entities to a partition. The API generates the entity IDs, which must
      * not be used anywhere else. Fails with IllegalArgumentException if an ID is
      * already in the partition or appears twice in the list.

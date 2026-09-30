@@ -2,6 +2,7 @@ package badspace.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.common.Entity3;
 import badspace.common.PartitionId;
@@ -18,7 +19,10 @@ import org.junit.jupiter.api.Test;
 
 class Space3Test {
 
-    /** A simple node that keeps the entities of each partition in a map. It does not check the input. */
+    /**
+     * A simple node that keeps the entities of each partition in a map. It does not check the input,
+     * except that a removed partition must be empty.
+     */
     private static final class MapNode implements PartitionNode3 {
         final Map<PartitionId, Map<Long, Point3>> partitions = new HashMap<>();
         int calls;
@@ -26,6 +30,19 @@ class Space3Test {
         @Override
         public void createPartition(PartitionId partition) {
             partitions.put(partition, new HashMap<>());
+        }
+
+        @Override
+        public void removePartition(PartitionId partition) {
+            if (!partitions.get(partition).isEmpty()) {
+                throw new IllegalStateException("Partition is not empty");
+            }
+            partitions.remove(partition);
+        }
+
+        @Override
+        public void dropPartition(PartitionId partition) {
+            partitions.remove(partition);
         }
 
         @Override
@@ -128,6 +145,60 @@ class Space3Test {
         assertEquals(Optional.empty(), p.get(ids[0]));
         p.removeAll(new long[] {ids[1]});
         assertEquals(0, p.size());
+    }
+
+    @Test
+    void defaultRemovalPolicyRequiresEmptyPartition() {
+        Partition3 p = newSpace().createPartition(new MapNode());
+        assertEquals(RemovalPolicy.REQUIRE_EMPTY, p.removalPolicy());
+    }
+
+    @Test
+    void removeTakesThePartitionOffItsNode() {
+        Space3 space = newSpace();
+        MapNode node = new MapNode();
+        Partition3 empty = space.createPartition(node, RemovalPolicy.REQUIRE_EMPTY);
+        Partition3 full = space.createPartition(node, RemovalPolicy.DISCARD_ENTITIES);
+        full.insert(new Point3(1, 1, 1));
+        space.removePartition(empty);
+        space.removePartition(full);
+        assertEquals(Map.of(), node.partitions);
+    }
+
+    @Test
+    void removeOfNonEmptyPartitionThatRequiresEmptyKeepsItUsable() {
+        Space3 space = newSpace();
+        Partition3 p = space.createPartition(new MapNode(), RemovalPolicy.REQUIRE_EMPTY);
+        long id = p.insert(new Point3(1, 1, 1));
+        assertThrows(IllegalStateException.class, () -> space.removePartition(p));
+        p.remove(id);
+        space.removePartition(p);
+    }
+
+    @Test
+    void removedPartitionCannotBeUsed() {
+        Space3 space = newSpace();
+        MapNode node = new MapNode();
+        Partition3 p = space.createPartition(node);
+        space.removePartition(p);
+        node.calls = 0;
+        assertThrows(IllegalStateException.class, () -> p.insert(new Point3(1, 1, 1)));
+        assertThrows(IllegalStateException.class, () -> p.get(1));
+        assertThrows(IllegalStateException.class, () -> p.getAll(new long[] {1}));
+        assertThrows(IllegalStateException.class, () -> p.update(1, new Point3(1, 1, 1)));
+        assertThrows(IllegalStateException.class, () -> p.remove(1));
+        assertThrows(IllegalStateException.class, p::size);
+        assertThrows(IllegalStateException.class, () -> space.removePartition(p));
+        assertEquals(0, node.calls);
+    }
+
+    @Test
+    void rejectsPartitionOfAnotherSpace() {
+        MapNode node = new MapNode();
+        Partition3 p = newSpace().createPartition(node);
+        Space3 other = newSpace();
+        assertThrows(IllegalArgumentException.class, () -> other.removePartition(p));
+        assertEquals(1, node.partitions.size());
     }
 
     @Test
