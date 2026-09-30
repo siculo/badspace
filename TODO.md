@@ -3,7 +3,7 @@
 <a id="blocchi"></a>
 ## Cose da fare, in blocchi
 
-- [ ] **Basi:** ID Snowflake e rimozione delle partizioni. → [cose da fare](#fare-basi) · [decisioni](#decisioni-basi)
+- [x] **Basi:** ID Snowflake e rimozione delle partizioni. → [cose da fare](#fare-basi)
 
   Documenti: [ID delle entità](okf-bundle/decisions/entity-ids.md), [Partizionamento del DB](okf-bundle/decisions/partitioning.md), [Architettura a livelli](okf-bundle/architecture/layers.md).
 
@@ -154,11 +154,6 @@
 - [x] GC delle tombstone su conferma, non a TTL
 - [x] Ribilanciamento e split tramite trasferimento dell'esclusività
 
-<a id="decisioni-basi"></a>
-### Basi [↑](#blocchi)
-
-- [ ] Divisione dei bit dell'ID (41/10/12 o 41/12/10)
-
 <a id="decisioni-indice"></a>
 ### Indice e query [↑](#blocchi)
 
@@ -200,4 +195,5 @@
 - [ ] Unità di misura (fissa o scelta dal software)
 - [ ] Determinismo dei calcoli tra macchine diverse
 - [ ] Tipo delle coordinate nell'implementazione finale
+- [ ] Divisione dei bit dell'ID (41/10/12 o 41/12/10): si può cambiare anche più avanti, purché il timestamp resti negli stessi bit
 - [ ] Linguaggio dell'implementazione finale (C11, C++, Rust)

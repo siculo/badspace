@@ -4,7 +4,7 @@ title: ID delle entità
 description: Gli ID delle entità sono univoci su tutte le partizioni, generati dall'API comune in stile Snowflake a 64 bit, mai riusati e senza indicazione della partizione; un generatore per processo API, con generatorId assegnato a ogni avvio.
 tags: [badspace, design, partitioning, ids]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T10:22:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:24:18Z }
 ---
 
 # Decisione
@@ -44,10 +44,18 @@ Un generatore produce al massimo 4096 ID al millisecondo, cioè
 L'**epoca** è il **2026-01-01T00:00:00Z**: il campo timestamp copre
 quindi fino al 2095 circa.
 
-L'epoca e la **divisione dei bit** si fissano una volta per tutte
-come costanti: gli ID vivono a lungo nei riferimenti del software, e
-cambiarle dopo può far coincidere ID nuovi con ID vecchi. La divisione
-dei bit resta da confermare (vedi [Punti aperti](#punti-aperti)).
+L'**epoca** e la **posizione del timestamp** (i 41 bit alti) si
+fissano una volta per tutte come costanti: gli ID vivono a lungo nei
+riferimenti del software, e cambiarle dopo può far coincidere ID nuovi
+con ID vecchi.
+
+La **divisione dei bit bassi** tra `generatorId` e sequenza si può
+invece cambiare anche più avanti, per esempio da 41/10/12 a 41/12/10.
+Gli ID generati dopo il cambio hanno un timestamp maggiore di tutti
+quelli vecchi e quindi non coincidono con nessuno di loro, purché il
+timestamp resti negli stessi bit e il tempo del generatore non torni
+indietro al momento del cambio. La scelta è rimandata (vedi [Punti
+aperti](#punti-aperti)).
 
 ## Un generatore per processo
 
@@ -113,8 +121,13 @@ fidano degli ID ricevuti, di entità e di partizioni.
 
 # Punti aperti
 
-- Divisione dei bit tra i campi dell'ID. L'alternativa principale è
-  41/12/10: 4096 generatori e 1.024.000 ID al secondo per generatore.
+- Divisione dei bit tra `generatorId` e sequenza. L'alternativa
+  principale è 41/12/10: 4096 generatori e 1.024.000 ID al secondo
+  per generatore. La decisione è rimandata alla fase di chiusura
+  (implementazione finale e forma a cluster), perché dipende dal
+  numero di processi API e dagli ID al secondo richiesti a ogni
+  generatore; cambiarla dopo non crea collisioni (vedi [Formato
+  dell'ID](#formato-dellid)).
 - Nodi condivisi tra spazi: gli ID delle partizioni, oggi univoci solo
   nello spazio, andrebbero resi globali, per esempio con lo stesso
   schema Snowflake.
