@@ -135,6 +135,7 @@
 - [x] Confine di rete tra API e nodi
 - [x] Un nodo serve un solo spazio
 - [x] Schema degli ID delle entità (Snowflake, mai riusati, senza partizione)
+- [x] Generatore di ID (uno per processo, tempo logico, generatorId assegnato a ogni avvio)
 - [x] Generazione degli ID di partizione nell'API
 - [x] Mappa ID → partizione a carico del software
 - [x] Supporto a 2D e 3D con implementazioni parallele
@@ -156,7 +157,7 @@
 <a id="decisioni-basi"></a>
 ### Basi [↑](#blocchi)
 
-- [ ] Assegnazione degli identificativi dei generatori Snowflake
+- [ ] Divisione dei bit dell'ID (41/10/12 o 41/12/10)
 
 <a id="decisioni-indice"></a>
 ### Indice e query [↑](#blocchi)

@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-30
+* **Update**: Aggiornato [ID delle entità](/decisions/entity-ids.md) — nuova sezione "Generatore": formato 1/41/10/12 con epoca e divisione dei bit fissate come costanti, un generatore per processo API condiviso dagli spazi, tempo logico con prestito dei millisecondi e limite di anticipo (`nextId()` sincrona), generatorId assegnato a ogni avvio con riuso dopo un periodo di attesa e lease nel cluster, forma semplificata nel prototipo; resta aperta la divisione dei bit.
+
 ## 2026-09-29
 * **Edit**: Aggiornata l'[API da esporre](/decisions/api-surface.md) — nuova sezione "Forma delle chiamate nel prototipo": record `Point2`/`Point3` ed `Entity2`/`Entity3`, operazioni di inserimento, lettura per ID, aggiornamento e rimozione su una o più entità, contratto del nodo solo batch, scritture tutto-o-niente; aggiornato di conseguenza il [Tipo delle coordinate](/decisions/coordinate-type.md).
 * **Update**: Aggiornata l'[Architettura a livelli](/architecture/layers.md) — nuova sezione "Nodi": le partizioni sono ospitate da nodi locali o remoti scelti dal software; il futuro confine gRPC passa tra l'API e i nodi.
