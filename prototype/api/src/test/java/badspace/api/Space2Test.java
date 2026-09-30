@@ -4,11 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import badspace.common.Box2;
+import badspace.common.Circle2;
 import badspace.common.Entity2;
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode2;
 import badspace.common.Point2;
+import badspace.common.Region2;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -76,6 +80,29 @@ class Space2Test {
             for (long id : entityIds) {
                 partitions.get(partition).remove(id);
             }
+        }
+
+        @Override
+        public List<Entity2> findInRegion(PartitionId partition, Region2 region) {
+            calls++;
+            return partitions.get(partition).entrySet().stream()
+                    .filter(e -> region.contains(e.getValue()))
+                    .map(e -> new Entity2(e.getKey(), e.getValue()))
+                    .toList();
+        }
+
+        @Override
+        public List<Entity2> findNearest(PartitionId partition, Point2 point, int count) {
+            calls++;
+            return partitions.get(partition).entrySet().stream()
+                    .sorted(Comparator.comparingDouble((Map.Entry<Long, Point2> e) -> {
+                        double dx = e.getValue().x() - point.x();
+                        double dy = e.getValue().y() - point.y();
+                        return dx * dx + dy * dy;
+                    }).thenComparing(Map.Entry::getKey))
+                    .limit(count)
+                    .map(e -> new Entity2(e.getKey(), e.getValue()))
+                    .toList();
         }
 
         @Override
@@ -148,6 +175,19 @@ class Space2Test {
     }
 
     @Test
+    void queriesGoToTheNodeOfThePartition() {
+        MapNode node = new MapNode();
+        Partition2 p = newSpace().createPartition(node);
+        long[] ids = p.insertAll(List.of(new Point2(1, 1), new Point2(5, 5), new Point2(9, 9)));
+        node.calls = 0;
+        assertEquals(List.of(new Entity2(ids[1], new Point2(5, 5))),
+                p.findInRegion(new Box2(new Point2(4, 4), new Point2(6, 6))));
+        assertEquals(List.of(new Entity2(ids[2], new Point2(9, 9)), new Entity2(ids[1], new Point2(5, 5))),
+                p.findNearest(new Point2(10, 10), 2));
+        assertEquals(2, node.calls);
+    }
+
+    @Test
     void defaultRemovalPolicyRequiresEmptyPartition() {
         Partition2 p = newSpace().createPartition(new MapNode());
         assertEquals(RemovalPolicy.REQUIRE_EMPTY, p.removalPolicy());
@@ -188,6 +228,8 @@ class Space2Test {
         assertThrows(IllegalStateException.class, () -> p.update(1, new Point2(1, 1)));
         assertThrows(IllegalStateException.class, () -> p.remove(1));
         assertThrows(IllegalStateException.class, p::size);
+        assertThrows(IllegalStateException.class, () -> p.findInRegion(new Circle2(new Point2(0, 0), 1)));
+        assertThrows(IllegalStateException.class, () -> p.findNearest(new Point2(0, 0), 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(p));
         assertEquals(0, node.calls);
     }

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-30
+* **Update**: Aggiornato [API da esporre](/decisions/api-surface.md) — forma delle query di range (`findInRegion` con regioni box e cerchio/sfera dietro un'interfaccia `sealed`, bordo incluso) e k-nearest (`findNearest`, ordine per distanza e poi per ID) su una partizione, con scansione lineare nel prototipo; raycast rimandato.
 * **Edit**: Corretto [ID delle entità](/decisions/entity-ids.md) — solo l'epoca e la posizione del timestamp si fissano una volta per tutte; la divisione dei bit tra `generatorId` e sequenza si può cambiare anche più avanti senza collisioni, e la decisione è rimandata alla fase di chiusura.
 * **Edit**: Aggiunta l'epoca degli ID (2026-01-01T00:00:00Z) in [ID delle entità](/decisions/entity-ids.md), come nel generatore del prototipo.
 * **Edit**: Documentato l'orientamento alla gestione centralizzata — nuovo principio "Istanze dentro un sistema" nell'[Architettura minima](/architecture/minimal-core.md): le istanze non sono autonome, il livello base offre meccanismi e le decisioni sul ciclo di vita sono prese più in alto; richiamato in [Architettura a livelli](/architecture/layers.md) e nell'assegnazione del generatorId in [ID delle entità](/decisions/entity-ids.md).

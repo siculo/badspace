@@ -4,6 +4,7 @@ import badspace.common.Entity2;
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode2;
 import badspace.common.Point2;
+import badspace.common.Region2;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -100,6 +101,24 @@ public final class Partition2 implements Partition {
     public void updateAll(List<Entity2> entities) {
         checkNotRemoved();
         node.updateAll(id, entities);
+    }
+
+    /**
+     * Returns the entities that are inside the region or on its border.
+     * The order of the result is not defined.
+     */
+    public List<Entity2> findInRegion(Region2 region) {
+        checkNotRemoved();
+        return node.findInRegion(id, region);
+    }
+
+    /**
+     * Returns the entities nearest to a point, at most count of them, sorted by distance
+     * from the point and then by ID. Fails with IllegalArgumentException if count is negative.
+     */
+    public List<Entity2> findNearest(Point2 point, int count) {
+        checkNotRemoved();
+        return node.findNearest(id, point, count);
     }
 
     @Override

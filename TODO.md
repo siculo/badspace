@@ -7,7 +7,7 @@
 
   Documenti: [ID delle entità](okf-bundle/decisions/entity-ids.md), [Partizionamento del DB](okf-bundle/decisions/partitioning.md), [Architettura a livelli](okf-bundle/architecture/layers.md).
 
-- [ ] **Indice e query:** indice minimo, configurazione della partizione, range, k-nearest, raycast e aggregazione. Poi partizioni con indici diversi, il client della strategia mista e i benchmark. → [cose da fare](#fare-indice) · [decisioni](#decisioni-indice)
+- [ ] **Indice e query:** range e k-nearest con scansione lineare, test di correttezza, benchmark e misure di riferimento. Poi indice minimo, configurazione della partizione, aggregazione, partizioni con indici diversi, il client della strategia mista e i benchmark tra indici. Il raycast viene dopo, quando se ne decide la forma. → [cose da fare](#fare-indice) · [decisioni](#decisioni-indice)
 
   Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [Entità statiche vs dinamiche](okf-bundle/decisions/static-vs-dynamic-entities.md), [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md), [API da esporre](okf-bundle/decisions/api-surface.md), [Casi d'uso](okf-bundle/use-cases.md).
 
@@ -62,15 +62,25 @@
 <a id="fare-indice"></a>
 ### Indice e query [↑](#blocchi)
 
+- [x] Contratto delle query nel nodo (range e k-nearest)
+- [ ] Scansione lineare come primo tipo di indice, dietro l'interfaccia comune degli indici
+- [x] Query di range su una partizione, con scansione lineare
+- [x] Query k-nearest su una partizione, con scansione lineare
+- [ ] Test di correttezza degli indici, con la scansione lineare come riferimento
+- [ ] Modulo di benchmark (JMH) a livello di nodo e di API
+- [ ] Generatori di dati riproducibili (seed fisso) con distribuzioni della posizione: uniforme, a cluster, hotspot, corridoi, punti coincidenti
+- [ ] Movimento negli aggiornamenti: spostamenti locali e teletrasporti casuali
+- [ ] Benchmark per operazione (inserimento, aggiornamento, rimozione, lettura per ID, range, k-nearest) al variare di numero di entità, batch e selettività
+- [ ] Carico misto a tick (aggiornamenti e query per tick)
+- [ ] Metriche: throughput, percentili di latenza, memoria per entità, tempo di costruzione
+- [ ] Misure di riferimento con la scansione lineare, salvate nel repo
 - [ ] Indice spaziale minimo per partizione
 - [ ] Configurazione della partizione alla creazione (indice e k)
-- [ ] Query di range
-- [ ] Query k-nearest
-- [ ] Raycast (primo hit e tutti gli hit)
 - [ ] Aggregazione delle query su più partizioni
 - [ ] Più partizioni con indici diversi (statiche e dinamiche)
 - [ ] Client di test per la strategia mista per tipo di entità
 - [ ] Benchmark relativi tra strutture di indice
+- [ ] Raycast (primo hit e tutti gli hit), dopo la decisione sulla sua forma
 
 <a id="fare-commit"></a>
 ### Commit e proprietà [↑](#blocchi)
@@ -153,10 +163,12 @@
 - [x] Protocollo di migrazione (outbox con consumer idempotente)
 - [x] GC delle tombstone su conferma, non a TTL
 - [x] Ribilanciamento e split tramite trasferimento dell'esclusività
+- [x] Forma della query di range (box e cerchio/sfera, dietro un'interfaccia sealed estendibile)
 
 <a id="decisioni-indice"></a>
 ### Indice e query [↑](#blocchi)
 
+- [ ] Raycast su entità puntiformi (raggio di hit, estensione delle entità o altro), in base ai possibili usi
 - [ ] Struttura dell'indice spaziale (grid, quadtree/octree, R-tree)
 - [ ] Più di un indice per partizione
 - [ ] Gruppi di partizioni con configurazione condivisa (indice, k, politica di rimozione), distinti dagli insiemi di partizioni da interrogare

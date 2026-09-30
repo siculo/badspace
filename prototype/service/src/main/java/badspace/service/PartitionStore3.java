@@ -2,13 +2,16 @@ package badspace.service;
 
 import badspace.common.Entity3;
 import badspace.common.Point3;
+import badspace.common.Region3;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.PriorityQueue;
 import java.util.Set;
 
 /**
@@ -19,11 +22,15 @@ import java.util.Set;
  * and the order of the entities can change.
  * Each write first checks all the input, then applies it, so a failed write
  * does not change the partition.
+ * Queries scan all the entities: there is no spatial index yet.
  */
 final class PartitionStore3 {
 
     private static final int DIMENSIONS = 3;
     private static final int INITIAL_CAPACITY = 16;
+
+    private static final Comparator<Candidate> NEAREST_FIRST =
+            Comparator.comparingDouble(Candidate::distanceSquared).thenComparingLong(Candidate::id);
 
     private long[] ids = new long[INITIAL_CAPACITY];
     private double[] coords = new double[INITIAL_CAPACITY * DIMENSIONS];
@@ -79,6 +86,44 @@ final class PartitionStore3 {
         }
     }
 
+    List<Entity3> findInRegion(Region3 region) {
+        List<Entity3> result = new ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            Point3 p = read(i);
+            if (region.contains(p)) {
+                result.add(new Entity3(ids[i], p));
+            }
+        }
+        return result;
+    }
+
+    List<Entity3> findNearest(Point3 point, int count) {
+        if (count < 0) {
+            throw new IllegalArgumentException("Negative count: " + count);
+        }
+        if (count == 0) {
+            return List.of();
+        }
+        // The head of the queue is the farthest of the nearest entities found so far.
+        PriorityQueue<Candidate> nearest = new PriorityQueue<>(NEAREST_FIRST.reversed());
+        for (int i = 0; i < size; i++) {
+            Candidate c = new Candidate(distanceSquared(i, point), ids[i], i);
+            if (nearest.size() < count) {
+                nearest.add(c);
+            } else if (NEAREST_FIRST.compare(c, nearest.peek()) < 0) {
+                nearest.poll();
+                nearest.add(c);
+            }
+        }
+        List<Candidate> sorted = new ArrayList<>(nearest);
+        sorted.sort(NEAREST_FIRST);
+        List<Entity3> result = new ArrayList<>(sorted.size());
+        for (Candidate c : sorted) {
+            result.add(new Entity3(c.id(), read(c.index())));
+        }
+        return result;
+    }
+
     int size() {
         return size;
     }
@@ -100,6 +145,14 @@ final class PartitionStore3 {
             throw new NoSuchElementException("Unknown entity ID: " + id);
         }
         return index;
+    }
+
+    private double distanceSquared(int index, Point3 point) {
+        int base = index * DIMENSIONS;
+        double dx = coords[base] - point.x();
+        double dy = coords[base + 1] - point.y();
+        double dz = coords[base + 2] - point.z();
+        return dx * dx + dy * dy + dz * dz;
     }
 
     private Point3 read(int index) {
@@ -124,5 +177,9 @@ final class PartitionStore3 {
         }
         ids = Arrays.copyOf(ids, capacity);
         coords = Arrays.copyOf(coords, capacity * DIMENSIONS);
+    }
+
+    /** An entity found by findNearest, with its squared distance from the point. */
+    private record Candidate(double distanceSquared, long id, int index) {
     }
 }

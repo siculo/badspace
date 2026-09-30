@@ -48,6 +48,19 @@ public interface PartitionNode3 {
      */
     void removeAll(PartitionId partition, long[] entityIds);
 
+    /**
+     * Returns the entities of a partition that are inside the region or on its border.
+     * The order of the result is not defined.
+     */
+    List<Entity3> findInRegion(PartitionId partition, Region3 region);
+
+    /**
+     * Returns the entities of a partition that are nearest to a point, at most count of them.
+     * The result is sorted by distance from the point; entities at the same distance are
+     * sorted by ID. Fails with IllegalArgumentException if count is negative.
+     */
+    List<Entity3> findNearest(PartitionId partition, Point3 point, int count);
+
     /** Returns the number of entities in a partition. */
     int size(PartitionId partition);
 }

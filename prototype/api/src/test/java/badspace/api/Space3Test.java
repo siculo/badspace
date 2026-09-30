@@ -4,11 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import badspace.common.Box3;
 import badspace.common.Entity3;
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode3;
 import badspace.common.Point3;
+import badspace.common.Region3;
+import badspace.common.Sphere3;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -76,6 +80,30 @@ class Space3Test {
             for (long id : entityIds) {
                 partitions.get(partition).remove(id);
             }
+        }
+
+        @Override
+        public List<Entity3> findInRegion(PartitionId partition, Region3 region) {
+            calls++;
+            return partitions.get(partition).entrySet().stream()
+                    .filter(e -> region.contains(e.getValue()))
+                    .map(e -> new Entity3(e.getKey(), e.getValue()))
+                    .toList();
+        }
+
+        @Override
+        public List<Entity3> findNearest(PartitionId partition, Point3 point, int count) {
+            calls++;
+            return partitions.get(partition).entrySet().stream()
+                    .sorted(Comparator.comparingDouble((Map.Entry<Long, Point3> e) -> {
+                        double dx = e.getValue().x() - point.x();
+                        double dy = e.getValue().y() - point.y();
+                        double dz = e.getValue().z() - point.z();
+                        return dx * dx + dy * dy + dz * dz;
+                    }).thenComparing(Map.Entry::getKey))
+                    .limit(count)
+                    .map(e -> new Entity3(e.getKey(), e.getValue()))
+                    .toList();
         }
 
         @Override
@@ -148,6 +176,19 @@ class Space3Test {
     }
 
     @Test
+    void queriesGoToTheNodeOfThePartition() {
+        MapNode node = new MapNode();
+        Partition3 p = newSpace().createPartition(node);
+        long[] ids = p.insertAll(List.of(new Point3(1, 1, 1), new Point3(5, 5, 5), new Point3(9, 9, 9)));
+        node.calls = 0;
+        assertEquals(List.of(new Entity3(ids[1], new Point3(5, 5, 5))),
+                p.findInRegion(new Box3(new Point3(4, 4, 4), new Point3(6, 6, 6))));
+        assertEquals(List.of(new Entity3(ids[2], new Point3(9, 9, 9)), new Entity3(ids[1], new Point3(5, 5, 5))),
+                p.findNearest(new Point3(10, 10, 10), 2));
+        assertEquals(2, node.calls);
+    }
+
+    @Test
     void defaultRemovalPolicyRequiresEmptyPartition() {
         Partition3 p = newSpace().createPartition(new MapNode());
         assertEquals(RemovalPolicy.REQUIRE_EMPTY, p.removalPolicy());
@@ -188,6 +229,8 @@ class Space3Test {
         assertThrows(IllegalStateException.class, () -> p.update(1, new Point3(1, 1, 1)));
         assertThrows(IllegalStateException.class, () -> p.remove(1));
         assertThrows(IllegalStateException.class, p::size);
+        assertThrows(IllegalStateException.class, () -> p.findInRegion(new Sphere3(new Point3(0, 0, 0), 1)));
+        assertThrows(IllegalStateException.class, () -> p.findNearest(new Point3(0, 0, 0), 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(p));
         assertEquals(0, node.calls);
     }

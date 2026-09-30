@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente) e delle query di range e k-nearest su una partizione, mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T15:21:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T16:25:38Z }
 ---
 
 # Stato
@@ -12,10 +12,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T15:21:01Z }
 Le operazioni di base sono individuate (insert, remove, update
 posizione, query di range, k-nearest, raycasting e le operazioni su
 metadati, partizioni e commit). Il prototipo definisce la forma delle
-operazioni di scrittura e lettura per ID sulle entità (vedi [Forma
-delle chiamate nel prototipo](#forma-delle-chiamate-nel-prototipo)),
-che resta rivalutabile; la forma delle altre operazioni è ancora da
-definire.
+operazioni di scrittura e lettura per ID sulle entità e delle query di
+range e k-nearest su una partizione (vedi [Forma delle chiamate nel
+prototipo](#forma-delle-chiamate-nel-prototipo)), che resta
+rivalutabile; la forma delle altre operazioni, raycast compreso, è
+ancora da definire.
 
 # Operazioni di base dell'API comune
 
@@ -69,8 +70,44 @@ ogni coordinata senza cambiare il resto.
 | Aggiornamento | `update(id, Point)`, `updateAll(List<Entity>)` | Cambia la posizione; se un ID compare più volte vale l'ultima posizione |
 | Rimozione | `remove(id)`, `removeAll(long[])` | Nell'interfaccia comune `Partition`, insieme a `size()` |
 
-`Point`/`Entity` stanno per `Point2`/`Entity2` in `Partition2` e per
-`Point3`/`Entity3` in `Partition3`.
+| Query di range | `findInRegion(Region)` | Restituisce le entità dentro la regione o sul suo bordo, in ordine non definito |
+| Query k-nearest | `findNearest(Point, count)` | Restituisce al più `count` entità, ordinate per distanza dal punto e a parità di distanza per ID |
+
+`Point`/`Entity`/`Region` stanno per `Point2`/`Entity2`/`Region2` in
+`Partition2` e per `Point3`/`Entity3`/`Region3` in `Partition3`.
+
+## Query su una partizione
+
+La **regione** di una query di range è un'interfaccia `sealed` con un
+record per ogni forma: `Box2` e `Circle2` in 2D, `Box3` e `Sphere3` in
+3D. Il box è allineato agli assi e si definisce con l'angolo minimo e
+quello massimo. Servono entrambe le forme: il cerchio/sfera per raggi
+d'azione ed esplosioni, il box per viste, zone rettangolari e confini
+delle partizioni. Un indice le tratta allo stesso modo: prende i
+candidati dal box che contiene la forma e poi applica il test esatto.
+Si possono aggiungere altre forme (capsula, frustum, poligono) senza
+cambiare il contratto del nodo, ma solo le implementazioni.
+
+Scelte di dettaglio:
+
+- **Bordo incluso**: un punto sul bordo è dentro la regione, per tutte
+  le forme.
+- **Ordine del k-nearest**: per distanza e poi per ID, così il
+  risultato è deterministico e si può confrontare tra indici diversi e
+  nell'[aggregazione](/mechanisms/query-aggregation.md).
+- **`count`**: con 0 il risultato è vuoto; un valore negativo è un
+  errore (`IllegalArgumentException`), come un box con il minimo
+  maggiore del massimo o un raggio negativo.
+- **Una query per chiamata**: per ora il contratto del nodo non
+  raccoglie più query in una sola chiamata; la scelta rientra nella
+  forma delle chiamate per le query su più partizioni, ancora aperta.
+
+Nel prototipo le query scandiscono tutte le entità della partizione:
+è la misura di riferimento per i benchmark e il risultato atteso nei
+test degli indici spaziali (vedi [Indicizzazione
+spaziale](/decisions/spatial-indexing.md)). Il raycast non c'è ancora:
+per entità puntiformi la sua forma dipende dagli usi e va decisa a
+parte.
 
 ## Contratto del nodo
 

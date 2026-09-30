@@ -3,6 +3,8 @@ package badspace.service;
 import badspace.common.Entity2;
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode2;
+import badspace.common.Point2;
+import badspace.common.Region2;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -54,6 +56,16 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public void removeAll(PartitionId partition, long[] entityIds) {
         find(partition).removeAll(entityIds);
+    }
+
+    @Override
+    public List<Entity2> findInRegion(PartitionId partition, Region2 region) {
+        return find(partition).findInRegion(region);
+    }
+
+    @Override
+    public List<Entity2> findNearest(PartitionId partition, Point2 point, int count) {
+        return find(partition).findNearest(point, count);
     }
 
     @Override

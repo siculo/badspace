@@ -7,6 +7,8 @@ import badspace.api.RemovalPolicy;
 import badspace.api.SnowflakeIdGenerator;
 import badspace.api.Space2;
 import badspace.api.Space3;
+import badspace.common.Box2;
+import badspace.common.Circle2;
 import badspace.common.Entity2;
 import badspace.common.Point2;
 import badspace.common.Point3;
@@ -17,7 +19,7 @@ import java.util.List;
 /**
  * Test client: creates a 2D and a 3D space with partitions on local nodes,
  * sharing one entity ID generator,
- * then inserts, reads, updates and removes entities, and at last removes partitions.
+ * then inserts, reads, updates, queries and removes entities, and at last removes partitions.
  */
 public class Main {
 
@@ -38,6 +40,13 @@ public class Main {
         p2a.updateAll(List.of(new Entity2(ids[0], new Point2(5, 5)), new Entity2(ids[1], new Point2(6, 6))));
         p2a.removeAll(new long[] {ids[2]});
         System.out.printf("2D: after the batch, node A has %s%n", p2a.getAll(new long[] {a, ids[0], ids[1], ids[2]}));
+
+        // Queries: entities in a region and entities nearest to a point
+        System.out.printf("2D: in the box (4,4)-(7,7): %s%n",
+                p2a.findInRegion(new Box2(new Point2(4, 4), new Point2(7, 7))));
+        System.out.printf("2D: in the circle of radius 1 around (10,3): %s%n",
+                p2a.findInRegion(new Circle2(new Point2(10, 3), 1)));
+        System.out.printf("2D: the 2 nearest to (0,0): %s%n", p2a.findNearest(new Point2(0, 0), 2));
 
         Space3 space3 = new Space3(entityIds);
         Partition3 p3 = space3.createPartition(new LocalPartitionNode3(), RemovalPolicy.DISCARD_ENTITIES);

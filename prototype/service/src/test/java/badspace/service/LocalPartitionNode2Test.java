@@ -3,12 +3,16 @@ package badspace.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import badspace.common.Box2;
+import badspace.common.Circle2;
 import badspace.common.Entity2;
 import badspace.common.PartitionId;
 import badspace.common.Point2;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -104,6 +108,71 @@ class LocalPartitionNode2Test {
         assertThrows(NoSuchElementException.class, () -> node.removeAll(P1, new long[] {1, 99}));
         assertThrows(IllegalArgumentException.class, () -> node.removeAll(P1, new long[] {1, 1}));
         assertEquals(2, node.size(P1));
+    }
+
+    @Test
+    void findInRegionWithBoxIncludesTheBorder() {
+        node.insertAll(P1, List.of(entity(1, 0, 0), entity(2, 2, 2), entity(3, 1, 1), entity(4, 3, 1)));
+        assertEquals(Set.of(entity(1, 0, 0), entity(2, 2, 2), entity(3, 1, 1)),
+                new HashSet<>(node.findInRegion(P1, new Box2(new Point2(0, 0), new Point2(2, 2)))));
+    }
+
+    @Test
+    void findInRegionWithRoundShapeIncludesTheBorder() {
+        node.insertAll(P1, List.of(entity(1, 0, 0), entity(2, 3, 0), entity(3, 0, -3), entity(4, 3, 3)));
+        assertEquals(Set.of(entity(1, 0, 0), entity(2, 3, 0), entity(3, 0, -3)),
+                new HashSet<>(node.findInRegion(P1, new Circle2(new Point2(0, 0), 3))));
+    }
+
+    @Test
+    void findInRegionSeesUpdatesAndRemovals() {
+        node.insertAll(P1, List.of(entity(1, 0, 0), entity(2, 1, 1), entity(3, 9, 9)));
+        node.updateAll(P1, List.of(entity(3, 1, 0)));
+        node.removeAll(P1, new long[] {2});
+        assertEquals(Set.of(entity(1, 0, 0), entity(3, 1, 0)),
+                new HashSet<>(node.findInRegion(P1, new Circle2(new Point2(0, 0), 2))));
+    }
+
+    @Test
+    void findInRegionOfEmptyPartitionIsEmpty() {
+        assertEquals(List.of(), node.findInRegion(P1, new Circle2(new Point2(0, 0), 100)));
+    }
+
+    @Test
+    void findNearestSortsByDistanceThenById() {
+        node.insertAll(P1, List.of(entity(5, 4, 0), entity(4, 0, 1), entity(3, -1, 0), entity(2, 0, -2), entity(1, 10, 10)));
+        assertEquals(List.of(entity(3, -1, 0), entity(4, 0, 1), entity(2, 0, -2)),
+                node.findNearest(P1, new Point2(0, 0), 3));
+    }
+
+    @Test
+    void findNearestReturnsAllEntitiesWhenCountIsLarger() {
+        node.insertAll(P1, List.of(entity(1, 2, 0), entity(2, 1, 0)));
+        assertEquals(List.of(entity(2, 1, 0), entity(1, 2, 0)), node.findNearest(P1, new Point2(0, 0), 10));
+    }
+
+    @Test
+    void findNearestWithZeroCountIsEmptyAndNegativeCountFails() {
+        node.insertAll(P1, List.of(entity(1, 0, 0)));
+        assertEquals(List.of(), node.findNearest(P1, new Point2(0, 0), 0));
+        assertThrows(IllegalArgumentException.class, () -> node.findNearest(P1, new Point2(0, 0), -1));
+    }
+
+    @Test
+    void findNearestKeepsTheNearestAmongManyEntities() {
+        List<Entity2> entities = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            entities.add(entity(i, i, 0));
+        }
+        node.insertAll(P1, entities);
+        assertEquals(List.of(entity(500, 500, 0), entity(499, 499, 0), entity(501, 501, 0)),
+                node.findNearest(P1, new Point2(500, 0), 3));
+    }
+
+    @Test
+    void queriesRejectUnknownPartition() {
+        assertThrows(IllegalArgumentException.class, () -> node.findInRegion(P2, new Circle2(new Point2(0, 0), 1)));
+        assertThrows(IllegalArgumentException.class, () -> node.findNearest(P2, new Point2(0, 0), 1));
     }
 
     @Test
