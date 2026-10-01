@@ -7,7 +7,7 @@
 
   Documenti: [ID delle entità](okf-bundle/decisions/entity-ids.md), [Partizionamento del DB](okf-bundle/decisions/partitioning.md), [Architettura a livelli](okf-bundle/architecture/layers.md).
 
-- [ ] **Indice e query:** range e k-nearest con scansione lineare, test di correttezza, benchmark e misure di riferimento. Poi indice minimo, configurazione della partizione, aggregazione, partizioni con indici diversi, il client della strategia mista e i benchmark tra indici. Il raycast viene dopo, quando se ne decide la forma. → [cose da fare](#fare-indice) · [decisioni](#decisioni-indice)
+- [ ] **Indice e query:** range e k-nearest con scansione lineare, test di correttezza, benchmark e misure di riferimento. Poi indice minimo, configurazione della partizione, aggregazione, partizioni con indici diversi, il client della strategia mista e i benchmark tra indici. → [cose da fare](#fare-indice) · [decisioni](#decisioni-indice)
 
   Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [Entità statiche vs dinamiche](okf-bundle/decisions/static-vs-dynamic-entities.md), [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md), [API da esporre](okf-bundle/decisions/api-surface.md), [Casi d'uso](okf-bundle/use-cases.md).
 
@@ -27,7 +27,7 @@
 
   Documenti: [Conservazione delle versioni](okf-bundle/architecture/version-retention.md), [Letture coerenti su più partizioni](okf-bundle/mechanisms/consistent-reads.md), [Architettura minima del layer delle partizioni](okf-bundle/architecture/minimal-core.md).
 
-- [ ] **Chiusura:** ribilanciamento e split, nodo gRPC e aggiornamento del bundle. → [cose da fare](#fare-chiusura) · [decisioni](#decisioni-chiusura)
+- [ ] **Chiusura:** ribilanciamento e split, nodo gRPC, raycast e aggiornamento del bundle. → [cose da fare](#fare-chiusura) · [decisioni](#decisioni-chiusura)
 
   Documenti: [Ribilanciamento e split](okf-bundle/mechanisms/rebalancing-and-split.md), [Tipo di strumento](okf-bundle/decisions/tool-type.md), [Architettura a livelli](okf-bundle/architecture/layers.md), [Tipo delle coordinate](okf-bundle/decisions/coordinate-type.md), [Linguaggio](okf-bundle/decisions/language.md), [Approccio di sviluppo](okf-bundle/process/development-approach.md).
 
@@ -63,7 +63,7 @@
 ### Indice e query [↑](#blocchi)
 
 - [x] Contratto delle query nel nodo (range e k-nearest)
-- [ ] Scansione lineare come primo tipo di indice, dietro l'interfaccia comune degli indici
+- [x] Scansione lineare come primo tipo di indice, dietro l'interfaccia comune degli indici
 - [x] Query di range su una partizione, con scansione lineare
 - [x] Query k-nearest su una partizione, con scansione lineare
 - [ ] Test di correttezza degli indici, con la scansione lineare come riferimento
@@ -80,7 +80,6 @@
 - [ ] Più partizioni con indici diversi (statiche e dinamiche)
 - [ ] Client di test per la strategia mista per tipo di entità
 - [ ] Benchmark relativi tra strutture di indice
-- [ ] Raycast (primo hit e tutti gli hit), dopo la decisione sulla sua forma
 
 <a id="fare-commit"></a>
 ### Commit e proprietà [↑](#blocchi)
@@ -130,6 +129,7 @@
 - [ ] Ribilanciamento tramite trasferimento dell'esclusività
 - [ ] Split di una partizione
 - [ ] Nodo remoto via gRPC
+- [ ] Raycast (primo hit e tutti gli hit), dopo la decisione sulla sua forma
 - [ ] Aggiornamento del bundle OKF con quanto appreso dai prototipi
 
 ## Decisioni da prendere
@@ -168,7 +168,6 @@
 <a id="decisioni-indice"></a>
 ### Indice e query [↑](#blocchi)
 
-- [ ] Raycast su entità puntiformi (raggio di hit, estensione delle entità o altro), in base ai possibili usi
 - [ ] Struttura dell'indice spaziale (grid, quadtree/octree, R-tree)
 - [ ] Più di un indice per partizione
 - [ ] Gruppi di partizioni con configurazione condivisa (indice, k, politica di rimozione), distinti dagli insiemi di partizioni da interrogare
@@ -209,3 +208,4 @@
 - [ ] Tipo delle coordinate nell'implementazione finale
 - [ ] Divisione dei bit dell'ID (41/10/12 o 41/12/10): si può cambiare anche più avanti, purché il timestamp resti negli stessi bit
 - [ ] Linguaggio dell'implementazione finale (C11, C++, Rust)
+- [ ] Raycast su entità puntiformi (raggio di hit, estensione delle entità o altro), in base ai possibili usi

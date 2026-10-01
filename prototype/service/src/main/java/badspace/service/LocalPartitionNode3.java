@@ -13,11 +13,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class LocalPartitionNode3 implements PartitionNode3 {
 
     // Each partition has its own writer, possibly on a different thread.
-    private final Map<PartitionId, PartitionStore3> partitions = new ConcurrentHashMap<>();
+    private final Map<PartitionId, PartitionStorage3> partitions = new ConcurrentHashMap<>();
 
     @Override
     public void createPartition(PartitionId partition) {
-        if (partitions.putIfAbsent(partition, new PartitionStore3()) != null) {
+        if (partitions.putIfAbsent(partition, new PartitionStorage3()) != null) {
             throw new IllegalArgumentException("Partition already exists: " + partition);
         }
     }
@@ -73,11 +73,11 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
         return find(partition).size();
     }
 
-    private PartitionStore3 find(PartitionId partition) {
-        PartitionStore3 store = partitions.get(partition);
-        if (store == null) {
+    private PartitionStorage3 find(PartitionId partition) {
+        PartitionStorage3 storage = partitions.get(partition);
+        if (storage == null) {
             throw new IllegalArgumentException("Unknown partition: " + partition);
         }
-        return store;
+        return storage;
     }
 }

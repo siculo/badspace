@@ -5,42 +5,43 @@ import badspace.common.Point3;
 import badspace.common.Region3;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.PriorityQueue;
 import java.util.Set;
 
 /**
  * Entities of a 3D partition. It has a single writer and is not thread-safe.
  * Entities are stored in primitive arrays: ids[i] has coordinates
- * coords[3*i], coords[3*i+1], coords[3*i+2]. A map gives the index of each ID.
+ * coords[3*i], coords[3*i+1], coords[3*i+2]. A map gives the slot of each ID.
  * Removal moves the last entity into the free slot, so the arrays stay compact
  * and the order of the entities can change.
  * Each write first checks all the input, then applies it, so a failed write
  * does not change the partition.
- * Queries scan all the entities: there is no spatial index yet.
+ * Queries go to the spatial index of the partition, which the storage informs
+ * of each change.
  */
-final class PartitionStore3 {
+final class PartitionStorage3 {
 
     private static final int DIMENSIONS = 3;
     private static final int INITIAL_CAPACITY = 16;
 
-    private static final Comparator<Candidate> NEAREST_FIRST =
-            Comparator.comparingDouble(Candidate::distanceSquared).thenComparingLong(Candidate::id);
-
     private long[] ids = new long[INITIAL_CAPACITY];
     private double[] coords = new double[INITIAL_CAPACITY * DIMENSIONS];
-    private final Map<Long, Integer> indexById = new HashMap<>();
+    private final Map<Long, Integer> slotById = new HashMap<>();
     private int size;
+    private final SpatialIndex3 index;
+
+    PartitionStorage3() {
+        this.index = new LinearScanIndex3(this);
+    }
 
     void insertAll(List<Entity3> entities) {
         Set<Long> seen = new HashSet<>();
         for (Entity3 e : entities) {
-            if (indexById.containsKey(e.id()) || !seen.add(e.id())) {
+            if (slotById.containsKey(e.id()) || !seen.add(e.id())) {
                 throw new IllegalArgumentException("Duplicate entity ID: " + e.id());
             }
         }
@@ -48,17 +49,18 @@ final class PartitionStore3 {
         for (Entity3 e : entities) {
             ids[size] = e.id();
             write(size, e.position());
-            indexById.put(e.id(), size);
+            slotById.put(e.id(), size);
             size++;
+            index.inserted(e.id(), e.position());
         }
     }
 
     List<Entity3> getAll(long[] entityIds) {
         List<Entity3> result = new ArrayList<>(entityIds.length);
         for (long id : entityIds) {
-            Integer index = indexById.get(id);
-            if (index != null) {
-                result.add(new Entity3(id, read(index)));
+            Integer slot = slotById.get(id);
+            if (slot != null) {
+                result.add(new Entity3(id, positionAt(slot)));
             }
         }
         return result;
@@ -66,17 +68,20 @@ final class PartitionStore3 {
 
     void updateAll(List<Entity3> entities) {
         for (Entity3 e : entities) {
-            indexOf(e.id());
+            slotOf(e.id());
         }
         for (Entity3 e : entities) {
-            write(indexById.get(e.id()), e.position());
+            int slot = slotById.get(e.id());
+            Point3 from = positionAt(slot);
+            write(slot, e.position());
+            index.moved(e.id(), from, e.position());
         }
     }
 
     void removeAll(long[] entityIds) {
         Set<Long> seen = new HashSet<>();
         for (long id : entityIds) {
-            indexOf(id);
+            slotOf(id);
             if (!seen.add(id)) {
                 throw new IllegalArgumentException("Duplicate entity ID: " + id);
             }
@@ -87,14 +92,7 @@ final class PartitionStore3 {
     }
 
     List<Entity3> findInRegion(Region3 region) {
-        List<Entity3> result = new ArrayList<>();
-        for (int i = 0; i < size; i++) {
-            Point3 p = read(i);
-            if (region.contains(p)) {
-                result.add(new Entity3(ids[i], p));
-            }
-        }
-        return result;
+        return index.findInRegion(region);
     }
 
     List<Entity3> findNearest(Point3 point, int count) {
@@ -104,64 +102,56 @@ final class PartitionStore3 {
         if (count == 0) {
             return List.of();
         }
-        // The head of the queue is the farthest of the nearest entities found so far.
-        PriorityQueue<Candidate> nearest = new PriorityQueue<>(NEAREST_FIRST.reversed());
-        for (int i = 0; i < size; i++) {
-            Candidate c = new Candidate(distanceSquared(i, point), ids[i], i);
-            if (nearest.size() < count) {
-                nearest.add(c);
-            } else if (NEAREST_FIRST.compare(c, nearest.peek()) < 0) {
-                nearest.poll();
-                nearest.add(c);
-            }
-        }
-        List<Candidate> sorted = new ArrayList<>(nearest);
-        sorted.sort(NEAREST_FIRST);
-        List<Entity3> result = new ArrayList<>(sorted.size());
-        for (Candidate c : sorted) {
-            result.add(new Entity3(c.id(), read(c.index())));
-        }
-        return result;
+        return index.findNearest(point, count);
     }
 
     int size() {
         return size;
     }
 
-    private void remove(long id) {
-        int index = indexById.remove(id);
-        int last = size - 1;
-        if (index != last) {
-            ids[index] = ids[last];
-            System.arraycopy(coords, last * DIMENSIONS, coords, index * DIMENSIONS, DIMENSIONS);
-            indexById.put(ids[index], index);
-        }
-        size--;
+    /** Returns the ID of the entity in the slot. Slots go from 0 to size() - 1. */
+    long idAt(int slot) {
+        return ids[slot];
     }
 
-    private int indexOf(long id) {
-        Integer index = indexById.get(id);
-        if (index == null) {
-            throw new NoSuchElementException("Unknown entity ID: " + id);
-        }
-        return index;
+    /** Returns the position of the entity in the slot. */
+    Point3 positionAt(int slot) {
+        int base = slot * DIMENSIONS;
+        return new Point3(coords[base], coords[base + 1], coords[base + 2]);
     }
 
-    private double distanceSquared(int index, Point3 point) {
-        int base = index * DIMENSIONS;
+    /** Returns the squared distance between the entity in the slot and the point. */
+    double distanceSquared(int slot, Point3 point) {
+        int base = slot * DIMENSIONS;
         double dx = coords[base] - point.x();
         double dy = coords[base + 1] - point.y();
         double dz = coords[base + 2] - point.z();
         return dx * dx + dy * dy + dz * dz;
     }
 
-    private Point3 read(int index) {
-        int base = index * DIMENSIONS;
-        return new Point3(coords[base], coords[base + 1], coords[base + 2]);
+    private void remove(long id) {
+        int slot = slotById.remove(id);
+        Point3 position = positionAt(slot);
+        int last = size - 1;
+        if (slot != last) {
+            ids[slot] = ids[last];
+            System.arraycopy(coords, last * DIMENSIONS, coords, slot * DIMENSIONS, DIMENSIONS);
+            slotById.put(ids[slot], slot);
+        }
+        size--;
+        index.removed(id, position);
     }
 
-    private void write(int index, Point3 p) {
-        int base = index * DIMENSIONS;
+    private int slotOf(long id) {
+        Integer slot = slotById.get(id);
+        if (slot == null) {
+            throw new NoSuchElementException("Unknown entity ID: " + id);
+        }
+        return slot;
+    }
+
+    private void write(int slot, Point3 p) {
+        int base = slot * DIMENSIONS;
         coords[base] = p.x();
         coords[base + 1] = p.y();
         coords[base + 2] = p.z();
@@ -177,9 +167,5 @@ final class PartitionStore3 {
         }
         ids = Arrays.copyOf(ids, capacity);
         coords = Arrays.copyOf(coords, capacity * DIMENSIONS);
-    }
-
-    /** An entity found by findNearest, with its squared distance from the point. */
-    private record Candidate(double distanceSquared, long id, int index) {
     }
 }
