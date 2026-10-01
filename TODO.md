@@ -78,7 +78,8 @@
 - [ ] Misure di riferimento con il profilo completo, a macchina scarica
 - [ ] Benchmark a livello di API
 - [ ] Carico misto a tick (aggiornamenti e query per tick)
-- [ ] Indice spaziale minimo per partizione
+- [x] Indice spaziale minimo per partizione: grid uniforme 2D e 3D, con la dimensione della cella scelta alla creazione (`IndexConfig`)
+- [ ] Misure della grid uniforme con più dimensioni di cella, confrontate con la scansione lineare
 - [ ] Configurazione della partizione alla creazione nell'API (indice e k)
 - [ ] Aggregazione delle query su più partizioni
 - [ ] Più partizioni con indici diversi (statiche e dinamiche)

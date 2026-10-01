@@ -1,6 +1,5 @@
 package badspace.benchmark;
 
-import badspace.common.IndexType;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -105,7 +104,7 @@ public final class BenchmarkMain {
         Profile profile = QUICK;
         Pattern include = Pattern.compile("");
         Map<String, List<String>> params = new LinkedHashMap<>();
-        params.put("index", Arrays.stream(IndexType.values()).map(Enum::name).toList());
+        params.put("index", IndexNames.DEFAULT);
         boolean percentiles = false;
         Path output = null;
         for (int i = 0; i < args.size(); i++) {
@@ -127,6 +126,13 @@ public final class BenchmarkMain {
         }
         Map<String, List<String>> allParams = new LinkedHashMap<>(profile.params());
         allParams.putAll(params);
+        for (String index : allParams.get("index")) {
+            try {
+                IndexNames.parse(index);
+            } catch (IllegalArgumentException e) {
+                fail(e.getMessage());
+            }
+        }
         if (output == null) {
             String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmm"));
             output = Path.of("results", date + "-" + profile.name() + ".json");
@@ -155,7 +161,7 @@ public final class BenchmarkMain {
         List<Footprint.Result> footprints = List.of();
         if (include.matcher(Footprint.BENCHMARK).find()) {
             footprints = Footprint.measure(
-                    allParams.get("index").stream().map(IndexType::valueOf).toList(),
+                    allParams.get("index"),
                     paramValues(allParams, "distribution", Distribution.values()).stream()
                             .map(Distribution::valueOf).toList(),
                     allParams.get("size").stream().map(Integer::valueOf).toList());

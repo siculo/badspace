@@ -1,6 +1,5 @@
 package badspace.benchmark;
 
-import badspace.common.IndexType;
 import badspace.common.PartitionNode2;
 import badspace.service.LocalPartitionNode2;
 import java.lang.management.ManagementFactory;
@@ -37,7 +36,7 @@ final class Footprint {
      *
      * @param samples bytes per entity of each repetition, sorted
      */
-    record Result(IndexType index, Distribution distribution, int size, double[] samples) {
+    record Result(String index, Distribution distribution, int size, double[] samples) {
 
         double bytesPerEntity() {
             return samples[samples.length / 2];
@@ -101,9 +100,9 @@ final class Footprint {
         }
     }
 
-    static List<Result> measure(List<IndexType> indices, List<Distribution> distributions, List<Integer> sizes) {
+    static List<Result> measure(List<String> indices, List<Distribution> distributions, List<Integer> sizes) {
         List<Result> results = new ArrayList<>();
-        for (IndexType index : indices) {
+        for (String index : indices) {
             for (Distribution distribution : distributions) {
                 for (int size : sizes) {
                     Workload workload = Workload.generate(distribution, size, WorkloadState.SEED);
@@ -118,12 +117,12 @@ final class Footprint {
     }
 
     /** Returns the bytes per entity of each repetition, sorted. */
-    private static double[] samples(IndexType index, Workload workload) {
+    private static double[] samples(String index, Workload workload) {
         double[] samples = new double[REPEAT];
         for (int r = 0; r < REPEAT; r++) {
             long before = usedHeap();
             PartitionNode2 node = new LocalPartitionNode2();
-            node.createPartition(WorkloadState.PARTITION, index);
+            node.createPartition(WorkloadState.PARTITION, IndexNames.parse(index));
             node.insertAll(WorkloadState.PARTITION, workload.entities());
             long after = usedHeap();
             Reference.reachabilityFence(node);

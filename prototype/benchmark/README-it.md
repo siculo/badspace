@@ -83,7 +83,7 @@ Più basso è sempre meglio.
 
 | Parametro | Usato da | Profilo rapido | Profilo completo |
 |---|---|---|---|
-| `index` | tutti | tutti i valori di `IndexType` | gli stessi |
+| `index` | tutti | `LINEAR_SCAN`, `UNIFORM_GRID_100` | gli stessi |
 | `distribution` | tutti | `UNIFORM`, `CLUSTERS`, `HOTSPOT`, `CORRIDORS`, `COINCIDENT` | gli stessi |
 | `size` | tutti | 1000, 100000 | 1000, 10000, 100000, 1000000 |
 | `batchSize` | insert, remove, update, get | 1, 100 | 1, 10, 100, 1000 |
@@ -92,6 +92,11 @@ Più basso è sempre meglio.
 | `shape` | findInRegion | `BOX` | `BOX`, `CIRCLE` |
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | gli stessi |
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
+
+Il nome di un indice dà l'indice e i suoi parametri: `LINEAR_SCAN`, oppure
+`UNIFORM_GRID_<lato della cella>` per una grid uniforme, per esempio
+`--param index=UNIFORM_GRID_50,UNIFORM_GRID_200` per confrontare due
+dimensioni di cella.
 
 Il mondo è un quadrato da 0 a 10000 su ogni asse. Le distribuzioni sono:
 
@@ -157,12 +162,13 @@ compare come un benchmark in più, con modalità `footprint`.
 
 ## Aggiungere un nuovo indice
 
-1. Aggiungere il valore a `IndexType` e creare l'indice in
+1. Aggiungere un record a `IndexConfig` e creare l'indice in
    `LocalPartitionNode2.createPartition`.
-2. Ricompilare il jar. I benchmark usano tutti i valori di `IndexType`, quindi
-   il nuovo indice viene misurato senza altre modifiche.
-3. Eseguire i benchmark e aprire il report con la scansione lineare come
-   riferimento. Per misurare solo il nuovo indice si usa
+2. Dare un nome all'indice in `IndexNames.parse`, e aggiungere il nome a
+   `IndexNames.DEFAULT` e al `@Param` di `WorkloadState.index` se le
+   esecuzioni devono misurarlo di default.
+3. Ricompilare il jar, eseguire i benchmark e aprire il report con la
+   scansione lineare come riferimento. Per misurare solo il nuovo indice si usa
    `--param index=NUOVO_INDICE` e si passano al report i risultati di
    riferimento insieme a quelli nuovi:
 

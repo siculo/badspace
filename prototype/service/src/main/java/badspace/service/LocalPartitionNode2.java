@@ -1,7 +1,7 @@
 package badspace.service;
 
 import badspace.common.Entity2;
-import badspace.common.IndexType;
+import badspace.common.IndexConfig;
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode2;
 import badspace.common.Point2;
@@ -18,7 +18,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     private final Map<PartitionId, PartitionStorage2> partitions = new ConcurrentHashMap<>();
 
     @Override
-    public void createPartition(PartitionId partition, IndexType index) {
+    public void createPartition(PartitionId partition, IndexConfig index) {
         if (partitions.putIfAbsent(partition, new PartitionStorage2(indexFactory(index))) != null) {
             throw new IllegalArgumentException("Partition already exists: " + partition);
         }
@@ -75,9 +75,10 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         return find(partition).size();
     }
 
-    private static Function<PartitionStorage2, SpatialIndex2> indexFactory(IndexType index) {
+    private static Function<PartitionStorage2, SpatialIndex2> indexFactory(IndexConfig index) {
         return switch (index) {
-            case LINEAR_SCAN -> LinearScanIndex2::new;
+            case IndexConfig.LinearScan _ -> LinearScanIndex2::new;
+            case IndexConfig.UniformGrid g -> storage -> new UniformGridIndex2(storage, g.cellSize());
         };
     }
 

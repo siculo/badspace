@@ -13,11 +13,11 @@ public interface PartitionNode3 {
 
     /** Creates an empty partition that uses the linear scan as index. Fails if the ID is already in use on this node. */
     default void createPartition(PartitionId partition) {
-        createPartition(partition, IndexType.LINEAR_SCAN);
+        createPartition(partition, IndexConfig.linearScan());
     }
 
     /** Creates an empty partition with the given index. Fails if the ID is already in use on this node. */
-    void createPartition(PartitionId partition, IndexType index);
+    void createPartition(PartitionId partition, IndexConfig index);
 
     /**
      * Removes an empty partition. Fails with IllegalArgumentException if the ID is unknown,

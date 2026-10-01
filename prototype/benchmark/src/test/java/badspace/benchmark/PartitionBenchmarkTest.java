@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import badspace.common.Box2;
 import badspace.common.Entity2;
-import badspace.common.IndexType;
 import badspace.common.Point2;
 import java.util.Comparator;
 import java.util.List;
@@ -21,7 +20,7 @@ class PartitionBenchmarkTest {
     private final PartitionBenchmark benchmark = new PartitionBenchmark();
 
     private static <S extends WorkloadState> S setUp(S state) {
-        state.index = IndexType.LINEAR_SCAN;
+        state.index = "LINEAR_SCAN";
         state.distribution = Distribution.CLUSTERS;
         state.size = SIZE;
         state.setUpTrial();

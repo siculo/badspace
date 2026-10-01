@@ -83,7 +83,7 @@ Lower is always better.
 
 | Parameter | Used by | Quick profile | Full profile |
 |---|---|---|---|
-| `index` | all | all the values of `IndexType` | the same |
+| `index` | all | `LINEAR_SCAN`, `UNIFORM_GRID_100` | the same |
 | `distribution` | all | `UNIFORM`, `CLUSTERS`, `HOTSPOT`, `CORRIDORS`, `COINCIDENT` | the same |
 | `size` | all | 1000, 100000 | 1000, 10000, 100000, 1000000 |
 | `batchSize` | insert, remove, update, get | 1, 100 | 1, 10, 100, 1000 |
@@ -92,6 +92,10 @@ Lower is always better.
 | `shape` | findInRegion | `BOX` | `BOX`, `CIRCLE` |
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | the same |
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
+
+An index name gives the index and its parameters: `LINEAR_SCAN`, or
+`UNIFORM_GRID_<cell size>` for a uniform grid, for example
+`--param index=UNIFORM_GRID_50,UNIFORM_GRID_200` to compare two cell sizes.
 
 The world is a square from 0 to 10000 on each axis. The distributions are:
 
@@ -156,11 +160,13 @@ one more benchmark, with mode `footprint`.
 
 ## Adding a new index
 
-1. Add the value to `IndexType` and create the index in
+1. Add a record to `IndexConfig` and create the index in
    `LocalPartitionNode2.createPartition`.
-2. Build the jar again. The benchmarks use all the values of `IndexType`, so
-   the new index is measured with no other change.
-3. Run the benchmarks and open the report with the linear scan as baseline.
+2. Give the index a name in `IndexNames.parse`, and add the name to
+   `IndexNames.DEFAULT` and to the `@Param` of `WorkloadState.index` if the
+   runs must measure it by default.
+3. Build the jar again and run the benchmarks; open the report with the
+   linear scan as baseline.
    To measure only the new index, use `--param index=NEW_INDEX` and pass the
    reference results to the report together with the new ones:
 

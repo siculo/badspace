@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.common.Box3;
 import badspace.common.Entity3;
-import badspace.common.IndexType;
+import badspace.common.IndexConfig;
 import badspace.common.PartitionId;
 import badspace.common.Point3;
 import badspace.common.Sphere3;
@@ -36,10 +36,10 @@ class LocalPartitionNode3Test {
 
     @Test
     void partitionUsesTheIndexChosenAtCreation() {
-        node.createPartition(P2, IndexType.LINEAR_SCAN);
+        node.createPartition(P2, IndexConfig.uniformGrid(1));
         node.insertAll(P2, List.of(entity(1, 1, 2, 3), entity(2, 5, 5, 5)));
         assertEquals(List.of(entity(1, 1, 2, 3)), node.findNearest(P2, new Point3(0, 0, 0), 1));
-        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, IndexType.LINEAR_SCAN));
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, IndexConfig.linearScan()));
     }
 
     @Test

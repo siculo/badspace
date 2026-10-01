@@ -1,6 +1,5 @@
 package badspace.benchmark;
 
-import badspace.common.IndexType;
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode2;
 import badspace.service.LocalPartitionNode2;
@@ -21,8 +20,9 @@ public abstract class WorkloadState {
     static final PartitionId PARTITION = new PartitionId(1);
     static final long SEED = 42;
 
-    @Param("LINEAR_SCAN")
-    public IndexType index;
+    /** Name of the index, see {@link IndexNames}. */
+    @Param({"LINEAR_SCAN", "UNIFORM_GRID_100"})
+    public String index;
 
     @Param({"UNIFORM", "CLUSTERS", "HOTSPOT", "CORRIDORS", "COINCIDENT"})
     public Distribution distribution;
@@ -45,7 +45,7 @@ public abstract class WorkloadState {
     /** Returns a new node with an empty partition that uses the index of the benchmark. */
     PartitionNode2 newNode() {
         PartitionNode2 node = new LocalPartitionNode2();
-        node.createPartition(PARTITION, index);
+        node.createPartition(PARTITION, IndexNames.parse(index));
         return node;
     }
 }

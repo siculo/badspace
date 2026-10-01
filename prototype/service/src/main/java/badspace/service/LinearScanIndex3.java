@@ -3,8 +3,6 @@ package badspace.service;
 import badspace.common.Point3;
 import badspace.common.Region3;
 import java.util.Arrays;
-import java.util.Comparator;
-import java.util.PriorityQueue;
 
 /**
  * Index that has no structure: each query reads all the entities of the
@@ -12,9 +10,6 @@ import java.util.PriorityQueue;
  * benchmarks of the other indices.
  */
 final class LinearScanIndex3 implements SpatialIndex3 {
-
-    private static final Comparator<Candidate> NEAREST_FIRST =
-            Comparator.comparingDouble(Candidate::distanceSquared).thenComparingLong(Candidate::id);
 
     private final PartitionStorage3 storage;
 
@@ -56,22 +51,10 @@ final class LinearScanIndex3 implements SpatialIndex3 {
 
     @Override
     public int[] findNearest(Point3 point, int count) {
-        // The head of the queue is the farthest of the nearest entities found so far.
-        PriorityQueue<Candidate> nearest = new PriorityQueue<>(NEAREST_FIRST.reversed());
+        NearestSlots nearest = new NearestSlots(count);
         for (int slot = 0; slot < storage.size(); slot++) {
-            double distanceSquared = storage.positionAt(slot).distanceSquared(point);
-            Candidate c = new Candidate(distanceSquared, storage.idAt(slot), slot);
-            if (nearest.size() < count) {
-                nearest.add(c);
-            } else if (NEAREST_FIRST.compare(c, nearest.peek()) < 0) {
-                nearest.poll();
-                nearest.add(c);
-            }
+            nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
         }
-        return nearest.stream().sorted(NEAREST_FIRST).mapToInt(Candidate::slot).toArray();
-    }
-
-    /** An entity found by findNearest, with its squared distance from the point. */
-    private record Candidate(double distanceSquared, long id, int slot) {
+        return nearest.slots();
     }
 }
