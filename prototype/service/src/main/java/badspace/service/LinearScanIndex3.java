@@ -1,11 +1,9 @@
 package badspace.service;
 
-import badspace.common.Entity3;
 import badspace.common.Point3;
 import badspace.common.Region3;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
-import java.util.List;
 import java.util.PriorityQueue;
 
 /**
@@ -25,38 +23,44 @@ final class LinearScanIndex3 implements SpatialIndex3 {
     }
 
     @Override
-    public void inserted(long id, Point3 position) {
+    public void inserted(int slot, Point3 position) {
         // Nothing to do: queries read the storage.
     }
 
     @Override
-    public void moved(long id, Point3 from, Point3 to) {
+    public void moved(int slot, Point3 from, Point3 to) {
         // Nothing to do: queries read the storage.
     }
 
     @Override
-    public void removed(long id, Point3 position) {
+    public void removed(int slot, Point3 position) {
         // Nothing to do: queries read the storage.
     }
 
     @Override
-    public List<Entity3> findInRegion(Region3 region) {
-        List<Entity3> result = new ArrayList<>();
+    public void relocated(int from, int to, Point3 position) {
+        // Nothing to do: queries read the storage.
+    }
+
+    @Override
+    public int[] findInRegion(Region3 region) {
+        int[] found = new int[storage.size()];
+        int count = 0;
         for (int slot = 0; slot < storage.size(); slot++) {
-            Point3 p = storage.positionAt(slot);
-            if (region.contains(p)) {
-                result.add(new Entity3(storage.idAt(slot), p));
+            if (region.contains(storage.positionAt(slot))) {
+                found[count++] = slot;
             }
         }
-        return result;
+        return Arrays.copyOf(found, count);
     }
 
     @Override
-    public List<Entity3> findNearest(Point3 point, int count) {
+    public int[] findNearest(Point3 point, int count) {
         // The head of the queue is the farthest of the nearest entities found so far.
         PriorityQueue<Candidate> nearest = new PriorityQueue<>(NEAREST_FIRST.reversed());
         for (int slot = 0; slot < storage.size(); slot++) {
-            Candidate c = new Candidate(storage.distanceSquared(slot, point), storage.idAt(slot), slot);
+            double distanceSquared = storage.positionAt(slot).distanceSquared(point);
+            Candidate c = new Candidate(distanceSquared, storage.idAt(slot), slot);
             if (nearest.size() < count) {
                 nearest.add(c);
             } else if (NEAREST_FIRST.compare(c, nearest.peek()) < 0) {
@@ -64,13 +68,7 @@ final class LinearScanIndex3 implements SpatialIndex3 {
                 nearest.add(c);
             }
         }
-        List<Candidate> sorted = new ArrayList<>(nearest);
-        sorted.sort(NEAREST_FIRST);
-        List<Entity3> result = new ArrayList<>(sorted.size());
-        for (Candidate c : sorted) {
-            result.add(new Entity3(c.id(), storage.positionAt(c.slot())));
-        }
-        return result;
+        return nearest.stream().sorted(NEAREST_FIRST).mapToInt(Candidate::slot).toArray();
     }
 
     /** An entity found by findNearest, with its squared distance from the point. */

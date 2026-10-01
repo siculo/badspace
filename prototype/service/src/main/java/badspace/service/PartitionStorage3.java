@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Entities of a 3D partition. It has a single writer and is not thread-safe.
@@ -21,7 +22,7 @@ import java.util.Set;
  * Each write first checks all the input, then applies it, so a failed write
  * does not change the partition.
  * Queries go to the spatial index of the partition, which the storage informs
- * of each change.
+ * of each change. The index finds the slots and the storage builds the entities.
  */
 final class PartitionStorage3 {
 
@@ -34,8 +35,17 @@ final class PartitionStorage3 {
     private int size;
     private final SpatialIndex3 index;
 
+    /** Creates a storage that uses the linear scan as index. */
     PartitionStorage3() {
-        this.index = new LinearScanIndex3(this);
+        this(LinearScanIndex3::new);
+    }
+
+    /**
+     * Creates a storage with the index made by the factory. The factory gets
+     * this storage, so the index can read it during the queries.
+     */
+    PartitionStorage3(Function<PartitionStorage3, SpatialIndex3> indexFactory) {
+        this.index = indexFactory.apply(this);
     }
 
     void insertAll(List<Entity3> entities) {
@@ -47,11 +57,11 @@ final class PartitionStorage3 {
         }
         ensureCapacity(size + entities.size());
         for (Entity3 e : entities) {
-            ids[size] = e.id();
-            write(size, e.position());
-            slotById.put(e.id(), size);
-            size++;
-            index.inserted(e.id(), e.position());
+            int slot = size++;
+            ids[slot] = e.id();
+            write(slot, e.position());
+            slotById.put(e.id(), slot);
+            index.inserted(slot, e.position());
         }
     }
 
@@ -74,7 +84,7 @@ final class PartitionStorage3 {
             int slot = slotById.get(e.id());
             Point3 from = positionAt(slot);
             write(slot, e.position());
-            index.moved(e.id(), from, e.position());
+            index.moved(slot, from, e.position());
         }
     }
 
@@ -92,7 +102,7 @@ final class PartitionStorage3 {
     }
 
     List<Entity3> findInRegion(Region3 region) {
-        return index.findInRegion(region);
+        return entitiesAt(index.findInRegion(region));
     }
 
     List<Entity3> findNearest(Point3 point, int count) {
@@ -102,7 +112,7 @@ final class PartitionStorage3 {
         if (count == 0) {
             return List.of();
         }
-        return index.findNearest(point, count);
+        return entitiesAt(index.findNearest(point, count));
     }
 
     int size() {
@@ -120,15 +130,6 @@ final class PartitionStorage3 {
         return new Point3(coords[base], coords[base + 1], coords[base + 2]);
     }
 
-    /** Returns the squared distance between the entity in the slot and the point. */
-    double distanceSquared(int slot, Point3 point) {
-        int base = slot * DIMENSIONS;
-        double dx = coords[base] - point.x();
-        double dy = coords[base + 1] - point.y();
-        double dz = coords[base + 2] - point.z();
-        return dx * dx + dy * dy + dz * dz;
-    }
-
     private void remove(long id) {
         int slot = slotById.remove(id);
         Point3 position = positionAt(slot);
@@ -139,7 +140,18 @@ final class PartitionStorage3 {
             slotById.put(ids[slot], slot);
         }
         size--;
-        index.removed(id, position);
+        index.removed(slot, position);
+        if (slot != last) {
+            index.relocated(last, slot, positionAt(slot));
+        }
+    }
+
+    private List<Entity3> entitiesAt(int[] slots) {
+        List<Entity3> result = new ArrayList<>(slots.length);
+        for (int slot : slots) {
+            result.add(new Entity3(ids[slot], positionAt(slot)));
+        }
+        return result;
     }
 
     private int slotOf(long id) {

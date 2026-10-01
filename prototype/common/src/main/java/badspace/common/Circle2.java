@@ -12,8 +12,6 @@ public record Circle2(Point2 center, double radius) implements Region2 {
 
     @Override
     public boolean contains(Point2 p) {
-        double dx = p.x() - center.x();
-        double dy = p.y() - center.y();
-        return dx * dx + dy * dy <= radius * radius;
+        return p.distanceSquared(center) <= radius * radius;
     }
 }
