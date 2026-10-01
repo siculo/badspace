@@ -16,10 +16,10 @@ From `prototype/benchmark`:
 ```
 mvn -f .. install -DskipTests
 java --sun-misc-unsafe-memory-access=allow -jar target/benchmarks.jar run quick
-java -jar target/benchmarks.jar report results/<file>.json
 ```
 
-Then open `target/report.html` in a browser.
+Then open in a browser the report written next to the results, for example
+`results/2026-10-01-1430-quick.html`.
 
 The first command builds `target/benchmarks.jar`. Build it again after each
 change to the code, or the benchmarks run the old code. The JVM option
@@ -40,6 +40,10 @@ java -jar target/benchmarks.jar run [quick|full] [--include REGEX] [--param NAME
 | `--param NAME=V1,V2` | Changes the values of a parameter, for example `--param size=1000,1000000`. It can be repeated. |
 | `--percentiles` | Also measures the latency percentiles (p50, p90, p99). It doubles the time of the run. |
 | `--output FILE` | Where to write the results. Default: `results/<date>-<profile>.json`. |
+
+At the end of the run, the report of the results is written too, in the same
+directory and with the same name as the JSON file, but with the `.html`
+extension.
 
 The output path is relative to the working directory, so run the commands
 from `prototype/benchmark`.
@@ -119,7 +123,8 @@ java -jar target/benchmarks.jar report [--output FILE] RESULTS.json...
 ```
 
 The report is a single HTML file and needs no internet connection. The
-default output is `target/report.html`. It shows one section for each
+default output is next to the last results file, with the same name and the
+`.html` extension. It shows one section for each
 operation. Each section has:
 
 - a log-log chart for each distribution, with the number of entities on the
@@ -186,9 +191,10 @@ one more benchmark, with mode `footprint`.
 
 ## Results in the repository
 
-The measures to keep go in `results/`, with a name like
-`<date>-<index or change>-<profile>.json`. The reference measures of the
-linear scan are there.
+The `results/` directory is ignored by git, because the measures depend on
+the machine. To keep a measure, use a name like
+`<date>-<index or change>-<profile>.json` and add the file with
+`git add -f`.
 
 ## Unit tests
 

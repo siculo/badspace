@@ -4,6 +4,9 @@ okf-sources/
 # Maven
 target/
 
+# Benchmark results and reports
+prototype/benchmark/results/
+
 # Java
 *.class
 *.log

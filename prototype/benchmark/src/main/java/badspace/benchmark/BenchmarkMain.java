@@ -37,7 +37,10 @@ import org.openjdk.jmh.runner.options.TimeValue;
  * </pre>
  * The quick profile is for a check during development; the full profile is
  * for the measures to keep. Without {@code --output}, the results go to
- * {@code results/<date>-<profile>.json} and the report to {@code target/report.html}.
+ * {@code results/<date>-<profile>.json}. The run also writes the report of
+ * its results next to them, with the same name and the {@code .html}
+ * extension. Without {@code --output}, the report command writes the report
+ * next to the last results file, in the same way.
  */
 public final class BenchmarkMain {
 
@@ -159,6 +162,7 @@ public final class BenchmarkMain {
         }
         writeResults(output, results, footprints);
         System.out.println("Results written to " + output.toAbsolutePath());
+        writeReport(List.of(output), reportPath(output));
     }
 
     private static ChainedOptionsBuilder options(Profile profile, Map<String, List<String>> params, List<String> benchmarks) {
@@ -210,7 +214,7 @@ public final class BenchmarkMain {
     }
 
     private static void report(List<String> args) throws IOException {
-        Path output = Path.of("target", "report.html");
+        Path output = null;
         List<Path> inputs = new ArrayList<>();
         for (int i = 0; i < args.size(); i++) {
             if (args.get(i).equals("--output")) {
@@ -222,6 +226,17 @@ public final class BenchmarkMain {
         if (inputs.isEmpty()) {
             fail("Missing result files");
         }
+        writeReport(inputs, output != null ? output : reportPath(inputs.get(inputs.size() - 1)));
+    }
+
+    /** Returns the path of the report for a results file: same directory and name, extension {@code .html}. */
+    private static Path reportPath(Path results) {
+        String name = results.getFileName().toString().replaceFirst("\\.json$", "") + ".html";
+        return results.resolveSibling(name);
+    }
+
+    /** Writes an HTML report with one run for each results file. */
+    private static void writeReport(List<Path> inputs, Path output) throws IOException {
         String template;
         try (InputStream in = BenchmarkMain.class.getResourceAsStream("/report-template.html")) {
             template = new String(in.readAllBytes(), StandardCharsets.UTF_8);

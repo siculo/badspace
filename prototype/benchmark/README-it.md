@@ -16,10 +16,10 @@ Da `prototype/benchmark`:
 ```
 mvn -f .. install -DskipTests
 java --sun-misc-unsafe-memory-access=allow -jar target/benchmarks.jar run quick
-java -jar target/benchmarks.jar report results/<file>.json
 ```
 
-Poi si apre `target/report.html` in un browser.
+Poi si apre in un browser il report scritto accanto ai risultati, per
+esempio `results/2026-10-01-1430-quick.html`.
 
 Il primo comando crea `target/benchmarks.jar`. Va rilanciato dopo ogni
 modifica al codice, altrimenti i benchmark girano sul codice vecchio.
@@ -40,6 +40,10 @@ java -jar target/benchmarks.jar run [quick|full] [--include REGEX] [--param NOME
 | `--param NOME=V1,V2` | Cambia i valori di un parametro, per esempio `--param size=1000,1000000`. Si può ripetere. |
 | `--percentiles` | Misura anche i percentili di latenza (p50, p90, p99). Raddoppia la durata dell'esecuzione. |
 | `--output FILE` | Dove scrivere i risultati. Default: `results/<data>-<profilo>.json`. |
+
+Alla fine dell'esecuzione viene scritto anche il report dei risultati, nella
+stessa directory e con lo stesso nome del file JSON, ma con estensione
+`.html`.
 
 Il percorso di output è relativo alla directory di lavoro, quindi i comandi
 vanno lanciati da `prototype/benchmark`.
@@ -120,7 +124,8 @@ java -jar target/benchmarks.jar report [--output FILE] RISULTATI.json...
 ```
 
 Il report è un unico file HTML e non richiede una connessione a internet.
-L'output di default è `target/report.html`. Mostra una sezione per ogni
+L'output di default è accanto all'ultimo file dei risultati, con lo stesso
+nome ed estensione `.html`. Mostra una sezione per ogni
 operazione. Ogni sezione ha:
 
 - un grafico log-log per ogni distribuzione, con il numero di entità
@@ -190,9 +195,10 @@ compare come un benchmark in più, con modalità `footprint`.
 
 ## Risultati nel repository
 
-Le misure da conservare vanno in `results/`, con un nome come
-`<data>-<indice o modifica>-<profilo>.json`. Lì ci sono le misure di
-riferimento della scansione lineare.
+La directory `results/` è esclusa da git, perché le misure dipendono dalla
+macchina. Per conservare una misura si usa un nome come
+`<data>-<indice o modifica>-<profilo>.json` e si aggiunge il file con
+`git add -f`.
 
 ## Test unitari
 
