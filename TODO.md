@@ -66,7 +66,7 @@
 - [x] Scansione lineare come primo tipo di indice, dietro l'interfaccia comune degli indici
 - [x] Query di range su una partizione, con scansione lineare
 - [x] Query k-nearest su una partizione, con scansione lineare
-- [ ] Test di correttezza degli indici, con la scansione lineare come riferimento
+- [x] Test di correttezza degli indici, con la scansione lineare come riferimento
 - [ ] Modulo di benchmark (JMH) a livello di nodo e di API
 - [ ] Generatori di dati riproducibili (seed fisso) con distribuzioni della posizione: uniforme, a cluster, hotspot, corridoi, punti coincidenti
 - [ ] Movimento negli aggiornamenti: spostamenti locali e teletrasporti casuali
