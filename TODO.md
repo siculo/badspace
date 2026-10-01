@@ -79,7 +79,7 @@
 - [ ] Benchmark a livello di API
 - [ ] Carico misto a tick (aggiornamenti e query per tick)
 - [x] Indice spaziale minimo per partizione: grid uniforme 2D e 3D, con la dimensione della cella scelta alla creazione (`IndexConfig`)
-- [ ] Misure della grid uniforme con più dimensioni di cella, confrontate con la scansione lineare
+- [ ] Misure della grid uniforme con più dimensioni di cella (25, 50, 100, 200, 400), confrontate con la scansione lineare, sulla macchina dedicata ai benchmark: `run quick --param index=UNIFORM_GRID_25,UNIFORM_GRID_50,UNIFORM_GRID_100,UNIFORM_GRID_200,UNIFORM_GRID_400` (circa 50 minuti); la misura di riferimento della scansione lineare va ripresa sulla stessa macchina
 - [ ] Configurazione della partizione alla creazione nell'API (indice e k)
 - [ ] Aggregazione delle query su più partizioni
 - [ ] Più partizioni con indici diversi (statiche e dinamiche)
