@@ -1,6 +1,7 @@
 package badspace.service;
 
 import badspace.common.Entity2;
+import badspace.common.IndexType;
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode2;
 import badspace.common.Point2;
@@ -8,6 +9,7 @@ import badspace.common.Region2;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 /** A node that hosts 2D partitions in the same process as the API. */
 public final class LocalPartitionNode2 implements PartitionNode2 {
@@ -16,8 +18,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     private final Map<PartitionId, PartitionStorage2> partitions = new ConcurrentHashMap<>();
 
     @Override
-    public void createPartition(PartitionId partition) {
-        if (partitions.putIfAbsent(partition, new PartitionStorage2()) != null) {
+    public void createPartition(PartitionId partition, IndexType index) {
+        if (partitions.putIfAbsent(partition, new PartitionStorage2(indexFactory(index))) != null) {
             throw new IllegalArgumentException("Partition already exists: " + partition);
         }
     }
@@ -71,6 +73,12 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public int size(PartitionId partition) {
         return find(partition).size();
+    }
+
+    private static Function<PartitionStorage2, SpatialIndex2> indexFactory(IndexType index) {
+        return switch (index) {
+            case LINEAR_SCAN -> LinearScanIndex2::new;
+        };
     }
 
     private PartitionStorage2 find(PartitionId partition) {

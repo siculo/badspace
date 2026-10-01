@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import badspace.common.Box2;
 import badspace.common.Circle2;
 import badspace.common.Entity2;
+import badspace.common.IndexType;
 import badspace.common.PartitionId;
 import badspace.common.Point2;
 import java.util.ArrayList;
@@ -31,6 +32,14 @@ class LocalPartitionNode2Test {
 
     private static Entity2 entity(long id, double x, double y) {
         return new Entity2(id, new Point2(x, y));
+    }
+
+    @Test
+    void partitionUsesTheIndexChosenAtCreation() {
+        node.createPartition(P2, IndexType.LINEAR_SCAN);
+        node.insertAll(P2, List.of(entity(1, 1, 2), entity(2, 5, 5)));
+        assertEquals(List.of(entity(1, 1, 2)), node.findNearest(P2, new Point2(0, 0), 1));
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, IndexType.LINEAR_SCAN));
     }
 
     @Test

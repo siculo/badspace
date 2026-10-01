@@ -67,15 +67,19 @@
 - [x] Query di range su una partizione, con scansione lineare
 - [x] Query k-nearest su una partizione, con scansione lineare
 - [x] Test di correttezza degli indici, con la scansione lineare come riferimento
-- [ ] Modulo di benchmark (JMH) a livello di nodo e di API
-- [ ] Generatori di dati riproducibili (seed fisso) con distribuzioni della posizione: uniforme, a cluster, hotspot, corridoi, punti coincidenti
-- [ ] Movimento negli aggiornamenti: spostamenti locali e teletrasporti casuali
-- [ ] Benchmark per operazione (inserimento, aggiornamento, rimozione, lettura per ID, range, k-nearest) al variare di numero di entità, batch e selettività
+- [x] Modulo di benchmark (JMH) a livello di nodo, con profili rapido e completo
+- [x] Scelta dell'indice alla creazione della partizione nel contratto del nodo
+- [x] Generatori di dati riproducibili (seed fisso) con distribuzioni della posizione: uniforme, a cluster, hotspot, corridoi, punti coincidenti
+- [x] Movimento negli aggiornamenti: spostamenti locali e teletrasporti casuali
+- [x] Benchmark per operazione (costruzione, inserimento, aggiornamento, rimozione, lettura per ID, range, k-nearest) al variare di numero di entità, batch e selettività
+- [x] Metriche: tempo medio, percentili di latenza, memoria per entità, tempo di costruzione
+- [x] Report HTML per confrontare i risultati (grafici e rapporti rispetto a un riferimento)
+- [x] Misure di riferimento con la scansione lineare (profilo rapido), salvate nel repo
+- [ ] Misure di riferimento con il profilo completo, a macchina scarica
+- [ ] Benchmark a livello di API
 - [ ] Carico misto a tick (aggiornamenti e query per tick)
-- [ ] Metriche: throughput, percentili di latenza, memoria per entità, tempo di costruzione
-- [ ] Misure di riferimento con la scansione lineare, salvate nel repo
 - [ ] Indice spaziale minimo per partizione
-- [ ] Configurazione della partizione alla creazione (indice e k)
+- [ ] Configurazione della partizione alla creazione nell'API (indice e k)
 - [ ] Aggregazione delle query su più partizioni
 - [ ] Più partizioni con indici diversi (statiche e dinamiche)
 - [ ] Client di test per la strategia mista per tipo di entità

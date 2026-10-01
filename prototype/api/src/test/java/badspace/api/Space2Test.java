@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import badspace.common.Box2;
 import badspace.common.Circle2;
 import badspace.common.Entity2;
+import badspace.common.IndexType;
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode2;
 import badspace.common.Point2;
@@ -32,7 +33,7 @@ class Space2Test {
         int calls;
 
         @Override
-        public void createPartition(PartitionId partition) {
+        public void createPartition(PartitionId partition, IndexType index) {
             partitions.put(partition, new HashMap<>());
         }
 

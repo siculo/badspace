@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Index benchmarks</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --card: #f6f8fa; --line: #d0d7de;
+    --better: #1a7f37; --worse: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0; --card: #161b22; --line: #30363d;
+      --better: #3fb950; --worse: #f85149;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 1500px; padding: 16px; background: var(--bg); color: var(--fg);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 32px 0 4px; }
+  .muted { color: var(--muted); }
+  .controls { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px 16px;
+              padding: 10px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .controls label { display: flex; align-items: center; gap: 6px; }
+  select { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line);
+           border-radius: 4px; padding: 2px 4px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 0; }
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px;
+            vertical-align: -1px; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  figure { margin: 0; padding: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; }
+  figcaption { font-weight: 600; margin-bottom: 4px; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { fill: var(--muted); font-size: 10px; }
+  svg .grid { stroke: var(--line); stroke-width: 1; }
+  .table-wrap { overflow-x: auto; margin-top: 12px; }
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 3px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+  .better { color: var(--better); }
+  .worse { color: var(--worse); }
+  .ratio { font-size: 12px; margin-left: 4px; }
+</style>
+</head>
+<body>
+<h1>Index benchmarks</h1>
+<p class="muted" id="runs"></p>
+<div class="controls" id="controls"></div>
+<div class="legend" id="legend"></div>
+<main id="sections"></main>
+<script>
+const RUNS = /*DATA*/[];
+
+// Parameters that are on the axes or in the series, so they are not filters.
+const AXES = ['index', 'distribution', 'size'];
+const ORDER = ['build', 'insert', 'remove', 'update', 'get', 'findInRegion', 'findNearest', 'bytesPerEntity'];
+const TITLES = {
+  build: 'Build (all entities in one call)', insert: 'Insert', remove: 'Remove', update: 'Update',
+  get: 'Get by ID', findInRegion: 'Range query', findNearest: 'k-nearest query', bytesPerEntity: 'Memory per entity'
+};
+const COLORS = ['#2f6fdf', '#e8590c', '#2b9348', '#c2255c', '#7048e8', '#0b7285', '#a87900', '#495057'];
+const PERCENTILES = { p50: '50.0', p90: '90.0', p99: '99.0' };
+
+const rows = [];
+for (const run of RUNS) {
+  for (const r of run.results) {
+    const p = r.params || {};
+    rows.push({
+      op: r.benchmark.substring(r.benchmark.lastIndexOf('.') + 1),
+      mode: r.mode,
+      params: p,
+      series: run.label + ' · ' + (p.index || '?'),
+      metric: r.primaryMetric
+    });
+  }
+}
+const unique = values => [...new Set(values)];
+const numericSort = values => values.sort((a, b) => (isNaN(a) || isNaN(b)) ? String(a).localeCompare(b) : a - b);
+const series = unique(rows.map(r => r.series));
+const distributions = unique(rows.map(r => r.params.distribution).filter(Boolean));
+const filters = {};
+for (const r of rows) {
+  for (const [name, value] of Object.entries(r.params)) {
+    if (!AXES.includes(name)) (filters[name] ??= new Set()).add(value);
+  }
+}
+for (const name of Object.keys(filters)) filters[name] = numericSort([...filters[name]]);
+const hasSamples = rows.some(r => r.mode === 'sample');
+
+const state = { metric: 'mean', baseline: series[0], perEntity: false, filters: {} };
+for (const [name, values] of Object.entries(filters)) state.filters[name] = values[0];
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const fmt = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v.toPrecision(3);
+const fmtSize = n => n >= 1e6 ? n / 1e6 + 'M' : n >= 1e3 ? n / 1e3 + 'k' : String(n);
+const color = s => COLORS[series.indexOf(s) % COLORS.length];
+
+/** Returns the value of a row for the chosen metric, or undefined if the row does not have it. */
+function value(r) {
+  let v;
+  if (state.metric === 'mean' || r.mode === 'ss' || r.mode === 'footprint') {
+    if (r.mode === 'sample') return undefined;
+    v = r.metric.score;
+  } else {
+    if (r.mode !== 'sample') return undefined;
+    v = r.metric.scorePercentiles?.[PERCENTILES[state.metric]];
+  }
+  if (v === undefined) return undefined;
+  if (state.perEntity && r.params.batchSize) v /= Number(r.params.batchSize);
+  return v;
+}
+
+function unit(r) {
+  let u = r.metric.scoreUnit;
+  if (state.perEntity && r.params.batchSize) u = u.replace('/op', '/entity');
+  return u;
+}
+
+function selected(r) {
+  return Object.entries(r.params).every(([name, v]) => AXES.includes(name) || state.filters[name] === v);
+}
+
+function renderControls() {
+  const parts = [];
+  parts.push(`<label>Baseline <select data-key="baseline">${series.map(s =>
+    `<option ${s === state.baseline ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>`);
+  if (hasSamples) {
+    parts.push(`<label>Metric <select data-key="metric">${['mean', 'p50', 'p90', 'p99'].map(m =>
+      `<option ${m === state.metric ? 'selected' : ''}>${m}</option>`).join('')}</select></label>`);
+  }
+  for (const [name, values] of Object.entries(filters)) {
+    parts.push(`<label>${esc(name)} <select data-filter="${esc(name)}">${values.map(v =>
+      `<option ${v === state.filters[name] ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>`);
+  }
+  if (filters.batchSize) {
+    parts.push(`<label><input type="checkbox" data-key="perEntity" ${state.perEntity ? 'checked' : ''}> time per entity</label>`);
+  }
+  const box = document.getElementById('controls');
+  box.innerHTML = parts.join('');
+  box.querySelectorAll('select, input').forEach(el => el.addEventListener('change', () => {
+    if (el.dataset.filter) state.filters[el.dataset.filter] = el.value;
+    else if (el.type === 'checkbox') state[el.dataset.key] = el.checked;
+    else state[el.dataset.key] = el.value;
+    render();
+  }));
+}
+
+/** Draws a log-log line chart with one line for each series. */
+function chart(lines, unitLabel) {
+  const W = 320, H = 220, L = 46, R = 10, T = 20, B = 26;
+  const points = lines.flatMap(l => l.points);
+  if (points.length === 0) return '<p class="muted">No data</p>';
+  const logs = (values, pad) => {
+    let lo = Math.floor(Math.log10(Math.min(...values))), hi = Math.ceil(Math.log10(Math.max(...values)));
+    if (lo === hi) { lo -= pad; hi += pad; }
+    return [lo, hi];
+  };
+  const [x0, x1] = logs(points.map(p => p[0]), 1);
+  const [y0, y1] = logs(points.map(p => p[1]), 1);
+  const sx = x => L + (Math.log10(x) - x0) / (x1 - x0) * (W - L - R);
+  const sy = y => H - B - (Math.log10(y) - y0) / (y1 - y0) * (H - T - B);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  for (let e = y0; e <= y1; e++) {
+    const y = sy(10 ** e);
+    svg += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/>`;
+    svg += `<text x="${L - 4}" y="${y + 3}" text-anchor="end">${fmt(10 ** e)}</text>`;
+  }
+  for (let e = x0; e <= x1; e++) {
+    const x = sx(10 ** e);
+    svg += `<line class="grid" x1="${x}" x2="${x}" y1="${T}" y2="${H - B}"/>`;
+    svg += `<text x="${x}" y="${H - B + 13}" text-anchor="middle">${fmtSize(10 ** e)}</text>`;
+  }
+  svg += `<text x="${W - R}" y="${H - 2}" text-anchor="end">entities</text>`;
+  svg += `<text x="2" y="${T - 10}">${esc(unitLabel)}</text>`;
+  for (const l of lines) {
+    const pts = l.points.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(' ');
+    svg += `<polyline points="${pts}" fill="none" stroke="${l.color}" stroke-width="2"/>`;
+    for (const [x, y] of l.points) {
+      svg += `<circle cx="${sx(x)}" cy="${sy(y)}" r="3" fill="${l.color}">` +
+        `<title>${esc(l.name)}\n${fmtSize(x)} entities: ${fmt(y)} ${esc(unitLabel)}</title></circle>`;
+    }
+  }
+  return svg + '</svg>';
+}
+
+function renderSection(op) {
+  const all = rows.filter(r => r.op === op);
+  const data = all.filter(r => selected(r) && value(r) !== undefined);
+  const used = unique(all.flatMap(r => Object.keys(r.params))).filter(n => !AXES.includes(n));
+  const subtitle = used.map(n => `${n} = ${state.filters[n]}`).join(', ');
+  let html = `<h2>${esc(TITLES[op] || op)}</h2><p class="muted">${esc(subtitle || 'no other parameters')}` +
+    `${state.metric !== 'mean' && !data.some(r => r.mode === 'sample') ? ' · mean only' : ''}</p>`;
+  if (data.length === 0) return html + '<p class="muted">No data for these filters.</p>';
+  const unitLabel = unit(data[0]);
+  const sizes = numericSort(unique(data.map(r => Number(r.params.size))));
+  const find = (s, d, n) => data.find(r => r.series === s && r.params.distribution === d && Number(r.params.size) === n);
+
+  html += '<div class="charts">';
+  for (const d of distributions) {
+    const lines = series.map(s => ({
+      name: s, color: color(s),
+      points: sizes.map(n => [n, find(s, d, n)]).filter(([, r]) => r).map(([n, r]) => [n, value(r)])
+    })).filter(l => l.points.length > 0);
+    if (lines.length > 0) html += `<figure><figcaption>${esc(d)}</figcaption>${chart(lines, unitLabel)}</figure>`;
+  }
+  html += '</div>';
+
+  html += `<div class="table-wrap"><table><thead><tr><th>distribution</th><th>size</th>` +
+    series.map(s => `<th><span class="swatch" style="background:${color(s)}"></span>${esc(s)}</th>`).join('') +
+    `</tr></thead><tbody>`;
+  for (const d of distributions) {
+    for (const n of sizes) {
+      const base = find(state.baseline, d, n);
+      const baseValue = base && value(base);
+      html += `<tr><td>${esc(d)}</td><td>${fmtSize(n)}</td>`;
+      for (const s of series) {
+        const r = find(s, d, n);
+        if (!r) { html += '<td class="muted">–</td>'; continue; }
+        const v = value(r);
+        let ratio = '';
+        if (s !== state.baseline && baseValue) {
+          const q = v / baseValue;
+          const cls = q < 0.9 ? 'better' : q > 1.1 ? 'worse' : 'muted';
+          ratio = `<span class="ratio ${cls}">×${q.toFixed(2)}</span>`;
+        }
+        html += `<td>${fmt(v)}${ratio}</td>`;
+      }
+      html += '</tr>';
+    }
+  }
+  return html + `</tbody></table></div><p class="muted">Values in ${esc(unitLabel)}, lower is better. ` +
+    `Ratios are against the baseline.</p>`;
+}
+
+function render() {
+  renderControls();
+  document.getElementById('legend').innerHTML = series.map(s =>
+    `<span><span class="swatch" style="background:${color(s)}"></span>${esc(s)}</span>`).join('');
+  const ops = unique(rows.map(r => r.op)).sort((a, b) =>
+    (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99));
+  document.getElementById('sections').innerHTML = ops.map(renderSection).join('');
+}
+
+const first = RUNS.flatMap(r => r.results).find(r => r.jdkVersion);
+document.getElementById('runs').textContent = RUNS.map(r => `${r.label} (${r.results.length} results)`).join(' · ') +
+  (first ? ` · JDK ${first.jdkVersion}, ${first.vmName}` : '');
+render();
+</script>
+</body>
+</html>
