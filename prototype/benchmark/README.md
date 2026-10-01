@@ -61,7 +61,7 @@ java -jar target/benchmarks.jar run quick --include "insert|remove|update" --par
 java -jar target/benchmarks.jar run quick --include Footprint
 
 # Measures to keep, with the percentiles
-java -jar target/benchmarks.jar run full --percentiles --output results/2026-10-01-linear-scan-full.json
+java -jar target/benchmarks.jar run full --percentiles --output results/reference-linear-full.json
 ```
 
 ## What is measured
@@ -134,7 +134,7 @@ operation. Each section has:
   10% worse.
 
 A series is a pair of result file and index, for example
-`2026-10-01-linear-scan-quick · LINEAR_SCAN`.
+`reference-linear-quick · LINEAR_SCAN`.
 
 The controls at the top choose:
 
@@ -162,7 +162,11 @@ one more benchmark, with mode `footprint`.
    the new index is measured with no other change.
 3. Run the benchmarks and open the report with the linear scan as baseline.
    To measure only the new index, use `--param index=NEW_INDEX` and pass the
-   reference results to the report together with the new ones.
+   reference results to the report together with the new ones:
+
+   ```
+   java -jar target/benchmarks.jar report --output results/comparison.html results/reference-linear-quick.json results/<file>.json
+   ```
 
 ## Reliable measures
 
@@ -192,9 +196,17 @@ one more benchmark, with mode `footprint`.
 ## Results in the repository
 
 The `results/` directory is ignored by git, because the measures depend on
-the machine. To keep a measure, use a name like
-`<date>-<index or change>-<profile>.json` and add the file with
+the machine. To keep a measure, add the JSON file and its HTML report with
 `git add -f`.
+
+The reference measures of an index are named
+`reference-<index>-<profile>.json`. The repository has
+`reference-linear-quick.json`, the linear scan with the quick profile. Like
+all the measures, it is valid only for the machine where it was taken: on
+another machine, take it again before comparing it with a new index.
+
+The other measures to keep are named
+`<date>-<index or change>-<profile>.json`.
 
 ## Unit tests
 

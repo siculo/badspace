@@ -61,7 +61,7 @@ java -jar target/benchmarks.jar run quick --include "insert|remove|update" --par
 java -jar target/benchmarks.jar run quick --include Footprint
 
 # Misure da conservare, con i percentili
-java -jar target/benchmarks.jar run full --percentiles --output results/2026-10-01-linear-scan-full.json
+java -jar target/benchmarks.jar run full --percentiles --output results/reference-linear-full.json
 ```
 
 ## Cosa si misura
@@ -135,7 +135,7 @@ operazione. Ogni sezione ha:
   peggiore di almeno il 10%.
 
 Una serie è una coppia di file di risultati e indice, per esempio
-`2026-10-01-linear-scan-quick · LINEAR_SCAN`.
+`reference-linear-quick · LINEAR_SCAN`.
 
 I controlli in alto scelgono:
 
@@ -164,7 +164,11 @@ compare come un benchmark in più, con modalità `footprint`.
 3. Eseguire i benchmark e aprire il report con la scansione lineare come
    riferimento. Per misurare solo il nuovo indice si usa
    `--param index=NUOVO_INDICE` e si passano al report i risultati di
-   riferimento insieme a quelli nuovi.
+   riferimento insieme a quelli nuovi:
+
+   ```
+   java -jar target/benchmarks.jar report --output results/confronto.html results/reference-linear-quick.json results/<file>.json
+   ```
 
 ## Misure affidabili
 
@@ -196,9 +200,17 @@ compare come un benchmark in più, con modalità `footprint`.
 ## Risultati nel repository
 
 La directory `results/` è esclusa da git, perché le misure dipendono dalla
-macchina. Per conservare una misura si usa un nome come
-`<data>-<indice o modifica>-<profilo>.json` e si aggiunge il file con
-`git add -f`.
+macchina. Per conservare una misura si aggiungono il file JSON e il suo
+report HTML con `git add -f`.
+
+Le misure di riferimento di un indice si chiamano
+`reference-<indice>-<profilo>.json`. Nel repository c'è
+`reference-linear-quick.json`, la scansione lineare con il profilo rapido.
+Come tutte le misure, vale solo per la macchina dove è stata presa: su
+un'altra macchina va rifatta prima di confrontarla con un nuovo indice.
+
+Le altre misure da conservare si chiamano
+`<data>-<indice o modifica>-<profilo>.json`.
 
 ## Test unitari
 

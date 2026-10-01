@@ -77,6 +77,9 @@ public final class BenchmarkMain {
                     "shape", List.of("BOX", "CIRCLE")),
             1, 3, TimeValue.seconds(1), 5, TimeValue.seconds(1), 10, 20);
 
+    /** The directories in the path of the JVM of a result, on Linux or Windows. */
+    private static final Pattern JVM_DIRECTORIES = Pattern.compile("(?<=\"jvm\" : \")[^\"]*[/\\\\](?=[^\"/\\\\]*\")");
+
     private static final String USAGE = """
             Usage:
               run [quick|full] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
@@ -210,7 +213,9 @@ public final class BenchmarkMain {
         if (output.getParent() != null) {
             Files.createDirectories(output.getParent());
         }
-        Files.writeString(output, "[\n" + String.join(",\n", entries) + "\n]\n");
+        // Keep only the name of the JVM executable: its path shows the local file system.
+        String json = JVM_DIRECTORIES.matcher("[\n" + String.join(",\n", entries) + "\n]\n").replaceAll("");
+        Files.writeString(output, json);
     }
 
     private static void report(List<String> args) throws IOException {
