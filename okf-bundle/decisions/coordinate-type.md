@@ -4,7 +4,7 @@ title: Tipo delle coordinate
 description: Nei prototipi le coordinate sono double; la scelta per l'implementazione finale (double, interi a 64 bit o tipo generico) è rimandata, con i limiti di precisione, rappresentazione e determinismo di ciascuna opzione.
 tags: [badspace, design, coordinates, precision]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T15:21:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
 ---
 
 # Decisione
@@ -43,6 +43,15 @@ Due avvertenze:
 - **Gli errori si accumulano**: integrando posizioni a ogni tick,
   lontano dall'origine gli spostamenti piccoli vengono arrotondati male
   o persi. Il limite pratico è più basso di quello teorico.
+
+# Limiti nei prototipi
+
+Le entità di una partizione hanno coordinate dentro i limiti fissati
+dal suo indice (vedi [limiti delle
+coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate)),
+mai oltre un tetto globale di `|c| ≤ 2^60`. `NaN` è sempre rifiutato.
+Con interi a 64 bit i limiti ci sarebbero comunque: il contratto dei
+limiti vale per entrambe le scelte.
 
 # Alternativa: interi a 64 bit
 

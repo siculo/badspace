@@ -37,5 +37,7 @@ class Region3Test {
     void sphereRejectsBadRadius() {
         assertThrows(IllegalArgumentException.class, () -> new Sphere3(new Point3(0, 0, 0), -1));
         assertThrows(IllegalArgumentException.class, () -> new Sphere3(new Point3(0, 0, 0), Double.NaN));
+        assertThrows(IllegalArgumentException.class,
+                () -> new Sphere3(new Point3(0, 0, 0), Double.POSITIVE_INFINITY));
     }
 }

@@ -1,5 +1,6 @@
 package badspace.api;
 
+import badspace.common.CoordinateLimits;
 import badspace.common.Entity3;
 import badspace.common.PartitionId;
 import badspace.common.PartitionNode3;
@@ -60,7 +61,11 @@ public final class Partition3 implements Partition {
         return insertAll(List.of(position))[0];
     }
 
-    /** Adds many entities in one call and returns their IDs, in the same order as the positions. */
+    /**
+     * Adds many entities in one call and returns their IDs, in the same order as the positions.
+     * Fails with IllegalArgumentException if a position is outside the {@linkplain #limits() limits};
+     * in this case no entity is added.
+     */
     public long[] insertAll(List<Point3> positions) {
         checkNotRemoved();
         long[] entityIds = new long[positions.size()];
@@ -89,14 +94,18 @@ public final class Partition3 implements Partition {
         return node.getAll(id, entityIds);
     }
 
-    /** Moves an entity. Fails with NoSuchElementException if the ID is not in the partition. */
+    /**
+     * Moves an entity. Fails with NoSuchElementException if the ID is not in the partition,
+     * and with IllegalArgumentException if the position is outside the {@linkplain #limits() limits}.
+     */
     public void update(long entityId, Point3 position) {
         updateAll(List.of(new Entity3(entityId, position)));
     }
 
     /**
      * Moves many entities in one call. Fails with NoSuchElementException if an ID is not
-     * in the partition; in this case no entity moves.
+     * in the partition, and with IllegalArgumentException if a position is outside the
+     * {@linkplain #limits() limits}; in these cases no entity moves.
      */
     public void updateAll(List<Entity3> entities) {
         checkNotRemoved();
@@ -141,5 +150,11 @@ public final class Partition3 implements Partition {
     public int size() {
         checkNotRemoved();
         return node.size(id);
+    }
+
+    @Override
+    public CoordinateLimits limits() {
+        checkNotRemoved();
+        return node.limits(id);
     }
 }

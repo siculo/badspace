@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente) e delle query di range e k-nearest su una partizione, mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T16:25:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
 ---
 
 # Stato
@@ -69,6 +69,7 @@ ogni coordinata senza cambiare il resto.
 | Lettura per ID | `get(id)`, `getAll(long[])` | `get` restituisce un `Optional`; `getAll` restituisce le entità nell'ordine degli ID e salta quelli assenti |
 | Aggiornamento | `update(id, Point)`, `updateAll(List<Entity>)` | Cambia la posizione; se un ID compare più volte vale l'ultima posizione |
 | Rimozione | `remove(id)`, `removeAll(long[])` | Nell'interfaccia comune `Partition`, insieme a `size()` |
+| Limiti | `limits()` | Nell'interfaccia comune `Partition`: le coordinate ammesse per le entità, fissate dall'indice (vedi [limiti delle coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate)) |
 
 | Query di range | `findInRegion(Region)` | Restituisce le entità dentro la regione o sul suo bordo, in ordine non definito |
 | Query k-nearest | `findNearest(Point, count)` | Restituisce al più `count` entità, ordinate per distanza dal punto e a parità di distanza per ID |
@@ -128,6 +129,11 @@ della partizione.
 |---|---|
 | ID inesistente in `update`/`remove` | `NoSuchElementException` |
 | ID già presente o duplicato in `insert`, ID duplicato in `remove` | `IllegalArgumentException` |
+| Posizione fuori dai limiti della partizione in `insert`/`update` | `IllegalArgumentException` |
+
+Le coordinate `NaN` o infinite sono rifiutate già alla costruzione di
+`Point2`/`Point3`, e un raggio infinito alla costruzione di
+`Circle2`/`Sphere3`, con `IllegalArgumentException`.
 
 # Vincoli dal partizionamento
 

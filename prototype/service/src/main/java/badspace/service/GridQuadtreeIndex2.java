@@ -30,8 +30,10 @@ import java.util.PriorityQueue;
  * k-nearest query reads the nodes from the nearest to the farthest, and adds
  * the cells in rings around the point when they can be near enough.
  * <p>
- * Entities with a coordinate that is NaN, or so large that its cell is outside
- * the int range, are not in a cell: they are in a list that each query reads.
+ * The storage keeps the entities in the limits of the index, at most
+ * {@code IndexConfig.CELLS_PER_SIDE} cells from the origin on each axis, so
+ * each entity is in a cell with int coordinates. The regions and the points
+ * of the queries can be outside the limits.
  */
 final class GridQuadtreeIndex2 implements SpatialIndex2 {
 
@@ -46,11 +48,9 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     private final int mergeLimit;
     /** The root node of each cell with entities. */
     private final Map<CellKey, Node> cells = new HashMap<>();
-    /** The entities that are not in a cell. */
-    private final SlotList outsideCells = new SlotList();
-    /** For each slot, its leaf, or null if the entity is not in a cell. */
+    /** For each slot, its leaf. */
     private Node[] leafOf = new Node[16];
-    /** For each slot, its place in the list of its leaf, or in the list of the entities not in a cell. */
+    /** For each slot, its place in the list of its leaf. */
     private int[] placeOf = new int[16];
 
     /** The cell size must be a power of 2 and the leaf capacity positive, as in {@code IndexConfig.GridQuadtree}. */
@@ -74,7 +74,7 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     @Override
     public void moved(int slot, Point2 from, Point2 to) {
         Node leaf = leafOf[slot];
-        if (leaf != null && leaf.contains(to)) {
+        if (leaf.contains(to)) {
             return;
         }
         // Simple but not the fastest way: a move to a near leaf could go up
@@ -92,7 +92,7 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     public void relocated(int from, int to, Point2 position) {
         Node leaf = leafOf[from];
         int place = placeOf[from];
-        (leaf == null ? outsideCells : leaf.slots).set(place, to);
+        leaf.slots.set(place, to);
         leafOf[to] = leaf;
         placeOf[to] = place;
         leafOf[from] = null;
@@ -101,16 +101,13 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     @Override
     public int[] findInRegion(Region2 region) {
         SlotList found = new SlotList();
-        for (int i = 0; i < outsideCells.size(); i++) {
-            int slot = outsideCells.get(i);
-            if (region.contains(storage.positionAt(slot))) {
-                found.add(slot);
-            }
-        }
         CellRange range = switch (region) {
             case Box2 box -> new CellRange(
                     cellOf(box.min().x()), cellOf(box.max().x()),
                     cellOf(box.min().y()), cellOf(box.max().y()));
+            // When the square of the radius overflows, the circle contains each
+            // point whose distance overflows too: all the cells must be read.
+            case Circle2 circle when circle.radius() * circle.radius() == Double.POSITIVE_INFINITY -> CellRange.ALL;
             // A point on the border of the circle can be just outside the
             // box around it, because of rounding: one more cell on each side
             // keeps it in the range. The nodes then check the exact distance.
@@ -142,21 +139,11 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     @Override
     public int[] findNearest(Point2 point, int count) {
         NearestSlots nearest = new NearestSlots(count);
-        for (int i = 0; i < outsideCells.size(); i++) {
-            offer(nearest, point, outsideCells.get(i));
-        }
-        if (Double.isNaN(point.x()) || Double.isNaN(point.y())) {
-            // All the distances are NaN, so the order is by ID only.
-            for (Node root : cells.values()) {
-                offerAll(nearest, point, root);
-            }
-            return nearest.slots();
-        }
         PriorityQueue<NodeDistance> queue =
                 new PriorityQueue<>(Comparator.comparingDouble(NodeDistance::distanceSquared));
         long x = cellOf(point.x());
         long y = cellOf(point.y());
-        // A point that is not in a cell has no rings: all the cells go in the queue.
+        // A point far outside the limits has no rings: all the cells go in the queue.
         boolean allCellsQueued = !isInt(x) || !isInt(y);
         if (allCellsQueued) {
             for (Node root : cells.values()) {
@@ -207,8 +194,8 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     }
 
     /**
-     * Returns the cell coordinate of a space coordinate. A coordinate that is
-     * NaN or too large for a cell gives a value outside the int range.
+     * Returns the cell coordinate of a space coordinate. A coordinate of a
+     * query that is too large for a cell gives a value outside the int range.
      */
     private long cellOf(double coordinate) {
         double cell = Math.floor(coordinate / cellSize);
@@ -223,11 +210,7 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     private void add(int slot, Point2 position) {
         long x = cellOf(position.x());
         long y = cellOf(position.y());
-        if (!isInt(x) || !isInt(y)) {
-            leafOf[slot] = null;
-            placeOf[slot] = outsideCells.add(slot);
-            return;
-        }
+        // The limits of the index keep the cell coordinates in the int range.
         Node node = cells.computeIfAbsent(new CellKey((int) x, (int) y),
                 key -> new Node(null, key.x * cellSize, key.y * cellSize, cellSize, 0));
         while (!node.isLeaf()) {
@@ -244,10 +227,10 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
         placeOf[slot] = leaf.slots.add(slot);
     }
 
-    /** Removes the slot from its list, then merges the nodes that have few entities and drops an empty cell. */
+    /** Removes the slot from its leaf, then merges the nodes that have few entities and drops an empty cell. */
     private void remove(int slot) {
         Node leaf = leafOf[slot];
-        SlotList list = leaf == null ? outsideCells : leaf.slots;
+        SlotList list = leaf.slots;
         int place = placeOf[slot];
         int last = list.removeLast();
         if (last != slot) {
@@ -255,9 +238,6 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
             placeOf[last] = place;
         }
         leafOf[slot] = null;
-        if (leaf == null) {
-            return;
-        }
         // The counts grow from the leaf to the root, so the nodes to merge
         // are at the start of the path; the highest one takes them all.
         Node toMerge = null;
@@ -435,17 +415,6 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
         nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
     }
 
-    private void offerAll(NearestSlots nearest, Point2 point, Node node) {
-        if (node.isLeaf()) {
-            for (int i = 0; i < node.slots.size(); i++) {
-                offer(nearest, point, node.slots.get(i));
-            }
-        } else {
-            for (Node child : node.children) {
-                offerAll(nearest, point, child);
-            }
-        }
-    }
 
     /**
      * Returns the ring of the cell around the cell (x, y): the largest
@@ -520,6 +489,11 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
      * moved into the int range, so min is never larger than max.
      */
     private record CellRange(long minX, long maxX, long minY, long maxY) {
+
+        /** All the cells of the int range. */
+        static final CellRange ALL = new CellRange(
+                Integer.MIN_VALUE, Integer.MAX_VALUE,
+                Integer.MIN_VALUE, Integer.MAX_VALUE);
 
         CellRange {
             minX = toInt(minX);

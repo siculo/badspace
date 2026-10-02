@@ -1,6 +1,8 @@
 package badspace.service;
 
+import badspace.common.CoordinateLimits;
 import badspace.common.Entity2;
+import badspace.common.IndexConfig;
 import badspace.common.Point2;
 import badspace.common.Region2;
 import java.util.ArrayList;
@@ -23,6 +25,8 @@ import java.util.function.Function;
  * does not change the partition.
  * Queries go to the spatial index of the partition, which the storage informs
  * of each change. The index finds the slots and the storage builds the entities.
+ * The positions of the entities must be in the limits of the index: writes
+ * outside them fail, so the indices never see them.
  */
 final class PartitionStorage2 {
 
@@ -33,19 +37,36 @@ final class PartitionStorage2 {
     private double[] coords = new double[INITIAL_CAPACITY * DIMENSIONS];
     private final Map<Long, Integer> slotById = new HashMap<>();
     private int size;
+    private final CoordinateLimits limits;
     private final SpatialIndex2 index;
 
     /** Creates a storage that uses the linear scan as index. */
     PartitionStorage2() {
-        this(LinearScanIndex2::new);
+        this(IndexConfig.linearScan());
+    }
+
+    /** Creates a storage with the given index, and with its limits. */
+    PartitionStorage2(IndexConfig index) {
+        this(index.limits(), indexFactory(index));
     }
 
     /**
-     * Creates a storage with the index made by the factory. The factory gets
-     * this storage, so the index can read it during the queries.
+     * Creates a storage with the given limits and the index made by the
+     * factory. The factory gets this storage, so the index can read it
+     * during the queries.
      */
-    PartitionStorage2(Function<PartitionStorage2, SpatialIndex2> indexFactory) {
+    PartitionStorage2(CoordinateLimits limits, Function<PartitionStorage2, SpatialIndex2> indexFactory) {
+        this.limits = limits;
         this.index = indexFactory.apply(this);
+    }
+
+    private static Function<PartitionStorage2, SpatialIndex2> indexFactory(IndexConfig index) {
+        return switch (index) {
+            case IndexConfig.LinearScan _ -> LinearScanIndex2::new;
+            case IndexConfig.UniformGrid g -> storage -> new UniformGridIndex2(storage, g.cellSize());
+            case IndexConfig.GridQuadtree g ->
+                    storage -> new GridQuadtreeIndex2(storage, g.cellSize(), g.leafCapacity());
+        };
     }
 
     void insertAll(List<Entity2> entities) {
@@ -54,6 +75,7 @@ final class PartitionStorage2 {
             if (slotById.containsKey(e.id()) || !seen.add(e.id())) {
                 throw new IllegalArgumentException("Duplicate entity ID: " + e.id());
             }
+            checkLimits(e);
         }
         ensureCapacity(size + entities.size());
         for (Entity2 e : entities) {
@@ -79,6 +101,7 @@ final class PartitionStorage2 {
     void updateAll(List<Entity2> entities) {
         for (Entity2 e : entities) {
             slotOf(e.id());
+            checkLimits(e);
         }
         for (Entity2 e : entities) {
             int slot = slotById.get(e.id());
@@ -119,6 +142,10 @@ final class PartitionStorage2 {
         return size;
     }
 
+    CoordinateLimits limits() {
+        return limits;
+    }
+
     /** Returns the ID of the entity in the slot. Slots go from 0 to size() - 1. */
     long idAt(int slot) {
         return ids[slot];
@@ -143,6 +170,13 @@ final class PartitionStorage2 {
         index.removed(slot, position);
         if (slot != last) {
             index.relocated(last, slot, positionAt(slot));
+        }
+    }
+
+    private void checkLimits(Entity2 e) {
+        if (!limits.contains(e.position())) {
+            throw new IllegalArgumentException("Position of entity " + e.id() + " is outside the limits "
+                    + limits.min() + ", " + limits.max() + ": " + e.position());
         }
     }
 

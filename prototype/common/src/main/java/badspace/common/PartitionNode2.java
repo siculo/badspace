@@ -31,7 +31,8 @@ public interface PartitionNode2 {
     /**
      * Adds new entities to a partition. The API generates the entity IDs, which must
      * not be used anywhere else. Fails with IllegalArgumentException if an ID is
-     * already in the partition or appears twice in the list.
+     * already in the partition or appears twice in the list, or if a position is
+     * outside the {@linkplain #limits limits} of the partition.
      */
     void insertAll(PartitionId partition, List<Entity2> entities);
 
@@ -43,7 +44,9 @@ public interface PartitionNode2 {
 
     /**
      * Sets the position of existing entities. Fails with NoSuchElementException
-     * if an ID is not in the partition. If an ID appears more than once, the last position wins.
+     * if an ID is not in the partition, and with IllegalArgumentException if a
+     * position is outside the {@linkplain #limits limits} of the partition.
+     * If an ID appears more than once, the last position wins.
      */
     void updateAll(PartitionId partition, List<Entity2> entities);
 
@@ -68,4 +71,11 @@ public interface PartitionNode2 {
 
     /** Returns the number of entities in a partition. */
     int size(PartitionId partition);
+
+    /**
+     * Returns the coordinates that the entities of a partition can have. The
+     * index of the partition sets them: they are the same as
+     * {@link IndexConfig#limits()} of the index chosen at creation.
+     */
+    CoordinateLimits limits(PartitionId partition);
 }

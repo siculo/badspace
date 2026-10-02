@@ -50,6 +50,16 @@ class LocalPartitionNode2Test {
     }
 
     @Test
+    void limitsComeFromTheIndexOfThePartition() {
+        node.createPartition(P2, IndexConfig.gridQuadtree(128));
+        assertEquals(IndexConfig.linearScan().limits(), node.limits(P1));
+        assertEquals(IndexConfig.gridQuadtree(128).limits(), node.limits(P2));
+        node.insertAll(P1, List.of(entity(3, 0x1p40, 0)));
+        assertThrows(IllegalArgumentException.class, () -> node.insertAll(P2, List.of(entity(3, 0x1p40, 0))));
+        assertEquals(0, node.size(P2));
+    }
+
+    @Test
     void insertAddsEntitiesToTheirPartitionOnly() {
         node.createPartition(P2);
         node.insertAll(P1, List.of(entity(42, 1, 2), entity(43, 3, 4)));

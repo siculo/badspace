@@ -42,4 +42,14 @@ class IndexConfigTest {
         assertThrows(IllegalArgumentException.class, () -> IndexConfig.gridQuadtree(1, 0));
         assertThrows(IllegalArgumentException.class, () -> IndexConfig.gridQuadtree(1, -1));
     }
+
+    @Test
+    void limitsDependOnTheIndexAndItsCellSize() {
+        assertEquals(CoordinateLimits.symmetric(0x1p60), IndexConfig.linearScan().limits());
+        assertEquals(CoordinateLimits.symmetric(0x1p37), IndexConfig.gridQuadtree(128).limits());
+        assertEquals(CoordinateLimits.symmetric(1), IndexConfig.gridQuadtree(0x1p-30).limits());
+        assertEquals(CoordinateLimits.symmetric(0x1p60), IndexConfig.gridQuadtree(0x1p30).limits());
+        assertEquals(CoordinateLimits.symmetric(0x1p30 * 100), IndexConfig.uniformGrid(100).limits());
+        assertEquals(CoordinateLimits.symmetric(0x1p60), IndexConfig.uniformGrid(1e300).limits());
+    }
 }

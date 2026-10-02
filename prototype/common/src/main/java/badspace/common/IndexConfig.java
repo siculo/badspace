@@ -3,12 +3,35 @@ package badspace.common;
 /**
  * Spatial index of a partition, with its parameters, chosen when the partition
  * is created. All the indices give the same query results; they differ only in
- * speed and memory. New indices can be added later as new records.
+ * speed and memory, and in the {@linkplain #limits() limits} of the
+ * coordinates that the entities can have. New indices can be added later as
+ * new records.
  */
 public sealed interface IndexConfig {
 
-    /** No structure: each query reads all the entities of the partition. */
+    /**
+     * Number of cells on each side of the origin, on each axis, that the
+     * indices with cells accept: their limits are this number of cells, so
+     * the cell coordinates fit in an int with a large margin.
+     */
+    double CELLS_PER_SIDE = 0x1p30;
+
+    /**
+     * Returns the coordinates that the entities can have with this index. They
+     * are never larger than {@link CoordinateLimits#MAX_ABS}.
+     */
+    CoordinateLimits limits();
+
+    /**
+     * No structure: each query reads all the entities of the partition.
+     * Its limits are the largest ones, {@link CoordinateLimits#MAX_ABS}.
+     */
     record LinearScan() implements IndexConfig {
+
+        @Override
+        public CoordinateLimits limits() {
+            return CoordinateLimits.symmetric(CoordinateLimits.MAX_ABS);
+        }
     }
 
     /**
@@ -16,6 +39,7 @@ public sealed interface IndexConfig {
      * covers the whole space. Only the cells with entities use memory.
      * Updates are cheap; queries are fast when the cell size is close to the
      * size of the regions and the distances of the queries.
+     * Its limits are {@link #CELLS_PER_SIDE} cells on each side of the origin.
      *
      * @param cellSize side of a cell; it must be positive and finite
      */
@@ -27,6 +51,11 @@ public sealed interface IndexConfig {
                 throw new IllegalArgumentException("Bad cell size: " + cellSize);
             }
         }
+
+        @Override
+        public CoordinateLimits limits() {
+            return CoordinateLimits.symmetric(Math.min(CELLS_PER_SIDE * cellSize, CoordinateLimits.MAX_ABS));
+        }
     }
 
     /**
@@ -37,7 +66,8 @@ public sealed interface IndexConfig {
      * again when it has {@code leafCapacity / 2} entities or fewer.
      * <p>
      * The cell size is a power of 2, so the borders of the cells and of their
-     * parts are exact with doubles.
+     * parts are exact with doubles. Its limits are {@link #CELLS_PER_SIDE}
+     * cells on each side of the origin.
      *
      * @param cellSize side of a cell; it must be a power of 2, from
      *        {@link #MIN_CELL_SIZE} to {@link #MAX_CELL_SIZE}
@@ -63,6 +93,11 @@ public sealed interface IndexConfig {
             if (leafCapacity < 1) {
                 throw new IllegalArgumentException("Bad leaf capacity: " + leafCapacity);
             }
+        }
+
+        @Override
+        public CoordinateLimits limits() {
+            return CoordinateLimits.symmetric(Math.min(CELLS_PER_SIDE * cellSize, CoordinateLimits.MAX_ABS));
         }
     }
 

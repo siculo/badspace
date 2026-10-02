@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.common.Box2;
+import badspace.common.CoordinateLimits;
 import badspace.common.Entity2;
 import badspace.common.Point2;
 import badspace.common.Region2;
@@ -21,12 +22,15 @@ class PartitionStorage2Test {
     private static final Point2 C = new Point2(5, 6);
     private static final Point2 D = new Point2(7, 8);
 
+    private static final Point2 OUTSIDE = new Point2(11, 0);
+    private static final CoordinateLimits LIMITS = new CoordinateLimits(-10, 10);
+
     private RecordingIndex index;
     private PartitionStorage2 storage;
 
     @BeforeEach
     void setUp() {
-        storage = new PartitionStorage2(s -> index = new RecordingIndex(s));
+        storage = new PartitionStorage2(LIMITS, s -> index = new RecordingIndex(s));
     }
 
     @Test
@@ -83,7 +87,20 @@ class PartitionStorage2Test {
         assertThrows(NoSuchElementException.class,
                 () -> storage.updateAll(List.of(new Entity2(10, B), new Entity2(99, C))));
         assertThrows(NoSuchElementException.class, () -> storage.removeAll(new long[] {10, 99}));
+        assertThrows(IllegalArgumentException.class,
+                () -> storage.insertAll(List.of(new Entity2(20, B), new Entity2(30, OUTSIDE))));
+        assertThrows(IllegalArgumentException.class,
+                () -> storage.updateAll(List.of(new Entity2(10, B), new Entity2(10, OUTSIDE))));
         assertEquals(List.of(), index.calls);
+        assertEquals(List.of(new Entity2(10, A)), storage.getAll(new long[] {10, 20, 30}));
+    }
+
+    @Test
+    void writesOnTheLimitsAreAccepted() {
+        storage.insertAll(List.of(new Entity2(10, new Point2(-10, -10)), new Entity2(20, A)));
+        storage.updateAll(List.of(new Entity2(20, new Point2(10, 10))));
+        assertEquals(2, storage.size());
+        assertEquals(LIMITS, storage.limits());
     }
 
     @Test

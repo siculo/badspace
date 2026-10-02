@@ -4,7 +4,7 @@ title: Griglia di quadtree
 description: Indice a due livelli, una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
 tags: [badspace, spatial-indexing, grid, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
 ---
 
 # Come funziona
@@ -96,9 +96,14 @@ del compressed quadtree.
   calcola senza errori (con una correzione per i valori negativi molto
   piccoli), quindi un'entità è in un nodo se e solo se è nel box del
   nodo, e le query non hanno bisogno di margini.
-- **Entità fuori dalle celle:** le entità con una coordinata NaN o così
-  grande che la cella esce dall'intervallo degli `int` stanno in una
-  lista a parte, che ogni query legge.
+- **Limiti delle coordinate:** `2^30` celle per lato dall'origine,
+  `L = min(2^30 · cellSize, 2^60)`; con celle di 128 sono `2^37`, circa
+  ±1,4·10¹¹ (vedi [limiti delle
+  coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate)).
+  Ogni entità è quindi in una cella con coordinate `int`. La prima
+  versione accettava anche entità con coordinate `NaN` o fuori dalle
+  celle, tenute in una lista a parte letta da ogni query; con i limiti
+  quella lista non serve più.
 - **K-nearest:** ricerca best-first su una coda di nodi, a cui si
   aggiungono le celle ad anelli intorno al punto quando possono essere
   abbastanza vicine.

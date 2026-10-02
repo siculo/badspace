@@ -1,12 +1,13 @@
 package badspace.service;
 
+import badspace.common.IndexConfig;
 import org.junit.jupiter.api.Nested;
 
 /**
  * Runs the index contract on the uniform grid, against the brute-force model.
- * The test coordinates are mostly between -10 and 10, sometimes up to 1e9, so
- * the cell sizes give few entities per cell, many entities per cell, and
- * cells at the edge of the int range.
+ * The test coordinates are mostly between -10 and 10, sometimes up to 1e9 or
+ * to the limits of the index, so the cell sizes give few entities per cell,
+ * many entities per cell, and entities on the limits.
  */
 class UniformGridIndex2Test {
 
@@ -14,8 +15,8 @@ class UniformGridIndex2Test {
     class SmallCells extends SpatialIndex2Contract {
 
         @Override
-        SpatialIndex2 createIndex(PartitionStorage2 storage) {
-            return new UniformGridIndex2(storage, 0.3);
+        IndexConfig index() {
+            return IndexConfig.uniformGrid(0.3);
         }
     }
 
@@ -23,8 +24,8 @@ class UniformGridIndex2Test {
     class MediumCells extends SpatialIndex2Contract {
 
         @Override
-        SpatialIndex2 createIndex(PartitionStorage2 storage) {
-            return new UniformGridIndex2(storage, 4);
+        IndexConfig index() {
+            return IndexConfig.uniformGrid(4);
         }
     }
 
@@ -32,8 +33,8 @@ class UniformGridIndex2Test {
     class LargeCells extends SpatialIndex2Contract {
 
         @Override
-        SpatialIndex2 createIndex(PartitionStorage2 storage) {
-            return new UniformGridIndex2(storage, 1e6);
+        IndexConfig index() {
+            return IndexConfig.uniformGrid(1e6);
         }
     }
 }

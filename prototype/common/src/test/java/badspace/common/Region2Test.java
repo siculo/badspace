@@ -45,5 +45,7 @@ class Region2Test {
     void circleRejectsBadRadius() {
         assertThrows(IllegalArgumentException.class, () -> new Circle2(new Point2(0, 0), -1));
         assertThrows(IllegalArgumentException.class, () -> new Circle2(new Point2(0, 0), Double.NaN));
+        assertThrows(IllegalArgumentException.class,
+                () -> new Circle2(new Point2(0, 0), Double.POSITIVE_INFINITY));
     }
 }

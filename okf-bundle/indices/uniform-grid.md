@@ -4,7 +4,7 @@ title: Grid uniforme
 description: Indice che divide lo spazio in celle quadrate (2D) o cubiche (3D) della stessa dimensione, tenute in una mappa; aggiornamenti economici, query veloci se la cella è adatta alla densità e alle query.
 tags: [badspace, spatial-indexing, grid]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T10:44:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
 ---
 
 # Come funziona
@@ -48,15 +48,27 @@ ricava con `floor(coordinata / cellSize)` su ogni asse.
   una lista lunga. Il costo è in gran parte inevitabile (vedi
   [quadtree](/indices/quadtree.md#punti-coincidenti)), ma la grid, che
   non divide le celle, non ha problemi di ricorsione.
-- **Coordinate molto grandi.** I valori fuori dall'intervallo degli
-  `int` finiscono nelle celle al bordo, che possono diventare grandi; i
-  risultati restano corretti.
+- **Query con valori enormi.** Se il raggio al quadrato di un cerchio o
+  di una sfera va in overflow, la regione contiene ogni punto (anche la
+  sua distanza al quadrato va in overflow), ma il box
+  `[centro − raggio, centro + raggio]` non copre tutto lo spazio: in
+  questo caso si leggono tutte le celle. Il caso è stato trovato dai
+  test sui limiti e corretto, anche nella griglia di quadtree.
+
+# Limiti delle coordinate
+
+`2^30` celle per lato dall'origine: `L = min(2^30 · cellSize, 2^60)`
+(vedi [limiti delle
+coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate)).
+Con celle di 100 sono circa ±1,1·10¹¹. Le entità restano in celle con
+coordinate `int`; solo le query possono andare oltre, e le loro celle
+si portano dentro l'intervallo degli `int`.
 
 # Decisioni
 
 - **Prese:** grid in 2D e 3D come primo indice spaziale, dimensione
-  della cella scelta alla creazione della partizione, celle in una mappa
-  per avere uno spazio senza limiti.
+  della cella scelta alla creazione della partizione, celle in una mappa:
+  solo le celle con entità usano memoria.
 - **Da fare:** misure con più dimensioni di cella (25, 50, 100, 200,
   400), confrontate con la [scansione lineare](/indices/linear-scan.md),
   sulla macchina dedicata ai benchmark.

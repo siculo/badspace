@@ -21,8 +21,10 @@ import java.util.Map;
  * the cells in shells around the point, from the nearest to the farthest, and
  * stops when the next shell cannot have nearer entities.
  * <p>
- * Very large coordinates go to the cells at the edge of the int range, so
- * those cells can be large; the results stay correct.
+ * The storage keeps the entities in the limits of the index, at most
+ * {@code IndexConfig.CELLS_PER_SIDE} cells from the origin on each axis, so
+ * the cell coordinates of the entities fit in an int. Very large coordinates
+ * of the queries go to the cells at the edge of the int range.
  */
 final class UniformGridIndex3 implements SpatialIndex3 {
 
@@ -78,6 +80,9 @@ final class UniformGridIndex3 implements SpatialIndex3 {
                     cellOf(box.min().x()), cellOf(box.max().x()),
                     cellOf(box.min().y()), cellOf(box.max().y()),
                     cellOf(box.min().z()), cellOf(box.max().z()));
+            // When the square of the radius overflows, the sphere contains each
+            // point whose distance overflows too: all the cells must be read.
+            case Sphere3 sphere when sphere.radius() * sphere.radius() == Double.POSITIVE_INFINITY -> CellRange.ALL;
             // A point on the border of the sphere can be just outside the
             // box around it, because of rounding: one more cell on each side
             // keeps it in the range.
@@ -143,8 +148,8 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     }
 
     /**
-     * Returns the cell coordinate of a space coordinate. Values outside the
-     * int range go to the first or the last cell, and NaN goes to cell 0.
+     * Returns the cell coordinate of a space coordinate. Values of the queries
+     * outside the int range go to the first or the last cell.
      */
     private int cellOf(double coordinate) {
         return (int) Math.floor(coordinate / cellSize);
@@ -255,6 +260,12 @@ final class UniformGridIndex3 implements SpatialIndex3 {
 
     /** The cells from min to max on each axis, limits included and clamped to the int range. */
     private record CellRange(long minX, long maxX, long minY, long maxY, long minZ, long maxZ) {
+
+        /** All the cells of the int range. */
+        static final CellRange ALL = new CellRange(
+                Integer.MIN_VALUE, Integer.MAX_VALUE,
+                Integer.MIN_VALUE, Integer.MAX_VALUE,
+                Integer.MIN_VALUE, Integer.MAX_VALUE);
 
         CellRange {
             minX = Math.max(minX, Integer.MIN_VALUE);

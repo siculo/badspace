@@ -1,5 +1,6 @@
 package badspace.service;
 
+import badspace.common.CoordinateLimits;
 import badspace.common.Entity2;
 import badspace.common.IndexConfig;
 import badspace.common.PartitionId;
@@ -9,7 +10,6 @@ import badspace.common.Region2;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
 
 /** A node that hosts 2D partitions in the same process as the API. */
 public final class LocalPartitionNode2 implements PartitionNode2 {
@@ -19,7 +19,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     @Override
     public void createPartition(PartitionId partition, IndexConfig index) {
-        if (partitions.putIfAbsent(partition, new PartitionStorage2(indexFactory(index))) != null) {
+        if (partitions.putIfAbsent(partition, new PartitionStorage2(index)) != null) {
             throw new IllegalArgumentException("Partition already exists: " + partition);
         }
     }
@@ -75,12 +75,9 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         return find(partition).size();
     }
 
-    private static Function<PartitionStorage2, SpatialIndex2> indexFactory(IndexConfig index) {
-        return switch (index) {
-            case IndexConfig.LinearScan _ -> LinearScanIndex2::new;
-            case IndexConfig.UniformGrid g -> storage -> new UniformGridIndex2(storage, g.cellSize());
-            case IndexConfig.GridQuadtree g -> storage -> new GridQuadtreeIndex2(storage, g.cellSize(), g.leafCapacity());
-        };
+    @Override
+    public CoordinateLimits limits(PartitionId partition) {
+        return find(partition).limits();
     }
 
     private PartitionStorage2 find(PartitionId partition) {

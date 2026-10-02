@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.common.Box2;
+import badspace.common.CoordinateLimits;
 import badspace.common.Circle2;
 import badspace.common.Entity2;
 import badspace.common.IndexConfig;
@@ -30,11 +31,13 @@ class Space2Test {
      */
     private static final class MapNode implements PartitionNode2 {
         final Map<PartitionId, Map<Long, Point2>> partitions = new HashMap<>();
+        final Map<PartitionId, IndexConfig> indices = new HashMap<>();
         int calls;
 
         @Override
         public void createPartition(PartitionId partition, IndexConfig index) {
             partitions.put(partition, new HashMap<>());
+            indices.put(partition, index);
         }
 
         @Override
@@ -111,6 +114,12 @@ class Space2Test {
             return partitions.get(partition).size();
         }
 
+        @Override
+        public CoordinateLimits limits(PartitionId partition) {
+            calls++;
+            return indices.get(partition).limits();
+        }
+
         Map<Long, Point2> onlyPartition() {
             return partitions.values().iterator().next();
         }
@@ -121,6 +130,14 @@ class Space2Test {
 
     private static Space2 newSpace() {
         return new Space2(IDS);
+    }
+
+    @Test
+    void limitsComeFromTheIndexOfThePartition() {
+        MapNode node = new MapNode();
+        Partition2 p = newSpace().createPartition(node);
+        assertEquals(IndexConfig.linearScan().limits(), p.limits());
+        assertEquals(1, node.calls);
     }
 
     @Test

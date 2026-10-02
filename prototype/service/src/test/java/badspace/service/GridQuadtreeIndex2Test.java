@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import badspace.common.Box2;
 import badspace.common.Circle2;
 import badspace.common.Entity2;
+import badspace.common.IndexConfig;
 import badspace.common.Point2;
 import badspace.common.Region2;
 import java.util.ArrayList;
@@ -17,7 +18,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Runs the index contract on the grid of quadtrees, against the brute-force
  * model. The test coordinates are mostly between -10 and 10, sometimes up to
- * 1e9, so the parameters give entities outside the cells, many splits and
+ * 1e9 or to the limits of the index, so the parameters give many splits and
  * merges with small leaves, and deep trees in large cells. Small integer
  * coordinates give many entities in the same position, which stop the splits
  * at the depth limit.
@@ -28,22 +29,12 @@ class GridQuadtreeIndex2Test {
 
     private static final Comparator<Entity2> BY_ID = Comparator.comparingLong(Entity2::id);
 
-    /** Cells so small that most entities are outside the int range of the cells. */
-    @Nested
-    class TinyCells extends SpatialIndex2Contract {
-
-        @Override
-        SpatialIndex2 createIndex(PartitionStorage2 storage) {
-            return new GridQuadtreeIndex2(storage, 0x1p-30, 1);
-        }
-    }
-
     @Nested
     class SmallCells extends SpatialIndex2Contract {
 
         @Override
-        SpatialIndex2 createIndex(PartitionStorage2 storage) {
-            return new GridQuadtreeIndex2(storage, 0.25, 1);
+        IndexConfig index() {
+            return IndexConfig.gridQuadtree(0.25, 1);
         }
     }
 
@@ -51,8 +42,8 @@ class GridQuadtreeIndex2Test {
     class MediumCells extends SpatialIndex2Contract {
 
         @Override
-        SpatialIndex2 createIndex(PartitionStorage2 storage) {
-            return new GridQuadtreeIndex2(storage, 4, 2);
+        IndexConfig index() {
+            return IndexConfig.gridQuadtree(4, 2);
         }
     }
 
@@ -60,8 +51,8 @@ class GridQuadtreeIndex2Test {
     class LargeCells extends SpatialIndex2Contract {
 
         @Override
-        SpatialIndex2 createIndex(PartitionStorage2 storage) {
-            return new GridQuadtreeIndex2(storage, 0x1p20, 4);
+        IndexConfig index() {
+            return IndexConfig.gridQuadtree(0x1p20, 4);
         }
     }
 
@@ -70,8 +61,8 @@ class GridQuadtreeIndex2Test {
     class HugeCells extends SpatialIndex2Contract {
 
         @Override
-        SpatialIndex2 createIndex(PartitionStorage2 storage) {
-            return new GridQuadtreeIndex2(storage, 0x1p30, 16);
+        IndexConfig index() {
+            return IndexConfig.gridQuadtree(0x1p30, 16);
         }
     }
 
@@ -102,25 +93,6 @@ class GridQuadtreeIndex2Test {
         c.check(new Point2(-1e-300, -1e-300), 2);
     }
 
-    @Test
-    void entitiesOutsideTheCellsAreFound() {
-        double nan = Double.NaN;
-        double inf = Double.POSITIVE_INFINITY;
-        Comparison c = new Comparison(1, 1, List.of(
-                entity(1, nan, 0), entity(2, inf, 0), entity(3, -inf, -inf), entity(4, 1e300, 1e300),
-                entity(5, 0, 0), entity(6, 1, 1), entity(7, 1e10, 0)));
-        c.check(new Point2(0, 0), 7);
-        c.check(new Point2(1e300, 1e300), 3);
-        c.check(new Point2(inf, 0), 3);
-        c.check(new Point2(nan, 0), 3);
-        c.check(new Box2(new Point2(-inf, -inf), new Point2(inf, inf)));
-        c.check(new Circle2(new Point2(0, 0), inf));
-        c.check(new Circle2(new Point2(1e300, 1e300), 1));
-        c.check(new Circle2(new Point2(nan, 0), 1));
-        c.removeAll(new long[] {1, 5});
-        c.check(new Point2(0, 0), 7);
-    }
-
     private static Entity2 entity(long id, double x, double y) {
         return new Entity2(id, new Point2(x, y));
     }
@@ -132,7 +104,7 @@ class GridQuadtreeIndex2Test {
         final PartitionStorage2 reference = new PartitionStorage2();
 
         Comparison(double cellSize, int leafCapacity, List<Entity2> entities) {
-            tested = new PartitionStorage2(storage -> new GridQuadtreeIndex2(storage, cellSize, leafCapacity));
+            tested = new PartitionStorage2(IndexConfig.gridQuadtree(cellSize, leafCapacity));
             tested.insertAll(entities);
             reference.insertAll(entities);
         }

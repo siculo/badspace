@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import badspace.common.Box3;
 import badspace.common.Entity3;
+import badspace.common.IndexConfig;
 import badspace.common.Point3;
 import badspace.common.Region3;
 import badspace.common.Sphere3;
@@ -17,7 +18,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Runs the index contract on the grid of octrees, against the brute-force
  * model. The test coordinates are mostly between -10 and 10, sometimes up to
- * 1e9, so the parameters give entities outside the cells, many splits and
+ * 1e9 or to the limits of the index, so the parameters give many splits and
  * merges with small leaves, and deep trees in large cells. Small integer
  * coordinates give many entities in the same position, which stop the splits
  * at the depth limit.
@@ -29,22 +30,12 @@ class GridOctreeIndex3Test {
 
     private static final Comparator<Entity3> BY_ID = Comparator.comparingLong(Entity3::id);
 
-    /** Cells so small that most entities are outside the int range of the cells. */
-    @Nested
-    class TinyCells extends SpatialIndex3Contract {
-
-        @Override
-        SpatialIndex3 createIndex(PartitionStorage3 storage) {
-            return new GridOctreeIndex3(storage, 0x1p-30, 1);
-        }
-    }
-
     @Nested
     class SmallCells extends SpatialIndex3Contract {
 
         @Override
-        SpatialIndex3 createIndex(PartitionStorage3 storage) {
-            return new GridOctreeIndex3(storage, 0.25, 1);
+        IndexConfig index() {
+            return IndexConfig.gridQuadtree(0.25, 1);
         }
     }
 
@@ -52,8 +43,8 @@ class GridOctreeIndex3Test {
     class MediumCells extends SpatialIndex3Contract {
 
         @Override
-        SpatialIndex3 createIndex(PartitionStorage3 storage) {
-            return new GridOctreeIndex3(storage, 4, 2);
+        IndexConfig index() {
+            return IndexConfig.gridQuadtree(4, 2);
         }
     }
 
@@ -61,8 +52,8 @@ class GridOctreeIndex3Test {
     class LargeCells extends SpatialIndex3Contract {
 
         @Override
-        SpatialIndex3 createIndex(PartitionStorage3 storage) {
-            return new GridOctreeIndex3(storage, 0x1p20, 4);
+        IndexConfig index() {
+            return IndexConfig.gridQuadtree(0x1p20, 4);
         }
     }
 
@@ -71,8 +62,8 @@ class GridOctreeIndex3Test {
     class HugeCells extends SpatialIndex3Contract {
 
         @Override
-        SpatialIndex3 createIndex(PartitionStorage3 storage) {
-            return new GridOctreeIndex3(storage, 0x1p30, 16);
+        IndexConfig index() {
+            return IndexConfig.gridQuadtree(0x1p30, 16);
         }
     }
 
@@ -103,25 +94,6 @@ class GridOctreeIndex3Test {
         c.check(new Point3(-1e-300, -1e-300, -1e-300), 2);
     }
 
-    @Test
-    void entitiesOutsideTheCellsAreFound() {
-        double nan = Double.NaN;
-        double inf = Double.POSITIVE_INFINITY;
-        Comparison c = new Comparison(1, 1, List.of(
-                entity(1, nan, 0), entity(2, inf, 0), entity(3, -inf, -inf), entity(4, 1e300, 1e300),
-                entity(5, 0, 0), entity(6, 1, 1), entity(7, 1e10, 0)));
-        c.check(new Point3(0, 0, 0), 7);
-        c.check(new Point3(1e300, 1e300, 1e300), 3);
-        c.check(new Point3(inf, 0, 0), 3);
-        c.check(new Point3(nan, 0, 0), 3);
-        c.check(new Box3(new Point3(-inf, -inf, -inf), new Point3(inf, inf, inf)));
-        c.check(new Sphere3(new Point3(0, 0, 0), inf));
-        c.check(new Sphere3(new Point3(1e300, 1e300, 1e300), 1));
-        c.check(new Sphere3(new Point3(nan, 0, 0), 1));
-        c.removeAll(new long[] {1, 5});
-        c.check(new Point3(0, 0, 0), 7);
-    }
-
     private static Entity3 entity(long id, double x, double y) {
         return new Entity3(id, new Point3(x, y, y));
     }
@@ -133,7 +105,7 @@ class GridOctreeIndex3Test {
         final PartitionStorage3 reference = new PartitionStorage3();
 
         Comparison(double cellSize, int leafCapacity, List<Entity3> entities) {
-            tested = new PartitionStorage3(storage -> new GridOctreeIndex3(storage, cellSize, leafCapacity));
+            tested = new PartitionStorage3(IndexConfig.gridQuadtree(cellSize, leafCapacity));
             tested.insertAll(entities);
             reference.insertAll(entities);
         }

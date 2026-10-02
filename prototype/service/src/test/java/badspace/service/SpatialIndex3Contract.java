@@ -1,10 +1,13 @@
 package badspace.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.common.Box3;
 import badspace.common.Sphere3;
+import badspace.common.CoordinateLimits;
 import badspace.common.Entity3;
+import badspace.common.IndexConfig;
 import badspace.common.Point3;
 import badspace.common.Region3;
 import java.util.ArrayList;
@@ -34,6 +37,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  * <p>
  * Coordinates are often small integers, so there are many entities on the
  * border of the regions, in the same position or at the same distance.
+ * The positions of the entities stay in the limits of the index.
  * <p>
  * Each test fails after 10 seconds, in a separate thread, so that an index
  * that loops too long fails the test instead of blocking the build. A test
@@ -49,8 +53,8 @@ abstract class SpatialIndex3Contract {
 
     private static final Comparator<Entity3> BY_ID = Comparator.comparingLong(Entity3::id);
 
-    /** Creates the index to test, for the given storage. */
-    abstract SpatialIndex3 createIndex(PartitionStorage3 storage);
+    /** Returns the index to test. */
+    abstract IndexConfig index();
 
     static LongStream seeds() {
         return LongStream.rangeClosed(1, 20);
@@ -120,6 +124,44 @@ abstract class SpatialIndex3Contract {
     }
 
     @Test
+    void writesOutsideTheLimitsFailAndChangeNothing() {
+        CoordinateLimits limits = index().limits();
+        PartitionStorage3 storage = storageWith(entity(1, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> storage.insertAll(List.of(entity(2, 0, 0, 0), entity(3, Math.nextUp(limits.max()), 0, 0))));
+        assertThrows(IllegalArgumentException.class,
+                () -> storage.insertAll(List.of(entity(4, -Double.MAX_VALUE, 0, 0))));
+        assertThrows(IllegalArgumentException.class,
+                () -> storage.updateAll(List.of(entity(1, 0, 0, Math.nextDown(limits.min())))));
+        assertEquals(1, storage.size());
+        assertEquals(List.of(entity(1, 0, 0, 0)), storage.findNearest(new Point3(0, 0, 0), 2));
+    }
+
+    @Test
+    void entitiesOnTheLimitsAreFoundAlsoByQueriesOutsideThem() {
+        CoordinateLimits limits = index().limits();
+        double min = limits.min();
+        double max = limits.max();
+        double far = Double.MAX_VALUE;
+        List<Entity3> entities = List.of(
+                entity(1, min, min, min), entity(2, max, max, max), entity(3, min, max, min), entity(4, 0, 0, 0));
+        Map<Long, Point3> model = new HashMap<>();
+        entities.forEach(e -> model.put(e.id(), e.position()));
+        PartitionStorage3 storage = storageWith(entities.toArray(Entity3[]::new));
+        for (Region3 region : List.of(
+                new Box3(new Point3(min, min, min), new Point3(max, max, max)),
+                new Box3(new Point3(max, max, max), new Point3(max, max, max)),
+                new Sphere3(new Point3(2 * max, 0, 0), 2 * max),
+                new Sphere3(new Point3(far, far, far), far))) {
+            assertEquals(expectedInRegion(model, region), sortedById(storage.findInRegion(region)),
+                    "findInRegion " + region);
+        }
+        for (Point3 point : List.of(new Point3(max, max, max), new Point3(2 * max, 0, 0), new Point3(far, far, far))) {
+            assertEquals(expectedNearest(model, point, 2), storage.findNearest(point, 2), "findNearest " + point);
+        }
+    }
+
+    @Test
     void queriesOfEmptyStorageAreEmpty() {
         PartitionStorage3 storage = storageWith();
         assertEquals(List.of(), storage.findInRegion(new Sphere3(new Point3(0, 0, 0), 1e9)));
@@ -127,7 +169,7 @@ abstract class SpatialIndex3Contract {
     }
 
     private PartitionStorage3 newStorage() {
-        return new PartitionStorage3(this::createIndex);
+        return new PartitionStorage3(index());
     }
 
     private PartitionStorage3 storageWith(Entity3... entities) {
@@ -168,7 +210,7 @@ abstract class SpatialIndex3Contract {
      * description of it. An empty storage always gets an insert, a full one
      * (all the IDs in use) never does.
      */
-    private static String randomWrite(Random random, PartitionStorage3 storage, Map<Long, Point3> model) {
+    private String randomWrite(Random random, PartitionStorage3 storage, Map<Long, Point3> model) {
         int choice = model.isEmpty() ? 0 : random.nextInt(20);
         if (choice < 8 && model.size() < MAX_ID) {
             List<Entity3> entities = newEntities(random, model);
@@ -190,7 +232,7 @@ abstract class SpatialIndex3Contract {
             for (long id : someIds(random, model)) {
                 Point3 from = model.get(id);
                 Point3 to = new Point3(
-                        from.x() + randomStep(random), from.y() + randomStep(random), from.z() + randomStep(random));
+                        randomStep(random, from.x()), randomStep(random, from.y()), randomStep(random, from.z()));
                 entities.add(new Entity3(id, to));
             }
             storage.updateAll(entities);
@@ -204,7 +246,7 @@ abstract class SpatialIndex3Contract {
     }
 
     /** New entities with IDs that are not in the model. IDs can be used again after a removal. */
-    private static List<Entity3> newEntities(Random random, Map<Long, Point3> model) {
+    private List<Entity3> newEntities(Random random, Map<Long, Point3> model) {
         List<Long> free = new ArrayList<>();
         for (long id = 1; id <= MAX_ID; id++) {
             if (!model.containsKey(id)) {
@@ -229,8 +271,11 @@ abstract class SpatialIndex3Contract {
         return new ArrayList<>(ids.subList(0, count));
     }
 
-    /** Mostly a small integer, sometimes any value near it or far from it. */
-    private static double randomCoordinate(Random random) {
+    /**
+     * Mostly a small integer, sometimes any value near it or far from it, up to
+     * 1e9 or to the limits of the index.
+     */
+    private double randomCoordinate(Random random) {
         int choice = random.nextInt(9);
         if (choice < 6) {
             return random.nextInt(-10, 11);
@@ -238,18 +283,21 @@ abstract class SpatialIndex3Contract {
         if (choice < 8) {
             return random.nextDouble(-10, 10);
         }
-        return random.nextDouble(-1e9, 1e9);
+        CoordinateLimits limits = index().limits();
+        return random.nextDouble(Math.max(-1e9, limits.min()), Math.min(1e9, limits.max()));
     }
 
-    private static double randomStep(Random random) {
-        return random.nextDouble(-1, 1);
+    /** Moves the coordinate by a small random step, but not outside the limits of the index. */
+    private double randomStep(Random random, double coordinate) {
+        CoordinateLimits limits = index().limits();
+        return Math.clamp(coordinate + random.nextDouble(-1, 1), limits.min(), limits.max());
     }
 
-    private static Point3 randomPoint(Random random) {
+    private Point3 randomPoint(Random random) {
         return new Point3(randomCoordinate(random), randomCoordinate(random), randomCoordinate(random));
     }
 
-    private static Region3 randomRegion(Random random) {
+    private Region3 randomRegion(Random random) {
         if (random.nextBoolean()) {
             Point3 a = randomPoint(random);
             Point3 b = randomPoint(random);

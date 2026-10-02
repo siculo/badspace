@@ -4,7 +4,7 @@ title: Scansione lineare
 description: Indice senza struttura che legge tutte le entità della partizione a ogni query; è il riferimento per i test di correttezza e per i benchmark degli altri indici.
 tags: [badspace, spatial-indexing, linear-scan]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T10:44:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
 ---
 
 # Come funziona
@@ -38,6 +38,11 @@ direttamente lo storage della partizione.
 - È una scelta reale per **partizioni piccole** o con **molti
   aggiornamenti e poche query**, dove il costo di mantenere una
   struttura non si ripaga.
+
+# Limiti delle coordinate
+
+I limiti sono quelli del tetto globale, `[-2^60, 2^60]` (vedi [limiti
+delle coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate)).
 
 # Problematiche
 
