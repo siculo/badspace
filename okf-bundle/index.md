@@ -12,6 +12,10 @@ okf_version: "0.2"
 
 * [Decisioni](./decisions/) - le singole decisioni architetturali e i trade-off ancora aperti.
 
+# Indici spaziali
+
+* [Indici spaziali](./indices/) - un documento per ogni indice: come funziona, problematiche e decisioni.
+
 # Architettura
 
 * [Architettura](./architecture/) - i livelli del sistema e le primitive minime del layer delle partizioni.

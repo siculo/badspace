@@ -1,19 +1,29 @@
 ---
 type: Design Decision
 title: Indicizzazione spaziale
-description: L'indice spaziale si sceglie per partizione; resta aperto il trade-off tra grid, quadtree/octree e R-tree, rimandato in attesa di prototipazione.
+description: L'indice spaziale si sceglie per partizione; scansione lineare e grid uniforme sono implementate, la griglia di quadtree è il prossimo indice, il confronto tra le strutture resta aperto.
 tags: [badspace, design, spatial-indexing, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T10:44:22Z }
 ---
 
 # Opzioni considerate
 
 Più strutture possibili, con trade-off diversi:
 
-- **Grid uniforme** — semplice, O(1) su densità regolare.
-- **Quadtree / octree** — si adatta a densità non uniformi.
-- **R-tree** — buono per bounding box eterogenei.
+- **[Grid uniforme](/indices/uniform-grid.md)** — semplice, O(1) su
+  densità regolare.
+- **[Quadtree / octree](/indices/quadtree.md)** — si adatta a densità
+  non uniformi.
+- **[Griglia di quadtree](/indices/grid-quadtree.md)** — grid in cui
+  ogni cella è la radice di un quadtree o di un octree.
+- **[R-tree](/indices/r-tree.md)** — buono per bounding box eterogenei.
+
+Ogni indice ha un suo documento nella sezione [indici
+spaziali](/indices/), con il funzionamento, le problematiche e le
+decisioni prese o da prendere. La [scansione
+lineare](/indices/linear-scan.md) è il riferimento per i test e i
+benchmark.
 
 # Indice per partizione
 
@@ -30,10 +40,12 @@ Da valutare se una partizione può avere più di un indice.
 
 # Stato
 
-Nessuna struttura è stata ancora scelta. Il supporto a più tipi di
-indicizzazione diventa parte del modello a partizioni, ma i primi
-prototipi useranno qualunque struttura sia più semplice per validare il
-resto del design.
+Il supporto a più tipi di indice è parte del modello a partizioni.
+Nel prototipo sono implementate la scansione lineare e la grid
+uniforme, in 2D e 3D; la griglia di quadtree è il prossimo indice. Il
+quadtree con una sola radice è rimandato, e l'R-tree non è ancora
+prototipato. Nessuna struttura è stata scelta come default: la scelta
+dipende dai benchmark tra indici.
 
 # Correlati
 

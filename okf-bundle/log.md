@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-10-02
+* **Edit**: Aggiunta la sezione [Indici spaziali](/indices/) con un documento per indice: [Scansione lineare](/indices/linear-scan.md), [Grid uniforme](/indices/uniform-grid.md), [Quadtree e octree](/indices/quadtree.md) (PR quadtree con bucket, punti coincidenti e quasi coincidenti, posizione della radice con box allineati alle potenze di 2, compressione), [Griglia di quadtree](/indices/grid-quadtree.md) (nuovo tipo di indice; decise `cellSize` solo potenze di 2 e riunione dei nodi con isteresi) e [R-tree](/indices/r-tree.md) (non prototipato).
+* **Edit**: Aggiornata l'[Indicizzazione spaziale](/decisions/spatial-indexing.md) — collegamenti ai documenti degli indici e stato del prototipo.
+
 ## 2026-09-30
 * **Update**: Aggiornato [API da esporre](/decisions/api-surface.md) — forma delle query di range (`findInRegion` con regioni box e cerchio/sfera dietro un'interfaccia `sealed`, bordo incluso) e k-nearest (`findNearest`, ordine per distanza e poi per ID) su una partizione, con scansione lineare nel prototipo; raycast rimandato.
 * **Edit**: Corretto [ID delle entità](/decisions/entity-ids.md) — solo l'epoca e la posizione del timestamp si fissano una volta per tutte; la divisione dei bit tra `generatorId` e sequenza si può cambiare anche più avanti senza collisioni, e la decisione è rimandata alla fase di chiusura.

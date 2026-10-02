@@ -1,0 +1,7 @@
+# Indici spaziali
+
+* [Scansione lineare](./linear-scan.md) - indice senza struttura che legge tutte le entità della partizione a ogni query; è il riferimento per i test di correttezza e per i benchmark degli altri indici.
+* [Grid uniforme](./uniform-grid.md) - celle quadrate (2D) o cubiche (3D) della stessa dimensione, tenute in una mappa; aggiornamenti economici, query veloci se la cella è adatta alla densità e alle query.
+* [Griglia di quadtree](./grid-quadtree.md) - una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
+* [Quadtree e octree](./quadtree.md) - divisione ricorsiva dello spazio dove le entità sono fitte; si adatta alla densità, ma pone i problemi dei punti coincidenti e della posizione della radice.
+* [R-tree](./r-tree.md) - albero di bounding box di dimensione variabile, adatto a geometria statica ed entità con estensione; non ancora prototipato.
