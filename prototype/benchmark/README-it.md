@@ -15,21 +15,29 @@ Da `prototype/benchmark`:
 
 ```
 mvn -f .. install -DskipTests
-java --sun-misc-unsafe-memory-access=allow -jar target/benchmarks.jar run quick
+./bench.sh run quick
 ```
 
 Poi si apre in un browser il report scritto accanto ai risultati, per
 esempio `results/2026-10-01-1430-quick.html`.
 
+Su Windows si usa `.\bench.ps1` invece di `./bench.sh`.
+
 Il primo comando crea `target/benchmarks.jar`. Va rilanciato dopo ogni
 modifica al codice, altrimenti i benchmark girano sul codice vecchio.
-L'opzione della JVM `--sun-misc-unsafe-memory-access=allow` serve solo a
-nascondere alcuni avvisi di JMH con i JDK recenti.
+
+Gli script `bench.sh` (Linux e macOS) e `bench.ps1` (Windows) eseguono
+`java -jar target/benchmarks.jar` con gli argomenti dati, quindi tutti i
+comandi di questo file funzionano con entrambi. Vanno lanciati da
+`prototype/benchmark`. Usano il `java` di `JAVA_HOME` se è impostato,
+altrimenti quello nel `PATH`. Aggiungono anche l'opzione della JVM
+`--sun-misc-unsafe-memory-access=allow`, che serve solo a nascondere alcuni
+avvisi di JMH con i JDK recenti.
 
 ## Eseguire i benchmark
 
 ```
-java -jar target/benchmarks.jar run [quick|full] [--index NOME1,NOME2] [--include REGEX] [--param NOME=V1,V2] [--percentiles] [--output FILE]
+./bench.sh run [quick|full] [--index NOME1,NOME2] [--include REGEX] [--param NOME=V1,V2] [--percentiles] [--output FILE]
 ```
 
 | Opzione | Significato |
@@ -53,19 +61,19 @@ vanno lanciati da `prototype/benchmark`.
 
 ```
 # Solo la grid uniforme, con due dimensioni di cella
-java -jar target/benchmarks.jar run quick --index UNIFORM_GRID_50,UNIFORM_GRID_200
+./bench.sh run quick --index UNIFORM_GRID_50,UNIFORM_GRID_200
 
 # Solo le query k-nearest, su partizioni piccole e grandi
-java -jar target/benchmarks.jar run quick --include findNearest --param size=1000,1000000
+./bench.sh run quick --include findNearest --param size=1000,1000000
 
 # Solo le scritture, con una sola distribuzione
-java -jar target/benchmarks.jar run quick --include "insert|remove|update" --param distribution=UNIFORM
+./bench.sh run quick --include "insert|remove|update" --param distribution=UNIFORM
 
 # Solo la memoria per entità
-java -jar target/benchmarks.jar run quick --include Footprint
+./bench.sh run quick --include Footprint
 
 # Misure da conservare, con i percentili
-java -jar target/benchmarks.jar run full --percentiles --output results/reference-linear-full.json
+./bench.sh run full --percentiles --output results/reference-linear-full.json
 ```
 
 ## Cosa si misura
@@ -129,7 +137,7 @@ parametri usano le stesse entità e le stesse query.
 ## Il report
 
 ```
-java -jar target/benchmarks.jar report [--output FILE] RISULTATI.json...
+./bench.sh report [--output FILE] RISULTATI.json...
 ```
 
 Il report è un unico file HTML e non richiede una connessione a internet.
@@ -157,7 +165,7 @@ Per confrontare due esecuzioni, per esempio prima e dopo una modifica, si
 passano entrambi i file:
 
 ```
-java -jar target/benchmarks.jar report results/prima.json results/dopo.json
+./bench.sh report results/prima.json results/dopo.json
 ```
 
 I file dei risultati si possono aprire anche con il
@@ -177,7 +185,7 @@ compare come un benchmark in più, con modalità `footprint`.
    riferimento insieme a quelli nuovi:
 
    ```
-   java -jar target/benchmarks.jar report --output results/confronto.html results/reference-linear-quick.json results/<file>.json
+   ./bench.sh report --output results/confronto.html results/reference-linear-quick.json results/<file>.json
    ```
 
 ## Misure affidabili
