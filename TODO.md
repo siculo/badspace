@@ -137,6 +137,13 @@
 - [ ] Raycast (primo hit e tutti gli hit), dopo la decisione sulla sua forma
 - [ ] Aggiornamento del bundle OKF con quanto appreso dai prototipi
 
+<a id="fare-bassa-priorita"></a>
+### Cose che si potrebbero fare, a bassa priorità [↑](#blocchi)
+
+Non fanno parte dei blocchi: quando farle è da stabilire.
+
+- [ ] TUI per il tool dei benchmark con JLine 3 (`jline-console-ui`): una procedura guidata a domande (profilo, indici, filtri, parametri, percentili), con la scelta dei file in `results/` per il report e l'apertura del report HTML alla fine. Si lancia come nuovo comando dello stesso jar (`./bench.sh tui`). Se serve una dashboard a schermo intero con l'avanzamento dal vivo, si può passare a TamboUI, che usa JLine.
+
 ## Decisioni da prendere
 
 ### Già prese [↑](#blocchi)
