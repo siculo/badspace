@@ -5,9 +5,11 @@ import java.util.SplittableRandom;
 import java.util.function.Supplier;
 
 /**
- * How the entities are placed in the world, a square that goes from 0 to
- * {@link #WORLD_SIZE} on each axis. The sources are reproducible: the same
- * seed always gives the same points.
+ * How the entities are placed in the world, a square with side
+ * {@link #WORLD_SIZE}. The world goes from 0 to {@link #WORLD_SIZE} on each
+ * axis, except for the distributions with one cluster, which move it to put
+ * the cluster on the origin or far from it (see {@link #worldMin()}). The
+ * sources are reproducible: the same seed always gives the same points.
  */
 public enum Distribution {
 
@@ -24,7 +26,20 @@ public enum Distribution {
     CORRIDORS,
 
     /** A few positions, each shared by many entities. */
-    COINCIDENT;
+    COINCIDENT,
+
+    /**
+     * One dense group, with a normal distribution, in the center of a world
+     * that is far from the origin, at {@link #FAR_CENTER} on each axis.
+     */
+    FAR_CLUSTER,
+
+    /**
+     * One dense group, with a normal distribution, on the origin, in the center
+     * of the world. The origin is a border of the cells on all the axes, for any
+     * cell size, so the group is split among the cells around it.
+     */
+    ORIGIN_CLUSTER;
 
     public static final double WORLD_SIZE = 10_000;
 
@@ -35,27 +50,43 @@ public enum Distribution {
     static final int CORRIDOR_COUNT = 8;
     static final double CORRIDOR_WIDTH = WORLD_SIZE / 1000;
     static final int COINCIDENT_POSITIONS = 1000;
+    static final double FAR_CENTER = 1e8;
 
     /** Returns a new source of points with this distribution. */
     public Supplier<Point2> source(long seed) {
         SplittableRandom random = new SplittableRandom(seed);
         return switch (this) {
-            case UNIFORM -> () -> uniform(random);
+            case UNIFORM -> () -> randomPoint(random);
             case CLUSTERS -> clusters(random);
             case HOTSPOT -> hotspot(random);
             case CORRIDORS -> corridors(random);
             case COINCIDENT -> coincident(random);
+            case FAR_CLUSTER, ORIGIN_CLUSTER -> oneCluster(random);
         };
     }
 
+    /** Returns the lowest coordinate of the world on each axis. */
+    double worldMin() {
+        return switch (this) {
+            case FAR_CLUSTER -> FAR_CENTER - WORLD_SIZE / 2;
+            case ORIGIN_CLUSTER -> -WORLD_SIZE / 2;
+            default -> 0;
+        };
+    }
+
+    /** Returns the highest coordinate of the world on each axis. */
+    double worldMax() {
+        return worldMin() + WORLD_SIZE;
+    }
+
     /** Returns a point of the world, with the same probability everywhere. */
-    static Point2 uniform(SplittableRandom random) {
-        return new Point2(random.nextDouble(WORLD_SIZE), random.nextDouble(WORLD_SIZE));
+    Point2 randomPoint(SplittableRandom random) {
+        return new Point2(worldMin() + random.nextDouble(WORLD_SIZE), worldMin() + random.nextDouble(WORLD_SIZE));
     }
 
     /** Returns the point, moved inside the world if it is outside. */
-    static Point2 clamp(double x, double y) {
-        return new Point2(Math.clamp(x, 0, WORLD_SIZE), Math.clamp(y, 0, WORLD_SIZE));
+    Point2 clamp(double x, double y) {
+        return new Point2(Math.clamp(x, worldMin(), worldMax()), Math.clamp(y, worldMin(), worldMax()));
     }
 
     private static Supplier<Point2> clusters(SplittableRandom random) {
@@ -68,7 +99,7 @@ public enum Distribution {
         }
         return () -> {
             Point2 c = centers[random.nextInt(centers.length)];
-            return clamp(
+            return CLUSTERS.clamp(
                     c.x() + random.nextGaussian() * CLUSTER_SPREAD,
                     c.y() + random.nextGaussian() * CLUSTER_SPREAD);
         };
@@ -80,7 +111,7 @@ public enum Distribution {
         double minY = random.nextDouble(WORLD_SIZE - side);
         return () -> random.nextDouble() < HOTSPOT_SHARE
                 ? new Point2(minX + random.nextDouble(side), minY + random.nextDouble(side))
-                : uniform(random);
+                : HOTSPOT.randomPoint(random);
     }
 
     private static Supplier<Point2> corridors(SplittableRandom random) {
@@ -100,8 +131,15 @@ public enum Distribution {
     private static Supplier<Point2> coincident(SplittableRandom random) {
         Point2[] positions = new Point2[COINCIDENT_POSITIONS];
         for (int i = 0; i < positions.length; i++) {
-            positions[i] = uniform(random);
+            positions[i] = COINCIDENT.randomPoint(random);
         }
         return () -> positions[random.nextInt(positions.length)];
+    }
+
+    private Supplier<Point2> oneCluster(SplittableRandom random) {
+        double center = (worldMin() + worldMax()) / 2;
+        return () -> clamp(
+                center + random.nextGaussian() * CLUSTER_SPREAD,
+                center + random.nextGaussian() * CLUSTER_SPREAD);
     }
 }

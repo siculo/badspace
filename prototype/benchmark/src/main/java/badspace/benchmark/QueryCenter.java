@@ -15,7 +15,7 @@ public enum QueryCenter {
     /** Returns the center of a new query. */
     Point2 next(Workload workload, SplittableRandom random) {
         return switch (this) {
-            case UNIFORM -> Distribution.uniform(random);
+            case UNIFORM -> workload.distribution().randomPoint(random);
             case DATA -> workload.entities().get(random.nextInt(workload.entities().size())).position();
         };
     }

@@ -19,7 +19,8 @@ public enum Movement {
         return switch (this) {
             case LOCAL -> {
                 double angle = random.nextDouble(2 * Math.PI);
-                yield Distribution.clamp(from.x() + STEP * Math.cos(angle), from.y() + STEP * Math.sin(angle));
+                yield workload.distribution().clamp(
+                        from.x() + STEP * Math.cos(angle), from.y() + STEP * Math.sin(angle));
             }
             case TELEPORT -> workload.nextPosition();
         };

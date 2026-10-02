@@ -37,7 +37,7 @@ class RegionsTest {
         double[] distances = new double[entities.size()];
         SplittableRandom random = new SplittableRandom(7);
         for (int count : new int[] {1, 2, 20, 200, 2000}) {
-            Point2 center = Distribution.uniform(random);
+            Point2 center = Distribution.UNIFORM.randomPoint(random);
             Region2 region = Regions.calibrated(shape, center, entities, count, distances);
             assertEquals(count, entities.stream().filter(e -> region.contains(e.position())).count());
         }

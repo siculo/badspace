@@ -24,7 +24,7 @@ public abstract class WorkloadState {
     @Param({"LINEAR_SCAN", "UNIFORM_GRID_100"})
     public String index;
 
-    @Param({"UNIFORM", "CLUSTERS", "HOTSPOT", "CORRIDORS", "COINCIDENT"})
+    @Param({"UNIFORM", "CLUSTERS", "HOTSPOT", "CORRIDORS", "COINCIDENT", "FAR_CLUSTER", "ORIGIN_CLUSTER"})
     public Distribution distribution;
 
     @Param({"1000", "100000"})

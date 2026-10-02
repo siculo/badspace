@@ -12,10 +12,12 @@ import java.util.function.Supplier;
  */
 final class Workload {
 
+    private final Distribution distribution;
     private final List<Entity2> entities;
     private final Supplier<Point2> positions;
 
-    private Workload(List<Entity2> entities, Supplier<Point2> positions) {
+    private Workload(Distribution distribution, List<Entity2> entities, Supplier<Point2> positions) {
+        this.distribution = distribution;
         this.entities = entities;
         this.positions = positions;
     }
@@ -26,7 +28,12 @@ final class Workload {
         for (int i = 0; i < size; i++) {
             entities.add(new Entity2(i + 1, positions.get()));
         }
-        return new Workload(List.copyOf(entities), positions);
+        return new Workload(distribution, List.copyOf(entities), positions);
+    }
+
+    /** Returns the distribution of the entities, which also gives their world. */
+    Distribution distribution() {
+        return distribution;
     }
 
     List<Entity2> entities() {

@@ -41,8 +41,8 @@ which only hides some warnings of JMH on the new JDKs.
 
 | Option | Meaning |
 |---|---|
-| `quick` | Quick profile (default): about 10 minutes, for a check during development. |
-| `full` | Full profile: about 2-3 hours, for the measures to keep. |
+| `quick` | Quick profile (default): about 15 minutes, for a check during development. |
+| `full` | Full profile: about 3-4 hours, for the measures to keep. |
 | `--index NAME1,NAME2` | The indices to measure, by name (see [Parameters](#parameters)), for example `--index LINEAR_SCAN` or `--index UNIFORM_GRID_50,UNIFORM_GRID_200`. Default: `LINEAR_SCAN,UNIFORM_GRID_100`. It is the same as `--param index=...`. |
 | `--include REGEX` | Runs only the benchmarks whose full name contains a match, for example `findNearest`, `insert\|remove` or `Footprint`. |
 | `--param NAME=V1,V2` | Changes the values of a parameter, for example `--param size=1000,1000000`. It can be repeated. |
@@ -98,7 +98,7 @@ Lower is always better.
 | Parameter | Used by | Quick profile | Full profile |
 |---|---|---|---|
 | `index` | all | `LINEAR_SCAN`, `UNIFORM_GRID_100` | the same |
-| `distribution` | all | `UNIFORM`, `CLUSTERS`, `HOTSPOT`, `CORRIDORS`, `COINCIDENT` | the same |
+| `distribution` | all | `UNIFORM`, `CLUSTERS`, `HOTSPOT`, `CORRIDORS`, `COINCIDENT`, `FAR_CLUSTER`, `ORIGIN_CLUSTER` | the same |
 | `size` | all | 1000, 100000 | 1000, 10000, 100000, 1000000 |
 | `batchSize` | insert, remove, update, get | 1, 100 | 1, 10, 100, 1000 |
 | `movement` | update | `LOCAL`, `TELEPORT` | the same |
@@ -117,13 +117,19 @@ An index name gives the index and its parameters:
   16, the default) or `GRID_QUADTREE_128_32`. The cell size must be a power
   of 2.
 
-The world is a square from 0 to 10000 on each axis. The distributions are:
+The world is a square with side 10000, from 0 to 10000 on each axis; the
+distributions with one cluster move it. The distributions are:
 
 - `UNIFORM`: every point has the same probability.
 - `CLUSTERS`: 16 dense groups with a normal distribution.
 - `HOTSPOT`: 90% of the entities in a square that covers 5% of the world.
 - `CORRIDORS`: 8 thin horizontal and vertical strips.
 - `COINCIDENT`: 1000 positions, each shared by many entities.
+- `FAR_CLUSTER`: one dense group with a normal distribution, in the center of
+  a world far from the origin (from 1e8 - 5000 to 1e8 + 5000).
+- `ORIGIN_CLUSTER`: one dense group with a normal distribution on the origin,
+  in the center of a world from -5000 to 5000. The origin is a border of the
+  cells for any cell size, so the group is split among the cells around it.
 
 The other parameters work as follows:
 

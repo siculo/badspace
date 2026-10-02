@@ -112,9 +112,15 @@ del compressed quadtree.
 
 # Benchmark
 
-- **Previsti:** confronto con grid uniforme e scansione
-  lineare sulle distribuzioni attuali, più un cluster lontano
-  dall'origine e un cluster centrato sull'origine.
+- **Distribuzioni:** oltre a quelle generali, `FAR_CLUSTER` (un cluster
+  al centro di un mondo lontano dall'origine, intorno a 1e8) e
+  `ORIGIN_CLUSTER` (un cluster sull'origine, che è un bordo delle celle
+  per ogni dimensione di cella e quindi divide il cluster tra più
+  alberi). Per la griglia di quadtree la distanza dall'origine non conta,
+  perché ogni albero ha la radice nella sua cella; conterà per un
+  eventuale quadtree con una sola radice.
+- **Da fare:** confronto con grid uniforme e scansione lineare su tutte
+  le distribuzioni, sulla macchina dedicata ai benchmark.
 
 # Correlati
 

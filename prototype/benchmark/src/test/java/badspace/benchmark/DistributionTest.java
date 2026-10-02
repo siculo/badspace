@@ -26,8 +26,9 @@ class DistributionTest {
         return Stream.generate(source).limit(COUNT).toList();
     }
 
-    private static boolean inWorld(Point2 p) {
-        return p.x() >= 0 && p.x() <= Distribution.WORLD_SIZE && p.y() >= 0 && p.y() <= Distribution.WORLD_SIZE;
+    private static boolean inWorld(Distribution distribution, Point2 p) {
+        return p.x() >= distribution.worldMin() && p.x() <= distribution.worldMax()
+                && p.y() >= distribution.worldMin() && p.y() <= distribution.worldMax();
     }
 
     @ParameterizedTest
@@ -40,7 +41,40 @@ class DistributionTest {
     @ParameterizedTest
     @EnumSource(Distribution.class)
     void pointsAreInsideTheWorld(Distribution distribution) {
-        assertTrue(points(distribution, 7).stream().allMatch(DistributionTest::inWorld));
+        assertTrue(points(distribution, 7).stream().allMatch(p -> inWorld(distribution, p)));
+    }
+
+    @ParameterizedTest
+    @EnumSource(Distribution.class)
+    void worldHasTheSameSizeForAllTheDistributions(Distribution distribution) {
+        assertEquals(Distribution.WORLD_SIZE, distribution.worldMax() - distribution.worldMin());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Distribution.class, names = {"FAR_CLUSTER", "ORIGIN_CLUSTER"})
+    void oneClusterIsDenseAroundTheCenterOfTheWorld(Distribution distribution) {
+        double center = (distribution.worldMin() + distribution.worldMax()) / 2;
+        Point2 c = new Point2(center, center);
+        double radius = 4 * Distribution.CLUSTER_SPREAD;
+        long near = points(distribution, 7).stream()
+                .filter(p -> p.distanceSquared(c) <= radius * radius)
+                .count();
+        assertTrue(near > COUNT * 0.99, "Points near the center: " + near);
+    }
+
+    @Test
+    void clusterWorldsAreOnTheOriginAndFarFromIt() {
+        assertEquals(0, (Distribution.ORIGIN_CLUSTER.worldMin() + Distribution.ORIGIN_CLUSTER.worldMax()) / 2);
+        assertEquals(Distribution.FAR_CENTER,
+                (Distribution.FAR_CLUSTER.worldMin() + Distribution.FAR_CLUSTER.worldMax()) / 2);
+        // The cluster on the origin has points on each side of both axes.
+        List<Point2> points = points(Distribution.ORIGIN_CLUSTER, 7);
+        for (int quadrant = 0; quadrant < 4; quadrant++) {
+            boolean right = (quadrant & 1) == 1;
+            boolean up = (quadrant & 2) == 2;
+            assertTrue(points.stream().anyMatch(p -> (p.x() >= 0) == right && (p.y() >= 0) == up),
+                    "No point in quadrant " + quadrant);
+        }
     }
 
     @Test
@@ -112,7 +146,7 @@ class DistributionTest {
         for (Point2 from : List.of(new Point2(0, 0), new Point2(5000, 5000), new Point2(10_000, 10_000))) {
             for (int i = 0; i < 100; i++) {
                 Point2 to = Movement.LOCAL.move(from, workload, random);
-                assertTrue(inWorld(to));
+                assertTrue(inWorld(Distribution.UNIFORM, to));
                 assertTrue(Math.sqrt(to.distanceSquared(from)) <= Movement.STEP + 1e-9);
             }
         }
