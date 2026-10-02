@@ -63,6 +63,9 @@ vanno lanciati da `prototype/benchmark`.
 # Solo la grid uniforme, con due dimensioni di cella
 ./bench.sh run quick --index UNIFORM_GRID_50,UNIFORM_GRID_200
 
+# La griglia di quadtree contro la grid uniforme
+./bench.sh run quick --index UNIFORM_GRID_100,GRID_QUADTREE_128
+
 # Solo le query k-nearest, su partizioni piccole e grandi
 ./bench.sh run quick --include findNearest --param size=1000,1000000
 
@@ -105,10 +108,17 @@ Più basso è sempre meglio.
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | gli stessi |
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
 
-Il nome di un indice dà l'indice e i suoi parametri: `LINEAR_SCAN`, oppure
-`UNIFORM_GRID_<lato della cella>` per una grid uniforme, per esempio
-`--index UNIFORM_GRID_50,UNIFORM_GRID_200` per confrontare due
-dimensioni di cella.
+Il nome di un indice dà l'indice e i suoi parametri:
+
+- `LINEAR_SCAN` per la scansione lineare;
+- `UNIFORM_GRID_<lato della cella>` per una grid uniforme, per esempio
+  `--index UNIFORM_GRID_50,UNIFORM_GRID_200` per confrontare due
+  dimensioni di cella;
+- `GRID_QUADTREE_<lato della cella>` o
+  `GRID_QUADTREE_<lato della cella>_<capacità della foglia>` per una
+  griglia di quadtree, per esempio `GRID_QUADTREE_128` (capacità della
+  foglia 16, il default) o `GRID_QUADTREE_128_32`. Il lato della cella
+  deve essere una potenza di 2.
 
 Il mondo è un quadrato da 0 a 10000 su ogni asse. Le distribuzioni sono:
 

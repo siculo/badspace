@@ -79,6 +79,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         return switch (index) {
             case IndexConfig.LinearScan _ -> LinearScanIndex2::new;
             case IndexConfig.UniformGrid g -> storage -> new UniformGridIndex2(storage, g.cellSize());
+            case IndexConfig.GridQuadtree g -> storage -> new GridQuadtreeIndex2(storage, g.cellSize(), g.leafCapacity());
         };
     }
 

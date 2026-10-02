@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-02
+* **Edit**: Aggiornata la [Griglia di quadtree](/indices/grid-quadtree.md) — decisi i valori di default (capacità 16, riunione a 8, 24 livelli), la forma del record `IndexConfig.GridQuadtree(cellSize, leafCapacity)` e i nodi come oggetti Java; nuova sezione sull'implementazione nel prototipo.
 * **Edit**: Aggiunta la sezione [Indici spaziali](/indices/) con un documento per indice: [Scansione lineare](/indices/linear-scan.md), [Grid uniforme](/indices/uniform-grid.md), [Quadtree e octree](/indices/quadtree.md) (PR quadtree con bucket, punti coincidenti e quasi coincidenti, posizione della radice con box allineati alle potenze di 2, compressione), [Griglia di quadtree](/indices/grid-quadtree.md) (nuovo tipo di indice; decise `cellSize` solo potenze di 2 e riunione dei nodi con isteresi) e [R-tree](/indices/r-tree.md) (non prototipato).
 * **Edit**: Aggiornata l'[Indicizzazione spaziale](/decisions/spatial-indexing.md) — collegamenti ai documenti degli indici e stato del prototipo.
 

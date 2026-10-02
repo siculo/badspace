@@ -62,6 +62,9 @@ from `prototype/benchmark`.
 # Only the uniform grid, with two cell sizes
 ./bench.sh run quick --index UNIFORM_GRID_50,UNIFORM_GRID_200
 
+# The grid of quadtrees against the uniform grid
+./bench.sh run quick --index UNIFORM_GRID_100,GRID_QUADTREE_128
+
 # Only the k-nearest queries, on small and large partitions
 ./bench.sh run quick --include findNearest --param size=1000,1000000
 
@@ -104,9 +107,15 @@ Lower is always better.
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | the same |
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
 
-An index name gives the index and its parameters: `LINEAR_SCAN`, or
-`UNIFORM_GRID_<cell size>` for a uniform grid, for example
-`--index UNIFORM_GRID_50,UNIFORM_GRID_200` to compare two cell sizes.
+An index name gives the index and its parameters:
+
+- `LINEAR_SCAN` for the linear scan;
+- `UNIFORM_GRID_<cell size>` for a uniform grid, for example
+  `--index UNIFORM_GRID_50,UNIFORM_GRID_200` to compare two cell sizes;
+- `GRID_QUADTREE_<cell size>` or `GRID_QUADTREE_<cell size>_<leaf capacity>`
+  for a grid of quadtrees, for example `GRID_QUADTREE_128` (leaf capacity
+  16, the default) or `GRID_QUADTREE_128_32`. The cell size must be a power
+  of 2.
 
 The world is a square from 0 to 10000 on each axis. The distributions are:
 

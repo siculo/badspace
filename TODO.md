@@ -80,7 +80,7 @@
 - [ ] Carico misto a tick (aggiornamenti e query per tick)
 - [x] Indice spaziale minimo per partizione: grid uniforme 2D e 3D, con la dimensione della cella scelta alla creazione (`IndexConfig`)
 - [ ] Misure della grid uniforme con più dimensioni di cella (25, 50, 100, 200, 400), confrontate con la scansione lineare, sulla macchina dedicata ai benchmark: `run quick --param index=UNIFORM_GRID_25,UNIFORM_GRID_50,UNIFORM_GRID_100,UNIFORM_GRID_200,UNIFORM_GRID_400` (circa 50 minuti); la misura di riferimento della scansione lineare va ripresa sulla stessa macchina
-- [ ] Griglia di quadtree 2D e griglia di octree 3D come terzo indice, con `cellSize` potenza di 2 e riunione dei nodi con isteresi (`IndexConfig`) → [Griglia di quadtree](okf-bundle/indices/grid-quadtree.md)
+- [x] Griglia di quadtree 2D e griglia di octree 3D come terzo indice, con `cellSize` potenza di 2 e riunione dei nodi con isteresi (`IndexConfig`) → [Griglia di quadtree](okf-bundle/indices/grid-quadtree.md)
 - [ ] Distribuzioni dei benchmark con un cluster lontano dall'origine e un cluster centrato sull'origine
 - [ ] Misure della griglia di quadtree confrontate con grid uniforme e scansione lineare
 - [ ] Quadtree/octree con una sola radice (radice che cresce, compressione), solo se le misure mostrano che servono range molto grandi o k-nearest su dati sparsi → [Quadtree e octree](okf-bundle/indices/quadtree.md)
@@ -182,12 +182,12 @@ Non fanno parte dei blocchi: quando farle è da stabilire.
 - [x] Forma della query di range (box e cerchio/sfera, dietro un'interfaccia sealed estendibile)
 - [x] Griglia di quadtree come prossimo indice, prima del quadtree con una sola radice
 - [x] Nella griglia di quadtree `cellSize` solo potenze di 2 e riunione dei nodi con isteresi
+- [x] Griglia di quadtree: capacità della foglia 16 di default, riunione con metà della capacità, al massimo 24 livelli sotto la cella; record `IndexConfig.GridQuadtree(cellSize, leafCapacity)`; nodi come oggetti Java
 
 <a id="decisioni-indice"></a>
 ### Indice e query [↑](#blocchi)
 
 - [ ] Struttura dell'indice spaziale (grid, quadtree/octree, R-tree)
-- [ ] Griglia di quadtree: valori di default (capacità della foglia, soglia di riunione, limite di profondità), forma del record in `IndexConfig`, rappresentazione dei nodi
 - [ ] Più di un indice per partizione
 - [ ] Gruppi di partizioni con configurazione condivisa (indice, k, politica di rimozione), distinti dagli insiemi di partizioni da interrogare
 - [ ] Forma delle chiamate per le query su più partizioni

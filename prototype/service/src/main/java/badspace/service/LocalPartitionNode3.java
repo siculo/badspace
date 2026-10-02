@@ -79,6 +79,7 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
         return switch (index) {
             case IndexConfig.LinearScan _ -> LinearScanIndex3::new;
             case IndexConfig.UniformGrid g -> storage -> new UniformGridIndex3(storage, g.cellSize());
+            case IndexConfig.GridQuadtree g -> storage -> new GridOctreeIndex3(storage, g.cellSize(), g.leafCapacity());
         };
     }
 

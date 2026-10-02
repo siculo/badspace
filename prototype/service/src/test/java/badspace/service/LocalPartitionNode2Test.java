@@ -43,6 +43,13 @@ class LocalPartitionNode2Test {
     }
 
     @Test
+    void partitionCanUseTheGridQuadtree() {
+        node.createPartition(P2, IndexConfig.gridQuadtree(1, 1));
+        node.insertAll(P2, List.of(entity(1, 1, 2), entity(2, 5, 5)));
+        assertEquals(List.of(entity(1, 1, 2)), node.findNearest(P2, new Point2(0, 0), 1));
+    }
+
+    @Test
     void insertAddsEntitiesToTheirPartitionOnly() {
         node.createPartition(P2);
         node.insertAll(P1, List.of(entity(42, 1, 2), entity(43, 3, 4)));

@@ -4,7 +4,7 @@ title: Griglia di quadtree
 description: Indice a due livelli, una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
 tags: [badspace, spatial-indexing, grid, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T10:44:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:30:00Z }
 ---
 
 # Come funziona
@@ -71,19 +71,43 @@ del compressed quadtree.
     radice.
   - `cellSize` è **solo una potenza di 2**: confini delle celle e punti
     medi sono esatti con i `double`.
-  - **Riunione dei nodi con isteresi:** un nodo si divide sopra la
-    capacità della foglia e i figli si riuniscono quando insieme hanno
-    meno entità di una soglia più bassa (per esempio la metà).
-- **Da prendere:**
-  - Valori di default: capacità della foglia (proposta 16), soglia di
-    riunione (proposta 8), limite di profondità (proposta 24–32 livelli
-    sotto la cella).
-  - Forma del record in `IndexConfig` (per esempio `cellSize` e
-    `leafCapacity`, con soglia e profondità ricavate) e come esprimere la
-    potenza di 2 (esponente o lato controllato).
-  - Rappresentazione dei nodi: oggetti Java nella prima versione, array
-    primitivi se i benchmark lo giustificano.
-- **Benchmark previsti:** confronto con grid uniforme e scansione
+  - **Riunione dei nodi con isteresi:** una foglia si divide quando ha
+    più entità della capacità, e un nodo torna foglia quando ha al più
+    metà della capacità.
+  - **Valori di default:** capacità della foglia 16, quindi riunione a 8
+    entità o meno; al massimo 24 livelli sotto la cella.
+  - **Forma del record:** `IndexConfig.GridQuadtree(cellSize,
+    leafCapacity)`, con `cellSize` controllato come potenza di 2 tra
+    2^-30 e 2^30; soglia di riunione e profondità si ricavano. Lo stesso
+    record vale in 2D (quadtree) e in 3D (octree).
+  - **Nodi come oggetti Java** nella prima versione; array primitivi se i
+    benchmark lo giustificano.
+- **Da prendere:** come muovere un'entità verso una foglia vicina. Ora si
+  rimuove e si reinserisce dalla cella; si può risalire solo fino al
+  primo nodo che contiene la nuova posizione, se le misure lo chiedono.
+
+# Implementazione nel prototipo
+
+`GridQuadtreeIndex2` e `GridOctreeIndex3`, nel modulo service.
+
+- **Regola di arresto:** una foglia non si divide oltre 24 livelli, né
+  quando i bordi delle sue metà non sarebbero esatti con i `double`.
+- **Bordi esatti:** con `cellSize` potenza di 2 la cella di un punto si
+  calcola senza errori (con una correzione per i valori negativi molto
+  piccoli), quindi un'entità è in un nodo se e solo se è nel box del
+  nodo, e le query non hanno bisogno di margini.
+- **Entità fuori dalle celle:** le entità con una coordinata NaN o così
+  grande che la cella esce dall'intervallo degli `int` stanno in una
+  lista a parte, che ogni query legge.
+- **K-nearest:** ricerca best-first su una coda di nodi, a cui si
+  aggiungono le celle ad anelli intorno al punto quando possono essere
+  abbastanza vicine.
+- **Benchmark:** nome `GRID_QUADTREE_<lato>` o
+  `GRID_QUADTREE_<lato>_<capacità>`.
+
+# Benchmark
+
+- **Previsti:** confronto con grid uniforme e scansione
   lineare sulle distribuzioni attuali, più un cluster lontano
   dall'origine e un cluster centrato sull'origine.
 

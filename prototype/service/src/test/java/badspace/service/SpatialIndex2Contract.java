@@ -14,8 +14,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -32,7 +34,12 @@ import org.junit.jupiter.params.provider.MethodSource;
  * <p>
  * Coordinates are often small integers, so there are many entities on the
  * border of the regions, in the same position or at the same distance.
+ * <p>
+ * Each test fails after 10 seconds, in a separate thread, so that an index
+ * that loops too long fails the test instead of blocking the build. A test
+ * takes about 30 ms.
  */
+@Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
 abstract class SpatialIndex2Contract {
 
     private static final int STEPS = 200;
