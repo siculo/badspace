@@ -29,13 +29,14 @@ nascondere alcuni avvisi di JMH con i JDK recenti.
 ## Eseguire i benchmark
 
 ```
-java -jar target/benchmarks.jar run [quick|full] [--include REGEX] [--param NOME=V1,V2] [--percentiles] [--output FILE]
+java -jar target/benchmarks.jar run [quick|full] [--index NOME1,NOME2] [--include REGEX] [--param NOME=V1,V2] [--percentiles] [--output FILE]
 ```
 
 | Opzione | Significato |
 |---|---|
 | `quick` | Profilo rapido (default): circa 10 minuti, per un controllo durante lo sviluppo. |
 | `full` | Profilo completo: circa 2-3 ore, per le misure da conservare. |
+| `--index NOME1,NOME2` | Gli indici da misurare, per nome (vedi [Parametri](#parametri)), per esempio `--index LINEAR_SCAN` o `--index UNIFORM_GRID_50,UNIFORM_GRID_200`. Default: `LINEAR_SCAN,UNIFORM_GRID_100`. È lo stesso di `--param index=...`. |
 | `--include REGEX` | Esegue solo i benchmark il cui nome completo contiene una corrispondenza, per esempio `findNearest`, `insert\|remove` o `Footprint`. |
 | `--param NOME=V1,V2` | Cambia i valori di un parametro, per esempio `--param size=1000,1000000`. Si può ripetere. |
 | `--percentiles` | Misura anche i percentili di latenza (p50, p90, p99). Raddoppia la durata dell'esecuzione. |
@@ -51,6 +52,9 @@ vanno lanciati da `prototype/benchmark`.
 ### Esempi
 
 ```
+# Solo la grid uniforme, con due dimensioni di cella
+java -jar target/benchmarks.jar run quick --index UNIFORM_GRID_50,UNIFORM_GRID_200
+
 # Solo le query k-nearest, su partizioni piccole e grandi
 java -jar target/benchmarks.jar run quick --include findNearest --param size=1000,1000000
 
@@ -95,7 +99,7 @@ Più basso è sempre meglio.
 
 Il nome di un indice dà l'indice e i suoi parametri: `LINEAR_SCAN`, oppure
 `UNIFORM_GRID_<lato della cella>` per una grid uniforme, per esempio
-`--param index=UNIFORM_GRID_50,UNIFORM_GRID_200` per confrontare due
+`--index UNIFORM_GRID_50,UNIFORM_GRID_200` per confrontare due
 dimensioni di cella.
 
 Il mondo è un quadrato da 0 a 10000 su ogni asse. Le distribuzioni sono:
@@ -169,7 +173,7 @@ compare come un benchmark in più, con modalità `footprint`.
    esecuzioni devono misurarlo di default.
 3. Ricompilare il jar, eseguire i benchmark e aprire il report con la
    scansione lineare come riferimento. Per misurare solo il nuovo indice si usa
-   `--param index=NUOVO_INDICE` e si passano al report i risultati di
+   `--index NUOVO_INDICE` e si passano al report i risultati di
    riferimento insieme a quelli nuovi:
 
    ```

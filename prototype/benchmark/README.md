@@ -29,13 +29,14 @@ the new JDKs.
 ## Running the benchmarks
 
 ```
-java -jar target/benchmarks.jar run [quick|full] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
+java -jar target/benchmarks.jar run [quick|full] [--index NAME1,NAME2] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
 ```
 
 | Option | Meaning |
 |---|---|
 | `quick` | Quick profile (default): about 10 minutes, for a check during development. |
 | `full` | Full profile: about 2-3 hours, for the measures to keep. |
+| `--index NAME1,NAME2` | The indices to measure, by name (see [Parameters](#parameters)), for example `--index LINEAR_SCAN` or `--index UNIFORM_GRID_50,UNIFORM_GRID_200`. Default: `LINEAR_SCAN,UNIFORM_GRID_100`. It is the same as `--param index=...`. |
 | `--include REGEX` | Runs only the benchmarks whose full name contains a match, for example `findNearest`, `insert\|remove` or `Footprint`. |
 | `--param NAME=V1,V2` | Changes the values of a parameter, for example `--param size=1000,1000000`. It can be repeated. |
 | `--percentiles` | Also measures the latency percentiles (p50, p90, p99). It doubles the time of the run. |
@@ -51,6 +52,9 @@ from `prototype/benchmark`.
 ### Examples
 
 ```
+# Only the uniform grid, with two cell sizes
+java -jar target/benchmarks.jar run quick --index UNIFORM_GRID_50,UNIFORM_GRID_200
+
 # Only the k-nearest queries, on small and large partitions
 java -jar target/benchmarks.jar run quick --include findNearest --param size=1000,1000000
 
@@ -95,7 +99,7 @@ Lower is always better.
 
 An index name gives the index and its parameters: `LINEAR_SCAN`, or
 `UNIFORM_GRID_<cell size>` for a uniform grid, for example
-`--param index=UNIFORM_GRID_50,UNIFORM_GRID_200` to compare two cell sizes.
+`--index UNIFORM_GRID_50,UNIFORM_GRID_200` to compare two cell sizes.
 
 The world is a square from 0 to 10000 on each axis. The distributions are:
 
@@ -167,7 +171,7 @@ one more benchmark, with mode `footprint`.
    runs must measure it by default.
 3. Build the jar again and run the benchmarks; open the report with the
    linear scan as baseline.
-   To measure only the new index, use `--param index=NEW_INDEX` and pass the
+   To measure only the new index, use `--index NEW_INDEX` and pass the
    reference results to the report together with the new ones:
 
    ```

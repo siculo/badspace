@@ -31,11 +31,13 @@ import org.openjdk.jmh.runner.options.TimeValue;
 /**
  * Runs the benchmarks and builds the HTML report. Usage:
  * <pre>
- * java -jar benchmarks.jar run [quick|full] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
+ * java -jar benchmarks.jar run [quick|full] [--index NAME1,NAME2] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
  * java -jar benchmarks.jar report [--output FILE] RESULTS.json...
  * </pre>
  * The quick profile is for a check during development; the full profile is
- * for the measures to keep. Without {@code --output}, the results go to
+ * for the measures to keep. {@code --index} chooses the indices to measure,
+ * by name (see {@link IndexNames}); it is the same as {@code --param index=...}.
+ * Without {@code --output}, the results go to
  * {@code results/<date>-<profile>.json}. The run also writes the report of
  * its results next to them, with the same name and the {@code .html}
  * extension. Without {@code --output}, the report command writes the report
@@ -81,9 +83,11 @@ public final class BenchmarkMain {
 
     private static final String USAGE = """
             Usage:
-              run [quick|full] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
+              run [quick|full] [--index NAME1,NAME2] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
               report [--output FILE] RESULTS.json...
-            """;
+            Index names: LINEAR_SCAN, or UNIFORM_GRID_<cell size> (for example UNIFORM_GRID_100).
+            Default indices: %s
+            """.formatted(String.join(",", IndexNames.DEFAULT));
 
     private BenchmarkMain() {
     }
@@ -111,6 +115,7 @@ public final class BenchmarkMain {
             switch (args.get(i)) {
                 case "quick" -> profile = QUICK;
                 case "full" -> profile = FULL;
+                case "--index" -> params.put("index", List.of(value(args, ++i).split(",")));
                 case "--include" -> include = Pattern.compile(value(args, ++i));
                 case "--percentiles" -> percentiles = true;
                 case "--output" -> output = Path.of(value(args, ++i));
