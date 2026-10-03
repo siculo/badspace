@@ -1,0 +1,26 @@
+// Compares the uniform grid and the grid of quadtrees, with some cell
+// sizes, with the linear scan, in one report. The linear scan is the
+// reference, so its results replace the ones in the repository.
+{
+  "groups": [
+    {
+      "profile": "quick",
+      "report": "index-comparison",
+      "runs": [
+        {
+          "name": "uniform-grid",
+          "index": ["UNIFORM_GRID_25", "UNIFORM_GRID_50", "UNIFORM_GRID_100", "UNIFORM_GRID_200", "UNIFORM_GRID_400"]
+        },
+        {
+          "name": "grid-quadtree",
+          "index": ["GRID_QUADTREE_64", "GRID_QUADTREE_128", "GRID_QUADTREE_256"]
+        },
+        {
+          "name": "reference-linear",
+          "index": "LINEAR_SCAN",
+          "output": "results/reference-linear-quick.json"
+        }
+      ]
+    }
+  ]
+}

@@ -38,6 +38,7 @@ avvisi di JMH con i JDK recenti.
 
 ```
 ./bench.sh run [quick|full] [--index NOME1,NOME2] [--include REGEX] [--param NOME=V1,V2] [--percentiles] [--output FILE]
+./bench.sh run --plan FILE
 ```
 
 | Opzione | Significato |
@@ -49,6 +50,7 @@ avvisi di JMH con i JDK recenti.
 | `--param NOME=V1,V2` | Cambia i valori di un parametro, per esempio `--param size=1000,1000000`. Si può ripetere. |
 | `--percentiles` | Misura anche i percentili di latenza (p50, p90, p99). Raddoppia la durata dell'esecuzione. |
 | `--output FILE` | Dove scrivere i risultati. Default: `results/<data>-<profilo>.json`. |
+| `--plan FILE` | Esegue le run di un file di piano, senza altre opzioni (vedi [Piani](#piani)). |
 
 Alla fine dell'esecuzione viene scritto anche il report dei risultati, nella
 stessa directory e con lo stesso nome del file JSON, ma con estensione
@@ -77,6 +79,63 @@ vanno lanciati da `prototype/benchmark`.
 
 # Misure da conservare, con i percentili
 ./bench.sh run full --percentiles --output results/reference-linear-full.json
+```
+
+### Piani
+
+Per rifare le stesse misure senza riscrivere tutte le opzioni, si mettono le
+run in un file di piano e lo si esegue:
+
+```
+./bench.sh run --plan plans/index-comparison-quick.json
+```
+
+`--plan` non accetta altre opzioni. Le run di un piano sono in gruppi: ogni
+gruppo ha un profilo, le sue run e, se ha un nome in `report`, un report con
+i risultati di tutte le sue run. Per esempio:
+
+```json
+{
+  "groups": [
+    {
+      "profile": "quick",
+      "report": "index-comparison",
+      "runs": [
+        { "name": "uniform-grid", "index": ["UNIFORM_GRID_50", "UNIFORM_GRID_100"] },
+        // Sono ammessi i commenti come in Java.
+        { "name": "coincident", "index": "GRID_QUADTREE_256",
+          "params": { "distribution": "COINCIDENT", "size": [1000, 100000] },
+          "include": "update|insert", "percentiles": true },
+        { "name": "linear", "index": "LINEAR_SCAN", "output": "results/reference-linear-quick.json" }
+      ]
+    },
+    { "profile": "full", "runs": [ { "name": "uniform-grid", "index": "UNIFORM_GRID_100" } ] }
+  ]
+}
+```
+
+| Campo | Significato |
+|---|---|
+| `profile` | `quick` (default) o `full`, per tutte le run del gruppo. |
+| `report` | Nome facoltativo del report del gruppo: `results/<data>-<report>-<profilo>.html`. |
+| `name` | Nome della run, obbligatorio: lettere, cifre e `. _ + -`. |
+| `index`, `include`, `params`, `percentiles`, `output` | Come le opzioni di `run`. Un valore singolo si può scrivere senza array, e i numeri con o senza virgolette. Output di default: `results/<data>-<nome>-<profilo>.json`. |
+
+La data è l'inizio del piano, la stessa per tutti i suoi file. Ogni run
+scrive anche il suo report, come con le opzioni.
+
+Prima della prima run il tool controlla tutto il piano: i campi, i nomi e i
+valori dei parametri, i pattern, e che due file non abbiano lo stesso
+percorso. Così un errore ferma il piano subito, non dopo ore.
+
+I piani da conservare vanno in `plans/`. `index-comparison-quick.json` e
+`index-comparison-full.json` misurano la grid uniforme (celle da 25 a 400),
+la griglia di quadtree (celle da 64 a 256) e la scansione lineare, che è
+l'ultima run, in un unico report. Quello rapido dura circa 70 minuti. Per
+lasciare un piano in esecuzione dopo il logout:
+
+```
+nohup ./bench.sh run --plan plans/index-comparison-full.json > plan.log 2>&1 &
 ```
 
 ## Cosa si misura
@@ -207,6 +266,11 @@ compare come un benchmark in più, con modalità `footprint`.
 
 ## Misure affidabili
 
+- Il jar va ricostruito dopo ogni modifica e dopo ogni `git pull`. Se un
+  file sorgente è più nuovo del jar, il tool stampa un avviso all'inizio,
+  perché l'esecuzione misurerebbe il codice vecchio. Ogni risultato ha il
+  commit del codice (`"commit"`), con `-dirty` alla fine se c'erano
+  modifiche non committate.
 - I risultati sono confrontabili solo se vengono dalla stessa macchina. Vanno
   usati i rapporti, non i valori assoluti: i tempi in Java non sono quelli
   dell'implementazione finale.

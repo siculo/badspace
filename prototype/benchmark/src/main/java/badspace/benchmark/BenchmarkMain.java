@@ -4,20 +4,21 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.results.RunResult;
 import org.openjdk.jmh.results.format.ResultFormatFactory;
@@ -26,12 +27,12 @@ import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.ChainedOptionsBuilder;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
-import org.openjdk.jmh.runner.options.TimeValue;
 
 /**
  * Runs the benchmarks and builds the HTML report. Usage:
  * <pre>
  * java -jar benchmarks.jar run [quick|full] [--index NAME1,NAME2] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
+ * java -jar benchmarks.jar run --plan FILE
  * java -jar benchmarks.jar report [--output FILE] RESULTS.json...
  * </pre>
  * The quick profile is for a check during development; the full profile is
@@ -40,52 +41,29 @@ import org.openjdk.jmh.runner.options.TimeValue;
  * Without {@code --output}, the results go to
  * {@code results/<date>-<profile>.json}. The run also writes the report of
  * its results next to them, with the same name and the {@code .html}
- * extension. Without {@code --output}, the report command writes the report
- * next to the last results file, in the same way.
+ * extension. {@code --plan} does the runs of a plan file instead (see
+ * {@link BenchmarkPlan}), and takes no other options. Without
+ * {@code --output}, the report command writes the report next to the last
+ * results file, in the same way.
  */
 public final class BenchmarkMain {
 
-    /** Values of the parameters and JMH settings of a run. */
-    record Profile(
-            String name,
-            Map<String, List<String>> params,
-            int forks,
-            int warmupIterations,
-            TimeValue warmupTime,
-            int measurementIterations,
-            TimeValue measurementTime,
-            int buildWarmupIterations,
-            int buildMeasurementIterations) {
-    }
-
-    static final Profile QUICK = new Profile(
-            "quick",
-            Map.of(
-                    "size", List.of("1000", "100000"),
-                    "batchSize", List.of("1", "100"),
-                    "selectivity", List.of("0.001", "0.01"),
-                    "k", List.of("1", "10"),
-                    "shape", List.of("BOX")),
-            1, 2, TimeValue.milliseconds(500), 3, TimeValue.milliseconds(500), 5, 10);
-
-    static final Profile FULL = new Profile(
-            "full",
-            Map.of(
-                    "size", List.of("1000", "10000", "100000", "1000000"),
-                    "batchSize", List.of("1", "10", "100", "1000"),
-                    "selectivity", List.of("0.0001", "0.001", "0.01", "0.1"),
-                    "k", List.of("1", "10", "100"),
-                    "shape", List.of("BOX", "CIRCLE")),
-            1, 3, TimeValue.seconds(1), 5, TimeValue.seconds(1), 10, 20);
+    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmm");
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
 
     /** The directories in the path of the JVM of a result, on Linux or Windows. */
     private static final Pattern JVM_DIRECTORIES = Pattern.compile("(?<=\"jvm\" : \")[^\"]*[/\\\\](?=[^\"/\\\\]*\")");
 
+    /** The first field of each result, with its indentation. */
+    private static final Pattern JMH_VERSION = Pattern.compile("(?m)^(\\s*)\"jmhVersion\" :");
+
     private static final String USAGE = """
             Usage:
               run [quick|full] [--index NAME1,NAME2] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
+              run --plan FILE
               report [--output FILE] RESULTS.json...
-            Index names: LINEAR_SCAN, or UNIFORM_GRID_<cell size> (for example UNIFORM_GRID_100).
+            Index names: LINEAR_SCAN, UNIFORM_GRID_<cell size> (for example UNIFORM_GRID_100),
+              GRID_QUADTREE_<cell size> or GRID_QUADTREE_<cell size>_<leaf capacity> (for example GRID_QUADTREE_128).
             Default indices: %s
             """.formatted(String.join(",", IndexNames.DEFAULT));
 
@@ -105,7 +83,14 @@ public final class BenchmarkMain {
     }
 
     private static void run(List<String> args) throws RunnerException, IOException {
-        Profile profile = QUICK;
+        if (args.contains("--plan")) {
+            if (args.size() != 2 || !args.get(0).equals("--plan")) {
+                fail("--plan takes a file and no other options");
+            }
+            runPlan(Path.of(args.get(1)));
+            return;
+        }
+        Profile profile = Profile.QUICK;
         Pattern include = Pattern.compile("");
         Map<String, List<String>> params = new LinkedHashMap<>();
         params.put("index", IndexNames.DEFAULT);
@@ -113,8 +98,8 @@ public final class BenchmarkMain {
         Path output = null;
         for (int i = 0; i < args.size(); i++) {
             switch (args.get(i)) {
-                case "quick" -> profile = QUICK;
-                case "full" -> profile = FULL;
+                case "quick" -> profile = Profile.QUICK;
+                case "full" -> profile = Profile.FULL;
                 case "--index" -> params.put("index", List.of(value(args, ++i).split(",")));
                 case "--include" -> include = Pattern.compile(value(args, ++i));
                 case "--percentiles" -> percentiles = true;
@@ -129,54 +114,89 @@ public final class BenchmarkMain {
                 default -> fail("Unknown option: " + args.get(i));
             }
         }
-        Map<String, List<String>> allParams = new LinkedHashMap<>(profile.params());
-        allParams.putAll(params);
-        for (String index : allParams.get("index")) {
-            try {
-                IndexNames.parse(index);
-            } catch (IllegalArgumentException e) {
-                fail(e.getMessage());
+        if (output == null) {
+            output = Path.of("results", LocalDateTime.now().format(DATE) + "-" + profile.name() + ".json");
+        }
+        RunOptions run = new RunOptions(null, profile, include, params, percentiles, output);
+        try {
+            run.check();
+        } catch (IllegalArgumentException e) {
+            fail(e.getMessage());
+        }
+        execute(run, sourceCommit());
+    }
+
+    /** Warns if the jar is older than the sources, and returns the commit to write in the results. */
+    private static String sourceCommit() {
+        SourceVersion.warnIfJarIsOld();
+        String commit = SourceVersion.commit();
+        System.out.println("Commit of the code: " + commit);
+        return commit;
+    }
+
+    /** Checks all the plan, then does its runs and writes the report of each group. */
+    private static void runPlan(Path file) throws RunnerException, IOException {
+        BenchmarkPlan plan = null;
+        try {
+            plan = BenchmarkPlan.read(file, LocalDateTime.now().format(DATE));
+        } catch (NoSuchFileException e) {
+            failPlan(file, "file not found");
+        } catch (IllegalArgumentException e) {
+            failPlan(file, e.getMessage());
+        }
+        String commit = sourceCommit();
+        int done = 0;
+        for (BenchmarkPlan.Group group : plan.groups()) {
+            List<Path> outputs = new ArrayList<>();
+            for (RunOptions run : group.runs()) {
+                done++;
+                System.out.printf("== %s run %d of %d: %s (%s) -> %s%n", LocalTime.now().format(TIME),
+                        done, plan.runCount(), run.name(), run.profile().name(), run.output());
+                execute(run, commit);
+                outputs.add(run.output());
+            }
+            if (group.report() != null) {
+                writeReport(outputs, group.report());
             }
         }
-        if (output == null) {
-            String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmm"));
-            output = Path.of("results", date + "-" + profile.name() + ".json");
-        }
+        System.out.printf("== %s plan done%n", LocalTime.now().format(TIME));
+    }
 
+    /** Runs the benchmarks of the options and writes the results, with the commit of the code, and their report. */
+    private static void execute(RunOptions run, String commit) throws RunnerException, IOException {
+        Profile profile = run.profile();
+        Map<String, List<String>> allParams = run.allParams();
         List<RunResult> results = new ArrayList<>();
-        List<String> build = matching(BuildBenchmark.class, include);
+        List<String> build = run.buildBenchmarks();
         if (!build.isEmpty()) {
             ChainedOptionsBuilder options = options(profile, allParams, build)
                     .warmupIterations(profile.buildWarmupIterations())
                     .measurementIterations(profile.buildMeasurementIterations());
             results.addAll(new Runner(options.build()).run());
         }
-        List<String> operations = matching(PartitionBenchmark.class, include);
+        List<String> operations = run.operationBenchmarks();
         if (!operations.isEmpty()) {
             ChainedOptionsBuilder options = options(profile, allParams, operations)
                     .warmupIterations(profile.warmupIterations())
                     .warmupTime(profile.warmupTime())
                     .measurementIterations(profile.measurementIterations())
                     .measurementTime(profile.measurementTime());
-            if (percentiles) {
+            if (run.percentiles()) {
                 options.mode(Mode.AverageTime).mode(Mode.SampleTime);
             }
             results.addAll(new Runner(options.build()).run());
         }
         List<Footprint.Result> footprints = List.of();
-        if (include.matcher(Footprint.BENCHMARK).find()) {
+        if (run.measuresFootprint()) {
             footprints = Footprint.measure(
                     allParams.get("index"),
                     paramValues(allParams, "distribution", Distribution.values()).stream()
                             .map(Distribution::valueOf).toList(),
                     allParams.get("size").stream().map(Integer::valueOf).toList());
         }
-        if (results.isEmpty() && footprints.isEmpty()) {
-            fail("No benchmark matches: " + include);
-        }
-        writeResults(output, results, footprints);
-        System.out.println("Results written to " + output.toAbsolutePath());
-        writeReport(List.of(output), reportPath(output));
+        writeResults(run.output(), results, footprints, commit);
+        System.out.println("Results written to " + run.output().toAbsolutePath());
+        writeReport(List.of(run.output()), run.reportPath());
     }
 
     private static ChainedOptionsBuilder options(Profile profile, Map<String, List<String>> params, List<String> benchmarks) {
@@ -193,24 +213,13 @@ public final class BenchmarkMain {
         return options;
     }
 
-    /** Returns the full names of the benchmarks of the class that match the pattern. */
-    private static List<String> matching(Class<?> benchmarks, Pattern include) {
-        return Arrays.stream(benchmarks.getMethods())
-                .filter(m -> m.isAnnotationPresent(Benchmark.class))
-                .map(Method::getName)
-                .sorted()
-                .map(name -> benchmarks.getName() + "." + name)
-                .filter(name -> include.matcher(name).find())
-                .toList();
-    }
-
     private static List<String> paramValues(Map<String, List<String>> params, String name, Enum<?>[] defaults) {
         return params.getOrDefault(name, Arrays.stream(defaults).map(Enum::name).toList());
     }
 
-    /** Writes the JMH results and the footprints in a single JSON array. */
-    private static void writeResults(Path output, List<RunResult> results, List<Footprint.Result> footprints)
-            throws IOException {
+    /** Writes the JMH results and the footprints in a single JSON array, each with the commit of the code. */
+    private static void writeResults(Path output, List<RunResult> results, List<Footprint.Result> footprints,
+            String commit) throws IOException {
         List<String> entries = new ArrayList<>();
         if (!results.isEmpty()) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -226,6 +235,9 @@ public final class BenchmarkMain {
         }
         // Keep only the name of the JVM executable: its path shows the local file system.
         String json = JVM_DIRECTORIES.matcher("[\n" + String.join(",\n", entries) + "\n]\n").replaceAll("");
+        // Each entry starts with "jmhVersion": the commit goes before it.
+        json = JMH_VERSION.matcher(json)
+                .replaceAll("$1\"commit\" : \"" + Matcher.quoteReplacement(commit) + "\",\n$1\"jmhVersion\" :");
         Files.writeString(output, json);
     }
 
@@ -242,13 +254,7 @@ public final class BenchmarkMain {
         if (inputs.isEmpty()) {
             fail("Missing result files");
         }
-        writeReport(inputs, output != null ? output : reportPath(inputs.get(inputs.size() - 1)));
-    }
-
-    /** Returns the path of the report for a results file: same directory and name, extension {@code .html}. */
-    private static Path reportPath(Path results) {
-        String name = results.getFileName().toString().replaceFirst("\\.json$", "") + ".html";
-        return results.resolveSibling(name);
+        writeReport(inputs, output != null ? output : RunOptions.reportPath(inputs.get(inputs.size() - 1)));
     }
 
     /** Writes an HTML report with one run for each results file. */
@@ -282,6 +288,11 @@ public final class BenchmarkMain {
     private static void fail(String message) {
         System.err.println(message);
         System.err.print(USAGE);
+        System.exit(2);
+    }
+
+    private static void failPlan(Path file, String message) {
+        System.err.println("Error in the plan " + file + ": " + message);
         System.exit(2);
     }
 }

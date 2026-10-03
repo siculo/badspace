@@ -76,6 +76,8 @@
 - [x] Report HTML per confrontare i risultati (grafici e rapporti rispetto a un riferimento)
 - [x] Misure di riferimento con la scansione lineare (profilo rapido), salvate nel repo
 - [ ] Misure di riferimento con il profilo completo, a macchina scarica
+- [x] Piani di benchmark in un file JSON: gruppi con un profilo, un report di confronto e le run con le stesse opzioni di `run`; tutto controllato prima di partire; sostituiscono `compare-indices.sh`
+- [x] Controllo del codice misurato: avviso se il jar dei benchmark è più vecchio dei sorgenti, commit del codice scritto nei risultati
 - [ ] Benchmark a livello di API
 - [ ] Carico misto a tick (aggiornamenti e query per tick)
 - [x] Indice spaziale minimo per partizione: grid uniforme 2D e 3D, con la dimensione della cella scelta alla creazione (`IndexConfig`)

@@ -37,6 +37,7 @@ which only hides some warnings of JMH on the new JDKs.
 
 ```
 ./bench.sh run [quick|full] [--index NAME1,NAME2] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
+./bench.sh run --plan FILE
 ```
 
 | Option | Meaning |
@@ -48,6 +49,7 @@ which only hides some warnings of JMH on the new JDKs.
 | `--param NAME=V1,V2` | Changes the values of a parameter, for example `--param size=1000,1000000`. It can be repeated. |
 | `--percentiles` | Also measures the latency percentiles (p50, p90, p99). It doubles the time of the run. |
 | `--output FILE` | Where to write the results. Default: `results/<date>-<profile>.json`. |
+| `--plan FILE` | Does the runs of a plan file, without other options (see [Plans](#plans)). |
 
 At the end of the run, the report of the results is written too, in the same
 directory and with the same name as the JSON file, but with the `.html`
@@ -76,6 +78,63 @@ from `prototype/benchmark`.
 
 # Measures to keep, with the percentiles
 ./bench.sh run full --percentiles --output results/reference-linear-full.json
+```
+
+### Plans
+
+To do the same measures again without writing all the options, put the runs
+in a plan file and run it:
+
+```
+./bench.sh run --plan plans/index-comparison-quick.json
+```
+
+`--plan` takes no other options. The runs of a plan are in groups: each
+group has a profile, its runs and, if it has a `report` name, a report with
+the results of all its runs. For example:
+
+```json
+{
+  "groups": [
+    {
+      "profile": "quick",
+      "report": "index-comparison",
+      "runs": [
+        { "name": "uniform-grid", "index": ["UNIFORM_GRID_50", "UNIFORM_GRID_100"] },
+        // Comments like in Java are allowed.
+        { "name": "coincident", "index": "GRID_QUADTREE_256",
+          "params": { "distribution": "COINCIDENT", "size": [1000, 100000] },
+          "include": "update|insert", "percentiles": true },
+        { "name": "linear", "index": "LINEAR_SCAN", "output": "results/reference-linear-quick.json" }
+      ]
+    },
+    { "profile": "full", "runs": [ { "name": "uniform-grid", "index": "UNIFORM_GRID_100" } ] }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `profile` | `quick` (default) or `full`, for all the runs of the group. |
+| `report` | Optional name of the report of the group: `results/<date>-<report>-<profile>.html`. |
+| `name` | Name of the run, required: letters, digits and `. _ + -`. |
+| `index`, `include`, `params`, `percentiles`, `output` | The same as the options of `run`. A single value can be written without the array, and the numbers with or without quotes. Default output: `results/<date>-<name>-<profile>.json`. |
+
+The date is the start of the plan, the same for all its files. Each run also
+writes its own report, as with the options.
+
+Before the first run, the tool checks all the plan: the fields, the names and
+values of the parameters, the patterns, and that no two files have the same
+path. So an error stops the plan at once, not after hours.
+
+The plans to keep go in `plans/`. `index-comparison-quick.json` and
+`index-comparison-full.json` measure the uniform grid (cells 25 to 400), the
+grid of quadtrees (cells 64 to 256) and the linear scan, which is the last
+run, in one report. The quick one takes about 70 minutes. To keep a plan running
+after logout:
+
+```
+nohup ./bench.sh run --plan plans/index-comparison-full.json > plan.log 2>&1 &
 ```
 
 ## What is measured
@@ -202,6 +261,11 @@ one more benchmark, with mode `footprint`.
 
 ## Reliable measures
 
+- Build the jar again after each change and after each `git pull`. If a
+  source file is newer than the jar, the tool prints a warning at the start,
+  because the run would measure old code. Each result has the commit of the
+  code (`"commit"`), with `-dirty` at the end if there were changes that
+  were not committed.
 - Results are comparable only when they come from the same machine. Use the
   ratios, not the absolute values: Java timings are not the timings of the
   final implementation.
