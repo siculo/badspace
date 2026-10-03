@@ -87,7 +87,7 @@
 - [x] Distribuzioni dei benchmark con un cluster lontano dall'origine e un cluster centrato sull'origine (`FAR_CLUSTER`, `ORIGIN_CLUSTER`), con il mondo che dipende dalla distribuzione
 - [x] Misure della griglia di quadtree confrontate con grid uniforme e scansione lineare (profilo rapido) → [Griglia di quadtree](okf-bundle/indices/grid-quadtree.md#benchmark)
 - [x] Griglia di quadtree: spostamento verso una foglia vicina risalendo solo fino al primo nodo che contiene la nuova posizione, perché gli aggiornamenti LOCAL sui cluster densi costano circa 8 volte la scansione lineare
-- [ ] Misure dello spostamento verso una foglia vicina sulla macchina dedicata ai benchmark (piano `plans/grid-quadtree-update.json`), poi i risultati nel bundle
+- [x] Misure dello spostamento verso una foglia vicina sulla macchina dedicata ai benchmark (piano `plans/grid-quadtree-update.json`), poi i risultati nel bundle
 - [ ] Quadtree/octree con una sola radice (radice che cresce, compressione), solo se le misure mostrano che servono range molto grandi o k-nearest su dati sparsi → [Quadtree e octree](okf-bundle/indices/quadtree.md)
 - [ ] Configurazione della partizione alla creazione nell'API (indice e k)
 - [ ] Aggregazione delle query su più partizioni

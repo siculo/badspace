@@ -4,7 +4,7 @@ title: Griglia di quadtree
 description: Indice a due livelli, una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
 tags: [badspace, spatial-indexing, grid, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T12:57:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T14:09:55Z }
 ---
 
 # Come funziona
@@ -67,6 +67,30 @@ del compressed quadtree.
 - **Cluster a cavallo delle celle:** un cluster sul confine si divide in
   più alberi (fino a 4 in 2D, 8 in 3D). Non è un errore, solo un piccolo
   costo in più per le query.
+- **Costo delle scritture:** nei cluster densi un update costa circa 8
+  volte la scansione lineare e 5 volte la grid uniforme con celle
+  grandi. Le misure di diagnosi (2026-10-03, indicative) indicano la
+  causa:
+  - le allocazioni per batch sono quelle della scansione lineare, quindi
+    divisioni e riunioni non si ripetono di continuo;
+  - il tempo è nella risalita e nella discesa dell'albero, che con
+    `FAR_CLUSTER` ha al più 7 livelli;
+  - uno spostamento che cambia foglia costa circa 140 ns in più della
+    scansione lineare, circa 20 ns per nodo visitato: è la latenza della
+    memoria, con i nodi come oggetti Java sparsi nell'heap.
+
+  Foglie più grandi aiutano poco: con capacità 32 gli update costano
+  circa il 13% in meno e le query restano uguali; con 64 circa il 22% in
+  meno, ma le query peggiorano del 10–20%. Le opzioni:
+  - **nodi in array** (un'arena con indici, i figli in blocchi
+    contigui), come prova del layout dell'implementazione nativa: in C o
+    Rust un albero si scrive comunque così, e la latenza della memoria lì
+    pesa di più, perché il resto costa meno;
+  - **capacità della foglia 32** di default, da confermare sulla
+    macchina dei benchmark;
+  - **accettare il costo**, usando la griglia di quadtree per le
+    partizioni con molte query e la [grid
+    uniforme](/indices/uniform-grid.md) per quelle con molte scritture.
 
 # Decisioni
 
@@ -87,11 +111,13 @@ del compressed quadtree.
     record vale in 2D (quadtree) e in 3D (octree).
   - **Nodi come oggetti Java** nella prima versione; array primitivi se i
     benchmark lo giustificano.
-- **Da implementare:** il movimento verso una foglia vicina. Ora si
-  rimuove l'entità e la si reinserisce partendo dalla cella; si risalirà
-  solo fino al primo nodo che contiene la nuova posizione. Le misure lo
-  chiedono: nei cluster densi un passo breve cambia quasi sempre foglia
-  (vedi [Benchmark](#benchmark)).
+- **Movimento verso una foglia vicina (presa e implementata):** si
+  risale solo fino al primo nodo che contiene anche la nuova posizione,
+  e si scende da lì; uno spostamento in un'altra cella passa dalla mappa
+  delle celle. Sulla macchina dei benchmark non ha dato un guadagno
+  misurabile (vedi [Benchmark](#benchmark)), ma si tiene: è corretto, i
+  test controllano la struttura dell'albero, ed evita le riunioni
+  inutili quando un'entità si sposta dentro lo stesso nodo.
 
 # Implementazione nel prototipo
 
@@ -168,9 +194,15 @@ del compressed quadtree.
   `FAR_CLUSTER` costa 18,9 µs, contro 3,1 µs della grid con celle da 400
   e 2,2 µs della scansione lineare. Nei cluster densi le foglie sono
   piccole (circa 4 unità di lato con celle da 256), quindi un passo breve
-  cambia foglia, e l'entità si rimuove e si reinserisce dalla cella.
+  cambia foglia (misura con l'entità rimossa e reinserita dalla cella).
 - **Punti coincidenti:** con `COINCIDENT` l'update costa 4,7 volte la
   scansione lineare con le foglie impilate; prima era 17.
+- **Movimento verso una foglia vicina:** misurato con il piano
+  `plans/grid-quadtree-update.json` (commit `543d4b0`): rispetto a prima
+  le scritture costano uguale (rapporto 1,01), per esempio update LOCAL
+  su `FAR_CLUSTER` 19,5 µs contro 18,9. Il costo non viene dalla
+  lunghezza del percorso (vedi [Costo delle
+  scritture](#problematiche-aperte)).
 
 # Correlati
 
