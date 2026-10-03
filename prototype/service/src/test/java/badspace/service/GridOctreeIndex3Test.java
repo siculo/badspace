@@ -10,7 +10,10 @@ import badspace.common.Region3;
 import badspace.common.Sphere3;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -103,6 +106,43 @@ class GridOctreeIndex3Test {
         c.check(new Box3(new Point3(-1, -1, -1), new Point3(0, 0, 0)));
     }
 
+    /**
+     * Short steps in a dense cluster move the entities between near leaves,
+     * also across the cells and to the same position, so the move goes up
+     * only to the first node that contains the new position.
+     */
+    @Test
+    void shortStepsInADenseClusterKeepTheStructure() {
+        Random random = new Random(1);
+        List<Entity3> entities = new ArrayList<>();
+        for (long id = 1; id <= 2000; id++) {
+            entities.add(entity(id, 300 + random.nextGaussian() * 5, 300 + random.nextGaussian() * 5));
+        }
+        Comparison c = new Comparison(64, 4, entities);
+        c.checkStructure();
+        Map<Long, Entity3> current = new HashMap<>();
+        entities.forEach(e -> current.put(e.id(), e));
+        for (int round = 0; round < 100; round++) {
+            for (int i = 0; i < 50; i++) {
+                long id = 1 + random.nextInt(entities.size());
+                Entity3 e = current.get(id);
+                double step = random.nextInt(10) == 0 ? 50 : 0.5;
+                Entity3 moved = random.nextInt(10) == 0
+                        ? entity(id, 300, 300)
+                        : entity(id, e.position().x() + random.nextGaussian() * step,
+                                e.position().y() + random.nextGaussian() * step);
+                c.update(moved);
+                current.put(id, moved);
+            }
+            c.checkStructure();
+            if (round % 10 == 0) {
+                c.check(new Point3(300, 300, 300), 20);
+                c.check(new Point3(301.5, 299, 300), 5);
+                c.check(new Box3(new Point3(295, 295, 295), new Point3(302, 304, 304)));
+            }
+        }
+    }
+
     @Test
     void smallNegativeCoordinatesAreInTheRightCell() {
         double small = Double.MIN_VALUE;
@@ -145,6 +185,10 @@ class GridOctreeIndex3Test {
         void update(Entity3 entity) {
             tested.updateAll(List.of(entity));
             reference.updateAll(List.of(entity));
+        }
+
+        void checkStructure() {
+            index.checkStructure();
         }
 
         int maxDepth() {

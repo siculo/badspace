@@ -1,0 +1,18 @@
+// Measures the writes of the grid of quadtrees after a change in the
+// moves, against the uniform grid with large cells and the linear scan,
+// on the distributions where the moves cost the most.
+{
+  "groups": [
+    {
+      "profile": "quick",
+      "runs": [
+        {
+          "name": "grid-quadtree-update",
+          "index": ["GRID_QUADTREE_256", "UNIFORM_GRID_400", "LINEAR_SCAN"],
+          "include": "update|insert|remove",
+          "params": { "distribution": ["UNIFORM", "FAR_CLUSTER", "COINCIDENT"] }
+        }
+      ]
+    }
+  ]
+}

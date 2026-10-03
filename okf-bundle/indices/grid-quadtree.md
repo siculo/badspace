@@ -4,7 +4,7 @@ title: Griglia di quadtree
 description: Indice a due livelli, una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
 tags: [badspace, spatial-indexing, grid, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T08:57:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T12:57:57Z }
 ---
 
 # Come funziona
@@ -87,9 +87,11 @@ del compressed quadtree.
     record vale in 2D (quadtree) e in 3D (octree).
   - **Nodi come oggetti Java** nella prima versione; array primitivi se i
     benchmark lo giustificano.
-- **Da prendere:** come muovere un'entità verso una foglia vicina. Ora si
-  rimuove e si reinserisce dalla cella; si può risalire solo fino al
-  primo nodo che contiene la nuova posizione, se le misure lo chiedono.
+- **Da implementare:** il movimento verso una foglia vicina. Ora si
+  rimuove l'entità e la si reinserisce partendo dalla cella; si risalirà
+  solo fino al primo nodo che contiene la nuova posizione. Le misure lo
+  chiedono: nei cluster densi un passo breve cambia quasi sempre foglia
+  (vedi [Benchmark](#benchmark)).
 
 # Implementazione nel prototipo
 
@@ -140,8 +142,35 @@ del compressed quadtree.
   alberi). Per la griglia di quadtree la distanza dall'origine non conta,
   perché ogni albero ha la radice nella sua cella; conterà per un
   eventuale quadtree con una sola radice.
-- **Da fare:** confronto con grid uniforme e scansione lineare su tutte
-  le distribuzioni, sulla macchina dedicata ai benchmark.
+- **Confronto tra indici (profilo rapido):** misure del 2026-10-03
+  sulla macchina dedicata ai benchmark, con il piano
+  `plans/index-comparison-quick.json` (commit `fb37ec1`). Rapporto
+  rispetto alla [scansione lineare](/indices/linear-scan.md), media
+  geometrica su tutti i parametri, con 100 000 entità (sotto 1 è
+  meglio):
+
+  | | Griglia di quadtree (celle 64–256) | Grid uniforme (celle 25–400) |
+  |---|---|---|
+  | k-nearest | 0,0044–0,0057 | 0,033–0,17 |
+  | Range | 0,021–0,026 | 0,040–0,11 |
+  | Update | 4,4–5,1 | 1,9–3,2 |
+  | Insert | 2,7–3,1 | 1,6–2,0 |
+  | Memoria | 1,26–1,29 | 1,08–1,21 |
+
+- **Query senza crolli:** il caso peggiore è 0,88 volte la scansione
+  lineare (k-nearest su `HOTSPOT` sparso, con 1000 entità). La [grid
+  uniforme](/indices/uniform-grid.md) invece crolla con celle piccole
+  sui dati sparsi e con celle grandi su un solo cluster denso.
+- **Dimensione della cella:** da 64 a 128 a 256 le query migliorano
+  sempre meno (k-nearest 0,0057 → 0,0047 → 0,0044) e le scritture
+  peggiorano poco (update 4,4 → 4,8 → 5,1): 256 è un buon punto.
+- **Il costo sono le scritture:** un update LOCAL con batch di 100 su
+  `FAR_CLUSTER` costa 18,9 µs, contro 3,1 µs della grid con celle da 400
+  e 2,2 µs della scansione lineare. Nei cluster densi le foglie sono
+  piccole (circa 4 unità di lato con celle da 256), quindi un passo breve
+  cambia foglia, e l'entità si rimuove e si reinserisce dalla cella.
+- **Punti coincidenti:** con `COINCIDENT` l'update costa 4,7 volte la
+  scansione lineare con le foglie impilate; prima era 17.
 
 # Correlati
 

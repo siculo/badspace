@@ -81,11 +81,13 @@
 - [ ] Benchmark a livello di API
 - [ ] Carico misto a tick (aggiornamenti e query per tick)
 - [x] Indice spaziale minimo per partizione: grid uniforme 2D e 3D, con la dimensione della cella scelta alla creazione (`IndexConfig`)
-- [ ] Misure della grid uniforme con più dimensioni di cella (25, 50, 100, 200, 400), confrontate con la scansione lineare, sulla macchina dedicata ai benchmark: `run quick --param index=UNIFORM_GRID_25,UNIFORM_GRID_50,UNIFORM_GRID_100,UNIFORM_GRID_200,UNIFORM_GRID_400` (circa 50 minuti); la misura di riferimento della scansione lineare va ripresa sulla stessa macchina
+- [x] Misure della grid uniforme con più dimensioni di cella (25, 50, 100, 200, 400), confrontate con la scansione lineare, sulla macchina dedicata ai benchmark (profilo rapido, piano `plans/index-comparison-quick.json`)
 - [x] Griglia di quadtree 2D e griglia di octree 3D come terzo indice, con `cellSize` potenza di 2 e riunione dei nodi con isteresi (`IndexConfig`) → [Griglia di quadtree](okf-bundle/indices/grid-quadtree.md)
 - [x] Limiti delle coordinate per partizione, fissati dall'indice (`IndexConfig.limits()`, `limits()` su partizione e nodo): scritture fuori dai limiti rifiutate, solo valori finiti anche nelle query → [Limiti delle coordinate](okf-bundle/decisions/spatial-indexing.md#limiti-delle-coordinate)
 - [x] Distribuzioni dei benchmark con un cluster lontano dall'origine e un cluster centrato sull'origine (`FAR_CLUSTER`, `ORIGIN_CLUSTER`), con il mondo che dipende dalla distribuzione
-- [ ] Misure della griglia di quadtree confrontate con grid uniforme e scansione lineare
+- [x] Misure della griglia di quadtree confrontate con grid uniforme e scansione lineare (profilo rapido) → [Griglia di quadtree](okf-bundle/indices/grid-quadtree.md#benchmark)
+- [x] Griglia di quadtree: spostamento verso una foglia vicina risalendo solo fino al primo nodo che contiene la nuova posizione, perché gli aggiornamenti LOCAL sui cluster densi costano circa 8 volte la scansione lineare
+- [ ] Misure dello spostamento verso una foglia vicina sulla macchina dedicata ai benchmark (piano `plans/grid-quadtree-update.json`), poi i risultati nel bundle
 - [ ] Quadtree/octree con una sola radice (radice che cresce, compressione), solo se le misure mostrano che servono range molto grandi o k-nearest su dati sparsi → [Quadtree e octree](okf-bundle/indices/quadtree.md)
 - [ ] Configurazione della partizione alla creazione nell'API (indice e k)
 - [ ] Aggregazione delle query su più partizioni

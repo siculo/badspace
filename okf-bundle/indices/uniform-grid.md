@@ -4,7 +4,7 @@ title: Grid uniforme
 description: Indice che divide lo spazio in celle quadrate (2D) o cubiche (3D) della stessa dimensione, tenute in una mappa; aggiornamenti economici, query veloci se la cella è adatta alla densità e alle query.
 tags: [badspace, spatial-indexing, grid]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T12:57:57Z }
 ---
 
 # Come funziona
@@ -41,7 +41,14 @@ ricava con `floor(coordinata / cellSize)` su ogni asse.
 - **Densità non uniforme.** Con cluster e hotspot una sola dimensione di
   cella non va bene ovunque: celle piene di entità nelle zone dense,
   celle quasi vuote altrove. È il problema che la [griglia di
-  quadtree](/indices/grid-quadtree.md) vuole risolvere.
+  quadtree](/indices/grid-quadtree.md) vuole risolvere. Le misure lo
+  confermano (profilo rapido, 2026-10-03, 100 000 entità):
+  - con un solo cluster denso (`FAR_CLUSTER`, `ORIGIN_CLUSTER`,
+    deviazione 100) il k-nearest non è migliore della scansione
+    lineare, perché legge celle intere: circa 1,0 volte con celle da 100,
+    1,3 con celle da 400, 0,37 con celle da 25;
+  - con celle piccole crolla sui dati sparsi: con 1000 entità, celle da
+    25 arrivano a 14 volte la scansione lineare nei k-nearest.
 - **Range molto grandi e k-nearest su dati sparsi.** La query attraversa
   molte celle o molti anelli vuoti.
 - **Punti coincidenti.** Finiscono tutti nella stessa cella, che diventa
@@ -69,9 +76,13 @@ si portano dentro l'intervallo degli `int`.
 - **Prese:** grid in 2D e 3D come primo indice spaziale, dimensione
   della cella scelta alla creazione della partizione, celle in una mappa:
   solo le celle con entità usano memoria.
-- **Da fare:** misure con più dimensioni di cella (25, 50, 100, 200,
-  400), confrontate con la [scansione lineare](/indices/linear-scan.md),
-  sulla macchina dedicata ai benchmark.
+- **Misure con più dimensioni di cella** (25, 50, 100, 200, 400),
+  confrontate con la [scansione lineare](/indices/linear-scan.md) sulla
+  macchina dedicata ai benchmark (profilo rapido, 2026-10-03): nessuna
+  dimensione di cella va bene per tutti i casi (vedi
+  [Problematiche](#problematiche)). Con celle grandi (200–400) la grid è
+  l'indice più economico nelle scritture (update 1,9–2,0 e insert
+  1,6–1,7 volte la scansione lineare) e in memoria (1,08 volte).
 
 # Correlati
 

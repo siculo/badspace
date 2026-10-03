@@ -4,7 +4,7 @@ title: Indicizzazione spaziale
 description: L'indice spaziale si sceglie per partizione e fissa i limiti delle coordinate delle entità; scansione lineare, grid uniforme e griglia di quadtree sono implementate, il confronto tra le strutture resta aperto.
 tags: [badspace, design, spatial-indexing, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T12:57:57Z }
 ---
 
 # Opzioni considerate
@@ -87,6 +87,18 @@ Nel prototipo sono implementate la scansione lineare, la grid uniforme
 e la griglia di quadtree, in 2D e 3D. Il quadtree con una sola radice
 è rimandato, e l'R-tree non è ancora prototipato. Nessuna struttura è
 stata scelta come default: la scelta dipende dai benchmark tra indici.
+
+Le misure con il profilo rapido (2026-10-03) danno un'indicazione, non
+ancora una decisione:
+
+- [griglia di quadtree](/indices/grid-quadtree.md#benchmark) con celle
+  da 256 per le entità con molte query o con dati a cluster: è l'unico
+  indice senza crolli nelle query, ma costa di più nelle scritture;
+- [grid uniforme](/indices/uniform-grid.md#decisioni) con celle grandi
+  per molte scritture e poche query, su dati distribuiti in modo
+  uniforme.
+
+Restano da fare le misure con il profilo completo e la decisione.
 
 # Correlati
 

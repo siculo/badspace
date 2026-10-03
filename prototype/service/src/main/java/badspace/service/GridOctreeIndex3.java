@@ -83,10 +83,23 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
             }
             return;
         }
-        // Simple but not the fastest way: a move to a near leaf could go up
-        // only to the first node that contains the new position.
-        remove(slot);
-        add(slot, to);
+        // Only the nodes below the first node that contains both positions
+        // change their counts. A move to another cell goes through the map
+        // of the cells.
+        Node common = leaf.parent;
+        while (common != null && !common.contains(to)) {
+            common = common.parent;
+        }
+        if (common == null) {
+            remove(slot);
+            add(slot, to);
+            return;
+        }
+        detach(slot, common);
+        // The leaf does not contain the new position, so the common node is
+        // above it and has children; a merge changes only the nodes below
+        // the child of the old position, so the common node keeps them.
+        descend(common.children[common.childIndex(to)], slot, to);
     }
 
     @Override
@@ -226,6 +239,11 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
         // The limits of the index keep the cell coordinates in the int range.
         Node node = cells.computeIfAbsent(new CellKey((int) x, (int) y, (int) z),
                 key -> new Node(null, key.x * cellSize, key.y * cellSize, key.z * cellSize, cellSize, 0));
+        descend(node, slot, position);
+    }
+
+    /** Adds the slot to the leaf of the position below the node, and counts it in each node on the way. */
+    private void descend(Node node, int slot, Point3 position) {
         while (!node.isLeaf()) {
             node.count++;
             node = node.children[node.childIndex(position)];
@@ -245,6 +263,20 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
 
     /** Removes the slot from its leaf, then merges the nodes that have few entities and drops an empty cell. */
     private void remove(int slot) {
+        Node root = detach(slot, null);
+        if (root.count == 0) {
+            cells.remove(new CellKey(
+                    (int) (root.minX / cellSize), (int) (root.minY / cellSize), (int) (root.minZ / cellSize)));
+        }
+    }
+
+    /**
+     * Removes the slot from its leaf and from the counts of the nodes on the
+     * way up, until the node {@code stop}, which keeps its count; with stop
+     * null, until the root of the cell. Then merges the nodes that have few
+     * entities. Returns the highest node whose count changed.
+     */
+    private Node detach(int slot, Node stop) {
         Node leaf = leafOf[slot];
         SlotList list = leaf.slots;
         int place = placeOf[slot];
@@ -257,21 +289,18 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
         // The counts grow from the leaf to the root, so the nodes to merge
         // are at the start of the path; the highest one takes them all.
         Node toMerge = null;
-        Node root = leaf;
-        for (Node node = leaf; node != null; node = node.parent) {
+        Node highest = leaf;
+        for (Node node = leaf; node != stop; node = node.parent) {
             node.count--;
             if (!node.isLeaf() && node.count <= mergeLimit) {
                 toMerge = node;
             }
-            root = node;
+            highest = node;
         }
         if (toMerge != null) {
             merge(toMerge);
         }
-        if (root.count == 0) {
-            cells.remove(new CellKey(
-                    (int) (root.minX / cellSize), (int) (root.minY / cellSize), (int) (root.minZ / cellSize)));
-        }
+        return highest;
     }
 
     private void splitIfFull(Node leaf) {
@@ -327,6 +356,63 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
      */
     private static boolean samePosition(Point3 a, Point3 b) {
         return a.x() == b.x() && a.y() == b.y() && a.z() == b.z();
+    }
+
+    /**
+     * Fails with IllegalStateException if the structure is not consistent:
+     * the counts of the nodes, the leaf and place of each slot, the nodes
+     * that should be merged, and the stacked leaves. Only for the tests.
+     */
+    void checkStructure() {
+        int total = 0;
+        for (Node root : cells.values()) {
+            if (root.count == 0) {
+                throw new IllegalStateException("Empty cell");
+            }
+            total += checkNode(root);
+        }
+        int slots = 0;
+        for (int slot = 0; slot < leafOf.length; slot++) {
+            if (leafOf[slot] != null) {
+                slots++;
+                if (leafOf[slot].slots.get(placeOf[slot]) != slot) {
+                    throw new IllegalStateException("Wrong place of slot " + slot);
+                }
+            }
+        }
+        if (total != slots) {
+            throw new IllegalStateException("Entities in the leaves: " + total + ", slots with a leaf: " + slots);
+        }
+    }
+
+    /** Checks the subtree and returns its number of entities. */
+    private int checkNode(Node node) {
+        int count;
+        if (node.isLeaf()) {
+            count = node.slots.size();
+            for (int i = 0; i < count; i++) {
+                int slot = node.slots.get(i);
+                Point3 position = storage.positionAt(slot);
+                if (leafOf[slot] != node || !node.contains(position)) {
+                    throw new IllegalStateException("Slot " + slot + " is in the wrong leaf");
+                }
+                if (node.stackedAt != null && !samePosition(node.stackedAt, position)) {
+                    throw new IllegalStateException("Stacked leaf with another position: " + position);
+                }
+            }
+        } else {
+            if (node.count <= mergeLimit) {
+                throw new IllegalStateException("Node to merge with " + node.count + " entities");
+            }
+            count = 0;
+            for (Node child : node.children) {
+                count += checkNode(child);
+            }
+        }
+        if (count != node.count) {
+            throw new IllegalStateException("Count " + node.count + " instead of " + count);
+        }
+        return count;
     }
 
     /** Returns the depth of the deepest leaf, or -1 if the index is empty. Only for the tests. */

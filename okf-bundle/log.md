@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-03
+* **Edit**: Riportati i risultati del confronto tra indici con il profilo rapido (2026-10-03) nella [Griglia di quadtree](/indices/grid-quadtree.md#benchmark) (query senza crolli e molto più veloci, scritture più costose; si implementa il movimento verso una foglia vicina), nella [Grid uniforme](/indices/uniform-grid.md) (crolli con un solo cluster denso e con celle piccole su dati sparsi; con celle grandi è la più economica nelle scritture) e nell'[Indicizzazione spaziale](/decisions/spatial-indexing.md) (indicazione, non ancora decisione, su quale indice usare).
 * **Edit**: Aggiornata la [Griglia di quadtree](/indices/grid-quadtree.md) — nuova regola di arresto per i punti esattamente coincidenti: una foglia con tutte le entità nella stessa posizione si segna come impilata e non si divide, invece di formare catene fino a 24 livelli (con `COINCIDENT` l'update costava fino a ~17 volte la scansione lineare); per i punti quasi coincidenti resta una catena limitata e la compressione resta aperta.
 
 ## 2026-10-02
