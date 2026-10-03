@@ -4,7 +4,7 @@ title: Griglia di quadtree
 description: Indice a due livelli, una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
 tags: [badspace, spatial-indexing, grid, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T14:09:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T23:18:55Z }
 ---
 
 # Come funziona
@@ -69,23 +69,35 @@ del compressed quadtree.
   costo in più per le query.
 - **Costo delle scritture:** nei cluster densi un update costa circa 8
   volte la scansione lineare e 5 volte la grid uniforme con celle
-  grandi. Le misure di diagnosi (2026-10-03, indicative) indicano la
-  causa:
-  - le allocazioni per batch sono quelle della scansione lineare, quindi
-    divisioni e riunioni non si ripetono di continuo;
-  - il tempo è nella risalita e nella discesa dell'albero, che con
-    `FAR_CLUSTER` ha al più 7 livelli;
-  - uno spostamento che cambia foglia costa circa 140 ns in più della
-    scansione lineare, circa 20 ns per nodo visitato: è la latenza della
-    memoria, con i nodi come oggetti Java sparsi nell'heap.
+  grandi. Le misure di diagnosi (2026-10-03 e 2026-10-04, indicative)
+  indicano la causa:
+  - **la frequenza dei cambi di foglia.** Nei cluster densi le foglie
+    sono piccole, perché l'indice si adatta alla densità: un passo di 10
+    unità cambia foglia nel 98% dei casi con `FAR_CLUSTER` (93% con
+    capacità 64), e solo nel 15% con `UNIFORM`. Con la grid uniforme da
+    400 lo stesso passo cambia cella di rado;
+  - **gli accessi sparsi di ogni cambio:** circa 8–10 accessi in punti
+    diversi della memoria (la foglia e il posto dello slot, le liste di
+    slot delle due foglie, il posto dello slot spostato nel buco, i nodi
+    del percorso). Le allocazioni per batch sono quelle della scansione
+    lineare, quindi divisioni e riunioni non si ripetono di continuo;
+  - **non il layout dei nodi.** Un esperimento con i nodi in un'arena
+    (campi int e double in array, i 4 figli in un blocco contiguo, liste
+    dei nodi liberi) ha dato gli stessi tempi dei nodi come oggetti, in
+    scritture e query (update LOCAL su `FAR_CLUSTER` 15,7 µs contro
+    16,5); il codice è stato rimosso. In C o Rust l'arena resta il modo
+    naturale di scrivere l'albero, ma non chiuderà la distanza: ogni
+    accesso costa meno, ma la latenza della memoria e la frequenza dei
+    cambi restano le stesse.
 
   Foglie più grandi aiutano poco: con capacità 32 gli update costano
   circa il 13% in meno e le query restano uguali; con 64 circa il 22% in
   meno, ma le query peggiorano del 10–20%. Le opzioni:
-  - **nodi in array** (un'arena con indici, i figli in blocchi
-    contigui), come prova del layout dell'implementazione nativa: in C o
-    Rust un albero si scrive comunque così, e la latenza della memoria lì
-    pesa di più, perché il resto costa meno;
+  - **quadtree loose:** una foglia accetta le entità anche un po' fuori
+    dal suo box, fino a un margine; chi si muove di poco resta nella sua
+    foglia, e le query allargano i box del margine. Riduce i cambi di
+    foglia, ed è una modifica dell'algoritmo, quindi vale in ogni
+    linguaggio;
   - **capacità della foglia 32** di default, da confermare sulla
     macchina dei benchmark;
   - **accettare il costo**, usando la griglia di quadtree per le
@@ -109,8 +121,9 @@ del compressed quadtree.
     leafCapacity)`, con `cellSize` controllato come potenza di 2 tra
     2^-30 e 2^30; soglia di riunione e profondità si ricavano. Lo stesso
     record vale in 2D (quadtree) e in 3D (octree).
-  - **Nodi come oggetti Java** nella prima versione; array primitivi se i
-    benchmark lo giustificano.
+  - **Nodi come oggetti Java.** Un esperimento con i nodi in array (2D,
+    2026-10-04) non ha dato guadagno, quindi si resta con gli oggetti
+    (vedi [Costo delle scritture](#problematiche-aperte)).
 - **Movimento verso una foglia vicina (presa e implementata):** si
   risale solo fino al primo nodo che contiene anche la nuova posizione,
   e si scende da lì; uno spostamento in un'altra cella passa dalla mappa

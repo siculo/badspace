@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-04
+* **Edit**: Aggiornata la [Griglia di quadtree](/indices/grid-quadtree.md) — corretta la causa del costo delle scritture: non il layout dei nodi (l'esperimento con i nodi in array ha dato gli stessi tempi ed è stato rimosso) ma la frequenza dei cambi di foglia nei cluster densi (98% dei passi brevi) e gli accessi sparsi di ogni cambio; nuova opzione del quadtree loose; i nodi restano oggetti Java.
+
 ## 2026-10-03
 * **Edit**: Aggiornata la [Griglia di quadtree](/indices/grid-quadtree.md) — il movimento verso una foglia vicina è implementato ma senza guadagno misurabile; nuova problematica aperta sul costo delle scritture, con la causa misurata (latenza della memoria dei nodi come oggetti), la prova delle capacità della foglia e le opzioni (nodi in array come prova del layout nativo, capacità 32, accettare il costo).
 * **Edit**: Riportati i risultati del confronto tra indici con il profilo rapido (2026-10-03) nella [Griglia di quadtree](/indices/grid-quadtree.md#benchmark) (query senza crolli e molto più veloci, scritture più costose; si implementa il movimento verso una foglia vicina), nella [Grid uniforme](/indices/uniform-grid.md) (crolli con un solo cluster denso e con celle piccole su dati sparsi; con celle grandi è la più economica nelle scritture) e nell'[Indicizzazione spaziale](/decisions/spatial-indexing.md) (indicazione, non ancora decisione, su quale indice usare).
