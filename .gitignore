@@ -5,7 +5,7 @@ okf-sources/
 target/
 
 # Benchmark results and reports
-prototype/benchmark/results/
+# prototype/benchmark/results/
 
 # Java
 *.class
