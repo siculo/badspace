@@ -20,8 +20,8 @@ import org.junit.jupiter.api.Test;
  * model. The test coordinates are mostly between -10 and 10, sometimes up to
  * 1e9 or to the limits of the index, so the parameters give many splits and
  * merges with small leaves, and deep trees in large cells. Small integer
- * coordinates give many entities in the same position, which stop the splits
- * at the depth limit.
+ * coordinates give many entities in the same position, which stay in one
+ * leaf.
  * <p>
  * The other tests compare the index with the linear scan in special cases;
  * there the z coordinate is the same as y.
@@ -84,6 +84,26 @@ class GridOctreeIndex3Test {
     }
 
     @Test
+    void entitiesInTheSamePositionDoNotMakeAChainOfNodes() {
+        List<Entity3> entities = new ArrayList<>();
+        // 0.0 and -0.0 are the same position for the index.
+        LongStream.rangeClosed(1, 100).forEach(id -> entities.add(entity(id, id % 2 == 0 ? 0.0 : -0.0, 0)));
+        LongStream.rangeClosed(101, 200).forEach(id -> entities.add(entity(id, 300, 300)));
+        Comparison c = new Comparison(128, 16, entities);
+        assertEquals(0, c.maxDepth());
+
+        // In the cell [256, 384), 300 and 301 go in different children at
+        // depth 7; the 99 entities still in 300 then stay in one leaf.
+        c.update(entity(101, 301, 300));
+        assertEquals(7, c.maxDepth());
+        c.check(new Point3(300.6, 300, 300), 3);
+        c.update(entity(101, 300, 300));
+        assertEquals(7, c.maxDepth());
+        c.check(new Point3(300.6, 300, 300), 3);
+        c.check(new Box3(new Point3(-1, -1, -1), new Point3(0, 0, 0)));
+    }
+
+    @Test
     void smallNegativeCoordinatesAreInTheRightCell() {
         double small = Double.MIN_VALUE;
         Comparison c = new Comparison(0x1p20, 1, List.of(
@@ -103,9 +123,11 @@ class GridOctreeIndex3Test {
 
         final PartitionStorage3 tested;
         final PartitionStorage3 reference = new PartitionStorage3();
+        GridOctreeIndex3 index;
 
         Comparison(double cellSize, int leafCapacity, List<Entity3> entities) {
-            tested = new PartitionStorage3(IndexConfig.gridQuadtree(cellSize, leafCapacity));
+            tested = new PartitionStorage3(IndexConfig.gridQuadtree(cellSize, leafCapacity).limits(),
+                    storage -> index = new GridOctreeIndex3(storage, cellSize, leafCapacity));
             tested.insertAll(entities);
             reference.insertAll(entities);
         }
@@ -118,6 +140,15 @@ class GridOctreeIndex3Test {
         void check(Region3 region) {
             assertEquals(sortedById(reference.findInRegion(region)), sortedById(tested.findInRegion(region)),
                     "findInRegion " + region);
+        }
+
+        void update(Entity3 entity) {
+            tested.updateAll(List.of(entity));
+            reference.updateAll(List.of(entity));
+        }
+
+        int maxDepth() {
+            return index.maxDepth();
         }
 
         void removeAll(long[] ids) {
