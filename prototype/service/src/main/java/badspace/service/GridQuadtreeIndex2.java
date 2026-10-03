@@ -22,8 +22,10 @@ import java.util.PriorityQueue;
  * {@code leafCapacity} entities, and a node becomes a leaf again when it has
  * {@code leafCapacity / 2} entities or fewer: the gap keeps an entity that
  * moves on a border from splitting and merging a node at each move. A leaf is
- * not split below {@link #MAX_DEPTH} levels, or when the halves of its box
- * would not be exact, so many entities in the same position stay in one leaf.
+ * not split when all its entities are in the same position, because no split
+ * can divide them: many entities in the same position stay in one leaf and do
+ * not make a long chain of nodes. A leaf is also not split below
+ * {@link #MAX_DEPTH} levels, or when the halves of its box would not be exact.
  * <p>
  * A range query reads the cells that cover the region, and in each cell only
  * the nodes that touch the region; a node inside the region is taken whole. A
@@ -75,6 +77,10 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     public void moved(int slot, Point2 from, Point2 to) {
         Node leaf = leafOf[slot];
         if (leaf.contains(to)) {
+            if (leaf.stackedAt != null && !samePosition(leaf.stackedAt, to)) {
+                leaf.stackedAt = null;
+                splitIfFull(leaf);
+            }
             return;
         }
         // Simple but not the fastest way: a move to a near leaf could go up
@@ -217,11 +223,14 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
             node.count++;
             node = node.children[node.childIndex(position)];
         }
-        addToLeaf(node, slot);
+        addToLeaf(node, slot, position);
         splitIfFull(node);
     }
 
-    private void addToLeaf(Node leaf, int slot) {
+    private void addToLeaf(Node leaf, int slot, Point2 position) {
+        if (leaf.stackedAt != null && !samePosition(leaf.stackedAt, position)) {
+            leaf.stackedAt = null;
+        }
         leaf.count++;
         leafOf[slot] = leaf;
         placeOf[slot] = leaf.slots.add(slot);
@@ -262,6 +271,11 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
                 || !halvesAreExact(leaf.minX, leaf.side) || !halvesAreExact(leaf.minY, leaf.side)) {
             return;
         }
+        // The check reads all the entities, but only once: a stacked leaf
+        // stops here until an entity in another position comes in.
+        if (leaf.stackedAt != null || isStacked(leaf)) {
+            return;
+        }
         SlotList slots = leaf.slots;
         double half = leaf.side / 2;
         leaf.slots = null;
@@ -280,6 +294,50 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
         for (Node child : leaf.children) {
             splitIfFull(child);
         }
+    }
+
+    /**
+     * Returns true, and marks the leaf, if all its entities are in the same
+     * position.
+     */
+    private boolean isStacked(Node leaf) {
+        Point2 first = storage.positionAt(leaf.slots.get(0));
+        for (int i = 1; i < leaf.slots.size(); i++) {
+            if (!samePosition(first, storage.positionAt(leaf.slots.get(i)))) {
+                return false;
+            }
+        }
+        leaf.stackedAt = first;
+        return true;
+    }
+
+    /**
+     * Returns true if the two positions are the same for the index. It
+     * compares the coordinates with ==, so 0.0 and -0.0 are the same: they
+     * always go in the same child, so a split cannot divide them.
+     */
+    private static boolean samePosition(Point2 a, Point2 b) {
+        return a.x() == b.x() && a.y() == b.y();
+    }
+
+    /** Returns the depth of the deepest leaf, or -1 if the index is empty. Only for the tests. */
+    int maxDepth() {
+        int max = -1;
+        for (Node root : cells.values()) {
+            max = Math.max(max, maxDepth(root));
+        }
+        return max;
+    }
+
+    private static int maxDepth(Node node) {
+        if (node.isLeaf()) {
+            return node.depth;
+        }
+        int max = node.depth;
+        for (Node child : node.children) {
+            max = Math.max(max, maxDepth(child));
+        }
+        return max;
     }
 
     /** Makes the node a leaf with all the entities of its subtree. */
@@ -451,6 +509,12 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
         final int depth;
         Node[] children;
         SlotList slots = new SlotList();
+        /**
+         * For a leaf, the position of all its entities when they are in the
+         * same position and too many to stay in a leaf: then the leaf is not
+         * split. Null in all the other cases.
+         */
+        Point2 stackedAt;
         /** Number of entities in the subtree. */
         int count;
 

@@ -4,7 +4,7 @@ title: Griglia di quadtree
 description: Indice a due livelli, una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
 tags: [badspace, spatial-indexing, grid, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T08:57:39Z }
 ---
 
 # Come funziona
@@ -57,8 +57,13 @@ del compressed quadtree.
   nella grid. Troppo piccola, l'indice tende alla grid; troppo grande,
   tende al quadtree con una radice e catene corte (logaritmiche).
 - **Punti coincidenti:** dentro la cella valgono le [regole di
-  arresto](/indices/quadtree.md#punti-coincidenti) del quadtree, con il
-  limite di profondità più il controllo `min < mid < max`.
+  arresto](/indices/quadtree.md#punti-coincidenti) del quadtree. Per i
+  punti esattamente coincidenti si applica il controllo prima di
+  dividere: una foglia con tutte le entità nella stessa posizione non si
+  divide. Per i punti quasi coincidenti resta una catena, limitata a
+  circa `log2(cellSize / d)` livelli per due punti a distanza `d`, oltre
+  al limite di profondità e al controllo `min < mid < max`; per toglierla
+  servirebbe la compressione.
 - **Cluster a cavallo delle celle:** un cluster sul confine si divide in
   più alberi (fino a 4 in 2D, 8 in 3D). Non è un errore, solo un piccolo
   costo in più per le query.
@@ -90,8 +95,24 @@ del compressed quadtree.
 
 `GridQuadtreeIndex2` e `GridOctreeIndex3`, nel modulo service.
 
-- **Regola di arresto:** una foglia non si divide oltre 24 livelli, né
-  quando i bordi delle sue metà non sarebbero esatti con i `double`.
+- **Regola di arresto:** una foglia non si divide quando tutte le sue
+  entità sono nella stessa posizione, oltre 24 livelli, né quando i bordi
+  delle sue metà non sarebbero esatti con i `double`.
+  - **Foglia impilata:** al momento della divisione un controllo O(n)
+    guarda se tutte le entità della foglia hanno la stessa posizione; se
+    sì, la foglia si segna (campo `stackedAt`) e non si divide. Il
+    controllo si fa una sola volta: i nuovi inserimenti nella stessa
+    posizione costano O(1). Un'entità che entra in una posizione diversa,
+    per inserimento o per movimento dentro la foglia, toglie il segno e la
+    foglia si può dividere di nuovo.
+  - **Confronto delle coordinate:** con `==`, quindi `0.0` e `-0.0` sono
+    la stessa posizione; vanno sempre nello stesso figlio, quindi una
+    divisione non le separerebbe.
+  - **Motivo:** senza questo controllo, con la distribuzione `COINCIDENT`
+    (circa 100 entità per posizione) le foglie formavano catene fino a 24
+    livelli: nelle misure quick del 2026-10-02 l'update costava fino a
+    circa 17 volte la scansione lineare e la memoria era di circa 250
+    byte per entità invece di circa 170.
 - **Bordi esatti:** con `cellSize` potenza di 2 la cella di un punto si
   calcola senza errori (con una correzione per i valori negativi molto
   piccoli), quindi un'entità è in un nodo se e solo se è nel box del

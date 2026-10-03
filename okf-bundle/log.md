@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-03
+* **Edit**: Aggiornata la [Griglia di quadtree](/indices/grid-quadtree.md) — nuova regola di arresto per i punti esattamente coincidenti: una foglia con tutte le entità nella stessa posizione si segna come impilata e non si divide, invece di formare catene fino a 24 livelli (con `COINCIDENT` l'update costava fino a ~17 volte la scansione lineare); per i punti quasi coincidenti resta una catena limitata e la compressione resta aperta.
+
 ## 2026-10-02
 * **Edit**: Aggiornata la [Griglia di quadtree](/indices/grid-quadtree.md) — distribuzioni `FAR_CLUSTER` e `ORIGIN_CLUSTER` disponibili nei benchmark; confronto tra indici ancora da fare.
 * **Edit**: Aggiunti i [limiti delle coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate) — l'indice fissa i limiti delle coordinate delle entità, con un tetto globale di 2^60 e 2^30 celle per lato per gli indici a celle; scritture fuori dai limiti rifiutate, query senza limiti, solo valori finiti ovunque (`NaN` e infiniti rifiutati nei punti e nei raggi). Aggiornati [API da esporre](/decisions/api-surface.md), [Tipo delle coordinate](/decisions/coordinate-type.md), [Scansione lineare](/indices/linear-scan.md), [Grid uniforme](/indices/uniform-grid.md) e [Griglia di quadtree](/indices/grid-quadtree.md).
