@@ -71,6 +71,7 @@
 - [x] Scelta dell'indice alla creazione della partizione nel contratto del nodo
 - [x] Generatori di dati riproducibili (seed fisso) con distribuzioni della posizione: uniforme, a cluster, hotspot, corridoi, punti coincidenti
 - [x] Movimento negli aggiornamenti: spostamenti locali e teletrasporti casuali
+- [ ] Passo del movimento LOCAL come parametro dei benchmark (`step`), per misurare la frequenza dei cambi di foglia e il costo delle scritture al variare di `r = v · DT / L` → [Frequenza dei cambi di foglia](okf-bundle/indices/grid-quadtree.md#frequenza-dei-cambi-di-foglia)
 - [x] Benchmark per operazione (costruzione, inserimento, aggiornamento, rimozione, lettura per ID, range, k-nearest) al variare di numero di entità, batch e selettività
 - [x] Metriche: tempo medio, percentili di latenza, memoria per entità, tempo di costruzione
 - [x] Report HTML per confrontare i risultati (grafici e rapporti rispetto a un riferimento)
@@ -79,6 +80,7 @@
 - [x] Piani di benchmark in un file JSON: gruppi con un profilo, un report di confronto e le run con le stesse opzioni di `run`; tutto controllato prima di partire; sostituiscono `compare-indices.sh`
 - [x] Controllo del codice misurato: avviso se il jar dei benchmark è più vecchio dei sorgenti, commit del codice scritto nei risultati
 - [ ] Benchmark a livello di API
+- [ ] Benchmark a tick degli aggiornamenti: dati indice, distribuzione, velocità `v` e tick al secondo `f`, aggiorna tutte le `N` entità a ogni tick e misura il tempo per tick (p50, p99, massimo) al variare di `N`, anche con moti correlati (gruppi che si muovono insieme); da qui `c0`, `c1` e il numero massimo di entità per indice → [Capacità degli aggiornamenti per tick](okf-bundle/indices/update-capacity.md)
 - [ ] Carico misto a tick (aggiornamenti e query per tick)
 - [x] Indice spaziale minimo per partizione: grid uniforme 2D e 3D, con la dimensione della cella scelta alla creazione (`IndexConfig`)
 - [x] Misure della grid uniforme con più dimensioni di cella (25, 50, 100, 200, 400), confrontate con la scansione lineare, sulla macchina dedicata ai benchmark (profilo rapido, piano `plans/index-comparison-quick.json`)

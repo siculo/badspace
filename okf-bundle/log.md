@@ -1,6 +1,8 @@
 # Bundle Update Log
 
 ## 2026-10-04
+* **Edit**: Aggiunta la [Capacità degli aggiornamenti per tick](/indices/update-capacity.md) — modello `N_max = β / (f · (c0 + P(r) · c1))`, caso peggiore con `P = 1`, effetto della durata del tick sul costo al secondo, tick che non bastano per eventi correlati, prima stima dalle misure (circa 21 000 entità per partizione e per thread con la griglia di quadtree a 60 tick al secondo nel caso peggiore) e misure da fare; richiamata nella [Griglia di quadtree](/indices/grid-quadtree.md) e nell'[Indicizzazione spaziale](/decisions/spatial-indexing.md).
+* **Edit**: Aggiunto alla [Griglia di quadtree](/indices/grid-quadtree.md#frequenza-dei-cambi-di-foglia) il modello della frequenza dei cambi di foglia, con `r = v · DT / L` e `P = (4/π) · r − (1/π) · r²` in 2D, confrontato con le misure; conseguenze per il quadtree loose e per un margine scelto dal software. Richiamato nella [Grid uniforme](/indices/uniform-grid.md).
 * **Edit**: Aggiornata la [Griglia di quadtree](/indices/grid-quadtree.md) — corretta la causa del costo delle scritture: non il layout dei nodi (l'esperimento con i nodi in array ha dato gli stessi tempi ed è stato rimosso) ma la frequenza dei cambi di foglia nei cluster densi (98% dei passi brevi) e gli accessi sparsi di ogni cambio; nuova opzione del quadtree loose; i nodi restano oggetti Java.
 
 ## 2026-10-03

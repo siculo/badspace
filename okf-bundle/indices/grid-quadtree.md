@@ -4,7 +4,7 @@ title: Griglia di quadtree
 description: Indice a due livelli, una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
 tags: [badspace, spatial-indexing, grid, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T23:18:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T00:04:26Z }
 ---
 
 # Come funziona
@@ -70,7 +70,8 @@ del compressed quadtree.
 - **Costo delle scritture:** nei cluster densi un update costa circa 8
   volte la scansione lineare e 5 volte la grid uniforme con celle
   grandi. Le misure di diagnosi (2026-10-03 e 2026-10-04, indicative)
-  indicano la causa:
+  indicano la causa (il modello è in [Frequenza dei cambi di
+  foglia](#frequenza-dei-cambi-di-foglia)):
   - **la frequenza dei cambi di foglia.** Nei cluster densi le foglie
     sono piccole, perché l'indice si adatta alla densità: un passo di 10
     unità cambia foglia nel 98% dei casi con `FAR_CLUSTER` (93% con
@@ -103,6 +104,70 @@ del compressed quadtree.
   - **accettare il costo**, usando la griglia di quadtree per le
     partizioni con molte query e la [grid
     uniforme](/indices/uniform-grid.md) per quelle con molte scritture.
+
+## Frequenza dei cambi di foglia
+
+Quanto spesso un'entità cambia foglia dipende da un solo rapporto:
+
+```
+r = d / L = v · DT / L
+```
+
+dove `v` è la velocità dell'entità, `DT` la durata del tick, `d` lo
+spostamento in un tick e `L` il lato della foglia. `r` dice quanti lati
+di foglia l'entità percorre in un tick.
+
+Con la posizione uniforme nella foglia e la direzione casuale,
+un'entità che si sposta di `(dx, dy)` resta nella foglia con probabilità
+`(1 − |dx|/L) · (1 − |dy|/L)`. La media sulle direzioni dà, in 2D:
+
+```
+P(cambio di foglia) = (4/π) · r − (1/π) · r²      per r ≤ 1
+```
+
+- per `r` piccolo vale circa `1,27 · r`;
+- per `r = 1` vale `3/π ≈ 0,95`;
+- oltre 1 tende a 1: la foglia è più piccola dello spostamento;
+- in 3D, per `r` piccolo, vale circa `1,5 · r`.
+
+In termini di tempo, un'entità attraversa in media `(4/π) · v / L` bordi
+di foglia per unità di tempo; il tick decide quanti di questi diventano
+aggiornamenti dell'indice, al più uno per tick.
+
+Il modello spiega le misure, con il passo LOCAL di 10 unità:
+
+| Caso | L | r | P dal modello | P misurata |
+|---|---|---|---|---|
+| `FAR_CLUSTER`, capacità 16 | circa 2–4 | 2,5–5 | circa 1 | 98% |
+| `UNIFORM`, capacità 16 | 64–128 | 0,08–0,16 | 10–19% | 15% |
+| `UNIFORM`, capacità 64 | 128–256 | 0,04–0,08 | 5–10% | 8% |
+
+In una griglia di quadtree `L` non si sceglie: dipende dalla densità
+locale `ρ`. Una foglia tiene tra circa metà della capacità e la capacità,
+quindi, con `k` entità per foglia:
+
+```
+L ≈ √(k / ρ)        r ≈ v · DT · √(ρ / k)
+```
+
+Il caso peggiore è un gruppo **denso** di entità **veloci**, proprio
+quello in cui l'indice si adatta meglio per le query. Le conseguenze:
+
+- **Costo per tick:** circa `N · P(r) · c`, con `c` il costo di un
+  cambio di foglia (gli accessi sparsi descritti sopra). L'esperimento
+  con i nodi in array ha mostrato che `c` scende poco; la leva è `P`.
+- **Quadtree loose:** con un margine `m` su ogni lato, un'entità appena
+  inserita percorre circa `m` in più prima di uscire, e il rapporto
+  efficace diventa circa `d / (L + 2m)`. Con `m` dell'ordine di `v · DT`,
+  `P` scende sotto 1/2 anche con foglie molto piccole.
+- **Il margine viene dal software:** `v · DT` lo conosce il software,
+  non l'indice, quindi il margine potrebbe essere un parametro della
+  partizione, scelto dalla velocità massima delle entità e dalla durata
+  del tick; per le partizioni statiche è zero.
+
+Il modello serve anche a dimensionare le partizioni: quante entità si
+possono aggiornare in un tick, dati i tick al secondo, è nella
+[capacità degli aggiornamenti per tick](/indices/update-capacity.md).
 
 # Decisioni
 

@@ -4,7 +4,7 @@ title: Grid uniforme
 description: Indice che divide lo spazio in celle quadrate (2D) o cubiche (3D) della stessa dimensione, tenute in una mappa; aggiornamenti economici, query veloci se la cella è adatta alla densità e alle query.
 tags: [badspace, spatial-indexing, grid]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T12:57:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T23:38:53Z }
 ---
 
 # Come funziona
@@ -38,6 +38,12 @@ ricava con `floor(coordinata / cellSize)` su ogni asse.
 - **Dimensione della cella.** È il parametro critico. Celle troppo
   grandi rispetto alla densità leggono molte entità inutili; celle
   troppo piccole rispetto alle query leggono molte celle.
+- **Cambi di cella negli aggiornamenti.** Vale il modello della
+  [frequenza dei cambi di
+  foglia](/indices/grid-quadtree.md#frequenza-dei-cambi-di-foglia) con
+  `L` uguale al lato della cella, che è fisso: con celle grandi rispetto
+  allo spostamento in un tick, `r` è piccolo e gli aggiornamenti
+  cambiano cella di rado.
 - **Densità non uniforme.** Con cluster e hotspot una sola dimensione di
   cella non va bene ovunque: celle piene di entità nelle zone dense,
   celle quasi vuote altrove. È il problema che la [griglia di

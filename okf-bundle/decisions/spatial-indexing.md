@@ -4,7 +4,7 @@ title: Indicizzazione spaziale
 description: L'indice spaziale si sceglie per partizione e fissa i limiti delle coordinate delle entità; scansione lineare, grid uniforme e griglia di quadtree sono implementate, il confronto tra le strutture resta aperto.
 tags: [badspace, design, spatial-indexing, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T12:57:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T00:04:26Z }
 ---
 
 # Opzioni considerate
@@ -98,7 +98,10 @@ ancora una decisione:
   per molte scritture e poche query, su dati distribuiti in modo
   uniforme.
 
-Restano da fare le misure con il profilo completo e la decisione.
+Restano da fare le misure con il profilo completo e la decisione. Per
+decidere quali compromessi sono accettabili serve sapere quante entità
+si possono aggiornare in un tick nel caso peggiore: il modello è nella
+[capacità degli aggiornamenti per tick](/indices/update-capacity.md).
 
 # Correlati
 
