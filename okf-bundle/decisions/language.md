@@ -37,6 +37,9 @@ Ancora da decidere, anche alla luce dei prototipi, tra:
   poco conosciuto da chi sviluppa; le strutture ad albero si scontrano con
   il borrow checker.
 
+Il [confronto tra C e Rust](/decisions/c-vs-rust.md) entra nel dettaglio
+di overflow, tipi generici, 2D/3D e strutture degli indici.
+
 # Terminologia
 
 ## Interfaccia
@@ -57,6 +60,8 @@ Come si realizza, nei diversi linguaggi, una interfaccia:
 
 # Correlati
 
+- Il [confronto tra C e Rust](/decisions/c-vs-rust.md) — overflow,
+  coordinate generiche, 2D/3D, strutture degli indici e borrow checker.
 - Il [tipo di strumento](/decisions/tool-type.md) — libreria embedded
   evolvibile in servizio gRPC: il supporto a gRPC pesa nella scelta.
 - La [concorrenza](/decisions/concurrency.md) è condizionata dal restare

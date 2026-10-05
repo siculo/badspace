@@ -136,7 +136,9 @@ sistema il `double` basta, e il passaggio tra aree è una
 # Correlati
 
 - Il [linguaggio](/decisions/language.md) determina come si può
-  rendere generico il tipo.
+  rendere generico il tipo; il [confronto tra C e
+  Rust](/decisions/c-vs-rust.md) mostra overflow e generici nei due
+  linguaggi.
 - Il [supporto a 2D e 3D](/decisions/2d-3d-support.md) moltiplica le
   varianti: dimensioni per tipo delle coordinate.
 - L'[indicizzazione spaziale](/decisions/spatial-indexing.md) dipende

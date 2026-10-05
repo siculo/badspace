@@ -21,6 +21,9 @@ dimensioni.
   scelta aperta tra i tipi di indicizzazione.
 - Il [linguaggio](/decisions/language.md) — definisce il termine
   *interfaccia* e come si realizza nei linguaggi candidati.
+- Il [confronto tra C e Rust](/decisions/c-vs-rust.md#astrazione-sulla-dimensione-2d3d)
+  — in Rust i const generics permettono anche codice unico sulla
+  dimensione, con limiti per i nodi con 2^D figli.
 - Il [tipo delle coordinate](/decisions/coordinate-type.md) — `double`
   nei prototipi, scelta finale rimandata; si combina con le varianti
   2D/3D.
