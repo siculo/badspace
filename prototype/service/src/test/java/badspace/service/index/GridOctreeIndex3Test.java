@@ -1,4 +1,4 @@
-package badspace.service;
+package badspace.service.index;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -161,13 +161,12 @@ class GridOctreeIndex3Test {
     /** The same entities in a storage with the grid of octrees and in one with the linear scan. */
     private static final class Comparison {
 
-        final PartitionStorage3 tested;
-        final PartitionStorage3 reference = new PartitionStorage3();
+        final TestStorage3 tested;
+        final TestStorage3 reference = new TestStorage3(IndexConfig.linearScan());
         GridOctreeIndex3 index;
 
         Comparison(double cellSize, int leafCapacity, List<Entity3> entities) {
-            tested = new PartitionStorage3(IndexConfig.gridQuadtree(cellSize, leafCapacity).limits(),
-                    storage -> index = new GridOctreeIndex3(storage, cellSize, leafCapacity));
+            tested = new TestStorage3(slots -> index = new GridOctreeIndex3(slots, cellSize, leafCapacity));
             tested.insertAll(entities);
             reference.insertAll(entities);
         }

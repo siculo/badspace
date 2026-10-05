@@ -1,4 +1,4 @@
-package badspace.service;
+package badspace.service.partition;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -6,8 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import badspace.common.geometry.Box3;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
+import badspace.common.partition.IndexConfig;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
+import badspace.service.index.SlotView3;
+import badspace.service.index.SpatialIndex3;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -104,6 +107,20 @@ class PartitionStorage3Test {
     }
 
     @Test
+    void storageWithAnIndexConfigUsesTheLimitsOfTheIndex() {
+        for (IndexConfig config : List.of(
+                IndexConfig.linearScan(), IndexConfig.uniformGrid(4), IndexConfig.gridQuadtree(4, 2))) {
+            PartitionStorage3 configured = new PartitionStorage3(config);
+            double max = config.limits().max();
+            configured.insertAll(List.of(new Entity3(10, new Point3(max, max, max))));
+            assertThrows(IllegalArgumentException.class,
+                    () -> configured.insertAll(List.of(new Entity3(20, new Point3(Math.nextUp(max), 0, 0)))));
+            assertEquals(1, configured.size());
+            assertEquals(config.limits(), configured.limits());
+        }
+    }
+
+    @Test
     void queriesReturnTheEntitiesOfTheSlotsInTheGivenOrder() {
         storage.insertAll(List.of(new Entity3(10, A), new Entity3(20, B), new Entity3(30, C)));
         index.result = new int[] {2, 0};
@@ -126,11 +143,11 @@ class PartitionStorage3Test {
      */
     private static final class RecordingIndex implements SpatialIndex3 {
 
-        final PartitionStorage3 storage;
+        final SlotView3 storage;
         final List<String> calls = new ArrayList<>();
         int[] result = new int[0];
 
-        RecordingIndex(PartitionStorage3 storage) {
+        RecordingIndex(SlotView3 storage) {
             this.storage = storage;
         }
 

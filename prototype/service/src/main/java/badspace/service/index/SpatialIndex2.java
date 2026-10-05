@@ -1,4 +1,4 @@
-package badspace.service;
+package badspace.service.index;
 
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
@@ -10,12 +10,13 @@ import badspace.common.geometry.Region2;
  * partition is created. All the indices must give the same results, so they
  * can be compared with each other and with the linear scan.
  * <p>
- * The index works with the slots of the storage: it gets slots in the calls
- * and gives slots in the results, and the storage builds the entities. A slot
- * can change: when an entity is removed, the storage moves the last entity
- * into the free slot and calls {@link #relocated}.
+ * The index works with the slots of the storage, which it reads through a
+ * {@link SlotView2}: it gets slots in the calls and gives slots in the
+ * results, and the storage builds the entities. A slot can change: when an
+ * entity is removed, the storage moves the last entity into the free slot
+ * and calls {@link #relocated}. Indices are created by {@link SpatialIndexes}.
  */
-interface SpatialIndex2 {
+public interface SpatialIndex2 {
 
     /** Called after an entity is added in the slot. */
     void inserted(int slot, Point2 position);

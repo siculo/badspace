@@ -1,4 +1,4 @@
-package badspace.service;
+package badspace.service.partition;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -6,8 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import badspace.common.geometry.Box2;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
+import badspace.common.partition.IndexConfig;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
+import badspace.service.index.SlotView2;
+import badspace.service.index.SpatialIndex2;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -104,6 +107,20 @@ class PartitionStorage2Test {
     }
 
     @Test
+    void storageWithAnIndexConfigUsesTheLimitsOfTheIndex() {
+        for (IndexConfig config : List.of(
+                IndexConfig.linearScan(), IndexConfig.uniformGrid(4), IndexConfig.gridQuadtree(4, 2))) {
+            PartitionStorage2 configured = new PartitionStorage2(config);
+            double max = config.limits().max();
+            configured.insertAll(List.of(new Entity2(10, new Point2(max, max))));
+            assertThrows(IllegalArgumentException.class,
+                    () -> configured.insertAll(List.of(new Entity2(20, new Point2(Math.nextUp(max), 0)))));
+            assertEquals(1, configured.size());
+            assertEquals(config.limits(), configured.limits());
+        }
+    }
+
+    @Test
     void queriesReturnTheEntitiesOfTheSlotsInTheGivenOrder() {
         storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)));
         index.result = new int[] {2, 0};
@@ -126,11 +143,11 @@ class PartitionStorage2Test {
      */
     private static final class RecordingIndex implements SpatialIndex2 {
 
-        final PartitionStorage2 storage;
+        final SlotView2 storage;
         final List<String> calls = new ArrayList<>();
         int[] result = new int[0];
 
-        RecordingIndex(PartitionStorage2 storage) {
+        RecordingIndex(SlotView2 storage) {
             this.storage = storage;
         }
 

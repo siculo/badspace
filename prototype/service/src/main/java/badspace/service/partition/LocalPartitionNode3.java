@@ -1,4 +1,4 @@
-package badspace.service;
+package badspace.service.partition;
 
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;

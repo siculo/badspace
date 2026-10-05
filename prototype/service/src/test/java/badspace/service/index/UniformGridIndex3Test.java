@@ -1,4 +1,4 @@
-package badspace.service;
+package badspace.service.index;
 
 import badspace.common.partition.IndexConfig;
 import org.junit.jupiter.api.Nested;

@@ -2,7 +2,7 @@ package badspace.benchmark;
 
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
-import badspace.service.LocalPartitionNode2;
+import badspace.service.partition.LocalPartitionNode2;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;

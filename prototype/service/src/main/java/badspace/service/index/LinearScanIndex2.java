@@ -1,7 +1,7 @@
-package badspace.service;
+package badspace.service.index;
 
-import badspace.common.geometry.Point3;
-import badspace.common.geometry.Region3;
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Region2;
 import java.util.Arrays;
 
 /**
@@ -9,36 +9,36 @@ import java.util.Arrays;
  * storage. It is the simplest index and the reference for the tests and the
  * benchmarks of the other indices.
  */
-final class LinearScanIndex3 implements SpatialIndex3 {
+final class LinearScanIndex2 implements SpatialIndex2 {
 
-    private final PartitionStorage3 storage;
+    private final SlotView2 storage;
 
-    LinearScanIndex3(PartitionStorage3 storage) {
+    LinearScanIndex2(SlotView2 storage) {
         this.storage = storage;
     }
 
     @Override
-    public void inserted(int slot, Point3 position) {
+    public void inserted(int slot, Point2 position) {
         // Nothing to do: queries read the storage.
     }
 
     @Override
-    public void moved(int slot, Point3 from, Point3 to) {
+    public void moved(int slot, Point2 from, Point2 to) {
         // Nothing to do: queries read the storage.
     }
 
     @Override
-    public void removed(int slot, Point3 position) {
+    public void removed(int slot, Point2 position) {
         // Nothing to do: queries read the storage.
     }
 
     @Override
-    public void relocated(int from, int to, Point3 position) {
+    public void relocated(int from, int to, Point2 position) {
         // Nothing to do: queries read the storage.
     }
 
     @Override
-    public int[] findInRegion(Region3 region) {
+    public int[] findInRegion(Region2 region) {
         int[] found = new int[storage.size()];
         int count = 0;
         for (int slot = 0; slot < storage.size(); slot++) {
@@ -50,7 +50,7 @@ final class LinearScanIndex3 implements SpatialIndex3 {
     }
 
     @Override
-    public int[] findNearest(Point3 point, int count) {
+    public int[] findNearest(Point2 point, int count) {
         NearestSlots nearest = new NearestSlots(count);
         for (int slot = 0; slot < storage.size(); slot++) {
             nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);

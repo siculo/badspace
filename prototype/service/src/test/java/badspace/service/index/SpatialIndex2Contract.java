@@ -1,7 +1,6 @@
-package badspace.service;
+package badspace.service.index;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.common.geometry.Box2;
 import badspace.common.geometry.Circle2;
@@ -64,7 +63,7 @@ abstract class SpatialIndex2Contract {
     @MethodSource("seeds")
     void randomWritesAndQueriesGiveTheSameResultsAsTheModel(long seed) {
         Random random = new Random(seed);
-        PartitionStorage2 storage = newStorage();
+        TestStorage2 storage = newStorage();
         Map<Long, Point2> model = new HashMap<>();
         for (int step = 0; step < STEPS; step++) {
             String write = randomWrite(random, storage, model);
@@ -84,7 +83,7 @@ abstract class SpatialIndex2Contract {
 
     @Test
     void boxContainsItsBorderOnly() {
-        PartitionStorage2 storage = storageWith(
+        TestStorage2 storage = storageWith(
                 entity(1, 0, 0), entity(2, 4, 2), entity(3, 2, 0), entity(4, 0, 2),
                 entity(5, Math.nextDown(0.0), 1), entity(6, Math.nextUp(4.0), 1),
                 entity(7, 1, Math.nextDown(0.0)), entity(8, 1, Math.nextUp(2.0)));
@@ -95,7 +94,7 @@ abstract class SpatialIndex2Contract {
 
     @Test
     void circleContainsItsBorderOnly() {
-        PartitionStorage2 storage = storageWith(
+        TestStorage2 storage = storageWith(
                 entity(1, 3, 4), entity(2, -5, 0), entity(3, 0, -5),
                 entity(4, 3, Math.nextUp(4.0)), entity(5, Math.nextDown(-5.0), 0));
         Circle2 circle = new Circle2(new Point2(0, 0), 5);
@@ -105,7 +104,7 @@ abstract class SpatialIndex2Contract {
 
     @Test
     void regionsWithoutSizeContainOnlyTheirPoint() {
-        PartitionStorage2 storage = storageWith(
+        TestStorage2 storage = storageWith(
                 entity(1, 1, 1), entity(2, 1, 1), entity(3, 1, Math.nextUp(1.0)));
         Point2 p = new Point2(1, 1);
         List<Entity2> expected = List.of(entity(1, 1, 1), entity(2, 1, 1));
@@ -115,23 +114,10 @@ abstract class SpatialIndex2Contract {
 
     @Test
     void findNearestBreaksTiesById() {
-        PartitionStorage2 storage = storageWith(
+        TestStorage2 storage = storageWith(
                 entity(30, 1, 0), entity(10, 0, 1), entity(20, -1, 0), entity(40, 5, 5), entity(5, 0, 0));
         assertEquals(List.of(entity(5, 0, 0), entity(10, 0, 1), entity(20, -1, 0)),
                 storage.findNearest(new Point2(0, 0), 3));
-    }
-
-    @Test
-    void writesOutsideTheLimitsFailAndChangeNothing() {
-        CoordinateLimits limits = index().limits();
-        PartitionStorage2 storage = storageWith(entity(1, 0, 0));
-        assertThrows(IllegalArgumentException.class,
-                () -> storage.insertAll(List.of(entity(2, 0, 0), entity(3, Math.nextUp(limits.max()), 0))));
-        assertThrows(IllegalArgumentException.class, () -> storage.insertAll(List.of(entity(4, -Double.MAX_VALUE, 0))));
-        assertThrows(IllegalArgumentException.class,
-                () -> storage.updateAll(List.of(entity(1, 0, Math.nextDown(limits.min())))));
-        assertEquals(1, storage.size());
-        assertEquals(List.of(entity(1, 0, 0)), storage.findNearest(new Point2(0, 0), 2));
     }
 
     @Test
@@ -144,7 +130,7 @@ abstract class SpatialIndex2Contract {
                 entity(1, min, min), entity(2, max, max), entity(3, min, max), entity(4, 0, 0));
         Map<Long, Point2> model = new HashMap<>();
         entities.forEach(e -> model.put(e.id(), e.position()));
-        PartitionStorage2 storage = storageWith(entities.toArray(Entity2[]::new));
+        TestStorage2 storage = storageWith(entities.toArray(Entity2[]::new));
         for (Region2 region : List.of(
                 new Box2(new Point2(min, min), new Point2(max, max)),
                 new Box2(new Point2(max, max), new Point2(max, max)),
@@ -160,17 +146,17 @@ abstract class SpatialIndex2Contract {
 
     @Test
     void queriesOfEmptyStorageAreEmpty() {
-        PartitionStorage2 storage = storageWith();
+        TestStorage2 storage = storageWith();
         assertEquals(List.of(), storage.findInRegion(new Circle2(new Point2(0, 0), 1e9)));
         assertEquals(List.of(), storage.findNearest(new Point2(0, 0), 3));
     }
 
-    private PartitionStorage2 newStorage() {
-        return new PartitionStorage2(index());
+    private TestStorage2 newStorage() {
+        return new TestStorage2(index());
     }
 
-    private PartitionStorage2 storageWith(Entity2... entities) {
-        PartitionStorage2 storage = newStorage();
+    private TestStorage2 storageWith(Entity2... entities) {
+        TestStorage2 storage = newStorage();
         storage.insertAll(List.of(entities));
         return storage;
     }
@@ -207,7 +193,7 @@ abstract class SpatialIndex2Contract {
      * description of it. An empty storage always gets an insert, a full one
      * (all the IDs in use) never does.
      */
-    private String randomWrite(Random random, PartitionStorage2 storage, Map<Long, Point2> model) {
+    private String randomWrite(Random random, TestStorage2 storage, Map<Long, Point2> model) {
         int choice = model.isEmpty() ? 0 : random.nextInt(20);
         if (choice < 8 && model.size() < MAX_ID) {
             List<Entity2> entities = newEntities(random, model);

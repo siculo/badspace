@@ -1,9 +1,9 @@
-package badspace.service;
+package badspace.service.index;
 
-import badspace.common.geometry.Box3;
-import badspace.common.geometry.Point3;
-import badspace.common.geometry.Region3;
-import badspace.common.geometry.Sphere3;
+import badspace.common.geometry.Box2;
+import badspace.common.geometry.Circle2;
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Region2;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -12,21 +12,21 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Index that divides the space in cubic cells, all of the same size. Each
+ * Index that divides the space in square cells, all of the same size. Each
  * cell keeps the slots of its entities; only the cells with entities are in
  * memory, so the space has no limits. Updates are cheap: a move changes the
  * cell only when the entity leaves its cell.
  * <p>
  * A range query reads the cells that cover the region. A k-nearest query reads
- * the cells in shells around the point, from the nearest to the farthest, and
- * stops when the next shell cannot have nearer entities.
+ * the cells in rings around the point, from the nearest to the farthest, and
+ * stops when the next ring cannot have nearer entities.
  * <p>
  * The storage keeps the entities in the limits of the index, at most
  * {@code IndexConfig.CELLS_PER_SIDE} cells from the origin on each axis, so
  * the cell coordinates of the entities fit in an int. Very large coordinates
  * of the queries go to the cells at the edge of the int range.
  */
-final class UniformGridIndex3 implements SpatialIndex3 {
+final class UniformGridIndex2 implements SpatialIndex2 {
 
     /**
      * Part of a cell that the k-nearest query adds to its safety margin, for
@@ -35,24 +35,24 @@ final class UniformGridIndex3 implements SpatialIndex3 {
      */
     private static final double ROUNDING_MARGIN = 1e-5;
 
-    private final PartitionStorage3 storage;
+    private final SlotView2 storage;
     private final double cellSize;
     private final Map<CellKey, Cell> cells = new HashMap<>();
     /** For each slot, its place in the list of its cell. */
     private int[] placeInCell = new int[16];
 
-    UniformGridIndex3(PartitionStorage3 storage, double cellSize) {
+    UniformGridIndex2(SlotView2 storage, double cellSize) {
         this.storage = storage;
         this.cellSize = cellSize;
     }
 
     @Override
-    public void inserted(int slot, Point3 position) {
+    public void inserted(int slot, Point2 position) {
         add(slot, keyOf(position));
     }
 
     @Override
-    public void moved(int slot, Point3 from, Point3 to) {
+    public void moved(int slot, Point2 from, Point2 to) {
         CellKey fromKey = keyOf(from);
         CellKey toKey = keyOf(to);
         if (!fromKey.equals(toKey)) {
@@ -62,37 +62,34 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     }
 
     @Override
-    public void removed(int slot, Point3 position) {
+    public void removed(int slot, Point2 position) {
         remove(slot, keyOf(position));
     }
 
     @Override
-    public void relocated(int from, int to, Point3 position) {
+    public void relocated(int from, int to, Point2 position) {
         int place = placeInCell[from];
         cells.get(keyOf(position)).slots.set(place, to);
         placeInCell[to] = place;
     }
 
     @Override
-    public int[] findInRegion(Region3 region) {
+    public int[] findInRegion(Region2 region) {
         CellRange range = switch (region) {
-            case Box3 box -> new CellRange(
+            case Box2 box -> new CellRange(
                     cellOf(box.min().x()), cellOf(box.max().x()),
-                    cellOf(box.min().y()), cellOf(box.max().y()),
-                    cellOf(box.min().z()), cellOf(box.max().z()));
-            // When the square of the radius overflows, the sphere contains each
+                    cellOf(box.min().y()), cellOf(box.max().y()));
+            // When the square of the radius overflows, the circle contains each
             // point whose distance overflows too: all the cells must be read.
-            case Sphere3 sphere when sphere.radius() * sphere.radius() == Double.POSITIVE_INFINITY -> CellRange.ALL;
-            // A point on the border of the sphere can be just outside the
+            case Circle2 circle when circle.radius() * circle.radius() == Double.POSITIVE_INFINITY -> CellRange.ALL;
+            // A point on the border of the circle can be just outside the
             // box around it, because of rounding: one more cell on each side
             // keeps it in the range.
-            case Sphere3 sphere -> new CellRange(
-                    cellOf(sphere.center().x() - sphere.radius()) - 1L,
-                    cellOf(sphere.center().x() + sphere.radius()) + 1L,
-                    cellOf(sphere.center().y() - sphere.radius()) - 1L,
-                    cellOf(sphere.center().y() + sphere.radius()) + 1L,
-                    cellOf(sphere.center().z() - sphere.radius()) - 1L,
-                    cellOf(sphere.center().z() + sphere.radius()) + 1L);
+            case Circle2 circle -> new CellRange(
+                    cellOf(circle.center().x() - circle.radius()) - 1L,
+                    cellOf(circle.center().x() + circle.radius()) + 1L,
+                    cellOf(circle.center().y() - circle.radius()) - 1L,
+                    cellOf(circle.center().y() + circle.radius()) + 1L);
         };
         SlotList found = new SlotList();
         for (Cell cell : cellsIn(range)) {
@@ -107,39 +104,36 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     }
 
     @Override
-    public int[] findNearest(Point3 point, int count) {
+    public int[] findNearest(Point2 point, int count) {
         NearestSlots nearest = new NearestSlots(count);
         int x = cellOf(point.x());
         int y = cellOf(point.y());
-        int z = cellOf(point.z());
         int seen = 0;
-        long shell = 0;
-        // Shells get larger and larger: when a shell and the shells inside it have
+        long ring = 0;
+        // Rings get larger and larger: when a ring and the rings inside it have
         // more cells than the grid, it is faster to read the cells of the grid.
-        while (Math.pow(2 * shell + 1.0, 3) <= cells.size()) {
-            if (seen == storage.size() || nearest.isComplete(minDistanceSquared(shell))) {
+        while ((2 * ring + 1.0) * (2 * ring + 1.0) <= cells.size()) {
+            if (seen == storage.size() || nearest.isComplete(minDistanceSquared(ring))) {
                 return nearest.slots();
             }
-            for (long cx = x - shell; cx <= x + shell; cx++) {
-                for (long cy = y - shell; cy <= y + shell; cy++) {
-                    boolean side = Math.abs(cx - x) == shell || Math.abs(cy - y) == shell;
-                    for (long cz = z - shell; cz <= z + shell; cz += side ? 1 : 2 * shell) {
-                        seen += offer(nearest, point, cx, cy, cz);
-                    }
+            for (long cx = x - ring; cx <= x + ring; cx++) {
+                boolean side = Math.abs(cx - x) == ring;
+                for (long cy = y - ring; cy <= y + ring; cy += side ? 1 : 2 * ring) {
+                    seen += offer(nearest, point, cx, cy);
                 }
             }
-            shell++;
+            ring++;
         }
         // The cells not read yet, from the nearest to the farthest.
         List<Cell> rest = new ArrayList<>();
         for (Cell cell : cells.values()) {
-            if (shellOf(cell.key, x, y, z) >= shell) {
+            if (ringOf(cell.key, x, y) >= ring) {
                 rest.add(cell);
             }
         }
-        rest.sort(Comparator.comparingLong(cell -> shellOf(cell.key, x, y, z)));
+        rest.sort(Comparator.comparingLong(cell -> ringOf(cell.key, x, y)));
         for (Cell cell : rest) {
-            if (seen == storage.size() || nearest.isComplete(minDistanceSquared(shellOf(cell.key, x, y, z)))) {
+            if (seen == storage.size() || nearest.isComplete(minDistanceSquared(ringOf(cell.key, x, y)))) {
                 break;
             }
             seen += offer(nearest, point, cell);
@@ -155,8 +149,8 @@ final class UniformGridIndex3 implements SpatialIndex3 {
         return (int) Math.floor(coordinate / cellSize);
     }
 
-    private CellKey keyOf(Point3 position) {
-        return new CellKey(cellOf(position.x()), cellOf(position.y()), cellOf(position.z()));
+    private CellKey keyOf(Point2 position) {
+        return new CellKey(cellOf(position.x()), cellOf(position.y()));
     }
 
     private void add(int slot, CellKey key) {
@@ -186,11 +180,9 @@ final class UniformGridIndex3 implements SpatialIndex3 {
         if (range.cellCount() <= cells.size()) {
             for (long cx = range.minX; cx <= range.maxX; cx++) {
                 for (long cy = range.minY; cy <= range.maxY; cy++) {
-                    for (long cz = range.minZ; cz <= range.maxZ; cz++) {
-                        Cell cell = cells.get(new CellKey((int) cx, (int) cy, (int) cz));
-                        if (cell != null) {
-                            found.add(cell);
-                        }
+                    Cell cell = cells.get(new CellKey((int) cx, (int) cy));
+                    if (cell != null) {
+                        found.add(cell);
                     }
                 }
             }
@@ -205,15 +197,15 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     }
 
     /** Offers the entities of the cell, if the cell exists, and returns their number. */
-    private int offer(NearestSlots nearest, Point3 point, long cx, long cy, long cz) {
-        if (!isInt(cx) || !isInt(cy) || !isInt(cz)) {
+    private int offer(NearestSlots nearest, Point2 point, long cx, long cy) {
+        if (!isInt(cx) || !isInt(cy)) {
             return 0;
         }
-        Cell cell = cells.get(new CellKey((int) cx, (int) cy, (int) cz));
+        Cell cell = cells.get(new CellKey((int) cx, (int) cy));
         return cell == null ? 0 : offer(nearest, point, cell);
     }
 
-    private int offer(NearestSlots nearest, Point3 point, Cell cell) {
+    private int offer(NearestSlots nearest, Point2 point, Cell cell) {
         for (int i = 0; i < cell.slots.size(); i++) {
             int slot = cell.slots.get(i);
             nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
@@ -222,11 +214,11 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     }
 
     /**
-     * Returns the shell of the cell around the cell (x, y, z): the largest
+     * Returns the ring of the cell around the cell (x, y): the largest
      * distance between them on one axis, in cells.
      */
-    private static long shellOf(CellKey key, int x, int y, int z) {
-        return Math.max(Math.abs((long) key.x - x), Math.max(Math.abs((long) key.y - y), Math.abs((long) key.z - z)));
+    private static long ringOf(CellKey key, int x, int y) {
+        return Math.max(Math.abs((long) key.x - x), Math.abs((long) key.y - y));
     }
 
     private static boolean isInt(long value) {
@@ -234,17 +226,17 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     }
 
     /**
-     * Returns a squared distance that the entities in the shell, or in a shell
+     * Returns a squared distance that the entities in the ring, or in a ring
      * outside it, cannot be nearer than. The point can be anywhere in its own
-     * cell, so the gap is one cell less than the shell.
+     * cell, so the gap is one cell less than the ring.
      */
-    private double minDistanceSquared(long shell) {
-        double gap = Math.max(0, (shell - 1 - ROUNDING_MARGIN) * cellSize);
+    private double minDistanceSquared(long ring) {
+        double gap = Math.max(0, (ring - 1 - ROUNDING_MARGIN) * cellSize);
         return gap * gap;
     }
 
     /** The coordinates of a cell. */
-    private record CellKey(int x, int y, int z) {
+    private record CellKey(int x, int y) {
     }
 
     /** A cell with entities, and their slots in any order. */
@@ -259,11 +251,10 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     }
 
     /** The cells from min to max on each axis, limits included and clamped to the int range. */
-    private record CellRange(long minX, long maxX, long minY, long maxY, long minZ, long maxZ) {
+    private record CellRange(long minX, long maxX, long minY, long maxY) {
 
         /** All the cells of the int range. */
         static final CellRange ALL = new CellRange(
-                Integer.MIN_VALUE, Integer.MAX_VALUE,
                 Integer.MIN_VALUE, Integer.MAX_VALUE,
                 Integer.MIN_VALUE, Integer.MAX_VALUE);
 
@@ -272,18 +263,15 @@ final class UniformGridIndex3 implements SpatialIndex3 {
             maxX = Math.min(maxX, Integer.MAX_VALUE);
             minY = Math.max(minY, Integer.MIN_VALUE);
             maxY = Math.min(maxY, Integer.MAX_VALUE);
-            minZ = Math.max(minZ, Integer.MIN_VALUE);
-            maxZ = Math.min(maxZ, Integer.MAX_VALUE);
         }
 
         /** Returns the number of cells, as a double so that it cannot overflow. */
         double cellCount() {
-            return (maxX - minX + 1.0) * (maxY - minY + 1.0) * (maxZ - minZ + 1.0);
+            return (maxX - minX + 1.0) * (maxY - minY + 1.0);
         }
 
         boolean contains(CellKey key) {
-            return key.x >= minX && key.x <= maxX && key.y >= minY && key.y <= maxY
-                    && key.z >= minZ && key.z <= maxZ;
+            return key.x >= minX && key.x <= maxX && key.y >= minY && key.y <= maxY;
         }
     }
 }

@@ -1,4 +1,4 @@
-package badspace.service;
+package badspace.service.index;
 
 import java.util.Arrays;
 

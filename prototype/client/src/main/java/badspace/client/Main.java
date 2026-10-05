@@ -12,8 +12,8 @@ import badspace.common.geometry.Circle2;
 import badspace.common.partition.Entity2;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Point3;
-import badspace.service.LocalPartitionNode2;
-import badspace.service.LocalPartitionNode3;
+import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.LocalPartitionNode3;
 import java.util.List;
 
 /**
