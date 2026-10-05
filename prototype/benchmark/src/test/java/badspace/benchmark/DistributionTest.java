@@ -51,7 +51,7 @@ class DistributionTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = Distribution.class, names = {"FAR_CLUSTER", "ORIGIN_CLUSTER"})
+    @EnumSource(value = Distribution.class, names = {"FAR_CLUSTER", "ORIGIN_CLUSTER", "EDGE_CLUSTER"})
     void oneClusterIsDenseAroundTheCenterOfTheWorld(Distribution distribution) {
         double center = (distribution.worldMin() + distribution.worldMax()) / 2;
         Point2 c = new Point2(center, center);
@@ -67,6 +67,8 @@ class DistributionTest {
         assertEquals(0, (Distribution.ORIGIN_CLUSTER.worldMin() + Distribution.ORIGIN_CLUSTER.worldMax()) / 2);
         assertEquals(Distribution.FAR_CENTER,
                 (Distribution.FAR_CLUSTER.worldMin() + Distribution.FAR_CLUSTER.worldMax()) / 2);
+        assertEquals(Distribution.EDGE_CENTER,
+                (Distribution.EDGE_CLUSTER.worldMin() + Distribution.EDGE_CLUSTER.worldMax()) / 2);
         // The cluster on the origin has points on each side of both axes.
         List<Point2> points = points(Distribution.ORIGIN_CLUSTER, 7);
         for (int quadrant = 0; quadrant < 4; quadrant++) {
@@ -140,14 +142,37 @@ class DistributionTest {
     }
 
     @Test
-    void localMovementIsAShortStepInsideTheWorld() {
+    void localMovementIsAStepInsideTheWorld() {
         Workload workload = Workload.generate(Distribution.UNIFORM, 10, 7);
         SplittableRandom random = new SplittableRandom(7);
-        for (Point2 from : List.of(new Point2(0, 0), new Point2(5000, 5000), new Point2(10_000, 10_000))) {
+        for (double step : List.of(1.0, 10.0, 400.0)) {
+            for (Point2 from : List.of(new Point2(0, 0), new Point2(5000, 5000), new Point2(10_000, 10_000))) {
+                for (int i = 0; i < 100; i++) {
+                    Point2 to = Movement.LOCAL.move(from, step, workload, random);
+                    assertTrue(inWorld(Distribution.UNIFORM, to));
+                    assertTrue(Math.sqrt(to.distanceSquared(from)) <= step + 1e-9);
+                }
+            }
+            // Far from the limits of the world the step is never cut.
+            Point2 center = new Point2(5000, 5000);
+            Point2 to = Movement.LOCAL.move(center, step, workload, random);
+            assertEquals(step, Math.sqrt(to.distanceSquared(center)), 1e-9);
+        }
+    }
+
+    @Test
+    void localMovementAtTheEdgeIsRoundedToTheGapBetweenDoubles() {
+        Workload workload = Workload.generate(Distribution.EDGE_CLUSTER, 10, 7);
+        SplittableRandom random = new SplittableRandom(7);
+        double center = Distribution.EDGE_CENTER;
+        double gap = Math.ulp(center);
+        assertEquals(0x1p-8, gap);
+        Point2 from = new Point2(center, center);
+        for (double step : List.of(10.0, 0.1, 0.01)) {
             for (int i = 0; i < 100; i++) {
-                Point2 to = Movement.LOCAL.move(from, workload, random);
-                assertTrue(inWorld(Distribution.UNIFORM, to));
-                assertTrue(Math.sqrt(to.distanceSquared(from)) <= Movement.STEP + 1e-9);
+                Point2 to = Movement.LOCAL.move(from, step, workload, random);
+                // Each coordinate is rounded by at most half a gap.
+                assertEquals(step, Math.sqrt(to.distanceSquared(from)), gap);
             }
         }
     }

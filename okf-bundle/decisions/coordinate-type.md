@@ -4,7 +4,7 @@ title: Tipo delle coordinate
 description: Nei prototipi le coordinate sono double; la scelta per l'implementazione finale (double, interi a 64 bit o tipo generico) è rimandata, con i limiti di precisione, rappresentazione e determinismo di ciascuna opzione.
 tags: [badspace, design, coordinates, precision]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T12:53:10Z }
 ---
 
 # Decisione
@@ -42,7 +42,11 @@ Due avvertenze:
   all'origine, peggiora allontanandosi. Il centimetro vale al bordo.
 - **Gli errori si accumulano**: integrando posizioni a ogni tick,
   lontano dall'origine gli spostamenti piccoli vengono arrotondati male
-  o persi. Il limite pratico è più basso di quello teorico.
+  o persi. Il limite pratico è più basso di quello teorico. Per
+  esempio, a 200 UA l'ulp è circa 3,9 mm: un'entità a 10 km/h con 30
+  tick al secondo si sposta di circa 24 ulp per tick, a 1 km/h di circa
+  2 (vedi lo [scenario del sistema
+  solare](/indices/solar-system-scenario.md#precisione)).
 
 # Limiti nei prototipi
 

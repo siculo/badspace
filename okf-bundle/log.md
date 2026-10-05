@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-05
+* **Edit**: Aggiunto lo [Scenario del sistema solare](/indices/solar-system-scenario.md) — posizioni fino a 200 UA in metri, entità fino a 1000 km/h, 30 tick al secondo: passo massimo per tick circa 9,26 m (il passo di default 10 dei benchmark è l'entità più veloce), celle di almeno 32768 per i limiti degli indici, ulp circa 3,9 mm a 200 UA; nei benchmark il parametro `step`, la distribuzione `EDGE_CLUSTER` e il piano `plans/update-step.json`. Richiamato nella [Capacità degli aggiornamenti per tick](/indices/update-capacity.md), nella [Griglia di quadtree](/indices/grid-quadtree.md#frequenza-dei-cambi-di-foglia), nell'[Indicizzazione spaziale](/decisions/spatial-indexing.md#limiti-delle-coordinate) e nel [Tipo delle coordinate](/decisions/coordinate-type.md).
+
 ## 2026-10-04
 * **Edit**: Aggiunta la [Capacità degli aggiornamenti per tick](/indices/update-capacity.md) — modello `N_max = β / (f · (c0 + P(r) · c1))`, caso peggiore con `P = 1`, effetto della durata del tick sul costo al secondo, tick che non bastano per eventi correlati, prima stima dalle misure (circa 21 000 entità per partizione e per thread con la griglia di quadtree a 60 tick al secondo nel caso peggiore) e misure da fare; richiamata nella [Griglia di quadtree](/indices/grid-quadtree.md) e nell'[Indicizzazione spaziale](/decisions/spatial-indexing.md).
 * **Edit**: Aggiunto alla [Griglia di quadtree](/indices/grid-quadtree.md#frequenza-dei-cambi-di-foglia) il modello della frequenza dei cambi di foglia, con `r = v · DT / L` e `P = (4/π) · r − (1/π) · r²` in 2D, confrontato con le misure; conseguenze per il quadtree loose e per un margine scelto dal software. Richiamato nella [Grid uniforme](/indices/uniform-grid.md).

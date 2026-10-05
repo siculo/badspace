@@ -4,7 +4,7 @@ title: Indicizzazione spaziale
 description: L'indice spaziale si sceglie per partizione e fissa i limiti delle coordinate delle entità; scansione lineare, grid uniforme e griglia di quadtree sono implementate, il confronto tra le strutture resta aperto.
 tags: [badspace, design, spatial-indexing, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T00:04:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T12:53:10Z }
 ---
 
 # Opzioni considerate
@@ -55,7 +55,9 @@ indici non vedono mai entità degeneri o fuori posto.
   finite.
 - Gli indici a celle accettano `2^30` celle per lato dall'origine:
   `L = min(2^30 · cellSize, 2^60)`. Le coordinate delle celle restano
-  negli `int` con un ampio margine.
+  negli `int` con un ampio margine. Per esempio, con posizioni fino a
+  200 UA in metri servono celle di almeno 32768 (vedi lo [scenario del
+  sistema solare](/indices/solar-system-scenario.md#limiti-degli-indici)).
 - **Le query non hanno limiti**: regioni e punti possono essere fuori
   dai limiti, anche molto lontano.
 - **Solo valori finiti, ovunque**: `Point2`/`Point3` rifiutano `NaN` e

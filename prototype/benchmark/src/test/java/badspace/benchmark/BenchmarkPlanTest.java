@@ -28,7 +28,8 @@ class BenchmarkPlanTest {
                       "runs": [
                         { "name": "grid", "index": ["UNIFORM_GRID_50", "UNIFORM_GRID_100"], },
                         { "name": "coincident", "index": "GRID_QUADTREE_256",
-                          "params": { "distribution": "COINCIDENT", "size": [1000, 100000], "selectivity": 1e-4 },
+                          "params": { "distribution": "COINCIDENT", "size": [1000, 100000], "selectivity": 1e-4,
+                                      "step": [1, 2.5, 40] },
                           "include": "update|insert", "percentiles": true },
                         { "name": "linear", "index": "LINEAR_SCAN", "output": "results/reference-linear-quick.json" },
                       ],
@@ -55,6 +56,7 @@ class BenchmarkPlanTest {
         assertEquals(List.of("COINCIDENT"), coincident.params().get("distribution"));
         assertEquals(List.of("1000", "100000"), coincident.params().get("size"));
         assertEquals(List.of("0.0001"), coincident.params().get("selectivity"));
+        assertEquals(List.of("1", "2.5", "40"), coincident.params().get("step"));
         assertEquals(List.of("1000", "100000"), coincident.allParams().get("size"));
         assertEquals(Profile.QUICK.params().get("k"), coincident.allParams().get("k"));
         assertEquals("update|insert", coincident.include().pattern());
@@ -92,6 +94,9 @@ class BenchmarkPlanTest {
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"size\": 1000.5 } } ] } ] }",
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"distribution\": \"RANDOM\" } } ] } ] }",
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"size\": true } } ] } ] }",
+                "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"step\": 0 } } ] } ] }",
+                "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"step\": -10 } } ] } ] }",
+                "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"step\": \"Infinity\" } } ] } ] }",
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"include\": \"(\" } ] } ] }",
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"include\": \"nothing\" } ] } ] }",
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"percentiles\": \"yes\" } ] } ] }",

@@ -161,6 +161,7 @@ Lower is always better.
 | `size` | all | 1000, 100000 | 1000, 10000, 100000, 1000000 |
 | `batchSize` | insert, remove, update, get | 1, 100 | 1, 10, 100, 1000 |
 | `movement` | update | `LOCAL`, `TELEPORT` | the same |
+| `step` | update (`LOCAL`) | 10 | the same |
 | `selectivity` | findInRegion | 0.001, 0.01 | 0.0001, 0.001, 0.01, 0.1 |
 | `shape` | findInRegion | `BOX` | `BOX`, `CIRCLE` |
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | the same |
@@ -189,12 +190,28 @@ distributions with one cluster move it. The distributions are:
 - `ORIGIN_CLUSTER`: one dense group with a normal distribution on the origin,
   in the center of a world from -5000 to 5000. The origin is a border of the
   cells for any cell size, so the group is split among the cells around it.
+- `EDGE_CLUSTER`: like `FAR_CLUSTER`, but at 200 astronomical units (about
+  3e13), the edge of the solar system scenario with 1 unit = 1 meter. There
+  the gap between two doubles is about 4 mm. Only the indices with large
+  limits accept it (cells of at least 32768), so it is not in the default
+  values: ask for it with `--param distribution=EDGE_CLUSTER`.
 
 The other parameters work as follows:
 
 - `movement`: `LOCAL` moves an entity by a short step, like one tick of
   movement. `TELEPORT` moves it to a new position taken from the same
   distribution.
+- `step`: the length of a `LOCAL` move, `d = v · DT` (speed by tick
+  length). With the side `L` of a leaf or cell, `r = d / L` gives how often
+  an entity changes leaf, so changing the step shows how the cost of the
+  writes grows with the speed. In the solar system scenario (1 unit =
+  1 meter, at most 1000 km/h, 30 ticks per second) the largest step is
+  about 9.26, so the default of 10 is the fastest entity; the plan
+  `plans/update-step.json` uses the steps of 10, 30, 100, 300 and
+  1000 km/h. The limits of the world can cut a move.
+  `TELEPORT` does not use the step: with more than one step, add
+  `--param movement=LOCAL`, or the same `TELEPORT` measure is repeated for
+  each step.
 - `queryCenter`: `UNIFORM` puts the queries anywhere in the world, also where
   there are no entities. `DATA` puts them on the position of an entity, so
   the queries go where the entities are.

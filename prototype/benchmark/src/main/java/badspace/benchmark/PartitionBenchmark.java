@@ -154,6 +154,14 @@ public class PartitionBenchmark {
         @Param({"LOCAL", "TELEPORT"})
         public Movement movement;
 
+        /**
+         * Length of a LOCAL move, {@code d = v · DT}: with the side {@code L}
+         * of a leaf or cell, {@code d / L} gives how often an entity changes
+         * leaf. TELEPORT does not use it.
+         */
+        @Param("10")
+        public double step;
+
         List<List<Entity2>> moved;
         List<List<Entity2>> original;
         int next;
@@ -168,7 +176,7 @@ public class PartitionBenchmark {
                 List<Entity2> batch = List.copyOf(shuffled.subList(b * batchSize, (b + 1) * batchSize));
                 original.add(batch);
                 moved.add(batch.stream()
-                        .map(e -> new Entity2(e.id(), movement.move(e.position(), workload, random)))
+                        .map(e -> new Entity2(e.id(), movement.move(e.position(), step, workload, random)))
                         .toList());
             }
         }

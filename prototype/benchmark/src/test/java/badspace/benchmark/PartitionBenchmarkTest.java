@@ -67,6 +67,7 @@ class PartitionBenchmarkTest {
             PartitionBenchmark.UpdateState s = new PartitionBenchmark.UpdateState();
             s.batchSize = 10;
             s.movement = movement;
+            s.step = 10;
             setUp(s);
             List<Entity2> before = content(s);
             int batches = s.moved.size();

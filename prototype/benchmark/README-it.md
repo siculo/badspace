@@ -162,6 +162,7 @@ Più basso è sempre meglio.
 | `size` | tutti | 1000, 100000 | 1000, 10000, 100000, 1000000 |
 | `batchSize` | insert, remove, update, get | 1, 100 | 1, 10, 100, 1000 |
 | `movement` | update | `LOCAL`, `TELEPORT` | gli stessi |
+| `step` | update (`LOCAL`) | 10 | gli stessi |
 | `selectivity` | findInRegion | 0.001, 0.01 | 0.0001, 0.001, 0.01, 0.1 |
 | `shape` | findInRegion | `BOX` | `BOX`, `CIRCLE` |
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | gli stessi |
@@ -193,12 +194,28 @@ distribuzioni con un solo cluster lo spostano. Le distribuzioni sono:
   sull'origine, al centro di un mondo da -5000 a 5000. L'origine è un
   bordo delle celle per ogni dimensione di cella, quindi il gruppo si
   divide tra le celle intorno.
+- `EDGE_CLUSTER`: come `FAR_CLUSTER`, ma a 200 unità astronomiche (circa
+  3e13), il bordo dello scenario del sistema solare con 1 unità = 1 metro.
+  Lì la distanza tra due double è circa 4 mm. Lo accettano solo gli indici
+  con limiti grandi (celle di almeno 32768), quindi non è tra i valori di
+  default: si chiede con `--param distribution=EDGE_CLUSTER`.
 
 Gli altri parametri funzionano così:
 
 - `movement`: `LOCAL` sposta un'entità di un passo breve, come in un tick di
   movimento. `TELEPORT` la sposta in una posizione nuova presa dalla stessa
   distribuzione.
+- `step`: la lunghezza di uno spostamento `LOCAL`, `d = v · DT` (velocità
+  per durata del tick). Con il lato `L` di una foglia o di una cella,
+  `r = d / L` dice quanto spesso un'entità cambia foglia, quindi variare il
+  passo mostra come cresce il costo delle scritture con la velocità. Nello
+  scenario del sistema solare (1 unità = 1 metro, al massimo 1000 km/h,
+  30 tick al secondo) il passo più lungo è circa 9,26, quindi il default
+  di 10 è l'entità più veloce; il piano `plans/update-step.json` usa i
+  passi di 10, 30, 100, 300 e 1000 km/h. I
+  limiti del mondo possono accorciare uno spostamento. `TELEPORT` non usa il
+  passo: con più passi aggiungere `--param movement=LOCAL`, altrimenti la
+  stessa misura `TELEPORT` si ripete per ogni passo.
 - `queryCenter`: `UNIFORM` mette le query in un punto qualsiasi del mondo,
   anche dove non ci sono entità. `DATA` le mette sulla posizione di
   un'entità, quindi le query vanno dove sono le entità.

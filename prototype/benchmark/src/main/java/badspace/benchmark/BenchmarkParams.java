@@ -43,6 +43,11 @@ final class BenchmarkParams {
     private static void checkValue(String name, Class<?> type, String value) {
         if (name.equals("index")) {
             IndexNames.parse(value);
+        } else if (name.equals("step")) {
+            double step = Double.parseDouble(value);
+            if (!(step > 0 && Double.isFinite(step))) {
+                throw new IllegalArgumentException("The step must be a positive number");
+            }
         } else if (type == int.class) {
             Integer.parseInt(value);
         } else if (type == double.class) {

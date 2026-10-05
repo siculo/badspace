@@ -71,7 +71,9 @@
 - [x] Scelta dell'indice alla creazione della partizione nel contratto del nodo
 - [x] Generatori di dati riproducibili (seed fisso) con distribuzioni della posizione: uniforme, a cluster, hotspot, corridoi, punti coincidenti
 - [x] Movimento negli aggiornamenti: spostamenti locali e teletrasporti casuali
-- [ ] Passo del movimento LOCAL come parametro dei benchmark (`step`), per misurare la frequenza dei cambi di foglia e il costo delle scritture al variare di `r = v · DT / L` → [Frequenza dei cambi di foglia](okf-bundle/indices/grid-quadtree.md#frequenza-dei-cambi-di-foglia)
+- [x] Passo del movimento LOCAL come parametro dei benchmark (`step`), per misurare la frequenza dei cambi di foglia e il costo delle scritture al variare di `r = v · DT / L` → [Frequenza dei cambi di foglia](okf-bundle/indices/grid-quadtree.md#frequenza-dei-cambi-di-foglia)
+- [ ] Misure degli update al variare del passo sulla macchina dedicata ai benchmark (piano `plans/update-step.json`), poi il confronto con il modello `P(r)` nel bundle
+- [ ] Frequenza misurata dei cambi di foglia nei benchmark (contatore), per confrontarla con `P(r)` e non solo con il tempo
 - [x] Benchmark per operazione (costruzione, inserimento, aggiornamento, rimozione, lettura per ID, range, k-nearest) al variare di numero di entità, batch e selettività
 - [x] Metriche: tempo medio, percentili di latenza, memoria per entità, tempo di costruzione
 - [x] Report HTML per confrontare i risultati (grafici e rapporti rispetto a un riferimento)

@@ -39,7 +39,17 @@ public enum Distribution {
      * of the world. The origin is a border of the cells on all the axes, for any
      * cell size, so the group is split among the cells around it.
      */
-    ORIGIN_CLUSTER;
+    ORIGIN_CLUSTER,
+
+    /**
+     * One dense group, with a normal distribution, in the center of a world at
+     * {@link #EDGE_CENTER} on each axis: 200 astronomical units, the edge of
+     * the solar system scenario, with 1 unit = 1 meter. There the gap between
+     * two doubles is about 4 mm, so short steps lose precision. Only the
+     * indices with large limits accept it, for example a grid of quadtrees
+     * with cells of 32768, so it is not in the default parameters.
+     */
+    EDGE_CLUSTER;
 
     public static final double WORLD_SIZE = 10_000;
 
@@ -52,6 +62,9 @@ public enum Distribution {
     static final int COINCIDENT_POSITIONS = 1000;
     static final double FAR_CENTER = 1e8;
 
+    /** 200 astronomical units, in meters. */
+    static final double EDGE_CENTER = 200 * 149_597_870_700.0;
+
     /** Returns a new source of points with this distribution. */
     public Supplier<Point2> source(long seed) {
         SplittableRandom random = new SplittableRandom(seed);
@@ -61,7 +74,7 @@ public enum Distribution {
             case HOTSPOT -> hotspot(random);
             case CORRIDORS -> corridors(random);
             case COINCIDENT -> coincident(random);
-            case FAR_CLUSTER, ORIGIN_CLUSTER -> oneCluster(random);
+            case FAR_CLUSTER, ORIGIN_CLUSTER, EDGE_CLUSTER -> oneCluster(random);
         };
     }
 
@@ -70,6 +83,7 @@ public enum Distribution {
         return switch (this) {
             case FAR_CLUSTER -> FAR_CENTER - WORLD_SIZE / 2;
             case ORIGIN_CLUSTER -> -WORLD_SIZE / 2;
+            case EDGE_CLUSTER -> EDGE_CENTER - WORLD_SIZE / 2;
             default -> 0;
         };
     }

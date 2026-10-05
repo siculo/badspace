@@ -4,7 +4,7 @@ title: Griglia di quadtree
 description: Indice a due livelli, una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
 tags: [badspace, spatial-indexing, grid, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T00:04:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T12:53:10Z }
 ---
 
 # Come funziona
@@ -134,7 +134,9 @@ In termini di tempo, un'entità attraversa in media `(4/π) · v / L` bordi
 di foglia per unità di tempo; il tick decide quanti di questi diventano
 aggiornamenti dell'indice, al più uno per tick.
 
-Il modello spiega le misure, con il passo LOCAL di 10 unità:
+Il modello spiega le misure, con il passo LOCAL di 10 unità (nello
+[scenario del sistema solare](/indices/solar-system-scenario.md) è
+l'entità più veloce):
 
 | Caso | L | r | P dal modello | P misurata |
 |---|---|---|---|---|

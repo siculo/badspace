@@ -4,7 +4,7 @@ title: Capacità degli aggiornamenti per tick
 description: Quante entità per partizione si possono aggiornare in un tick, dati i tick al secondo, nel caso peggiore e in media; modello con il costo di un aggiornamento e di un cambio di foglia o di cella, e prima stima dalle misure.
 tags: [badspace, spatial-indexing, performance, tick, benchmark]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T00:04:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T12:53:10Z }
 ---
 
 # Domanda
@@ -127,9 +127,11 @@ I limiti della stima:
 
 # Misure da fare
 
-- **Passo del movimento come parametro dei benchmark:** misura
-  `c0 + P(r) · c1` al variare di `r`, per ricavare `c0` e `c1` di ogni
-  indice da più punti.
+- **Update al variare del passo:** il passo del movimento è un
+  parametro dei benchmark (`step`); il piano `plans/update-step.json`
+  misura `c0 + P(r) · c1` al variare di `r`, con i passi dello [scenario
+  del sistema solare](/indices/solar-system-scenario.md), per ricavare
+  `c0` e `c1` di ogni indice da più punti.
 - **Benchmark a tick degli aggiornamenti:** dati indice, distribuzione,
   velocità `v` e tick al secondo `f`, aggiorna tutte le `N` entità a
   ogni tick e misura il tempo per tick (p50, p99, massimo) al variare
@@ -142,6 +144,8 @@ I limiti della stima:
 
 - [Griglia di quadtree](/indices/grid-quadtree.md#frequenza-dei-cambi-di-foglia)
   — il modello della frequenza dei cambi di foglia `P(r)`.
+- [Scenario del sistema solare](/indices/solar-system-scenario.md) — i
+  valori di `v` e `f` usati nei benchmark.
 - [Grid uniforme](/indices/uniform-grid.md) — lo stesso modello con `L`
   uguale al lato della cella.
 - [Indicizzazione spaziale](/decisions/spatial-indexing.md) — la scelta

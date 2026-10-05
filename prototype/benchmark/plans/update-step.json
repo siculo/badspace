@@ -1,0 +1,40 @@
+// Measures the cost of the LOCAL updates when the step d = v · DT changes,
+// so the ratio r = d / L between the step and the side of a leaf or cell
+// changes too. The values come from the solar system scenario (1 unit =
+// 1 meter, up to 200 AU, at most 1000 km/h, 30 ticks per second): the steps
+// are the moves of one tick at 10, 30, 100, 300 and 1000 km/h.
+//
+// Only cells of at least 32768 accept positions up to 200 AU, so the grid of
+// quadtrees uses them. The uniform grid with cells of 400 does not cover the
+// scenario, but there L is the cell size, so r is known: it is a reference
+// for the model, without EDGE_CLUSTER, which is outside its limits.
+{
+  "groups": [
+    {
+      "profile": "quick",
+      "report": "update-step",
+      "runs": [
+        {
+          "name": "update-step-solar",
+          "index": ["GRID_QUADTREE_32768", "GRID_QUADTREE_32768_32", "LINEAR_SCAN"],
+          "include": "update",
+          "params": {
+            "movement": "LOCAL",
+            "step": [0.1, 0.3, 1, 3, 10],
+            "distribution": ["UNIFORM", "FAR_CLUSTER", "EDGE_CLUSTER"]
+          }
+        },
+        {
+          "name": "update-step-grid",
+          "index": "UNIFORM_GRID_400",
+          "include": "update",
+          "params": {
+            "movement": "LOCAL",
+            "step": [0.1, 0.3, 1, 3, 10],
+            "distribution": ["UNIFORM", "FAR_CLUSTER"]
+          }
+        }
+      ]
+    }
+  ]
+}
