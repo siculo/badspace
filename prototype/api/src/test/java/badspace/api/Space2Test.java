@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Box2;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.geometry.Circle2;

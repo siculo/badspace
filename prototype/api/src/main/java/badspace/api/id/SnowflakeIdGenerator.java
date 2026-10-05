@@ -1,4 +1,4 @@
-package badspace.api;
+package badspace.api.id;
 
 import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;

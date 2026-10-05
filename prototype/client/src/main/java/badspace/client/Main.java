@@ -4,7 +4,7 @@ import badspace.api.Partition;
 import badspace.api.Partition2;
 import badspace.api.Partition3;
 import badspace.api.RemovalPolicy;
-import badspace.api.SnowflakeIdGenerator;
+import badspace.api.id.SnowflakeIdGenerator;
 import badspace.api.Space2;
 import badspace.api.Space3;
 import badspace.common.geometry.Box2;

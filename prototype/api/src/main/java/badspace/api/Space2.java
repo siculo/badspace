@@ -1,5 +1,6 @@
 package badspace.api;
 
+import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
 import java.util.Objects;
