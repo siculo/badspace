@@ -4,7 +4,7 @@ title: Commit della partizione
 description: Le scritture del writer sono raggruppate in commit atomici, unica transazione del sistema, identificati da un contatore monotono il cui significato (tick locale, tick globale, batch) è deciso sopra il livello base.
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:20:14Z }
 ---
 
 # Primitiva
@@ -41,5 +41,7 @@ Un uso non legato al gioco potrebbe invece fare commit a batch.
 # Correlati
 
 - [Architettura minima](/architecture/minimal-core.md) — primitiva 2.
+- [Isolamento delle letture](/decisions/read-isolation.md) — alternative,
+  ancora da decidere, per far vedere ai lettori solo commit completi.
 - I [metadati delle entità](/architecture/entity-metadata.md) cambiano
   nello stesso commit dei dati.
