@@ -267,6 +267,10 @@ liberi richiede `unsafe`; la forma idiomatica è l'arena con indici, che
 pochi schemi da imparare: il prezzo si paga soprattutto all'inizio, in
 cambio di meno bug di memoria.
 
+Il [modulo degli alberi](/indices/tree-module.md) propone di chiudere
+questi schemi in un modulo specifico, con la mappa inversa dentro: fuori
+dal modulo l'indice lavora solo con handle.
+
 # Correlati
 
 - [Linguaggio](/decisions/language.md) — la scelta tra C11, C++ e Rust.
@@ -277,3 +281,5 @@ cambio di meno bug di memoria.
 - [Griglia di quadtree](/indices/grid-quadtree.md) e [Quadtree e
   octree](/indices/quadtree.md) — le strutture che pongono i problemi di
   riferimenti e modifiche.
+- [Modulo degli alberi](/indices/tree-module.md) — proposta di un
+  modulo specifico per questi alberi, con handle generazionali.

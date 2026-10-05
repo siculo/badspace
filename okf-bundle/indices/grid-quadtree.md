@@ -291,3 +291,5 @@ possono aggiornare in un tick, dati i tick al secondo, è nella
   problemi che condivide.
 - [Indicizzazione spaziale](/decisions/spatial-indexing.md) — la scelta
   dell'indice per partizione.
+- [Modulo degli alberi](/indices/tree-module.md) — proposta per gli
+  alberi delle celle nell'implementazione finale.

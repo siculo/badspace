@@ -141,7 +141,8 @@ bit in cui le coordinate differiscono) e la rimozione deve ricomprimere.
 
 Nodi come oggetti Java (più semplici) o in array primitivi, come lo
 storage delle partizioni (meno memoria e più veloci, codice più
-complesso). Per il prototipo si parte dagli oggetti.
+complesso). Per il prototipo si parte dagli oggetti. Per l'implementazione
+finale c'è la proposta del [modulo degli alberi](/indices/tree-module.md).
 
 # Decisioni
 
@@ -157,5 +158,7 @@ complesso). Per il prototipo si parte dagli oggetti.
 
 - [Griglia di quadtree](/indices/grid-quadtree.md) — la variante scelta
   per il prototipo.
+- [Modulo degli alberi](/indices/tree-module.md) — proposta per
+  l'implementazione finale dei nodi.
 - [Tipo delle coordinate](/decisions/coordinate-type.md) — precisione
   dei `double` e alternativa con interi a 64 bit.
