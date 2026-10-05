@@ -1,6 +1,6 @@
 package badspace.benchmark;
 
-import badspace.common.IndexConfig;
+import badspace.common.partition.IndexConfig;
 import java.util.List;
 
 /**

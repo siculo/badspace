@@ -1,4 +1,7 @@
-package badspace.common;
+package badspace.common.partition;
+
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Point3;
 
 /**
  * The coordinates that the entities of a partition can have: from min to max,

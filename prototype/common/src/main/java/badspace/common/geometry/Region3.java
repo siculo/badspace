@@ -1,4 +1,4 @@
-package badspace.common;
+package badspace.common.geometry;
 
 /**
  * A volume of a 3D space, used by range queries. Points on the border are inside.

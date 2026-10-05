@@ -1,10 +1,10 @@
 package badspace.service;
 
-import badspace.common.CoordinateLimits;
-import badspace.common.Entity2;
-import badspace.common.IndexConfig;
-import badspace.common.Point2;
-import badspace.common.Region2;
+import badspace.common.partition.CoordinateLimits;
+import badspace.common.partition.Entity2;
+import badspace.common.partition.IndexConfig;
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Region2;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;

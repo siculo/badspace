@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import badspace.common.Point2;
+import badspace.common.geometry.Point2;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;

@@ -1,7 +1,7 @@
 package badspace.benchmark;
 
-import badspace.common.Entity2;
-import badspace.common.Point2;
+import badspace.common.partition.Entity2;
+import badspace.common.geometry.Point2;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;

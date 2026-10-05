@@ -1,7 +1,7 @@
 package badspace.service;
 
-import badspace.common.Point2;
-import badspace.common.Region2;
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Region2;
 
 /**
  * Spatial index of a 2D partition. The partition storage calls it after each

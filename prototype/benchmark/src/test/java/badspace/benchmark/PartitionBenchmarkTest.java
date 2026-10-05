@@ -3,9 +3,9 @@ package badspace.benchmark;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-import badspace.common.Box2;
-import badspace.common.Entity2;
-import badspace.common.Point2;
+import badspace.common.geometry.Box2;
+import badspace.common.partition.Entity2;
+import badspace.common.geometry.Point2;
 import java.util.Comparator;
 import java.util.List;
 import org.junit.jupiter.api.Test;

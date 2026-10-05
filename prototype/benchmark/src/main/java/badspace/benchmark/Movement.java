@@ -1,6 +1,6 @@
 package badspace.benchmark;
 
-import badspace.common.Point2;
+import badspace.common.geometry.Point2;
 import java.util.SplittableRandom;
 
 /** How an update moves an entity. */

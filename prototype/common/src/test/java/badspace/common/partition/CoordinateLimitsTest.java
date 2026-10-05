@@ -1,5 +1,7 @@
-package badspace.common;
+package badspace.common.partition;
 
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Point3;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;

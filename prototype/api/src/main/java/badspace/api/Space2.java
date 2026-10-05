@@ -1,7 +1,7 @@
 package badspace.api;
 
-import badspace.common.PartitionId;
-import badspace.common.PartitionNode2;
+import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionNode2;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 

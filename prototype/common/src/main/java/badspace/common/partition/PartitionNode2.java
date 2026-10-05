@@ -1,5 +1,7 @@
-package badspace.common;
+package badspace.common.partition;
 
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Region2;
 import java.util.List;
 
 /**

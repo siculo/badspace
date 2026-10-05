@@ -1,4 +1,4 @@
-package badspace.common;
+package badspace.common.partition;
 
 /** Identifies a partition. The API generates it; it is unique within a space. */
 public record PartitionId(long value) {

@@ -1,6 +1,6 @@
 package badspace.service;
 
-import badspace.common.IndexConfig;
+import badspace.common.partition.IndexConfig;
 
 /** Runs the index contract on the linear scan, against the brute-force model. */
 class LinearScanIndex3Test extends SpatialIndex3Contract {

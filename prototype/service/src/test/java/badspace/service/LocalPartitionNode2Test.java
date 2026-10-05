@@ -3,12 +3,12 @@ package badspace.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import badspace.common.Box2;
-import badspace.common.Circle2;
-import badspace.common.Entity2;
-import badspace.common.IndexConfig;
-import badspace.common.PartitionId;
-import badspace.common.Point2;
+import badspace.common.geometry.Box2;
+import badspace.common.geometry.Circle2;
+import badspace.common.partition.Entity2;
+import badspace.common.partition.IndexConfig;
+import badspace.common.partition.PartitionId;
+import badspace.common.geometry.Point2;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;

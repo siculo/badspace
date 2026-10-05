@@ -1,6 +1,6 @@
 package badspace.benchmark;
 
-import badspace.common.PartitionNode2;
+import badspace.common.partition.PartitionNode2;
 import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;

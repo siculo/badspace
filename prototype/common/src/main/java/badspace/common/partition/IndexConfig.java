@@ -1,4 +1,4 @@
-package badspace.common;
+package badspace.common.partition;
 
 /**
  * Spatial index of a partition, with its parameters, chosen when the partition

@@ -1,6 +1,6 @@
 package badspace.api;
 
-import badspace.common.CoordinateLimits;
+import badspace.common.partition.CoordinateLimits;
 
 /**
  * Operations shared by 2D and 3D partitions. Operations that depend on the

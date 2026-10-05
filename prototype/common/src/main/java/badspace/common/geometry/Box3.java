@@ -1,4 +1,4 @@
-package badspace.common;
+package badspace.common.geometry;
 
 /** An axis-aligned box of a 3D space, from its lowest corner to its highest corner. */
 public record Box3(Point3 min, Point3 max) implements Region3 {

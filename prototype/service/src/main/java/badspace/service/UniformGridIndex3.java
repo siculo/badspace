@@ -1,9 +1,9 @@
 package badspace.service;
 
-import badspace.common.Box3;
-import badspace.common.Point3;
-import badspace.common.Region3;
-import badspace.common.Sphere3;
+import badspace.common.geometry.Box3;
+import badspace.common.geometry.Point3;
+import badspace.common.geometry.Region3;
+import badspace.common.geometry.Sphere3;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;

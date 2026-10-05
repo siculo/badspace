@@ -1,6 +1,6 @@
 package badspace.benchmark;
 
-import badspace.common.PartitionNode2;
+import badspace.common.partition.PartitionNode2;
 import badspace.service.LocalPartitionNode2;
 import java.lang.management.ManagementFactory;
 import java.lang.ref.Reference;

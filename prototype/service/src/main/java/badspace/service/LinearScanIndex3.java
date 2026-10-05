@@ -1,7 +1,7 @@
 package badspace.service;
 
-import badspace.common.Point3;
-import badspace.common.Region3;
+import badspace.common.geometry.Point3;
+import badspace.common.geometry.Region3;
 import java.util.Arrays;
 
 /**

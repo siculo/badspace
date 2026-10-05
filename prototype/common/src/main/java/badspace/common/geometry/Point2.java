@@ -1,4 +1,4 @@
-package badspace.common;
+package badspace.common.geometry;
 
 /** A position in a 2D space. */
 public record Point2(double x, double y) {
@@ -6,7 +6,7 @@ public record Point2(double x, double y) {
     /**
      * Fails with IllegalArgumentException if a coordinate is NaN or infinite.
      * The position of an entity must also be in the
-     * {@linkplain CoordinateLimits limits} of its partition; the points of the
+     * {@linkplain badspace.common.partition.CoordinateLimits limits} of its partition; the points of the
      * queries can be outside.
      */
     public Point2 {

@@ -2,12 +2,12 @@ package badspace.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import badspace.common.Box2;
-import badspace.common.Circle2;
-import badspace.common.Entity2;
-import badspace.common.IndexConfig;
-import badspace.common.Point2;
-import badspace.common.Region2;
+import badspace.common.geometry.Box2;
+import badspace.common.geometry.Circle2;
+import badspace.common.partition.Entity2;
+import badspace.common.partition.IndexConfig;
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Region2;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;

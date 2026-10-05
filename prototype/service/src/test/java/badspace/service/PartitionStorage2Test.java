@@ -3,11 +3,11 @@ package badspace.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import badspace.common.Box2;
-import badspace.common.CoordinateLimits;
-import badspace.common.Entity2;
-import badspace.common.Point2;
-import badspace.common.Region2;
+import badspace.common.geometry.Box2;
+import badspace.common.partition.CoordinateLimits;
+import badspace.common.partition.Entity2;
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Region2;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;

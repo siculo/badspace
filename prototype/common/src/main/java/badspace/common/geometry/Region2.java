@@ -1,4 +1,4 @@
-package badspace.common;
+package badspace.common.geometry;
 
 /**
  * An area of a 2D space, used by range queries. Points on the border are inside.
