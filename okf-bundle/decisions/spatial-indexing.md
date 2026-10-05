@@ -4,7 +4,7 @@ title: Indicizzazione spaziale
 description: L'indice spaziale si sceglie per partizione e fissa i limiti delle coordinate delle entità; scansione lineare, grid uniforme e griglia di quadtree sono implementate, il confronto tra le strutture resta aperto.
 tags: [badspace, design, spatial-indexing, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T12:53:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:59:03Z }
 ---
 
 # Opzioni considerate
@@ -100,7 +100,17 @@ ancora una decisione:
   per molte scritture e poche query, su dati distribuiti in modo
   uniforme.
 
-Restano da fare le misure con il profilo completo e la decisione. Per
+Le misure con il profilo completo (2026-10-04, fino a 1 000 000 di
+entità) confermano l'indicazione. In più mostrano che la grid uniforme
+crolla anche con le query a cerchio vicino a un cluster denso, e che
+con la griglia di quadtree il costo delle scritture cresce con il
+numero di entità (update 6,9 volte la scansione lineare con 1 000 000).
+Il test del box nelle range query è da ottimizzare in tutti gli indici
+(vedi [scansione lineare](/indices/linear-scan.md#problematiche) e
+[grid uniforme](/indices/uniform-grid.md#problematiche)); dopo vanno
+rifatte le misure di tutti gli indici, con il nuovo riferimento.
+
+Resta da prendere la decisione. Per
 decidere quali compromessi sono accettabili serve sapere quante entità
 si possono aggiornare in un tick nel caso peggiore: il modello è nella
 [capacità degli aggiornamenti per tick](/indices/update-capacity.md).

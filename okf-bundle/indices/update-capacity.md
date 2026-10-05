@@ -4,7 +4,7 @@ title: Capacità degli aggiornamenti per tick
 description: Quante entità per partizione si possono aggiornare in un tick, dati i tick al secondo, nel caso peggiore e in media; modello con il costo di un aggiornamento e di un cambio di foglia o di cella, e prima stima dalle misure.
 tags: [badspace, spatial-indexing, performance, tick, benchmark]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T12:53:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:59:03Z }
 ---
 
 # Domanda
@@ -113,6 +113,24 @@ Da questi due punti: `c0 ≈ 20 ns` e `c1 ≈ 180 ns`. Con `f = 60` (tick da
 | Griglia di quadtree, celle 256 | circa 200 ns | circa 21 000 | circa 90 000 |
 | [Grid uniforme](/indices/uniform-grid.md), celle 400 | circa 65 ns (teletrasporto) | circa 64 000 | — |
 | [Scansione lineare](/indices/linear-scan.md) | circa 22 ns | circa 190 000 | circa 190 000 |
+
+Le misure con il profilo completo (2026-10-04, stessi parametri)
+danno, con 100 000 entità, circa 44 ns per entità con `UNIFORM` e 160
+ns con `FAR_CLUSTER`, quindi `c0 ≈ 23 ns` e `c1 ≈ 140 ns`. Il caso
+peggiore però è il teletrasporto, non il movimento LOCAL. Con 1 000 000
+di entità ogni aggiornamento costa di più, probabilmente perché i
+dati non stanno più nella cache. Costo per entità nel caso peggiore tra tutte le
+distribuzioni e i movimenti, con lo stesso budget di 4,2 ms:
+
+| Indice | 100 000 entità | N_max | 1 000 000 di entità | N_max |
+|---|---|---|---|---|
+| Griglia di quadtree, celle 256 | circa 220 ns (`CORRIDORS`, teletrasporto) | circa 19 000 | circa 350 ns | circa 12 000 |
+| Grid uniforme, celle 400 | circa 84 ns (`UNIFORM`, teletrasporto) | circa 50 000 | circa 112 ns | circa 37 000 |
+| Scansione lineare | circa 28 ns | circa 150 000 | circa 33 ns | circa 127 000 |
+
+Con 1 000 000 di entità `c0` e `c1` non si ricavano da questi due
+punti: con più entità le foglie sono più piccole, e la frequenza dei
+cambi di foglia con `UNIFORM` non è più il 15%.
 
 I limiti della stima:
 

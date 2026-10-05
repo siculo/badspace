@@ -4,7 +4,7 @@ title: Griglia di quadtree
 description: Indice a due livelli, una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
 tags: [badspace, spatial-indexing, grid, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T12:53:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:59:03Z }
 ---
 
 # Come funziona
@@ -263,10 +263,38 @@ possono aggiornare in un tick, dati i tick al secondo, è nella
   | Insert | 2,7–3,1 | 1,6–2,0 |
   | Memoria | 1,26–1,29 | 1,08–1,21 |
 
-- **Query senza crolli:** il caso peggiore è 0,88 volte la scansione
-  lineare (k-nearest su `HOTSPOT` sparso, con 1000 entità). La [grid
-  uniforme](/indices/uniform-grid.md) invece crolla con celle piccole
-  sui dati sparsi e con celle grandi su un solo cluster denso.
+- **Confronto tra indici (profilo completo):** misure del 2026-10-04
+  sulla macchina dedicata ai benchmark, con il piano
+  `plans/index-comparison-full.json` (commit `e2598e5`, con il movimento
+  verso una foglia vicina). In più rispetto al profilo rapido: 10 000 e
+  1 000 000 entità, query a cerchio, selettività 0,0001 e 0,1, `k = 100`,
+  batch da 10 e 1000. Sugli stessi parametri del profilo rapido le
+  differenze sono sotto il 10%: le misure rapide sono confermate.
+  Rapporto rispetto alla scansione lineare, media geometrica su tutti i
+  parametri:
+
+  | | Griglia di quadtree, 100 000 | Grid uniforme, 100 000 | Griglia di quadtree, 1 000 000 | Grid uniforme, 1 000 000 |
+  |---|---|---|---|---|
+  | k-nearest | 0,0076–0,0095 | 0,044–0,17 | 0,0014–0,0017 | 0,025–0,22 |
+  | Range | 0,034–0,043 | 0,11–0,25 | 0,047–0,050 | 0,14–0,35 |
+  | Update | 5,2–5,5 | 2,0–3,7 | 6,6–6,9 | 2,0–3,6 |
+  | Insert | 3,3–3,8 | 1,7–2,2 | 4,6–5,0 | 1,7–2,5 |
+  | Memoria | 1,26–1,29 | 1,08–1,21 | 1,32 | 1,11–1,16 |
+
+  Con più entità il vantaggio nei k-nearest cresce, ma anche il costo
+  delle scritture: con la griglia di quadtree il rapporto degli update
+  passa da circa 3,3 (10 000 entità) a 6,9 (1 000 000), con la grid
+  uniforme resta circa uguale.
+- **Query senza crolli:** nel profilo rapido il caso peggiore è 0,88
+  volte la scansione lineare (k-nearest su `HOTSPOT` sparso, con 1000
+  entità). Nel profilo completo, con celle da 256, il caso peggiore è
+  1,75 volte (range a cerchio con selettività 0,1, `UNIFORM`, 1000
+  entità): è il costo fisso della struttura su una partizione piccola,
+  non un crollo. Con le query a cerchio l'indice scarta i nodi fuori
+  dalla regione e salta il test per quelli completamente dentro. La
+  [grid uniforme](/indices/uniform-grid.md) invece crolla con celle
+  piccole sui dati sparsi, con celle grandi su un solo cluster denso e
+  con le query a cerchio vicino a un cluster denso.
 - **Dimensione della cella:** da 64 a 128 a 256 le query migliorano
   sempre meno (k-nearest 0,0057 → 0,0047 → 0,0044) e le scritture
   peggiorano poco (update 4,4 → 4,8 → 5,1): 256 è un buon punto.
@@ -275,6 +303,10 @@ possono aggiornare in un tick, dati i tick al secondo, è nella
   e 2,2 µs della scansione lineare. Nei cluster densi le foglie sono
   piccole (circa 4 unità di lato con celle da 256), quindi un passo breve
   cambia foglia (misura con l'entità rimossa e reinserita dalla cella).
+  Nel profilo completo lo stesso update costa 16,0 µs con 100 000
+  entità e 25,3 µs con 1 000 000; il caso peggiore è il teletrasporto
+  su `CORRIDORS` (22,2 e 35,0 µs, fino a 15,8 volte la scansione
+  lineare).
 - **Punti coincidenti:** con `COINCIDENT` l'update costa 4,7 volte la
   scansione lineare con le foglie impilate; prima era 17.
 - **Movimento verso una foglia vicina:** misurato con il piano

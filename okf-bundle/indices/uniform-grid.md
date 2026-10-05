@@ -4,7 +4,7 @@ title: Grid uniforme
 description: Indice che divide lo spazio in celle quadrate (2D) o cubiche (3D) della stessa dimensione, tenute in una mappa; aggiornamenti economici, query veloci se la cella è adatta alla densità e alle query.
 tags: [badspace, spatial-indexing, grid]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T23:38:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:59:03Z }
 ---
 
 # Come funziona
@@ -67,6 +67,30 @@ ricava con `floor(coordinata / cellSize)` su ogni asse.
   `[centro − raggio, centro + raggio]` non copre tutto lo spazio: in
   questo caso si leggono tutte le celle. Il caso è stato trovato dai
   test sui limiti e corretto, anche nella griglia di quadtree.
+- **Query a cerchio vicino a un cluster denso.** Le celle lette sono
+  quelle del box intorno al cerchio, più una cella per lato per gli
+  errori di arrotondamento. Se il cerchio tocca solo il bordo di un
+  cluster denso, il box copre quasi tutto il cluster e si leggono quasi
+  tutte le sue entità. Nelle misure del profilo completo (2026-10-04,
+  `FAR_CLUSTER`, centro delle query uniforme, 100 000 entità, celle da
+  100) un range a cerchio costa 266 µs, contro 0,95 µs del box con lo
+  stesso numero di risultati e 136 µs della scansione lineare. La
+  [griglia di quadtree](/indices/grid-quadtree.md#benchmark) non ha il
+  problema, perché scarta i nodi fuori dal cerchio (0,46 µs). Una
+  possibile correzione è scartare anche le celle fuori dal cerchio.
+- **Test delle entità nelle range query.** Due ottimizzazioni da fare,
+  per ora non fatte (il lavoro sugli indici è in pausa):
+  1. il test `Box2.contains` / `Box3.contains` usa `&&`, quindi fa un
+     salto per ogni confronto; sulle entità delle celle di bordo il
+     risultato è mescolato e il processore sbaglia spesso la previsione.
+     Con `&` al posto di `&&` il test diventa senza salti. Il test è lo
+     stesso in tutti gli indici, anche nella [scansione
+     lineare](/indices/linear-scan.md#problematiche), quindi cambia
+     anche il riferimento;
+  2. le celle completamente dentro il box possono aggiungere tutte le
+     loro entità senza il test, come fa già la griglia di quadtree con i
+     nodi completamente dentro la regione. Il guadagno maggiore è con le
+     selettività alte.
 
 # Limiti delle coordinate
 
@@ -89,6 +113,14 @@ si portano dentro l'intervallo degli `int`.
   [Problematiche](#problematiche)). Con celle grandi (200–400) la grid è
   l'indice più economico nelle scritture (update 1,9–2,0 e insert
   1,6–1,7 volte la scansione lineare) e in memoria (1,08 volte).
+- **Misure con il profilo completo** (2026-10-04, piano
+  `plans/index-comparison-full.json`): confermano quelle rapide, con
+  differenze sotto il 10% sugli stessi parametri. Con 1 000 000 entità
+  i rapporti delle scritture restano circa uguali (update 2,0–3,6 volte
+  la scansione lineare), ma con celle grandi i k-nearest peggiorano
+  (0,22 volte con celle da 400). In più mostrano il crollo con le
+  [query a cerchio](#problematiche) vicino a un cluster denso. I
+  rapporti sono in [Griglia di quadtree](/indices/grid-quadtree.md#benchmark).
 
 # Correlati
 

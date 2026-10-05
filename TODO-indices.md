@@ -22,6 +22,9 @@ Documenti: [Indici spaziali](okf-bundle/indices/index.md), [Indicizzazione spazi
 - [x] Griglia di quadtree 2D e griglia di octree 3D come terzo indice, con `cellSize` potenza di 2 e riunione dei nodi con isteresi (`IndexConfig`) → [Griglia di quadtree](okf-bundle/indices/grid-quadtree.md)
 - [x] Griglia di quadtree: spostamento verso una foglia vicina risalendo solo fino al primo nodo che contiene la nuova posizione, perché gli aggiornamenti LOCAL sui cluster densi costano circa 8 volte la scansione lineare
 - [ ] Griglia di quadtree loose (foglie con un margine, così chi si muove di poco resta nella sua foglia), solo se il costo delle scritture nei cluster densi diventa un problema → [Griglia di quadtree](okf-bundle/indices/grid-quadtree.md#problematiche-aperte)
+- [ ] Test del box senza salti nelle range query: `&` al posto di `&&` in `Box2.contains` e `Box3.contains`; vale per tutti gli indici e per il riferimento → [Scansione lineare](okf-bundle/indices/linear-scan.md#problematiche)
+- [ ] Grid uniforme: le celle completamente dentro il box aggiungono le loro entità senza il test, come fa già la griglia di quadtree → [Grid uniforme](okf-bundle/indices/uniform-grid.md#problematiche)
+- [ ] Grid uniforme: nelle query a cerchio scartare le celle fuori dal cerchio, per il crollo vicino a un cluster denso (opzionale) → [Grid uniforme](okf-bundle/indices/uniform-grid.md#problematiche)
 - [ ] Quadtree/octree con una sola radice (radice che cresce, compressione), solo se le misure mostrano che servono range molto grandi o k-nearest su dati sparsi → [Quadtree e octree](okf-bundle/indices/quadtree.md)
 
 ### Strumenti di benchmark
@@ -49,7 +52,8 @@ Documenti: [Indici spaziali](okf-bundle/indices/index.md), [Indicizzazione spazi
 - [x] Misure della griglia di quadtree confrontate con grid uniforme e scansione lineare (profilo rapido) → [Griglia di quadtree](okf-bundle/indices/grid-quadtree.md#benchmark)
 - [x] Misure dello spostamento verso una foglia vicina sulla macchina dedicata ai benchmark (piano `plans/grid-quadtree-update.json`), poi i risultati nel bundle
 - [ ] Misure degli update al variare del passo sulla macchina dedicata ai benchmark (piano `plans/update-step.json`), poi il confronto con il modello `P(r)` nel bundle
-- [ ] Misure di riferimento con il profilo completo, a macchina scarica
+- [x] Misure di riferimento con il profilo completo (2026-10-04, piano `plans/index-comparison-full.json`) → [Griglia di quadtree](okf-bundle/indices/grid-quadtree.md#benchmark)
+- [ ] Dopo le ottimizzazioni delle range query: rifare il profilo completo di tutti gli indici, con il nuovo riferimento → [Scansione lineare](okf-bundle/indices/linear-scan.md#problematiche)
 - [ ] Benchmark relativi tra strutture di indice
 
 ## Decisioni da prendere
