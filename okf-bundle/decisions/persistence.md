@@ -4,7 +4,7 @@ title: Persistenza
 description: Strategia di persistenza per BADSPACE — snapshot periodici e indipendenti per partizione, senza scritture sincrone nel game loop — rimandata; le partizioni devono esporre l'ultimo commit persistito.
 tags: [badspace, design, persistence, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
 ---
 
 # Stato
@@ -24,6 +24,14 @@ loop.
   determina la latenza delle migrazioni.
 - Anche le [tombstone](/architecture/tombstones.md) fanno parte dello
   stato persistito.
+
+# Vincoli dall'isolamento delle letture
+
+Ogni commit pubblica uno snapshot della partizione (vedi [isolamento
+delle letture](/decisions/read-isolation.md)). Uno snapshot pubblicato è
+**immutabile**: si può salvare senza fermare il writer, che intanto
+prepara i commit successivi. Basta che il processo di salvataggio tenga
+lo snapshot come un qualunque reader, finché non ha finito.
 
 # Correlati
 

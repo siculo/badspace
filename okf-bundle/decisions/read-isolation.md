@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T07:42:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
 ---
 
 # Problema
@@ -77,9 +77,26 @@ reader per versione o l'epoch-based reclamation: è lo stesso principio
 della *grace period* di RCU descritto nelle [letture
 coerenti](/mechanisms/consistent-reads.md).
 
+# Tutti i dati delle entità
+
+Con gli snapshot vale una regola generale: **ogni dato associato a
+un'entità entra nello snapshot**. Non solo ID e coordinate, ma anche i
+[metadati](/architecture/entity-metadata.md) di sistema e applicativi,
+le [tombstone](/architecture/tombstones.md) e qualunque dato si
+aggiungerà in futuro. Un dato fuori dallo snapshot sarebbe visibile ai
+reader prima del commit, o cambierebbe sotto un reader che legge una
+versione vecchia.
+
+Per ogni dato si sceglie come copiarlo, in base a quanto spesso cambia:
+**copia completa** se cambia spesso ed è sparso, come le coordinate,
+oppure **copy-on-write** se le modifiche sono rade. Fanno eccezione solo
+le strutture che servono alle scritture e che nessuna query legge (vedi
+[Gli indici](#gli-indici)).
+
 # Gli slot
 
-Lo storage ha tre parti:
+Oggi lo storage ha tre parti (i metadati e le tombstone, quando ci
+saranno, seguono la stessa regola):
 
 | Struttura | Cambia con | Nello snapshot |
 |---|---|---|

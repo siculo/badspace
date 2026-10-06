@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente) e delle query di range e k-nearest su una partizione, mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione e della creazione e rimozione delle partizioni con la politica di rimozione, mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
 ---
 
 # Stato
@@ -12,8 +12,9 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:43:31Z }
 Le operazioni di base sono individuate (insert, remove, update
 posizione, query di range, k-nearest, raycasting e le operazioni su
 metadati, partizioni e commit). Il prototipo definisce la forma delle
-operazioni di scrittura e lettura per ID sulle entità e delle query di
-range e k-nearest su una partizione (vedi [Forma delle chiamate nel
+operazioni di scrittura e lettura per ID sulle entità, delle query di
+range e k-nearest su una partizione e della creazione e rimozione delle
+partizioni (vedi [Forma delle chiamate nel
 prototipo](#forma-delle-chiamate-nel-prototipo)), che resta
 rivalutabile; la forma delle altre operazioni, raycast compreso, è
 ancora da definire.
@@ -70,7 +71,6 @@ ogni coordinata senza cambiare il resto.
 | Aggiornamento | `update(id, Point)`, `updateAll(List<Entity>)` | Cambia la posizione; se un ID compare più volte vale l'ultima posizione |
 | Rimozione | `remove(id)`, `removeAll(long[])` | Nell'interfaccia comune `Partition`, insieme a `size()` |
 | Limiti | `limits()` | Nell'interfaccia comune `Partition`: le coordinate ammesse per le entità, fissate dall'indice (vedi [limiti delle coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate)) |
-
 | Query di range | `findInRegion(Region)` | Restituisce le entità dentro la regione o sul suo bordo, in ordine non definito |
 | Query k-nearest | `findNearest(Point, count)` | Restituisce al più `count` entità, ordinate per distanza dal punto e a parità di distanza per ID |
 
@@ -103,12 +103,46 @@ Scelte di dettaglio:
   raccoglie più query in una sola chiamata; la scelta rientra nella
   forma delle chiamate per le query su più partizioni, ancora aperta.
 
-Nel prototipo le query scandiscono tutte le entità della partizione:
-è la misura di riferimento per i benchmark e il risultato atteso nei
-test degli indici spaziali (vedi [Indicizzazione
-spaziale](/decisions/spatial-indexing.md)). Il raycast non c'è ancora:
-per entità puntiformi la sua forma dipende dagli usi e va decisa a
-parte.
+Le query usano l'indice spaziale della partizione. Nel prototipo ci
+sono la scansione lineare, la grid uniforme e la griglia di quadtree
+(vedi [Indicizzazione spaziale](/decisions/spatial-indexing.md)): tutti
+gli indici danno gli stessi risultati e cambiano solo in velocità e
+memoria. La **scansione lineare** è il riferimento: il suo risultato è
+quello atteso nei test degli altri indici, e le prestazioni degli altri
+indici si misurano rispetto alla sua. Il raycast non c'è ancora: per
+entità puntiformi la sua forma dipende dagli usi e va decisa a parte.
+
+## Creazione e rimozione delle partizioni
+
+Le partizioni si creano e si rimuovono attraverso uno **spazio**
+(`Space2`/`Space3`, con l'interfaccia comune `Space`). Uno spazio riceve
+alla costruzione il generatore degli [ID](/decisions/entity-ids.md) delle
+entità, condiviso da tutti gli spazi del processo, e genera gli ID delle
+sue partizioni.
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Creazione | `createPartition(node)`, `createPartition(node, RemovalPolicy)` | Crea una partizione vuota sul [nodo](/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio; senza politica vale `REQUIRE_EMPTY` |
+| Rimozione | `removePartition(partition)` | La chiama il writer della partizione; dopo la rimozione la partizione non si può più usare |
+
+La **politica di rimozione** si sceglie alla creazione e dice cosa
+succede alle entità quando la partizione viene rimossa:
+
+- `REQUIRE_EMPTY`: la partizione si rimuove solo se è vuota; le sue
+  entità vanno prima rimosse o spostate;
+- `DISCARD_ENTITIES`: la partizione si rimuove insieme alle sue entità.
+
+| Errore | Eccezione |
+|---|---|
+| Partizione non vuota con `REQUIRE_EMPTY` (la partizione non cambia), o già rimossa | `IllegalStateException` |
+| Partizione di un altro spazio | `IllegalArgumentException` |
+
+Nel contratto del nodo la creazione riceve l'ID della partizione e la
+configurazione dell'indice (`IndexConfig`, scansione lineare se manca);
+la rimozione ha due operazioni, una per le partizioni vuote e una che
+scarta anche le entità. Nell'API la scelta dell'indice e di k alla
+creazione non c'è ancora: oggi le partizioni create dall'API usano la
+scansione lineare.
 
 ## Contratto del nodo
 

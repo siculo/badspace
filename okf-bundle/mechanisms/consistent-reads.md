@@ -4,7 +4,7 @@ title: Letture coerenti su più partizioni
 description: Letture su più partizioni riferite allo stesso tick N tramite tick globale e conservazione delle versioni; la rimozione differita è un'alternativa più economica che garantisce solo che ogni entità si veda almeno una volta.
 tags: [badspace, partitioning, consistency, protocol]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
 ---
 
 # Problema
@@ -25,6 +25,10 @@ l'entità da nessuna parte.
   (vedi [conservazione delle versioni](/architecture/version-retention.md)).
 - k e l'eventuale barriera vanno dimensionati in modo che il ritardo
   massimo tra le partizioni coinvolte non superi k tick.
+- In ogni partizione il lettore legge lo **snapshot del commit N**:
+  ogni commit pubblica uno snapshot completo della partizione (vedi
+  [isolamento delle letture](/decisions/read-isolation.md)), e
+  conservare k versioni vuol dire tenere vivi gli ultimi k snapshot.
 
 Poiché nella migrazione A rimuove in un tick strettamente successivo a
 quello dell'inserimento in B, in ogni commit N l'entità è presente in

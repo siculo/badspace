@@ -4,7 +4,7 @@ title: Panoramica di BADSPACE
 description: Panoramica di progettazione di BADSPACE, un database real-time per entità in uno spazio 2D o 3D, base per software di simulazione, monitoraggio o gaming, e delle sue decisioni architetturali principali.
 tags: [badspace, design]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T10:47:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
 ---
 
 # Cos'è BADSPACE
@@ -31,11 +31,12 @@ dinamicamente, distribuendo il carico man mano che cresce o cala (vedi
 
 # Stato del progetto
 
-BADSPACE non esiste ancora: il bundle ne descrive la forma attesa, che
-potrà cambiare man mano che i prototipi porteranno informazioni nuove.
-Il progetto è in fase di design: le fondamenta architetturali sono
-stabili, mentre linguaggio finale, tipo delle coordinate, strutture di
-indice, API di dettaglio e persistenza sono ancora aperti.
+Il progetto è in fase **prototipale**: un prototipo in Java, con codice
+da buttare, serve a validare le decisioni sul campo. Il bundle descrive
+la forma attesa di BADSPACE, che potrà cambiare man mano che i prototipi
+porteranno informazioni nuove. Le fondamenta architetturali sono
+stabili, mentre linguaggio finale, tipo delle coordinate, API di
+dettaglio e persistenza sono ancora aperti.
 
 # Decisioni principali
 
@@ -47,14 +48,16 @@ partizione: quasi tutte le altre decisioni ne discendono.
   la superficie di rete è il contratto dei nodi che ospitano le
   partizioni.
 - [Linguaggio](/decisions/language.md) — prototipi in Java, linguaggio
-  finale ancora aperto tra C11, C++ e Rust.
+  finale ancora aperto tra C11, C++ e Rust; il [confronto tra C e
+  Rust](/decisions/c-vs-rust.md) è in corso e la decisione non è ancora
+  presa.
 - [Partizionamento del DB](/decisions/partitioning.md) — partizioni
   indipendenti, single-writer, con indice proprio, create e rimosse
   dinamicamente; strategia scelta dal software.
 - [ID delle entità](/decisions/entity-ids.md) — Snowflake a 64 bit,
   univoci su tutte le partizioni.
-- [Indicizzazione spaziale](/decisions/spatial-indexing.md) — scelta per
-  partizione; strutture ancora aperte: grid, quadtree/octree o R-tree.
+- [Indicizzazione spaziale](/decisions/spatial-indexing.md) — supporto a
+  tipi diversi di indice spaziale, scelto per partizione.
 - [Supporto a 2D e 3D](/decisions/2d-3d-support.md) — implementazioni
   parallele dietro un'interfaccia comune.
 - [Tipo delle coordinate](/decisions/coordinate-type.md) — `double` nei
@@ -64,6 +67,9 @@ partizione: quasi tutte le altre decisioni ne discendono.
   particolare di partizionamento.
 - [Concorrenza](/decisions/concurrency.md) — un solo writer per
   partizione.
+- [Isolamento delle letture](/decisions/read-isolation.md) — il writer
+  prepara un nuovo snapshot della partizione, che al commit diventa
+  visibile ai reader.
 - [API da esporre](/decisions/api-surface.md) — operazioni di base
   individuate, forma da definire.
 - [Persistenza](/decisions/persistence.md) — rimandata.
@@ -83,6 +89,13 @@ si costruiscono i meccanismi:
 
 Lo stesso nucleo regge configurazioni molto diverse: vedi i [casi
 d'uso](/use-cases.md).
+
+# Indici spaziali
+
+La sezione [indici spaziali](/indices/) ha un documento per ogni tipo
+di indice, con il funzionamento, le problematiche e le decisioni, più i
+documenti che servono a confrontarli: scenari di riferimento e modelli
+delle prestazioni.
 
 # Processo
 

@@ -4,7 +4,7 @@ title: Tombstone
 description: Alla rimozione di un'entità ne restano i metadati di sistema con l'epoca, che impediscono a messaggi vecchi di farla rinascere; vengono eliminate quando il predecessore conferma di non avere più copie in uscita.
 tags: [badspace, architecture, partitioning, metadata, migration]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
 ---
 
 # Primitiva
@@ -20,7 +20,10 @@ tombstone(ID, epoca, motivo: migrata verso X | distrutta, tick di rimozione)
 
 Niente dati, niente posto nell'indice spaziale, solo una voce nella
 mappa ID → metadati. I metadati applicativi sono esclusi, a meno che
-non venga richiesto al momento della rimozione.
+non venga richiesto al momento della rimozione. Le tombstone fanno
+parte dello snapshot pubblicato a ogni commit, come ogni dato delle
+entità (vedi [isolamento delle
+letture](/decisions/read-isolation.md#tutti-i-dati-delle-entità)).
 
 # Regola di inserimento
 

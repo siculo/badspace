@@ -188,7 +188,6 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 <a id="decisioni-letture"></a>
 ### Letture coerenti [↑](#blocchi)
 
-- [ ] Implementazione e costo della conservazione delle versioni
 - [ ] Lettura al tick N o rimozione differita come default
 
 <a id="decisioni-chiusura"></a>

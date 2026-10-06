@@ -4,7 +4,7 @@ title: Commit della partizione
 description: Le scritture del writer sono raggruppate in commit atomici, unica transazione del sistema, identificati da un contatore monotono il cui significato (tick locale, tick globale, batch) è deciso sopra il livello base.
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T07:42:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
 ---
 
 # Primitiva
@@ -37,6 +37,11 @@ Nel caso tipico si fa esattamente un commit per tick, e il contatore è:
   coerenti](/mechanisms/consistent-reads.md) su più partizioni.
 
 Un uso non legato al gioco potrebbe invece fare commit a batch.
+
+# Nel prototipo
+
+Il prototipo non ha ancora il confine del commit: ogni scrittura è
+visibile ai lettori appena eseguita.
 
 # Correlati
 

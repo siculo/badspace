@@ -1,10 +1,10 @@
 ---
 type: Playbook
 title: Approccio di sviluppo
-description: BADSPACE viene sviluppato per prototipi minimali, ciascuno accompagnato da uno o più client di test che ne verificano le funzionalità, per validare le decisioni di progettazione sul campo.
+description: BADSPACE viene sviluppato per prototipi minimali, ciascuno accompagnato da uno o più client di test che ne verificano le funzionalità, per validare le decisioni di progettazione sul campo; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
 tags: [badspace, methodology, prototyping]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:14:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
 ---
 
 # Approccio
@@ -17,6 +17,33 @@ essere necessariamente un gioco.
 
 Ogni decisione resta rivalutabile quando un prototipo porta
 informazioni nuove.
+
+# Benchmark
+
+Le scelte che dipendono dalle prestazioni, come quella degli [indici
+spaziali](/indices/), si prendono sulla base di misure:
+
+- **Strumento.** Un modulo di benchmark con JMH misura velocità e
+  memoria attraverso il contratto del nodo, quindi anche il costo dello
+  storage e non solo quello dell'indice.
+- **Misure relative.** Il prototipo Java non dà tempi rappresentativi
+  dell'implementazione finale, quindi ogni indice si confronta con un
+  riferimento, la [scansione lineare](/indices/linear-scan.md), e si
+  ragiona sui rapporti.
+- **Profili.** Un profilo rapido (circa 15 minuti) per controllare
+  durante lo sviluppo, e un profilo completo (alcune ore) per le misure
+  da tenere.
+- **Piani.** Le serie di misure si descrivono in file JSON, con gruppi
+  di parametri per profilo; tutto il piano si controlla prima di
+  partire.
+- **Macchina dedicata.** Le misure da confrontare si fanno sulla stessa
+  macchina, dedicata ai benchmark.
+- **Risultati tracciabili.** Ogni risultato riporta il commit del codice
+  misurato, e un report HTML accompagna i dati.
+- **Scenari di riferimento.** I parametri si ricavano da scenari
+  concreti, come lo [scenario del sistema
+  solare](/indices/solar-system-scenario.md), e da modelli come la
+  [capacità degli aggiornamenti per tick](/indices/update-capacity.md).
 
 # Correlati
 

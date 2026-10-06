@@ -6,10 +6,10 @@
 * [Partizionamento del DB](./partitioning.md) - partizioni indipendenti, single-writer e con indice proprio, create e rimosse dinamicamente; strategia scelta dal software.
 * [ID delle entità](./entity-ids.md) - ID Snowflake a 64 bit, univoci su tutte le partizioni, mai riusati, senza indicazione della partizione; un generatore per processo API con tempo logico, generatorId assegnato a ogni avvio.
 * [Indicizzazione spaziale](./spatial-indexing.md) - indice scelto per partizione, che fissa i limiti delle coordinate delle entità; scansione lineare, grid uniforme e griglia di quadtree implementate, confronto tra le strutture aperto.
-* [Supporto a 2D e 3D](./2d-3d-support.md) - implementazioni parallele dietro un'interfaccia comune.
+* [Supporto a 2D e 3D](./2d-3d-support.md) - implementazioni parallele (punti, partizioni, nodi, indici) dietro un'interfaccia comune.
 * [Tipo delle coordinate](./coordinate-type.md) - `double` nei prototipi; scelta finale rimandata tra double, interi a 64 bit o tipo generico.
 * [Entità statiche vs dinamiche](./static-vs-dynamic-entities.md) - strutture dati separate, query di prossimità unificate; caso particolare di partizionamento.
 * [Concorrenza](./concurrency.md) - un solo writer per partizione, più reader.
-* [Isolamento delle letture](./read-isolation.md) - snapshot pubblicati a ogni commit: slot copiati per intero, indici persistenti copy-on-write; i reader non si bloccano e non bloccano il writer.
-* [API da esporre](./api-surface.md) - operazioni di base individuate; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, batch, tutto-o-niente); il partizionamento ne fissa già alcuni elementi.
+* [Isolamento delle letture](./read-isolation.md) - snapshot pubblicati a ogni commit: slot copiati per intero, indici persistenti copy-on-write; i reader non si bloccano e non bloccano il writer; ogni dato delle entità entra nello snapshot.
+* [API da esporre](./api-surface.md) - operazioni di base individuate; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, batch, tutto-o-niente) e della creazione e rimozione delle partizioni (politica di rimozione); il partizionamento ne fissa già alcuni elementi.
 * [Persistenza](./persistence.md) - rimandata; snapshot per partizione e ultimo commit persistito esposto.

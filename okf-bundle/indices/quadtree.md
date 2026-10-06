@@ -4,7 +4,7 @@ title: Quadtree e octree
 description: Indice che divide lo spazio in modo ricorsivo in 4 quadranti (2D) o 8 ottanti (3D) dove le entità sono fitte; si adatta alla densità, ma pone i problemi dei punti coincidenti e della posizione della radice.
 tags: [badspace, spatial-indexing, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T10:44:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
 ---
 
 # Come funziona
@@ -139,10 +139,11 @@ bit in cui le coordinate differiscono) e la rimozione deve ricomprimere.
 
 ## Rappresentazione dei nodi
 
-Nodi come oggetti Java (più semplici) o in array primitivi, come lo
-storage delle partizioni (meno memoria e più veloci, codice più
-complesso). Per il prototipo si parte dagli oggetti. Per l'implementazione
-finale c'è la proposta del [modulo degli alberi](/indices/tree-module.md).
+Nel prototipo la scelta è già fatta per la [griglia di
+quadtree](/indices/grid-quadtree.md#decisioni): nodi come oggetti Java.
+Un esperimento con i nodi in array primitivi, come lo storage delle
+partizioni, non ha dato guadagni. Per l'implementazione finale c'è la
+proposta del [modulo degli alberi](/indices/tree-module.md).
 
 # Decisioni
 

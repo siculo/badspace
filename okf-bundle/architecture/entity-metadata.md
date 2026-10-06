@@ -4,7 +4,7 @@ title: Metadati delle entità
 description: Ogni entità ha metadati di sistema (epoca, stato, destinazione) in sola lettura e metadati applicativi liberi; le scritture condizionate sui metadati sostituiscono le transazioni tra partizioni.
 tags: [badspace, architecture, partitioning, metadata, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
 ---
 
 # Primitiva
@@ -31,7 +31,10 @@ Proprietà comuni:
 - dati e metadati cambiano nello stesso
   [commit](/architecture/partition-commit.md), in modo atomico;
 - i metadati sono **separati dai dati spaziali**: modificarli non tocca
-  l'indice.
+  l'indice;
+- i metadati fanno parte dello snapshot pubblicato a ogni commit, come
+  ogni dato delle entità (vedi [isolamento delle
+  letture](/decisions/read-isolation.md#tutti-i-dati-delle-entità)).
 
 # Scritture condizionate
 
