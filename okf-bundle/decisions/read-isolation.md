@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: Isolamento delle letture
-description: Alternative, ancora da decidere, per far vedere ai reader di una partizione solo commit completi mentre il writer scrive (lock reader/writer, copia completa, strutture persistenti, lettura ottimistica, fasi del tick, due istanze con replay), con pro e contro di ciascuna.
+description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
-status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:20:14Z }
+status: stable
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T07:42:53Z }
 ---
 
 # Problema
@@ -14,195 +14,151 @@ I reader devono vedere storage e indice in uno stato coerente: per il
 [commit della partizione](/architecture/partition-commit.md), solo
 **commit completi**, mai uno stato intermedio.
 
-Nel prototipo non c'è ancora nessun meccanismo: lo storage non è
-thread-safe e ogni scrittura (`insertAll`, `updateAll`, `removeAll`) è
-visibile appena eseguita. Manca anche il confine del commit.
-
-**Decisione: aperta.** Questo documento descrive le alternative.
-
-# Vincoli
+Vincoli:
 
 - **L'unità di isolamento è il commit, non la singola scrittura.** Due
-  scritture dello stesso commit devono diventare visibili insieme:
-  proteggere ogni chiamata da sola non basta.
-- **Il writer è il ciclo principale del software** (il game loop). Il
-  tick deve restare deterministico, ed è preferibile che un reader lento
-  non possa ritardarlo.
-- **Gli indici sono strutture mutabili e complesse** (grid, griglia di
-  quadtree), che lavorano sugli slot dello storage; la rimozione sposta
-  l'ultima entità nello slot libero. Copiarli o renderli immutabili
-  costa molto: è questa la parte difficile, più dello storage.
-- **Il writer deve poter leggere le proprie scritture** durante il
-  commit, per esempio per fare query sullo stato appena modificato.
+  scritture dello stesso commit diventano visibili insieme.
+- **Il writer è il ciclo principale del software** (il game loop): un
+  reader lento non deve poter ritardare il tick.
+- **Il writer legge le proprie scritture** durante il commit, per
+  esempio per fare query sullo stato appena modificato.
 
-# Alternative
+# Decisione
 
-## 1. Lock reader/writer
+Ogni commit produce uno **snapshot** della partizione, che i reader
+leggono senza lock. Lo snapshot ha due parti, trattate in modo diverso:
 
-Quando il writer scrive i reader non accedono, e viceversa (per esempio
-con un `ReadWriteLock`).
+- **Slot delle entità** (ID e coordinate): **copia completa** al commit.
+- **Indici**: **strutture persistenti copy-on-write**; ogni commit copia
+  solo i nodi che ha cambiato e condivide gli altri con le versioni
+  precedenti.
 
-Per rispettare il commit, il lock di scrittura va tenuto per tutto il
-commit, cioè per quasi tutto il tick. **Variante:** il writer accumula
-le operazioni in un buffer e le applica tutte insieme, sotto lock, al
-momento del commit.
+Al commit il writer pubblica **una sola radice** `(slot_N, indice_N)`
+con una scrittura atomica. Slot e indice vanno sempre insieme: l'indice
+parla di slot, e uno slot ha senso solo nella sua versione.
 
-**Pro**
-- La soluzione più semplice; nessuna memoria in più.
-- Storage e indici restano come sono.
+Il risultato: i reader non si bloccano mai, non bloccano mai il writer,
+e una versione resta valida finché qualcuno la usa.
 
-**Contro**
-- Il writer aspetta i reader: una lettura lunga ritarda il tick, e il
-  tempo del tick dipende dal carico dei reader.
-- Senza buffer i reader restano bloccati per quasi tutto il tick.
-- Con il buffer i reader sono bloccati durante l'applicazione, e il
-  writer non vede le proprie scritture se non legge anche il buffer
-  (le query dovrebbero unire indice e buffer).
+# Perché due soluzioni diverse
 
-## 2. Snapshot con copia completa
+Slot e indici cambiano con frequenze molto diverse.
 
-Il writer scrive sulla sua copia; al commit si copia lo stato e i
-reader leggono l'ultima copia pubblicata.
+- **Le coordinate cambiano a ogni movimento.** Gli slot non seguono né
+  lo spazio né l'attività (dipendono dall'ordine di inserimento e dallo
+  spostamento dell'ultima entità nelle rimozioni), quindi le entità che
+  si muovono in un tick sono sparse su tutto l'array. Se si muove una
+  frazione p delle entità e una pagina ha B slot, la frazione di pagine
+  toccate è circa 1 − (1 − p)^B: con p = 1% e B = 256 è già il 92%. Una
+  struttura persistente a pagine copierebbe quasi tutto, con in più
+  l'indirezione nelle letture: conviene la copia completa, che è il caso
+  migliore per la banda di memoria.
+- **L'indice cambia solo quando un'entità cambia cella o foglia**: un
+  movimento dentro la stessa cella o foglia non tocca l'indice. Le
+  modifiche sono molto più rade, e qui la copia dei soli nodi toccati
+  conviene davvero.
 
-**Pro**
-- Concetto semplice: i reader non si bloccano mai e non bloccano il
-  writer.
-- Una copia è anche un punto di partenza naturale per la
-  [persistenza](/decisions/persistence.md).
+# Il commit
 
-**Contro**
-- Costo O(n) a ogni commit. Per 1 000 000 di entità in 2D gli array
-  sono circa 24 MB; in più ci sono la mappa da ID a slot e soprattutto
-  l'indice, da copiare o ricostruire. Con un tick di circa 16 ms non è
-  realistico.
-- Molta memoria allocata e liberata a ogni tick (pressione sul GC in
-  Java).
+1. Il writer scrive sui suoi array mutabili degli slot e su una versione
+   **transient** dell'indice: un nodo si copia alla prima modifica del
+   commit, le modifiche successive dello stesso commit vanno sulla
+   copia. Il writer vede così le proprie scritture.
+2. Al commit gli array degli slot si copiano in un buffer per lo
+   snapshot, e i nodi copiati nel commit diventano immutabili.
+3. La nuova radice si pubblica con una scrittura atomica.
+4. Le versioni che nessun reader usa più (e che non servono alla
+   [conservazione delle versioni](/architecture/version-retention.md))
+   si liberano: i loro buffer tornano disponibili, e i nodi dell'indice
+   non più usati da nessuna versione tornano liberi.
 
-## 3. Strutture persistenti (MVCC copy-on-write)
+Per sapere quando una versione non è più usata serve un contatore dei
+reader per versione o l'epoch-based reclamation: è lo stesso principio
+della *grace period* di RCU descritto nelle [letture
+coerenti](/mechanisms/consistent-reads.md).
 
-Storage e indici diventano strutture immutabili: ogni modifica copia
-solo il percorso dalla radice al nodo cambiato. Ogni commit produce una
-nuova radice, e i reader la prendono con una lettura atomica.
+# Gli slot
 
-**Pro**
-- I reader non si bloccano mai e non bloccano il writer.
-- Le versioni passate costano poco: si sposa con la [conservazione delle
-  versioni](/architecture/version-retention.md) (k > 0) e con le
-  [letture coerenti](/mechanisms/consistent-reads.md).
-- Una versione resta valida finché qualcuno la usa: niente attese.
+Lo storage ha tre parti:
 
-**Contro**
-- Tutti gli indici vanno riscritti; lo schema degli slot compatti con
-  lo spostamento dell'ultima entità non funziona più così com'è.
-- Ogni scrittura alloca nodi nuovi: costo maggiore delle scritture, già
-  oggi il punto debole (vedi [capacità degli aggiornamenti per
-  tick](/indices/update-capacity.md)), e pressione sul GC in Java.
-- Le versioni vecchie vanno liberate quando nessun reader le usa più
-  (GC in Java, reference counting o epoch-based reclamation in un
-  linguaggio nativo).
+| Struttura | Cambia con | Nello snapshot |
+|---|---|---|
+| coordinate | ogni movimento | copia completa |
+| ID | solo inserimenti e rimozioni | copia solo se il commit ha inserimenti o rimozioni, altrimenti condivisa con la versione precedente |
+| mappa ID → slot | solo inserimenti e rimozioni | come gli ID: una tabella hash ad indirizzamento aperto su array primitivi si copia come gli slot; in alternativa una mappa hash persistente (HAMT) |
 
-## 4. Lettura ottimistica (seqlock)
+**Riuso dei buffer.** I buffer degli snapshot stanno in un pool. Un
+buffer che si riusa contiene una versione vecchia, quindi basta copiare
+le pagine cambiate da allora: per ogni pagina si tiene il commit
+dell'ultima modifica, e si copiano le pagine modificate dopo la
+versione del buffer. Non è mai peggio della copia completa, e con poche
+entità in movimento è molto meglio. Nelle partizioni di entità statiche
+(vedi [entità statiche e
+dinamiche](/decisions/static-vs-dynamic-entities.md)) gli slot non
+cambiano mai e lo snapshot non copia niente.
 
-Il writer incrementa un contatore all'inizio e alla fine di ogni
-scrittura; i reader leggono senza lock e alla fine controllano che il
-contatore non sia cambiato, altrimenti ripetono la lettura (per esempio
-con `StampedLock.tryOptimisticRead`).
+**Reader lento.** Se un reader tiene una versione a lungo, il suo buffer
+resta occupato e il writer ne prende un altro dal pool, o ne alloca uno
+nuovo: il writer non aspetta mai, cresce solo la memoria.
 
-**Pro**
-- Nessuna memoria in più; i reader non bloccano mai il writer.
-- Costo quasi nullo per i reader quando non ci sono scritture.
+# Gli indici
 
-**Contro**
-- Con strutture mutabili un reader può vedere uno stato a metà (nodi
-  divisi a metà, slot spostati) e fallire con un'eccezione o un ciclo
-  prima del controllo: tutto il codice di lettura degli indici deve
-  tollerare stati non coerenti.
-- Rispettare il commit significa considerare "in scrittura" tutto il
-  commit: le letture riuscirebbero solo tra un commit e l'altro.
-- Le letture lunghe possono ripartire all'infinito.
+- Gli indici vanno scritti come strutture persistenti con transient:
+  ogni nodo sa in quale commit è stato creato, e il writer lo modifica
+  sul posto solo se è del commit corrente, altrimenti lo copia insieme
+  al percorso fino alla radice.
+- Anche le mappe delle celle (cella → lista di slot nella grid uniforme,
+  cella → radice nella griglia di quadtree) sono persistenti e fanno
+  parte dello snapshot.
+- Nello snapshot entra **solo quello che leggono le query**. Le
+  strutture che servono solo alle scritture, come la mappa inversa
+  slot → (foglia, posizione), restano mutabili e private del writer.
+- I nodi pubblicati non si modificano più: la memoria dei nodi (arena)
+  non può spostarsi mentre i reader la leggono, e un nodo liberato
+  torna disponibile solo quando nessuna versione lo usa.
 
-## 5. Fasi del tick
+I requisiti per gli alberi sono nel [modulo degli
+alberi](/indices/tree-module.md#versioni-copy-on-write).
 
-Il tick si divide in una fase di scrittura e una fase di lettura,
-separate da una barriera: i reader lavorano in parallelo solo quando il
-writer non scrive. È l'alternativa 1 organizzata nel tempo.
+# Versioni passate
 
-**Pro**
-- Semplice e deterministico; nessuna memoria in più; storage e indici
-  restano come sono.
-- Schema comune nei motori di gioco.
+Ogni snapshot è già una versione completa della partizione: la
+[conservazione delle versioni](/architecture/version-retention.md) con
+k > 0 significa tenere vive le ultime k radici. Gli indici condividono
+i nodi non cambiati; gli slot costano una copia per versione
+conservata. Per le [letture coerenti](/mechanisms/consistent-reads.md)
+il lettore sceglie la radice del commit N.
 
-**Contro**
-- Lega i reader al ritmo del tick: vale per i thread del gioco, non per
-  reader esterni o con letture lunghe.
-- Le due fasi non si sovrappongono: il tempo del tick è la somma di
-  scrittura e letture.
+# Costi
 
-## 6. Due istanze con replay (Left-Right)
+- **Tempo del writer per commit:** la copia degli slot cambiati (al
+  massimo tutti) più la copia dei nodi dell'indice toccati, una sola
+  volta per nodo nel commit.
+- **Memoria:** una copia degli slot per ogni versione viva (l'ultima
+  pubblicata, quelle tenute dai reader e le k conservate), più i nodi
+  dell'indice non condivisi.
 
-Ogni partizione ha due istanze complete, storage e indice: una per i
-reader (R) e una per il writer (W).
+Per 1 000 000 di entità gli slot sono circa 24 MB in 2D e 32 MB in 3D;
+la copia completa costa qualche ms, da misurare, su un tick di circa
+16 ms. È un **caso limite**, utile per spingere le ottimizzazioni e
+vedere fin dove si arriva: in un uso realistico un numero così alto di
+entità si divide su più [partizioni](/decisions/partitioning.md), e il
+costo per partizione scende di conseguenza. Il totale da tenere
+d'occhio è quello per nodo.
 
-- Il writer scrive su W e registra le operazioni del commit.
-- Al commit, una scrittura atomica fa diventare W la nuova istanza dei
-  reader.
-- Prima del commit successivo, il writer aspetta che nessun reader usi
-  più la vecchia istanza, poi vi riapplica le operazioni registrate e
-  la usa come nuova W.
-
-È la stessa idea della *grace period* di RCU già descritta nelle
-[letture coerenti](/mechanisms/consistent-reads.md): non si modifica
-finché possono esserci reader iniziati prima.
-
-**Pro**
-- I reader non si bloccano mai: entrare e uscire da un'istanza costa un
-  contatore.
-- Il writer aspetta solo se un reader tiene la vecchia istanza per più
-  di un tick, perché l'attesa avviene all'inizio del commit successivo.
-- Storage e indici restano mutabili e single-thread come oggi; le
-  interfacce degli indici non cambiano.
-- Il writer vede le proprie scritture, perché legge da W.
-
-**Contro**
-- Memoria doppia per partizione.
-- Ogni scrittura si applica due volte; la seconda è fuori dal commit ma
-  sempre sul tempo del writer.
-- Le due istanze devono restare identiche: storage e indici devono
-  essere deterministici (stesse operazioni nello stesso ordine danno
-  stessi slot e stessa struttura; nessun ordine che dipende, per
-  esempio, dall'iterazione di una mappa hash). Va verificato con un
-  test.
-- Una lettura più lunga di un tick blocca il writer: serve una
-  scadenza per le letture, o una terza istanza.
-- Dà solo l'ultimo commit: per k > 0 la [conservazione delle
-  versioni](/architecture/version-retention.md) va costruita a parte,
-  per esempio con la copia delle sole entità modificate.
-
-# Confronto
-
-| | Chi aspetta | Costo per commit | Memoria | Indici | Il writer vede le sue scritture | Versioni passate |
-|---|---|---|---|---|---|---|
-| 1. Lock reader/writer | writer e reader a vicenda | nessuno (con buffer: applicazione sotto lock) | 1× | invariati | sì (con buffer: no) | no |
-| 2. Copia completa | nessuno | O(n) | 2× e più | copia o ricostruzione | sì | costose |
-| 3. Strutture persistenti | nessuno | allocazioni per ogni scrittura | 1× più versioni vive | da riscrivere | sì | economiche |
-| 4. Lettura ottimistica | i reader ripetono | nessuno | 1× | da rendere tolleranti | sì | no |
-| 5. Fasi del tick | a turno, per fase | nessuno | 1× | invariati | sì | no |
-| 6. Due istanze con replay | writer solo per letture oltre un tick | replay delle operazioni | 2× | invariati, deterministici | sì | a parte |
+Nel prototipo Java la copia completa pesa anche sul GC, ma il
+[linguaggio finale](/decisions/language.md) non sarà Java, e il riuso
+dei buffer evita comunque le allocazioni a ogni tick.
 
 # Punti aperti
 
-- La scelta tra le alternative.
-- Chi sono i reader: thread dello stesso processo che seguono il tick
-  (AI, rete, rendering) o anche richieste esterne con letture lunghe.
-- Quanto durano le letture, anche quelle aggregate su più partizioni
-  (vedi [aggregazione delle query](/mechanisms/query-aggregation.md)).
-- Se la memoria in più è accettabile, ed eventualmente configurabile
-  per partizione come k.
-- Come si combina con la [conservazione delle
-  versioni](/architecture/version-retention.md) e con la
-  [persistenza](/decisions/persistence.md).
-- Il confine del commit nel prototipo, che serve con qualunque
-  alternativa.
+- Misurare nel prototipo il costo della copia degli slot e della copia
+  dei nodi dell'indice per commit, con diverse frazioni di entità in
+  movimento.
+- Mappa ID → slot: tabella ad indirizzamento aperto copiata o HAMT.
+- Contatori dei reader per versione o epoch-based reclamation.
+- Il confine del commit nel prototipo, che oggi non c'è: ogni scrittura
+  è visibile appena eseguita.
 
 # Correlati
 
@@ -213,5 +169,7 @@ finché possono esserci reader iniziati prima.
 - [Conservazione delle versioni](/architecture/version-retention.md) e
   [letture coerenti](/mechanisms/consistent-reads.md) — letture al tick
   N su più partizioni.
-- [Modulo degli alberi](/indices/tree-module.md) — letture sicure da più
-  thread negli indici.
+- [Modulo degli alberi](/indices/tree-module.md) — alberi degli indici
+  con versioni copy-on-write.
+- [Persistenza](/decisions/persistence.md) — uno snapshot pubblicato è
+  immutabile e si può salvare senza fermare il writer.

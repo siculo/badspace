@@ -74,7 +74,8 @@
 ### Commit e proprietà [↑](#blocchi)
 
 - [ ] Commit della partizione con contatore monotono
-- [ ] Letture isolate dai commit non completi
+- [ ] Letture isolate dai commit non completi: snapshot a ogni commit, slot copiati per intero, indici persistenti copy-on-write ([decisione](okf-bundle/decisions/read-isolation.md))
+- [ ] Misura del costo per commit della copia degli slot e dei nodi dell'indice, con diverse frazioni di entità in movimento
 - [ ] Writer su thread diversi per partizioni diverse
 - [ ] Proprietà della partizione con fencing token (acquisire, rilasciare, trasferire)
 
@@ -136,6 +137,7 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [x] Linguaggio dei prototipi (Java)
 - [x] Partizionamento con partizioni indipendenti e dinamiche
 - [x] Concorrenza (un solo writer per partizione)
+- [x] Isolamento delle letture (snapshot a ogni commit: slot copiati per intero, indici persistenti copy-on-write)
 - [x] Nessuna transazione tra partizioni
 - [x] Confine di rete tra API e nodi
 - [x] Un nodo serve un solo spazio

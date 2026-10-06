@@ -4,7 +4,7 @@ title: Concorrenza
 description: Concorrenza di BADSPACE risolta con un solo writer per partizione e più reader; il sistema nel suo insieme ha più writer senza lock granulari.
 tags: [badspace, design, concurrency, partitioning]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:20:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T07:42:53Z }
 ---
 
 # Opzioni considerate
@@ -32,8 +32,9 @@ che, con un solo writer, non richiedono lock né gestione dei conflitti.
 
 - Il [tipo di strumento](/decisions/tool-type.md) — partire da una
   libreria embedded in-process mantiene questa decisione locale per ora.
-- Come i reader vedono solo commit completi mentre il writer scrive è
-  ancora da decidere: [isolamento delle letture](/decisions/read-isolation.md).
+- Come i reader vedono solo commit completi mentre il writer scrive:
+  [isolamento delle letture](/decisions/read-isolation.md), con snapshot
+  pubblicati a ogni commit.
 - Le operazioni che coinvolgono più partizioni si costruiscono sopra
   senza transazioni: [migrazione](/mechanisms/entity-migration.md) e
   [letture coerenti](/mechanisms/consistent-reads.md).
