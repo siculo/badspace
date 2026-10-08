@@ -71,6 +71,16 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
+    public void commit(PartitionId partition, long commit) {
+        find(partition).commit(commit);
+    }
+
+    @Override
+    public long lastCommit(PartitionId partition) {
+        return find(partition).lastCommit();
+    }
+
+    @Override
     public int size(PartitionId partition) {
         return find(partition).size();
     }

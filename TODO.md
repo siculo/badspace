@@ -96,7 +96,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
 Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/decisions/read-isolation.md): snapshot a ogni commit, slot copiati per intero, indici persistenti copy-on-write. Si arriva in più passi:
 
-- [ ] Commit minimo con contatore monotono: il commit incrementa solo il contatore, le scritture restano visibili subito (`commit(n)` e `lastCommit()`, vedi la [forma delle chiamate](okf-bundle/decisions/api-surface.md#commit))
+- [x] Commit minimo con contatore monotono: il commit incrementa solo il contatore, le scritture restano visibili subito (`commit(n)` e `lastCommit()`, vedi la [forma delle chiamate](okf-bundle/decisions/api-surface.md#commit))
 - [ ] Indici persistenti copy-on-write che usano il contatore: un nodo si modifica sul posto solo se è del commit corrente, altrimenti si copia; test che una radice tenuta da parte non cambia dopo un commit (basta un solo thread)
 - [ ] Slot nello snapshot: coordinate copiate a ogni commit, ID e mappa ID → slot copiati solo con inserimenti o rimozioni (per ora tabella copiata, non HAMT)
 - [ ] Pubblicazione atomica della radice `(slot_N, indice_N)`: i reader vedono solo commit completi

@@ -33,6 +33,7 @@ class Space2Test {
     private static final class MapNode implements PartitionNode2 {
         final Map<PartitionId, Map<Long, Point2>> partitions = new HashMap<>();
         final Map<PartitionId, IndexConfig> indices = new HashMap<>();
+        final Map<PartitionId, Long> commits = new HashMap<>();
         int calls;
 
         @Override
@@ -108,6 +109,18 @@ class Space2Test {
                     .limit(count)
                     .map(e -> new Entity2(e.getKey(), e.getValue()))
                     .toList();
+        }
+
+        @Override
+        public void commit(PartitionId partition, long commit) {
+            calls++;
+            commits.put(partition, commit);
+        }
+
+        @Override
+        public long lastCommit(PartitionId partition) {
+            calls++;
+            return commits.getOrDefault(partition, 0L);
         }
 
         @Override
@@ -267,6 +280,8 @@ class Space2Test {
         assertThrows(IllegalStateException.class, () -> p.update(1, new Point2(1, 1)));
         assertThrows(IllegalStateException.class, () -> p.remove(1));
         assertThrows(IllegalStateException.class, p::size);
+        assertThrows(IllegalStateException.class, () -> p.commit(1));
+        assertThrows(IllegalStateException.class, p::lastCommit);
         assertThrows(IllegalStateException.class, () -> p.findInRegion(new Circle2(new Point2(0, 0), 1)));
         assertThrows(IllegalStateException.class, () -> p.findNearest(new Point2(0, 0), 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(p));
@@ -280,6 +295,16 @@ class Space2Test {
         Space2 other = newSpace();
         assertThrows(IllegalArgumentException.class, () -> other.removePartition(p));
         assertEquals(1, node.partitions.size());
+    }
+
+    @Test
+    void commitGoesToTheNodeOfThePartition() {
+        MapNode node = new MapNode();
+        Partition2 p = newSpace().createPartition(node);
+        assertEquals(0, p.lastCommit());
+        p.commit(3);
+        assertEquals(3, p.lastCommit());
+        assertEquals(List.of(3L), List.copyOf(node.commits.values()));
     }
 
     @Test

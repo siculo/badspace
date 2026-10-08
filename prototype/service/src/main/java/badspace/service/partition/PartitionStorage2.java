@@ -30,6 +30,8 @@ import java.util.function.Function;
  * of each change. The index finds the slots and the storage builds the entities.
  * The positions of the entities must be in the limits of the index: writes
  * outside them fail, so the indices never see them.
+ * Writes are grouped in commits, whose numbers always grow. For now a commit
+ * only moves the counter.
  */
 final class PartitionStorage2 implements SlotView2 {
 
@@ -40,6 +42,7 @@ final class PartitionStorage2 implements SlotView2 {
     private double[] coords = new double[INITIAL_CAPACITY * DIMENSIONS];
     private final Map<Long, Integer> slotById = new HashMap<>();
     private int size;
+    private long lastCommit;
     private final CoordinateLimits limits;
     private final SpatialIndex2 index;
 
@@ -139,6 +142,18 @@ final class PartitionStorage2 implements SlotView2 {
 
     CoordinateLimits limits() {
         return limits;
+    }
+
+    void commit(long commit) {
+        if (commit <= lastCommit) {
+            throw new IllegalArgumentException(
+                    "Commit " + commit + " is not greater than the last commit " + lastCommit);
+        }
+        lastCommit = commit;
+    }
+
+    long lastCommit() {
+        return lastCommit;
     }
 
     @Override

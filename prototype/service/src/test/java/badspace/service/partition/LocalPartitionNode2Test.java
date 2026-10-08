@@ -202,11 +202,46 @@ class LocalPartitionNode2Test {
     }
 
     @Test
+    void commitMovesTheCounterAndAllowsGaps() {
+        assertEquals(0, node.lastCommit(P1));
+        node.commit(P1, 1);
+        node.commit(P1, 5);
+        assertEquals(5, node.lastCommit(P1));
+    }
+
+    @Test
+    void commitRejectsNumberNotGreaterThanTheLastAndChangesNothing() {
+        assertThrows(IllegalArgumentException.class, () -> node.commit(P1, 0));
+        assertThrows(IllegalArgumentException.class, () -> node.commit(P1, -1));
+        node.commit(P1, 5);
+        assertThrows(IllegalArgumentException.class, () -> node.commit(P1, 5));
+        assertThrows(IllegalArgumentException.class, () -> node.commit(P1, 4));
+        assertEquals(5, node.lastCommit(P1));
+    }
+
+    @Test
+    void eachPartitionHasItsOwnCommits() {
+        node.createPartition(P2);
+        node.commit(P1, 7);
+        assertEquals(0, node.lastCommit(P2));
+        node.commit(P2, 1);
+        assertEquals(7, node.lastCommit(P1));
+    }
+
+    @Test
+    void commitRejectsUnknownPartition() {
+        assertThrows(IllegalArgumentException.class, () -> node.commit(P2, 1));
+        assertThrows(IllegalArgumentException.class, () -> node.lastCommit(P2));
+    }
+
+    @Test
     void removedPartitionIsGoneAndItsIdCanBeUsedAgain() {
+        node.commit(P1, 3);
         node.removePartition(P1);
         assertThrows(IllegalArgumentException.class, () -> node.size(P1));
         node.createPartition(P1);
         assertEquals(0, node.size(P1));
+        assertEquals(0, node.lastCommit(P1));
     }
 
     @Test

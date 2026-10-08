@@ -71,6 +71,18 @@ public interface PartitionNode3 {
      */
     List<Entity3> findNearest(PartitionId partition, Point3 point, int count);
 
+    /**
+     * Closes the current commit of a partition with the given number. The number must be
+     * greater than the last commit of the partition, but numbers can be skipped. Fails with
+     * IllegalArgumentException if it is not greater; in this case the partition does not change.
+     * A commit with no writes is valid. For now a commit only moves the counter: writes
+     * are visible as soon as they are done.
+     */
+    void commit(PartitionId partition, long commit);
+
+    /** Returns the number of the last commit of a partition, or 0 if it has no commit yet. */
+    long lastCommit(PartitionId partition);
+
     /** Returns the number of entities in a partition. */
     int size(PartitionId partition);
 

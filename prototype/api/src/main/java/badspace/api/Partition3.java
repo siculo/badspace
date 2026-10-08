@@ -142,6 +142,18 @@ public final class Partition3 implements Partition {
     }
 
     @Override
+    public void commit(long n) {
+        checkNotRemoved();
+        node.commit(id, n);
+    }
+
+    @Override
+    public long lastCommit() {
+        checkNotRemoved();
+        return node.lastCommit(id);
+    }
+
+    @Override
     public PartitionConfig config() {
         return config;
     }

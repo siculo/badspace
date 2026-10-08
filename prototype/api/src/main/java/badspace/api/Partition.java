@@ -18,6 +18,18 @@ public interface Partition {
      */
     void removeAll(long[] entityIds);
 
+    /**
+     * Closes the current commit with the number n, which the software chooses: for example
+     * the tick. n must be greater than the {@linkplain #lastCommit() last commit}, but numbers
+     * can be skipped. Fails with IllegalArgumentException if n is not greater; in this case
+     * the partition does not change. A commit with no writes is valid.
+     * For now a commit only moves the counter: writes are visible as soon as they are done.
+     */
+    void commit(long n);
+
+    /** Returns the number of the last commit, or 0 if the partition has no commit yet. */
+    long lastCommit();
+
     /** Returns the configuration chosen when the partition was created. */
     PartitionConfig config();
 

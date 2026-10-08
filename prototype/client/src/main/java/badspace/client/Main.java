@@ -21,7 +21,7 @@ import java.util.List;
 /**
  * Test client: creates a 2D and a 3D space with partitions on local nodes,
  * sharing one entity ID generator,
- * then inserts, reads, updates, queries and removes entities, and at last removes partitions.
+ * then inserts, reads, updates, queries, commits and removes entities, and at last removes partitions.
  */
 public class Main {
 
@@ -49,6 +49,11 @@ public class Main {
         System.out.printf("2D: in the circle of radius 1 around (10,3): %s%n",
                 p2a.findInRegion(new Circle2(new Point2(10, 3), 1)));
         System.out.printf("2D: the 2 nearest to (0,0): %s%n", p2a.findNearest(new Point2(0, 0), 2));
+
+        // The software chooses the commit number, for example the tick, and can skip numbers
+        p2a.commit(1);
+        p2a.commit(3);
+        System.out.printf("2D: last commit of node A is %d%n", p2a.lastCommit());
 
         Space3 space3 = new Space3(entityIds);
         Partition3 p3 = space3.createPartition(new LocalPartitionNode3(),
