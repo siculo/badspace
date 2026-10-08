@@ -3,33 +3,57 @@
 <a id="blocchi"></a>
 ## Cose da fare, in blocchi
 
+I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
+
 - [x] **Basi:** ID Snowflake e rimozione delle partizioni. → [cose da fare](#fare-basi)
 
   Documenti: [ID delle entità](okf-bundle/decisions/entity-ids.md), [Partizionamento del DB](okf-bundle/decisions/partitioning.md), [Architettura a livelli](okf-bundle/architecture/layers.md).
 
-- [ ] **Query e partizioni:** configurazione della partizione nell'API, aggregazione delle query, partizioni con indici diversi e il client della strategia mista. Si usano gli indici così come sono oggi (scansione lineare, grid uniforme, griglia di quadtree); gli indici e i loro test sono nel [TODO degli indici](TODO-indices.md). → [cose da fare](#fare-indice) · [decisioni](#decisioni-indice)
+- [ ] **Configurazione della partizione:** indice e k scelti alla creazione nell'API. Si usano gli indici così come sono oggi (scansione lineare, grid uniforme, griglia di quadtree); gli indici e i loro test sono nel [TODO degli indici](TODO-indices.md). → [cose da fare](#fare-configurazione)
 
-  Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [Entità statiche vs dinamiche](okf-bundle/decisions/static-vs-dynamic-entities.md), [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md), [API da esporre](okf-bundle/decisions/api-surface.md), [Casi d'uso](okf-bundle/use-cases.md).
+  Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [API da esporre](okf-bundle/decisions/api-surface.md), [Conservazione delle versioni](okf-bundle/architecture/version-retention.md).
 
-- [ ] **Commit e proprietà:** commit e letture isolate, writer su thread diversi, fencing token. → [cose da fare](#fare-commit)
+- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, snapshot, writer su thread diversi, fencing token. → [cose da fare](#fare-commit) · [decisioni](#decisioni-commit)
 
-  Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md).
+  Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md).
 
-- [ ] **Metadati e tombstone:** metadati, scritture condizionate, tombstone e deduplica per epoca. → [cose da fare](#fare-metadati) · [decisioni](#decisioni-metadati)
+- [ ] **Metadati:** metadati di sistema e applicativi nello strato service, API dei metadati, scritture condizionate. → [cose da fare](#fare-metadati) · [decisioni](#decisioni-metadati)
 
-  Documenti: [Metadati delle entità](okf-bundle/architecture/entity-metadata.md), [Tombstone](okf-bundle/architecture/tombstones.md), [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md).
+  Documenti: [Metadati delle entità](okf-bundle/architecture/entity-metadata.md), [Architettura minima](okf-bundle/architecture/minimal-core.md).
 
-- [ ] **Migrazione:** durabilità osservabile, poi il protocollo con i suoi pezzi, il GC delle tombstone, gli scenari di guasto e il client per aree non contigue. → [cose da fare](#fare-migrazione) · [decisioni](#decisioni-migrazione)
+- [ ] **Persistenza:** snapshot per partizione e durabilità osservabile. → [cose da fare](#fare-persistenza) · [decisioni](#decisioni-persistenza)
 
-  Documenti: [Durabilità osservabile](okf-bundle/architecture/observable-durability.md), [Migrazione di entità tra partizioni](okf-bundle/mechanisms/entity-migration.md), [Tombstone](okf-bundle/architecture/tombstones.md), [Persistenza](okf-bundle/decisions/persistence.md).
+  Documenti: [Persistenza](okf-bundle/decisions/persistence.md), [Durabilità osservabile](okf-bundle/architecture/observable-durability.md).
 
-- [ ] **Letture coerenti:** versioni conservate, tick globale, lettura al tick N, rimozione differita e il client per zone contigue. → [cose da fare](#fare-letture) · [decisioni](#decisioni-letture)
+- [ ] **Query su più partizioni:** aggregazione dei risultati per tipo di query. → [cose da fare](#fare-query) · [decisioni](#decisioni-query)
 
-  Documenti: [Conservazione delle versioni](okf-bundle/architecture/version-retention.md), [Letture coerenti su più partizioni](okf-bundle/mechanisms/consistent-reads.md), [Architettura minima del layer delle partizioni](okf-bundle/architecture/minimal-core.md).
+  Documenti: [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md), [API da esporre](okf-bundle/decisions/api-surface.md), [Entità statiche vs dinamiche](okf-bundle/decisions/static-vs-dynamic-entities.md), [Casi d'uso](okf-bundle/use-cases.md).
 
-- [ ] **Chiusura:** ribilanciamento e split, nodo gRPC, raycast e aggiornamento del bundle. → [cose da fare](#fare-chiusura) · [decisioni](#decisioni-chiusura)
+- [ ] **Ribilanciamento e split:** trasferimento dell'esclusività tra writer. → [cose da fare](#fare-ribilanciamento)
 
-  Documenti: [Ribilanciamento e split](okf-bundle/mechanisms/rebalancing-and-split.md), [Tipo di strumento](okf-bundle/decisions/tool-type.md), [Architettura a livelli](okf-bundle/architecture/layers.md), [Tipo delle coordinate](okf-bundle/decisions/coordinate-type.md), [Linguaggio](okf-bundle/decisions/language.md), [Approccio di sviluppo](okf-bundle/process/development-approach.md).
+  Documenti: [Ribilanciamento e split](okf-bundle/mechanisms/rebalancing-and-split.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md).
+
+- [ ] **Tombstone e migrazione:** tombstone, protocollo di spostamento delle entità tra partizioni, deduplica per epoca nelle letture. → [cose da fare](#fare-migrazione) · [decisioni](#decisioni-migrazione)
+
+  Documenti: [Tombstone](okf-bundle/architecture/tombstones.md), [Migrazione di entità tra partizioni](okf-bundle/mechanisms/entity-migration.md), [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md).
+
+- [ ] **Letture coerenti:** versioni conservate, tick globale, lettura al tick N, rimozione differita. → [cose da fare](#fare-letture) · [decisioni](#decisioni-letture)
+
+  Documenti: [Conservazione delle versioni](okf-bundle/architecture/version-retention.md), [Letture coerenti su più partizioni](okf-bundle/mechanisms/consistent-reads.md), [Architettura minima](okf-bundle/architecture/minimal-core.md).
+
+- [ ] **Gruppi di partizioni:** API costruita sopra quella che lavora sulle singole partizioni. → [cose da fare](#fare-gruppi) · [decisioni](#decisioni-gruppi)
+
+  Documenti: [API da esporre](okf-bundle/decisions/api-surface.md), [Architettura a livelli](okf-bundle/architecture/layers.md).
+
+- [ ] **Raycast:** primo hit e tutti gli hit. Richiede di riprendere il lavoro sugli indici. → [cose da fare](#fare-raycast) · [decisioni](#decisioni-raycast)
+
+  Documenti: [API da esporre](okf-bundle/decisions/api-surface.md), [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md), [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md).
+
+- [ ] **Nodo gRPC:** nodo remoto dietro il contratto dei nodi. → [cose da fare](#fare-grpc) · [decisioni](#decisioni-grpc)
+
+  Documenti: [Tipo di strumento](okf-bundle/decisions/tool-type.md), [Architettura a livelli](okf-bundle/architecture/layers.md).
+
+**Tema trasversale:** i client di test si costruiscono man mano, accanto ai blocchi che li richiedono. → [cose da fare](#fare-client)
 
 ## Cose da fare
 
@@ -59,16 +83,13 @@
 - [x] Generatore di ID in stile Snowflake a 64 bit
 - [x] Rimozione dinamica delle partizioni (politica di rimozione scelta alla creazione)
 
-<a id="fare-indice"></a>
-### Query e partizioni [↑](#blocchi)
+<a id="fare-configurazione"></a>
+### Configurazione della partizione [↑](#blocchi)
 
 - [x] Contratto delle query nel nodo (range e k-nearest)
 - [x] Scelta dell'indice alla creazione della partizione nel contratto del nodo
 - [x] Limiti delle coordinate per partizione, fissati dall'indice (`IndexConfig.limits()`, `limits()` su partizione e nodo): scritture fuori dai limiti rifiutate, solo valori finiti anche nelle query → [Limiti delle coordinate](okf-bundle/decisions/spatial-indexing.md#limiti-delle-coordinate)
-- [ ] Configurazione della partizione alla creazione nell'API (indice e k)
-- [ ] Aggregazione delle query su più partizioni
-- [ ] Più partizioni con indici diversi (statiche e dinamiche)
-- [ ] Client di test per la strategia mista per tipo di entità
+- [ ] Configurazione della partizione alla creazione nell'API: indice e k, cioè il numero di commit passati da conservare (default 0), usato solo dalle [letture coerenti](#fare-letture)
 
 <a id="fare-commit"></a>
 ### Commit e proprietà [↑](#blocchi)
@@ -80,29 +101,47 @@
 - [ ] Proprietà della partizione con fencing token (acquisire, rilasciare, trasferire)
 
 <a id="fare-metadati"></a>
-### Metadati e tombstone [↑](#blocchi)
+### Metadati [↑](#blocchi)
 
-- [ ] Metadati di sistema delle entità (epoca, stato, destinazione)
+- [ ] Metadati di sistema delle entità nello strato service (epoca, stato, destinazione), in sola lettura per il software
 - [ ] Metadati applicativi delle entità
+- [ ] Metadati nello snapshot di ogni commit
 - [ ] API dei metadati (lettura e scrittura)
 - [ ] Scritture condizionate (compare-and-set)
+
+<a id="fare-persistenza"></a>
+### Persistenza [↑](#blocchi)
+
+- [ ] Salvataggio e ripristino degli snapshot per partizione, senza fermare il writer
+- [ ] Durabilità osservabile (ultimo commit persistito)
+
+<a id="fare-query"></a>
+### Query su più partizioni [↑](#blocchi)
+
+- [ ] Aggregazione delle query su più partizioni (range e k-nearest)
+- [ ] Deduplica per ID nell'aggregazione (l'epoca si aggiunge con la [migrazione](#fare-migrazione))
+- [ ] Più partizioni con indici diversi (statiche e dinamiche) interrogate insieme
+
+<a id="fare-ribilanciamento"></a>
+### Ribilanciamento e split [↑](#blocchi)
+
+- [ ] Ribilanciamento tramite trasferimento dell'esclusività
+- [ ] Split di una partizione
+
+<a id="fare-migrazione"></a>
+### Tombstone e migrazione [↑](#blocchi)
+
 - [ ] Tombstone alla rimozione
 - [ ] Regola di inserimento con confronto dell'epoca
 - [ ] Lettura ed eliminazione delle tombstone
 - [ ] Puntatore di inoltro nelle letture per ID
-- [ ] Deduplica per ID ed epoca nell'aggregazione
-
-<a id="fare-migrazione"></a>
-### Migrazione [↑](#blocchi)
-
-- [ ] Durabilità osservabile (ultimo commit persistito, anche simulato)
 - [ ] Protocollo di migrazione tra partizioni
 - [ ] Entità congelate durante la migrazione
 - [ ] Reinvio, ACK, ACK "superato" e messaggio REMOVED
 - [ ] Primitiva "sposta da A a B" nell'API
 - [ ] GC delle tombstone (conferma spontanea e verifica su richiesta)
 - [ ] Scenari di guasto della migrazione (crash di A, crash di B, catene, rimbalzi)
-- [ ] Client di test per aree non contigue
+- [ ] Deduplica per ID ed epoca nell'aggregazione (le copie in uscita perdono)
 
 <a id="fare-letture"></a>
 ### Letture coerenti [↑](#blocchi)
@@ -111,16 +150,31 @@
 - [ ] Tick globale e barriera
 - [ ] Lettura al tick N
 - [ ] Rimozione differita come alternativa alle letture al tick N
-- [ ] Client di test per zone contigue con confini
 
-<a id="fare-chiusura"></a>
-### Chiusura [↑](#blocchi)
+<a id="fare-gruppi"></a>
+### Gruppi di partizioni [↑](#blocchi)
 
-- [ ] Ribilanciamento tramite trasferimento dell'esclusività
-- [ ] Split di una partizione
+- [ ] API dei gruppi di partizioni sopra l'API delle singole partizioni
+
+<a id="fare-raycast"></a>
+### Raycast [↑](#blocchi)
+
+- [ ] Raycast negli indici (da aggiungere al [TODO degli indici](TODO-indices.md) quando si arriva qui)
+- [ ] Raycast nel nodo e nell'API (primo hit e tutti gli hit), con l'aggregazione su più partizioni
+
+<a id="fare-grpc"></a>
+### Nodo gRPC [↑](#blocchi)
+
 - [ ] Nodo remoto via gRPC
-- [ ] Raycast (primo hit e tutti gli hit), dopo la decisione sulla sua forma
-- [ ] Aggiornamento del bundle OKF con quanto appreso dai prototipi
+
+<a id="fare-client"></a>
+### Client di test (tema trasversale) [↑](#blocchi)
+
+Non è deciso quanti e quali client servono: si costruiscono man mano. Scenari possibili:
+
+- [ ] Aree non contigue (utile dalla migrazione)
+- [ ] Zone contigue con confini (utile dalle letture coerenti)
+- [ ] Strategia mista per tipo di entità (utile dalle [query su più partizioni](#fare-query))
 
 <a id="fare-bassa-priorita"></a>
 ### Cose che si potrebbero fare, a bassa priorità [↑](#blocchi)
@@ -163,23 +217,32 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [x] Forma della query di range (box e cerchio/sfera, dietro un'interfaccia sealed estendibile)
 - [x] Limiti delle coordinate fissati dall'indice: tetto globale 2^60, 2^30 celle per lato per gli indici a celle, query senza limiti, solo valori finiti (niente `NaN` né infiniti)
 
-<a id="decisioni-indice"></a>
-### Query e partizioni [↑](#blocchi)
+<a id="decisioni-commit"></a>
+### Commit e proprietà [↑](#blocchi)
 
-- [ ] Gruppi di partizioni con configurazione condivisa (indice, k, politica di rimozione), distinti dagli insiemi di partizioni da interrogare
-- [ ] Forma delle chiamate per le query su più partizioni
+- [ ] Forma delle chiamate per il commit
 
 <a id="decisioni-metadati"></a>
-### Metadati e tombstone [↑](#blocchi)
+### Metadati [↑](#blocchi)
 
 - [ ] Struttura dei metadati applicativi (schema libero o tipizzati, limiti di dimensione)
-- [ ] Forma delle chiamate per commit e scritture condizionate
+- [ ] Forma delle chiamate per le scritture condizionate
 - [ ] Filtri sui metadati nelle query
-- [ ] Forma della gestione delle tombstone nell'API
+
+<a id="decisioni-persistenza"></a>
+### Persistenza [↑](#blocchi)
+
+- [ ] Strategia di persistenza (snapshot per partizione)
+
+<a id="decisioni-query"></a>
+### Query su più partizioni [↑](#blocchi)
+
+- [ ] Forma delle chiamate per le query su più partizioni
 
 <a id="decisioni-migrazione"></a>
-### Migrazione [↑](#blocchi)
+### Tombstone e migrazione [↑](#blocchi)
 
+- [ ] Forma della gestione delle tombstone nell'API
 - [ ] Trasporto dei messaggi di migrazione (fornito dall'API o lasciato al software)
 - [ ] Forma delle chiamate per la migrazione
 - [ ] Copie in uscita con posizione diversa nell'aggregazione
@@ -189,18 +252,31 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 ### Letture coerenti [↑](#blocchi)
 
 - [ ] Lettura al tick N o rimozione differita come default
+- [ ] Servizio del tick globale e della barriera nella forma a cluster
 
-<a id="decisioni-chiusura"></a>
-### Chiusura [↑](#blocchi)
+<a id="decisioni-gruppi"></a>
+### Gruppi di partizioni [↑](#blocchi)
+
+- [ ] Gruppi di partizioni con configurazione condivisa (indice, k, politica di rimozione), distinti dagli insiemi di partizioni da interrogare
+
+<a id="decisioni-raycast"></a>
+### Raycast [↑](#blocchi)
+
+- [ ] Raycast su entità puntiformi (raggio di hit, estensione delle entità o altro), in base ai possibili usi
+
+<a id="decisioni-grpc"></a>
+### Nodo gRPC [↑](#blocchi)
+
+- [ ] Chiamate a lotti ed errori remoti nel contratto dei nodi
+- [ ] Nodi condivisi tra spazi e ID globali delle partizioni
+
+<a id="decisioni-lungo-termine"></a>
+### Senza blocco, a lungo termine [↑](#blocchi)
 
 - [ ] Strategie di partizionamento pronte come componenti opzionali
-- [ ] Strategia di persistenza (snapshot per partizione)
-- [ ] Chiamate a lotti ed errori remoti nel contratto dei nodi
-- [ ] Servizio del tick globale e della barriera nella forma a cluster
-- [ ] Nodi condivisi tra spazi e ID globali delle partizioni
 - [ ] Unità di misura (fissa o scelta dal software)
 - [ ] Determinismo dei calcoli tra macchine diverse
 - [ ] Tipo delle coordinate nell'implementazione finale
 - [ ] Divisione dei bit dell'ID (41/10/12 o 41/12/10): si può cambiare anche più avanti, purché il timestamp resti negli stessi bit
 - [ ] Linguaggio dell'implementazione finale (C11, C++, Rust)
-- [ ] Raycast su entità puntiformi (raggio di hit, estensione delle entità o altro), in base ai possibili usi
+- [ ] Più indici per una partizione (non è deciso se supportarli) → [Indice per partizione](okf-bundle/decisions/spatial-indexing.md#indice-per-partizione)

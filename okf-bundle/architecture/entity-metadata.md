@@ -4,7 +4,7 @@ title: Metadati delle entità
 description: Ogni entità ha metadati di sistema (epoca, stato, destinazione) in sola lettura e metadati applicativi liberi; le scritture condizionate sui metadati sostituiscono le transazioni tra partizioni.
 tags: [badspace, architecture, partitioning, metadata, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
 ---
 
 # Primitiva
@@ -22,6 +22,13 @@ Cambiano solo attraverso le operazioni dei protocolli (per esempio la
 [migrazione](/mechanisms/entity-migration.md)), perché da loro
 dipendono le garanzie: se il software potesse scrivere
 l'epoca, potrebbe rompere il protocollo senza accorgersene.
+
+I metadati di sistema li gestisce il **layer delle partizioni** (nel
+prototipo il modulo service), non l'[API comune](/architecture/layers.md):
+le regole su cui si basano le garanzie (sola lettura per il software,
+entità congelate durante la migrazione, inserimento con confronto
+dell'epoca) devono valere per ogni scrittura che arriva alla
+partizione.
 
 **Metadati applicativi**: slot liberi per il software,
 leggibili e scrivibili.

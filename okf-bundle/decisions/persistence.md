@@ -1,17 +1,26 @@
 ---
 type: Design Decision
 title: Persistenza
-description: Strategia di persistenza per BADSPACE — snapshot periodici e indipendenti per partizione, senza scritture sincrone nel game loop — rimandata; le partizioni devono esporre l'ultimo commit persistito.
+description: Strategia di persistenza per BADSPACE — snapshot periodici e indipendenti per partizione, senza scritture sincrone nel game loop; nel prototipo il meccanismo si implementa dopo i metadati e si estende man mano ai nuovi dati, mentre la strategia di dettaglio resta aperta; le partizioni devono esporre l'ultimo commit persistito.
 tags: [badspace, design, persistence, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
 ---
 
 # Stato
 
-Aspetto importante ma rimandato: snapshot periodici dello stato,
-eventualmente verso un DB esterno, senza scritture sincrone nel game
-loop.
+Snapshot periodici dello stato, eventualmente verso un DB esterno,
+senza scritture sincrone nel game loop.
+
+Nel prototipo il **meccanismo** di persistenza si implementa presto,
+subito dopo i [metadati](/architecture/entity-metadata.md): salvataggio
+e ripristino degli snapshot per partizione e [durabilità
+osservabile](/architecture/observable-durability.md). Poi lo si estende
+man mano che arrivano nuovi dati da rendere persistenti, per esempio le
+[tombstone](/architecture/tombstones.md) (vedi [approccio di
+sviluppo](/process/development-approach.md#meccanismi-prima-estesi-man-mano)).
+La strategia di dettaglio (frequenza, destinazione, formato) resta
+aperta.
 
 # Vincoli dal partizionamento
 

@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione e della creazione e rimozione delle partizioni con la politica di rimozione, mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
 ---
 
 # Stato
@@ -168,6 +168,18 @@ della partizione.
 Le coordinate `NaN` o infinite sono rifiutate già alla costruzione di
 `Point2`/`Point3`, e un raggio infinito alla costruzione di
 `Circle2`/`Sphere3`, con `IllegalArgumentException`.
+
+# Gruppi di partizioni
+
+Punto aperto. Un **gruppo di partizioni** ha una configurazione
+condivisa (indice, k, politica di rimozione), così non va ripetuta per
+ogni partizione. È distinto dall'insieme di partizioni da interrogare
+in una query, che il software sceglie caso per caso.
+
+L'API dei gruppi si costruisce **sopra** l'API che lavora sulle singole
+partizioni: le implementazioni di quest'ultima non ragionano sui
+gruppi. Nel prototipo i gruppi vengono dopo i meccanismi su più
+partizioni.
 
 # Vincoli dal partizionamento
 

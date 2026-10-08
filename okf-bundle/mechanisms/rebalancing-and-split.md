@@ -4,7 +4,7 @@ title: Ribilanciamento e split
 description: Operazioni in blocco sulle partizioni realizzate trasferendo l'esclusività di scrittura invece di migrare le entità una per una.
 tags: [badspace, partitioning, protocol]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
 ---
 
 # Meccanismo
@@ -20,6 +20,15 @@ partizione](/architecture/partition-ownership.md), non la
 
 Il numero di generazione garantisce che il writer precedente non possa
 più scrivere dopo il passaggio.
+
+# Punti aperti
+
+- **Doppioni durante lo split.** Mentre la partizione nuova si riempie,
+  un'entità può stare in tutte e due le partizioni. Le letture su
+  entrambe la deduplicano per ID, come nell'[aggregazione dei
+  risultati](/mechanisms/query-aggregation.md#deduplica). Nel prototipo
+  lo split viene prima della [migrazione](/mechanisms/entity-migration.md),
+  quindi la deduplica per ID, senza epoca, deve bastare.
 
 # Correlati
 

@@ -4,7 +4,7 @@ title: Aggregazione delle query su più partizioni
 description: Una query su più partizioni equivale a n query con risultati aggregati secondo il tipo di query (range, k-nearest, raycast) e deduplicati per ID ed epoca.
 tags: [badspace, partitioning, queries]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
 ---
 
 # Principio
@@ -33,10 +33,12 @@ Non richiede primitive speciali del livello base.
 
 # Deduplica
 
-Durante una [migrazione](/mechanisms/entity-migration.md) un'entità può
-comparire in due partizioni. Con [ID univoci](/decisions/entity-ids.md)
-si deduplica per ID: vince la copia con l'epoca più alta, e una copia
-"in uscita" perde se esiste anche l'altra.
+Durante una [migrazione](/mechanisms/entity-migration.md) o uno
+[split](/mechanisms/rebalancing-and-split.md) un'entità può comparire in
+due partizioni. Con [ID univoci](/decisions/entity-ids.md) si deduplica
+per ID. Con la migrazione vince la copia con l'epoca più alta, e una
+copia "in uscita" perde se esiste anche l'altra; senza migrazione basta
+l'ID.
 
 # Costo
 

@@ -4,7 +4,7 @@ title: Panoramica di BADSPACE
 description: Panoramica di progettazione di BADSPACE, un database real-time per entità in uno spazio 2D o 3D, base per software di simulazione, monitoraggio o gaming, e delle sue decisioni architetturali principali.
 tags: [badspace, design]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
 ---
 
 # Cos'è BADSPACE
@@ -72,7 +72,9 @@ partizione: quasi tutte le altre decisioni ne discendono.
   visibile ai reader.
 - [API da esporre](/decisions/api-surface.md) — operazioni di base
   individuate, forma da definire.
-- [Persistenza](/decisions/persistence.md) — rimandata.
+- [Persistenza](/decisions/persistence.md) — snapshot per partizione;
+  il meccanismo si implementa nel prototipo, la strategia di dettaglio
+  è aperta.
 
 # Architettura
 
