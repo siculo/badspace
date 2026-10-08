@@ -7,9 +7,7 @@ import badspace.common.geometry.Sphere3;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Index that divides the space in cubic cells, all of the same size. Each
@@ -20,6 +18,13 @@ import java.util.Map;
  * A range query reads the cells that cover the region. A k-nearest query reads
  * the cells in shells around the point, from the nearest to the farthest, and
  * stops when the next shell cannot have nearer entities.
+ * <p>
+ * At each commit the index gives a version that shares the cells with the
+ * writer. The map of the cells is a {@link HashTrie}, and a cell keeps the
+ * last commit at the time it was made: the writer copies a cell, and the
+ * path of the map to it, the first time it changes the cell after a commit.
+ * The map from slot to place in the cell is used only by the writer, so it
+ * is not in the versions; a copy keeps the slots in the same places.
  * <p>
  * The storage keeps the entities in the limits of the index, at most
  * {@code IndexConfig.CELLS_PER_SIDE} cells from the origin on each axis, so
@@ -37,9 +42,10 @@ final class UniformGridIndex3 implements SpatialIndex3 {
 
     private final SlotView3 storage;
     private final double cellSize;
-    private final Map<CellKey, Cell> cells = new HashMap<>();
+    private final HashTrie<CellKey, Cell> cells = new HashTrie<>();
     /** For each slot, its place in the list of its cell. */
     private int[] placeInCell = new int[16];
+    private long lastCommit;
 
     UniformGridIndex3(SlotView3 storage, double cellSize) {
         this.storage = storage;
@@ -69,162 +75,75 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     @Override
     public void relocated(int from, int to, Point3 position) {
         int place = placeInCell[from];
-        cells.get(keyOf(position)).slots.set(place, to);
+        writable(keyOf(position)).slots.set(place, to);
         placeInCell[to] = place;
     }
 
     @Override
     public IndexVersion3 commit(long n) {
-        // Full copy until this index has copy-on-write versions.
-        return new RebuiltIndexVersion3(n, storage, slots -> new UniformGridIndex3(slots, cellSize));
+        lastCommit = n;
+        return new Version(n, cells.commit(n), cellSize);
     }
 
     @Override
     public int[] findInRegion(Region3 region) {
-        CellRange range = switch (region) {
-            case Box3 box -> new CellRange(
-                    cellOf(box.min().x()), cellOf(box.max().x()),
-                    cellOf(box.min().y()), cellOf(box.max().y()),
-                    cellOf(box.min().z()), cellOf(box.max().z()));
-            // When the square of the radius overflows, the sphere contains each
-            // point whose distance overflows too: all the cells must be read.
-            case Sphere3 sphere when sphere.radius() * sphere.radius() == Double.POSITIVE_INFINITY -> CellRange.ALL;
-            // A point on the border of the sphere can be just outside the
-            // box around it, because of rounding: one more cell on each side
-            // keeps it in the range.
-            case Sphere3 sphere -> new CellRange(
-                    cellOf(sphere.center().x() - sphere.radius()) - 1L,
-                    cellOf(sphere.center().x() + sphere.radius()) + 1L,
-                    cellOf(sphere.center().y() - sphere.radius()) - 1L,
-                    cellOf(sphere.center().y() + sphere.radius()) + 1L,
-                    cellOf(sphere.center().z() - sphere.radius()) - 1L,
-                    cellOf(sphere.center().z() + sphere.radius()) + 1L);
-        };
-        SlotList found = new SlotList();
-        for (Cell cell : cellsIn(range)) {
-            for (int i = 0; i < cell.slots.size(); i++) {
-                int slot = cell.slots.get(i);
-                if (region.contains(storage.positionAt(slot))) {
-                    found.add(slot);
-                }
-            }
-        }
-        return found.toArray();
+        return new Search(cells.view(), cellSize, storage).findInRegion(region);
     }
 
     @Override
     public int[] findNearest(Point3 point, int count) {
-        NearestSlots nearest = new NearestSlots(count);
-        int x = cellOf(point.x());
-        int y = cellOf(point.y());
-        int z = cellOf(point.z());
-        int seen = 0;
-        long shell = 0;
-        // Shells get larger and larger: when a shell and the shells inside it have
-        // more cells than the grid, it is faster to read the cells of the grid.
-        while (Math.pow(2 * shell + 1.0, 3) <= cells.size()) {
-            if (seen == storage.size() || nearest.isComplete(minDistanceSquared(shell))) {
-                return nearest.slots();
-            }
-            for (long cx = x - shell; cx <= x + shell; cx++) {
-                for (long cy = y - shell; cy <= y + shell; cy++) {
-                    boolean side = Math.abs(cx - x) == shell || Math.abs(cy - y) == shell;
-                    for (long cz = z - shell; cz <= z + shell; cz += side ? 1 : 2 * shell) {
-                        seen += offer(nearest, point, cx, cy, cz);
-                    }
-                }
-            }
-            shell++;
-        }
-        // The cells not read yet, from the nearest to the farthest.
-        List<Cell> rest = new ArrayList<>();
-        for (Cell cell : cells.values()) {
-            if (shellOf(cell.key, x, y, z) >= shell) {
-                rest.add(cell);
-            }
-        }
-        rest.sort(Comparator.comparingLong(cell -> shellOf(cell.key, x, y, z)));
-        for (Cell cell : rest) {
-            if (seen == storage.size() || nearest.isComplete(minDistanceSquared(shellOf(cell.key, x, y, z)))) {
-                break;
-            }
-            seen += offer(nearest, point, cell);
-        }
-        return nearest.slots();
+        return new Search(cells.view(), cellSize, storage).findNearest(point, count);
     }
 
     /**
      * Returns the cell coordinate of a space coordinate. Values of the queries
      * outside the int range go to the first or the last cell.
      */
-    private int cellOf(double coordinate) {
+    private static int cellOf(double coordinate, double cellSize) {
         return (int) Math.floor(coordinate / cellSize);
     }
 
     private CellKey keyOf(Point3 position) {
-        return new CellKey(cellOf(position.x()), cellOf(position.y()), cellOf(position.z()));
+        return new CellKey(cellOf(position.x(), cellSize), cellOf(position.y(), cellSize), cellOf(position.z(), cellSize));
     }
 
     private void add(int slot, CellKey key) {
         if (slot >= placeInCell.length) {
             placeInCell = Arrays.copyOf(placeInCell, Math.max(slot + 1, placeInCell.length * 2));
         }
-        placeInCell[slot] = cells.computeIfAbsent(key, Cell::new).slots.add(slot);
+        Cell cell = cells.get(key);
+        if (cell == null) {
+            cell = new Cell(key, lastCommit);
+            cells.put(key, cell);
+        } else {
+            cell = writable(key);
+        }
+        placeInCell[slot] = cell.slots.add(slot);
     }
 
     /** Removes the slot from its cell, moving the last slot of the cell into its place. */
     private void remove(int slot, CellKey key) {
-        Cell cell = cells.get(key);
+        if (cells.get(key).slots.size() == 1) {
+            cells.remove(key);
+            return;
+        }
+        Cell cell = writable(key);
         int place = placeInCell[slot];
         int last = cell.slots.removeLast();
         if (last != slot) {
             cell.slots.set(place, last);
             placeInCell[last] = place;
         }
-        if (cell.slots.isEmpty()) {
-            cells.remove(key);
-        }
     }
 
-    /** Returns the cells with entities in the range. */
-    private List<Cell> cellsIn(CellRange range) {
-        List<Cell> found = new ArrayList<>();
-        if (range.cellCount() <= cells.size()) {
-            for (long cx = range.minX; cx <= range.maxX; cx++) {
-                for (long cy = range.minY; cy <= range.maxY; cy++) {
-                    for (long cz = range.minZ; cz <= range.maxZ; cz++) {
-                        Cell cell = cells.get(new CellKey((int) cx, (int) cy, (int) cz));
-                        if (cell != null) {
-                            found.add(cell);
-                        }
-                    }
-                }
-            }
-        } else {
-            for (Cell cell : cells.values()) {
-                if (range.contains(cell.key)) {
-                    found.add(cell);
-                }
-            }
+    /** Returns the cell of the key, copied first if an older version can see it. */
+    private Cell writable(CellKey key) {
+        Cell cell = cells.get(key);
+        if (cell.commit != lastCommit) {
+            cell = cell.copy(lastCommit);
+            cells.put(key, cell);
         }
-        return found;
-    }
-
-    /** Offers the entities of the cell, if the cell exists, and returns their number. */
-    private int offer(NearestSlots nearest, Point3 point, long cx, long cy, long cz) {
-        if (!isInt(cx) || !isInt(cy) || !isInt(cz)) {
-            return 0;
-        }
-        Cell cell = cells.get(new CellKey((int) cx, (int) cy, (int) cz));
-        return cell == null ? 0 : offer(nearest, point, cell);
-    }
-
-    private int offer(NearestSlots nearest, Point3 point, Cell cell) {
-        for (int i = 0; i < cell.slots.size(); i++) {
-            int slot = cell.slots.get(i);
-            nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
-        }
-        return cell.slots.size();
+        return cell;
     }
 
     /**
@@ -239,28 +158,190 @@ final class UniformGridIndex3 implements SpatialIndex3 {
         return value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE;
     }
 
-    /**
-     * Returns a squared distance that the entities in the shell, or in a shell
-     * outside it, cannot be nearer than. The point can be anywhere in its own
-     * cell, so the gap is one cell less than the shell.
-     */
-    private double minDistanceSquared(long shell) {
-        double gap = Math.max(0, (shell - 1 - ROUNDING_MARGIN) * cellSize);
-        return gap * gap;
+    /** The queries on the cells of a version, which read the positions in the slots of the same version. */
+    private static final class Search {
+
+        private final HashTrie.View<CellKey, Cell> cells;
+        private final double cellSize;
+        private final SlotView3 storage;
+
+        Search(HashTrie.View<CellKey, Cell> cells, double cellSize, SlotView3 storage) {
+            this.cells = cells;
+            this.cellSize = cellSize;
+            this.storage = storage;
+        }
+
+        int[] findInRegion(Region3 region) {
+            CellRange range = switch (region) {
+                case Box3 box -> new CellRange(
+                        cellOf(box.min().x()), cellOf(box.max().x()),
+                        cellOf(box.min().y()), cellOf(box.max().y()),
+                        cellOf(box.min().z()), cellOf(box.max().z()));
+                // When the square of the radius overflows, the sphere contains each
+                // point whose distance overflows too: all the cells must be read.
+                case Sphere3 sphere when sphere.radius() * sphere.radius() == Double.POSITIVE_INFINITY -> CellRange.ALL;
+                // A point on the border of the sphere can be just outside the
+                // box around it, because of rounding: one more cell on each side
+                // keeps it in the range.
+                case Sphere3 sphere -> new CellRange(
+                        cellOf(sphere.center().x() - sphere.radius()) - 1L,
+                        cellOf(sphere.center().x() + sphere.radius()) + 1L,
+                        cellOf(sphere.center().y() - sphere.radius()) - 1L,
+                        cellOf(sphere.center().y() + sphere.radius()) + 1L,
+                        cellOf(sphere.center().z() - sphere.radius()) - 1L,
+                        cellOf(sphere.center().z() + sphere.radius()) + 1L);
+            };
+            SlotList found = new SlotList();
+            for (Cell cell : cellsIn(range)) {
+                for (int i = 0; i < cell.slots.size(); i++) {
+                    int slot = cell.slots.get(i);
+                    if (region.contains(storage.positionAt(slot))) {
+                        found.add(slot);
+                    }
+                }
+            }
+            return found.toArray();
+        }
+
+        int[] findNearest(Point3 point, int count) {
+            NearestSlots nearest = new NearestSlots(count);
+            int x = cellOf(point.x());
+            int y = cellOf(point.y());
+            int z = cellOf(point.z());
+            int seen = 0;
+            long shell = 0;
+            // Shells get larger and larger: when a shell and the shells inside it have
+            // more cells than the grid, it is faster to read the cells of the grid.
+            while (Math.pow(2 * shell + 1.0, 3) <= cells.size()) {
+                if (seen == storage.size() || nearest.isComplete(minDistanceSquared(shell))) {
+                    return nearest.slots();
+                }
+                for (long cx = x - shell; cx <= x + shell; cx++) {
+                    for (long cy = y - shell; cy <= y + shell; cy++) {
+                        boolean side = Math.abs(cx - x) == shell || Math.abs(cy - y) == shell;
+                        for (long cz = z - shell; cz <= z + shell; cz += side ? 1 : 2 * shell) {
+                            seen += offer(nearest, point, cx, cy, cz);
+                        }
+                    }
+                }
+                shell++;
+            }
+            // The cells not read yet, from the nearest to the farthest.
+            List<Cell> rest = new ArrayList<>();
+            long done = shell;
+            cells.forEachValue(cell -> {
+                if (shellOf(cell.key, x, y, z) >= done) {
+                    rest.add(cell);
+                }
+            });
+            rest.sort(Comparator.comparingLong(cell -> shellOf(cell.key, x, y, z)));
+            for (Cell cell : rest) {
+                if (seen == storage.size() || nearest.isComplete(minDistanceSquared(shellOf(cell.key, x, y, z)))) {
+                    break;
+                }
+                seen += offer(nearest, point, cell);
+            }
+            return nearest.slots();
+        }
+
+        private int cellOf(double coordinate) {
+            return UniformGridIndex3.cellOf(coordinate, cellSize);
+        }
+
+        /** Returns the cells with entities in the range. */
+        private List<Cell> cellsIn(CellRange range) {
+            List<Cell> found = new ArrayList<>();
+            if (range.cellCount() <= cells.size()) {
+                for (long cx = range.minX; cx <= range.maxX; cx++) {
+                    for (long cy = range.minY; cy <= range.maxY; cy++) {
+                        for (long cz = range.minZ; cz <= range.maxZ; cz++) {
+                            Cell cell = cells.get(new CellKey((int) cx, (int) cy, (int) cz));
+                            if (cell != null) {
+                                found.add(cell);
+                            }
+                        }
+                    }
+                }
+            } else {
+                cells.forEachValue(cell -> {
+                    if (range.contains(cell.key)) {
+                        found.add(cell);
+                    }
+                });
+            }
+            return found;
+        }
+
+        /** Offers the entities of the cell, if the cell exists, and returns their number. */
+        private int offer(NearestSlots nearest, Point3 point, long cx, long cy, long cz) {
+            if (!isInt(cx) || !isInt(cy) || !isInt(cz)) {
+                return 0;
+            }
+            Cell cell = cells.get(new CellKey((int) cx, (int) cy, (int) cz));
+            return cell == null ? 0 : offer(nearest, point, cell);
+        }
+
+        private int offer(NearestSlots nearest, Point3 point, Cell cell) {
+            for (int i = 0; i < cell.slots.size(); i++) {
+                int slot = cell.slots.get(i);
+                nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
+            }
+            return cell.slots.size();
+        }
+
+        /**
+         * Returns a squared distance that the entities in the shell, or in a shell
+         * outside it, cannot be nearer than. The point can be anywhere in its own
+         * cell, so the gap is one cell less than the shell.
+         */
+        private double minDistanceSquared(long shell) {
+            double gap = Math.max(0, (shell - 1 - ROUNDING_MARGIN) * cellSize);
+            return gap * gap;
+        }
+    }
+
+    /** A version of the index at a commit. */
+    private record Version(long commit, HashTrie.View<CellKey, Cell> cells, double cellSize) implements IndexVersion3 {
+
+        @Override
+        public int[] findInRegion(Region3 region, SlotView3 slots) {
+            return new Search(cells, cellSize, slots).findInRegion(region);
+        }
+
+        @Override
+        public int[] findNearest(Point3 point, int count, SlotView3 slots) {
+            return new Search(cells, cellSize, slots).findNearest(point, count);
+        }
     }
 
     /** The coordinates of a cell. */
     private record CellKey(int x, int y, int z) {
     }
 
-    /** A cell with entities, and their slots in any order. */
+    /**
+     * A cell with entities, and their slots in any order. The slots change
+     * only while the cell belongs to the current commit.
+     */
     private static final class Cell {
 
         final CellKey key;
-        final SlotList slots = new SlotList();
+        /** The last commit when the cell was made. */
+        final long commit;
+        final SlotList slots;
 
-        Cell(CellKey key) {
+        Cell(CellKey key, long commit) {
+            this(key, commit, new SlotList());
+        }
+
+        private Cell(CellKey key, long commit, SlotList slots) {
             this.key = key;
+            this.commit = commit;
+            this.slots = slots;
+        }
+
+        /** Returns a copy for the given commit, with the slots in the same places. */
+        Cell copy(long commit) {
+            return new Cell(key, commit, slots.copy());
         }
     }
 

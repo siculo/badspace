@@ -7,9 +7,7 @@ import badspace.common.geometry.Region2;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Index that divides the space in square cells, all of the same size. Each
@@ -20,6 +18,13 @@ import java.util.Map;
  * A range query reads the cells that cover the region. A k-nearest query reads
  * the cells in rings around the point, from the nearest to the farthest, and
  * stops when the next ring cannot have nearer entities.
+ * <p>
+ * At each commit the index gives a version that shares the cells with the
+ * writer. The map of the cells is a {@link HashTrie}, and a cell keeps the
+ * last commit at the time it was made: the writer copies a cell, and the
+ * path of the map to it, the first time it changes the cell after a commit.
+ * The map from slot to place in the cell is used only by the writer, so it
+ * is not in the versions; a copy keeps the slots in the same places.
  * <p>
  * The storage keeps the entities in the limits of the index, at most
  * {@code IndexConfig.CELLS_PER_SIDE} cells from the origin on each axis, so
@@ -37,9 +42,10 @@ final class UniformGridIndex2 implements SpatialIndex2 {
 
     private final SlotView2 storage;
     private final double cellSize;
-    private final Map<CellKey, Cell> cells = new HashMap<>();
+    private final HashTrie<CellKey, Cell> cells = new HashTrie<>();
     /** For each slot, its place in the list of its cell. */
     private int[] placeInCell = new int[16];
+    private long lastCommit;
 
     UniformGridIndex2(SlotView2 storage, double cellSize) {
         this.storage = storage;
@@ -69,154 +75,75 @@ final class UniformGridIndex2 implements SpatialIndex2 {
     @Override
     public void relocated(int from, int to, Point2 position) {
         int place = placeInCell[from];
-        cells.get(keyOf(position)).slots.set(place, to);
+        writable(keyOf(position)).slots.set(place, to);
         placeInCell[to] = place;
     }
 
     @Override
     public IndexVersion2 commit(long n) {
-        // Full copy until this index has copy-on-write versions.
-        return new RebuiltIndexVersion2(n, storage, slots -> new UniformGridIndex2(slots, cellSize));
+        lastCommit = n;
+        return new Version(n, cells.commit(n), cellSize);
     }
 
     @Override
     public int[] findInRegion(Region2 region) {
-        CellRange range = switch (region) {
-            case Box2 box -> new CellRange(
-                    cellOf(box.min().x()), cellOf(box.max().x()),
-                    cellOf(box.min().y()), cellOf(box.max().y()));
-            // When the square of the radius overflows, the circle contains each
-            // point whose distance overflows too: all the cells must be read.
-            case Circle2 circle when circle.radius() * circle.radius() == Double.POSITIVE_INFINITY -> CellRange.ALL;
-            // A point on the border of the circle can be just outside the
-            // box around it, because of rounding: one more cell on each side
-            // keeps it in the range.
-            case Circle2 circle -> new CellRange(
-                    cellOf(circle.center().x() - circle.radius()) - 1L,
-                    cellOf(circle.center().x() + circle.radius()) + 1L,
-                    cellOf(circle.center().y() - circle.radius()) - 1L,
-                    cellOf(circle.center().y() + circle.radius()) + 1L);
-        };
-        SlotList found = new SlotList();
-        for (Cell cell : cellsIn(range)) {
-            for (int i = 0; i < cell.slots.size(); i++) {
-                int slot = cell.slots.get(i);
-                if (region.contains(storage.positionAt(slot))) {
-                    found.add(slot);
-                }
-            }
-        }
-        return found.toArray();
+        return new Search(cells.view(), cellSize, storage).findInRegion(region);
     }
 
     @Override
     public int[] findNearest(Point2 point, int count) {
-        NearestSlots nearest = new NearestSlots(count);
-        int x = cellOf(point.x());
-        int y = cellOf(point.y());
-        int seen = 0;
-        long ring = 0;
-        // Rings get larger and larger: when a ring and the rings inside it have
-        // more cells than the grid, it is faster to read the cells of the grid.
-        while ((2 * ring + 1.0) * (2 * ring + 1.0) <= cells.size()) {
-            if (seen == storage.size() || nearest.isComplete(minDistanceSquared(ring))) {
-                return nearest.slots();
-            }
-            for (long cx = x - ring; cx <= x + ring; cx++) {
-                boolean side = Math.abs(cx - x) == ring;
-                for (long cy = y - ring; cy <= y + ring; cy += side ? 1 : 2 * ring) {
-                    seen += offer(nearest, point, cx, cy);
-                }
-            }
-            ring++;
-        }
-        // The cells not read yet, from the nearest to the farthest.
-        List<Cell> rest = new ArrayList<>();
-        for (Cell cell : cells.values()) {
-            if (ringOf(cell.key, x, y) >= ring) {
-                rest.add(cell);
-            }
-        }
-        rest.sort(Comparator.comparingLong(cell -> ringOf(cell.key, x, y)));
-        for (Cell cell : rest) {
-            if (seen == storage.size() || nearest.isComplete(minDistanceSquared(ringOf(cell.key, x, y)))) {
-                break;
-            }
-            seen += offer(nearest, point, cell);
-        }
-        return nearest.slots();
+        return new Search(cells.view(), cellSize, storage).findNearest(point, count);
     }
 
     /**
      * Returns the cell coordinate of a space coordinate. Values of the queries
      * outside the int range go to the first or the last cell.
      */
-    private int cellOf(double coordinate) {
+    private static int cellOf(double coordinate, double cellSize) {
         return (int) Math.floor(coordinate / cellSize);
     }
 
     private CellKey keyOf(Point2 position) {
-        return new CellKey(cellOf(position.x()), cellOf(position.y()));
+        return new CellKey(cellOf(position.x(), cellSize), cellOf(position.y(), cellSize));
     }
 
     private void add(int slot, CellKey key) {
         if (slot >= placeInCell.length) {
             placeInCell = Arrays.copyOf(placeInCell, Math.max(slot + 1, placeInCell.length * 2));
         }
-        placeInCell[slot] = cells.computeIfAbsent(key, Cell::new).slots.add(slot);
+        Cell cell = cells.get(key);
+        if (cell == null) {
+            cell = new Cell(key, lastCommit);
+            cells.put(key, cell);
+        } else {
+            cell = writable(key);
+        }
+        placeInCell[slot] = cell.slots.add(slot);
     }
 
     /** Removes the slot from its cell, moving the last slot of the cell into its place. */
     private void remove(int slot, CellKey key) {
-        Cell cell = cells.get(key);
+        if (cells.get(key).slots.size() == 1) {
+            cells.remove(key);
+            return;
+        }
+        Cell cell = writable(key);
         int place = placeInCell[slot];
         int last = cell.slots.removeLast();
         if (last != slot) {
             cell.slots.set(place, last);
             placeInCell[last] = place;
         }
-        if (cell.slots.isEmpty()) {
-            cells.remove(key);
-        }
     }
 
-    /** Returns the cells with entities in the range. */
-    private List<Cell> cellsIn(CellRange range) {
-        List<Cell> found = new ArrayList<>();
-        if (range.cellCount() <= cells.size()) {
-            for (long cx = range.minX; cx <= range.maxX; cx++) {
-                for (long cy = range.minY; cy <= range.maxY; cy++) {
-                    Cell cell = cells.get(new CellKey((int) cx, (int) cy));
-                    if (cell != null) {
-                        found.add(cell);
-                    }
-                }
-            }
-        } else {
-            for (Cell cell : cells.values()) {
-                if (range.contains(cell.key)) {
-                    found.add(cell);
-                }
-            }
+    /** Returns the cell of the key, copied first if an older version can see it. */
+    private Cell writable(CellKey key) {
+        Cell cell = cells.get(key);
+        if (cell.commit != lastCommit) {
+            cell = cell.copy(lastCommit);
+            cells.put(key, cell);
         }
-        return found;
-    }
-
-    /** Offers the entities of the cell, if the cell exists, and returns their number. */
-    private int offer(NearestSlots nearest, Point2 point, long cx, long cy) {
-        if (!isInt(cx) || !isInt(cy)) {
-            return 0;
-        }
-        Cell cell = cells.get(new CellKey((int) cx, (int) cy));
-        return cell == null ? 0 : offer(nearest, point, cell);
-    }
-
-    private int offer(NearestSlots nearest, Point2 point, Cell cell) {
-        for (int i = 0; i < cell.slots.size(); i++) {
-            int slot = cell.slots.get(i);
-            nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
-        }
-        return cell.slots.size();
+        return cell;
     }
 
     /**
@@ -231,28 +158,182 @@ final class UniformGridIndex2 implements SpatialIndex2 {
         return value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE;
     }
 
-    /**
-     * Returns a squared distance that the entities in the ring, or in a ring
-     * outside it, cannot be nearer than. The point can be anywhere in its own
-     * cell, so the gap is one cell less than the ring.
-     */
-    private double minDistanceSquared(long ring) {
-        double gap = Math.max(0, (ring - 1 - ROUNDING_MARGIN) * cellSize);
-        return gap * gap;
+    /** The queries on the cells of a version, which read the positions in the slots of the same version. */
+    private static final class Search {
+
+        private final HashTrie.View<CellKey, Cell> cells;
+        private final double cellSize;
+        private final SlotView2 storage;
+
+        Search(HashTrie.View<CellKey, Cell> cells, double cellSize, SlotView2 storage) {
+            this.cells = cells;
+            this.cellSize = cellSize;
+            this.storage = storage;
+        }
+
+        int[] findInRegion(Region2 region) {
+            CellRange range = switch (region) {
+                case Box2 box -> new CellRange(
+                        cellOf(box.min().x()), cellOf(box.max().x()),
+                        cellOf(box.min().y()), cellOf(box.max().y()));
+                // When the square of the radius overflows, the circle contains each
+                // point whose distance overflows too: all the cells must be read.
+                case Circle2 circle when circle.radius() * circle.radius() == Double.POSITIVE_INFINITY -> CellRange.ALL;
+                // A point on the border of the circle can be just outside the
+                // box around it, because of rounding: one more cell on each side
+                // keeps it in the range.
+                case Circle2 circle -> new CellRange(
+                        cellOf(circle.center().x() - circle.radius()) - 1L,
+                        cellOf(circle.center().x() + circle.radius()) + 1L,
+                        cellOf(circle.center().y() - circle.radius()) - 1L,
+                        cellOf(circle.center().y() + circle.radius()) + 1L);
+            };
+            SlotList found = new SlotList();
+            for (Cell cell : cellsIn(range)) {
+                for (int i = 0; i < cell.slots.size(); i++) {
+                    int slot = cell.slots.get(i);
+                    if (region.contains(storage.positionAt(slot))) {
+                        found.add(slot);
+                    }
+                }
+            }
+            return found.toArray();
+        }
+
+        int[] findNearest(Point2 point, int count) {
+            NearestSlots nearest = new NearestSlots(count);
+            int x = cellOf(point.x());
+            int y = cellOf(point.y());
+            int seen = 0;
+            long ring = 0;
+            // Rings get larger and larger: when a ring and the rings inside it have
+            // more cells than the grid, it is faster to read the cells of the grid.
+            while ((2 * ring + 1.0) * (2 * ring + 1.0) <= cells.size()) {
+                if (seen == storage.size() || nearest.isComplete(minDistanceSquared(ring))) {
+                    return nearest.slots();
+                }
+                for (long cx = x - ring; cx <= x + ring; cx++) {
+                    boolean side = Math.abs(cx - x) == ring;
+                    for (long cy = y - ring; cy <= y + ring; cy += side ? 1 : 2 * ring) {
+                        seen += offer(nearest, point, cx, cy);
+                    }
+                }
+                ring++;
+            }
+            // The cells not read yet, from the nearest to the farthest.
+            List<Cell> rest = new ArrayList<>();
+            long done = ring;
+            cells.forEachValue(cell -> {
+                if (ringOf(cell.key, x, y) >= done) {
+                    rest.add(cell);
+                }
+            });
+            rest.sort(Comparator.comparingLong(cell -> ringOf(cell.key, x, y)));
+            for (Cell cell : rest) {
+                if (seen == storage.size() || nearest.isComplete(minDistanceSquared(ringOf(cell.key, x, y)))) {
+                    break;
+                }
+                seen += offer(nearest, point, cell);
+            }
+            return nearest.slots();
+        }
+
+        private int cellOf(double coordinate) {
+            return UniformGridIndex2.cellOf(coordinate, cellSize);
+        }
+
+        /** Returns the cells with entities in the range. */
+        private List<Cell> cellsIn(CellRange range) {
+            List<Cell> found = new ArrayList<>();
+            if (range.cellCount() <= cells.size()) {
+                for (long cx = range.minX; cx <= range.maxX; cx++) {
+                    for (long cy = range.minY; cy <= range.maxY; cy++) {
+                        Cell cell = cells.get(new CellKey((int) cx, (int) cy));
+                        if (cell != null) {
+                            found.add(cell);
+                        }
+                    }
+                }
+            } else {
+                cells.forEachValue(cell -> {
+                    if (range.contains(cell.key)) {
+                        found.add(cell);
+                    }
+                });
+            }
+            return found;
+        }
+
+        /** Offers the entities of the cell, if the cell exists, and returns their number. */
+        private int offer(NearestSlots nearest, Point2 point, long cx, long cy) {
+            if (!isInt(cx) || !isInt(cy)) {
+                return 0;
+            }
+            Cell cell = cells.get(new CellKey((int) cx, (int) cy));
+            return cell == null ? 0 : offer(nearest, point, cell);
+        }
+
+        private int offer(NearestSlots nearest, Point2 point, Cell cell) {
+            for (int i = 0; i < cell.slots.size(); i++) {
+                int slot = cell.slots.get(i);
+                nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
+            }
+            return cell.slots.size();
+        }
+
+        /**
+         * Returns a squared distance that the entities in the ring, or in a ring
+         * outside it, cannot be nearer than. The point can be anywhere in its own
+         * cell, so the gap is one cell less than the ring.
+         */
+        private double minDistanceSquared(long ring) {
+            double gap = Math.max(0, (ring - 1 - ROUNDING_MARGIN) * cellSize);
+            return gap * gap;
+        }
+    }
+
+    /** A version of the index at a commit. */
+    private record Version(long commit, HashTrie.View<CellKey, Cell> cells, double cellSize) implements IndexVersion2 {
+
+        @Override
+        public int[] findInRegion(Region2 region, SlotView2 slots) {
+            return new Search(cells, cellSize, slots).findInRegion(region);
+        }
+
+        @Override
+        public int[] findNearest(Point2 point, int count, SlotView2 slots) {
+            return new Search(cells, cellSize, slots).findNearest(point, count);
+        }
     }
 
     /** The coordinates of a cell. */
     private record CellKey(int x, int y) {
     }
 
-    /** A cell with entities, and their slots in any order. */
+    /**
+     * A cell with entities, and their slots in any order. The slots change
+     * only while the cell belongs to the current commit.
+     */
     private static final class Cell {
 
         final CellKey key;
-        final SlotList slots = new SlotList();
+        /** The last commit when the cell was made. */
+        final long commit;
+        final SlotList slots;
 
-        Cell(CellKey key) {
+        Cell(CellKey key, long commit) {
+            this(key, commit, new SlotList());
+        }
+
+        private Cell(CellKey key, long commit, SlotList slots) {
             this.key = key;
+            this.commit = commit;
+            this.slots = slots;
+        }
+
+        /** Returns a copy for the given commit, with the slots in the same places. */
+        Cell copy(long commit) {
+            return new Cell(key, commit, slots.copy());
         }
     }
 

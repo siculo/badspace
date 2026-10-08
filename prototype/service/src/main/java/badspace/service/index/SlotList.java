@@ -38,6 +38,14 @@ final class SlotList {
         return size == 0;
     }
 
+    /** Returns a copy, with the slots in the same places. */
+    SlotList copy() {
+        SlotList copy = new SlotList();
+        copy.slots = slots.clone();
+        copy.size = size;
+        return copy;
+    }
+
     int[] toArray() {
         return Arrays.copyOf(slots, size);
     }
