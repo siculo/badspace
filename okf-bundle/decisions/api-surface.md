@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione e della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione) e del commit (`commit(n)` con un numero scelto dal software, strettamente crescente), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:33:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T14:12:57Z }
 ---
 
 # Stato
@@ -13,8 +13,8 @@ Le operazioni di base sono individuate (insert, remove, update
 posizione, query di range, k-nearest, raycasting e le operazioni su
 metadati, partizioni e commit). Il prototipo definisce la forma delle
 operazioni di scrittura e lettura per ID sulle entità, delle query di
-range e k-nearest su una partizione e della creazione e rimozione delle
-partizioni (vedi [Forma delle chiamate nel
+range e k-nearest su una partizione, della creazione e rimozione delle
+partizioni e del commit (vedi [Forma delle chiamate nel
 prototipo](#forma-delle-chiamate-nel-prototipo)), che resta
 rivalutabile; la forma delle altre operazioni, raycast compreso, è
 ancora da definire.
@@ -34,7 +34,7 @@ evolvere aggiungendo il supporto a ulteriori meccanismi.
 | Metadati | Scritture condizionate | Compare-and-set; sostituiscono le transazioni tra partizioni |
 | Partizioni | Creazione e rimozione dinamica | Con scelta dell'indice e di k; è la base della scalabilità |
 | Partizioni | Proprietà | Acquisire, rilasciare e trasferire l'esclusività di scrittura con il [fencing token](/architecture/partition-ownership.md) |
-| Commit | `commit()` | Chiude il [commit](/architecture/partition-commit.md) corrente; per un server a frame, alla fine del tick |
+| Commit | `commit(n)` | Chiude il [commit](/architecture/partition-commit.md) corrente con il numero n, scelto dal software; per un server a frame, alla fine del tick |
 | Commit | Ultimo commit persistito | [Durabilità osservabile](/architecture/observable-durability.md) |
 | Commit | Lettura al tick N | Sulle partizioni con k ≥ 1 (vedi [conservazione delle versioni](/architecture/version-retention.md)) |
 
@@ -159,6 +159,45 @@ configurazione dell'indice (`IndexConfig`, scansione lineare se manca);
 la rimozione ha due operazioni, una per le partizioni vuote e una che
 scarta anche le entità. L'API passa al nodo l'indice della
 configurazione.
+
+## Commit
+
+Il [commit](/architecture/partition-commit.md) si chiude con
+`commit(long n)`, nell'interfaccia comune `Partition`. Il numero n lo
+sceglie il software, perché il significato del contatore lo stabiliscono
+i livelli superiori: il tick locale, il tick globale o un numero di
+batch. n deve essere **maggiore dell'ultimo commit**; sono ammessi i
+salti, per esempio quando un commit copre più tick.
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Commit | `commit(long n)` | Chiude il commit corrente con il numero n; un commit senza scritture è valido |
+| Ultimo commit | `lastCommit()` | Il numero dell'ultimo commit; una partizione appena creata è al commit 0 |
+
+| Errore | Eccezione |
+|---|---|
+| n non maggiore dell'ultimo commit (la partizione non cambia) | `IllegalArgumentException` |
+| Partizione già rimossa | `IllegalStateException` |
+
+Scelte di dettaglio:
+
+- **Scritture fallite**: le scritture sono tutto-o-niente, quindi una
+  scrittura fallita non cambia nemmeno il commit corrente.
+- **Rimozione con scritture non committate**: è permessa; la politica
+  di rimozione guarda lo stato del writer, non l'ultimo commit.
+- **Contratto del nodo**: `commit(PartitionId, long)` e
+  `lastCommit(PartitionId)`. Il commit di più partizioni in una sola
+  chiamata, per ridurre le chiamate remote, è rimandato ai gruppi di
+  partizioni o al nodo gRPC.
+
+In questo primo passo il commit fa solo avanzare il contatore: le
+scritture restano visibili appena eseguite. Come un reader ottiene e
+tiene una versione pubblicata si decide con la pubblicazione dello
+snapshot (vedi [isolamento delle letture](/decisions/read-isolation.md)).
+Il [fencing token](/architecture/partition-ownership.md), quando
+arriva, si aggiunge al commit come alle altre scritture. La forma è
+provvisoria e si rivede con il tick globale e le [letture
+coerenti](/mechanisms/consistent-reads.md).
 
 ## Contratto del nodo
 

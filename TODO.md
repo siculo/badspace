@@ -13,7 +13,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [API da esporre](okf-bundle/decisions/api-surface.md).
 
-- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, indici copy-on-write, snapshot degli slot, k nella configurazione della partizione, writer su thread diversi, fencing token. → [cose da fare](#fare-commit) · [decisioni](#decisioni-commit)
+- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, indici copy-on-write, snapshot degli slot, k nella configurazione della partizione, writer su thread diversi, fencing token. → [cose da fare](#fare-commit)
 
   Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md), [Conservazione delle versioni](okf-bundle/architecture/version-retention.md).
 
@@ -96,7 +96,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
 Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/decisions/read-isolation.md): snapshot a ogni commit, slot copiati per intero, indici persistenti copy-on-write. Si arriva in più passi:
 
-- [ ] Commit minimo con contatore monotono: il commit incrementa solo il contatore, le scritture restano visibili subito (prima va presa la [forma delle chiamate](#decisioni-commit))
+- [ ] Commit minimo con contatore monotono: il commit incrementa solo il contatore, le scritture restano visibili subito (`commit(n)` e `lastCommit()`, vedi la [forma delle chiamate](okf-bundle/decisions/api-surface.md#commit))
 - [ ] Indici persistenti copy-on-write che usano il contatore: un nodo si modifica sul posto solo se è del commit corrente, altrimenti si copia; test che una radice tenuta da parte non cambia dopo un commit (basta un solo thread)
 - [ ] Slot nello snapshot: coordinate copiate a ogni commit, ID e mappa ID → slot copiati solo con inserimenti o rimozioni (per ora tabella copiata, non HAMT)
 - [ ] Pubblicazione atomica della radice `(slot_N, indice_N)`: i reader vedono solo commit completi
@@ -220,12 +220,8 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [x] GC delle tombstone su conferma, non a TTL
 - [x] Ribilanciamento e split tramite trasferimento dell'esclusività
 - [x] Forma della query di range (box e cerchio/sfera, dietro un'interfaccia sealed estendibile)
+- [x] Forma delle chiamate per il commit (`commit(n)` con n scelto dal software e maggiore dell'ultimo commit)
 - [x] Limiti delle coordinate fissati dall'indice: tetto globale 2^60, 2^30 celle per lato per gli indici a celle, query senza limiti, solo valori finiti (niente `NaN` né infiniti)
-
-<a id="decisioni-commit"></a>
-### Commit e proprietà [↑](#blocchi)
-
-- [ ] Forma delle chiamate per il commit
 
 <a id="decisioni-metadati"></a>
 ### Metadati [↑](#blocchi)

@@ -11,5 +11,5 @@
 * [Entità statiche vs dinamiche](./static-vs-dynamic-entities.md) - strutture dati separate, query di prossimità unificate; caso particolare di partizionamento.
 * [Concorrenza](./concurrency.md) - un solo writer per partizione, più reader.
 * [Isolamento delle letture](./read-isolation.md) - snapshot pubblicati a ogni commit: slot copiati per intero, indici persistenti copy-on-write; i reader non si bloccano e non bloccano il writer; ogni dato delle entità entra nello snapshot.
-* [API da esporre](./api-surface.md) - operazioni di base individuate; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, batch, tutto-o-niente) e della creazione e rimozione delle partizioni (politica di rimozione); il partizionamento ne fissa già alcuni elementi.
+* [API da esporre](./api-surface.md) - operazioni di base individuate; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, batch, tutto-o-niente) della creazione e rimozione delle partizioni (politica di rimozione) e del commit (`commit(n)` con numero scelto dal software); il partizionamento ne fissa già alcuni elementi.
 * [Persistenza](./persistence.md) - snapshot per partizione e ultimo commit persistito esposto; nel prototipo il meccanismo si implementa dopo i metadati e si estende man mano, la strategia di dettaglio è aperta.
