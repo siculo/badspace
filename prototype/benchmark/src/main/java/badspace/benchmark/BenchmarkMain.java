@@ -12,7 +12,6 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +19,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.openjdk.jmh.annotations.Mode;
+import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.results.RunResult;
 import org.openjdk.jmh.results.format.ResultFormatFactory;
 import org.openjdk.jmh.results.format.ResultFormatType;
@@ -190,7 +190,7 @@ public final class BenchmarkMain {
         if (run.measuresFootprint()) {
             footprints = Footprint.measure(
                     allParams.get("index"),
-                    paramValues(allParams, "distribution", Distribution.values()).stream()
+                    paramValues(allParams, "distribution").stream()
                             .map(Distribution::valueOf).toList(),
                     allParams.get("size").stream().map(Integer::valueOf).toList());
         }
@@ -213,8 +213,21 @@ public final class BenchmarkMain {
         return options;
     }
 
-    private static List<String> paramValues(Map<String, List<String>> params, String name, Enum<?>[] defaults) {
-        return params.getOrDefault(name, Arrays.stream(defaults).map(Enum::name).toList());
+    /**
+     * Returns the values of the parameter in the run or, as JMH does, the default
+     * values of its field in {@link WorkloadState}. Not all the values of an enum
+     * are defaults: EDGE_CLUSTER is only for the indices with large limits.
+     */
+    private static List<String> paramValues(Map<String, List<String>> params, String name) {
+        List<String> values = params.get(name);
+        if (values != null) {
+            return values;
+        }
+        try {
+            return List.of(WorkloadState.class.getField(name).getAnnotation(Param.class).value());
+        } catch (NoSuchFieldException e) {
+            throw new IllegalArgumentException("Unknown parameter: " + name, e);
+        }
     }
 
     /** Writes the JMH results and the footprints in a single JSON array, each with the commit of the code. */
