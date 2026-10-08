@@ -9,13 +9,13 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [ID delle entità](okf-bundle/decisions/entity-ids.md), [Partizionamento del DB](okf-bundle/decisions/partitioning.md), [Architettura a livelli](okf-bundle/architecture/layers.md).
 
-- [ ] **Configurazione della partizione:** indice e k scelti alla creazione nell'API. Si usano gli indici così come sono oggi (scansione lineare, grid uniforme, griglia di quadtree); gli indici e i loro test sono nel [TODO degli indici](TODO-indices.md). → [cose da fare](#fare-configurazione)
+- [ ] **Configurazione della partizione:** indice scelto alla creazione nell'API. Si usano gli indici così come sono oggi (scansione lineare, grid uniforme, griglia di quadtree); gli indici e i loro test sono nel [TODO degli indici](TODO-indices.md). → [cose da fare](#fare-configurazione)
 
-  Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [API da esporre](okf-bundle/decisions/api-surface.md), [Conservazione delle versioni](okf-bundle/architecture/version-retention.md).
+  Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [API da esporre](okf-bundle/decisions/api-surface.md).
 
-- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, snapshot, writer su thread diversi, fencing token. → [cose da fare](#fare-commit) · [decisioni](#decisioni-commit)
+- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, snapshot, k nella configurazione della partizione, writer su thread diversi, fencing token. → [cose da fare](#fare-commit) · [decisioni](#decisioni-commit)
 
-  Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md).
+  Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md), [Conservazione delle versioni](okf-bundle/architecture/version-retention.md).
 
 - [ ] **Metadati:** metadati di sistema e applicativi nello strato service, API dei metadati, scritture condizionate. → [cose da fare](#fare-metadati) · [decisioni](#decisioni-metadati)
 
@@ -89,12 +89,13 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 - [x] Contratto delle query nel nodo (range e k-nearest)
 - [x] Scelta dell'indice alla creazione della partizione nel contratto del nodo
 - [x] Limiti delle coordinate per partizione, fissati dall'indice (`IndexConfig.limits()`, `limits()` su partizione e nodo): scritture fuori dai limiti rifiutate, solo valori finiti anche nelle query → [Limiti delle coordinate](okf-bundle/decisions/spatial-indexing.md#limiti-delle-coordinate)
-- [ ] Configurazione della partizione alla creazione nell'API: indice e k, cioè il numero di commit passati da conservare (default 0), usato solo dalle [letture coerenti](#fare-letture)
+- [ ] Configurazione della partizione alla creazione nell'API: indice
 
 <a id="fare-commit"></a>
 ### Commit e proprietà [↑](#blocchi)
 
 - [ ] Commit della partizione con contatore monotono
+- [ ] k nella configurazione della partizione: il numero di commit passati da conservare (default 0), usato dalle [letture coerenti](#fare-letture)
 - [ ] Letture isolate dai commit non completi: snapshot a ogni commit, slot copiati per intero, indici persistenti copy-on-write ([decisione](okf-bundle/decisions/read-isolation.md))
 - [ ] Misura del costo per commit della copia degli slot e dei nodi dell'indice, con diverse frazioni di entità in movimento
 - [ ] Writer su thread diversi per partizioni diverse
