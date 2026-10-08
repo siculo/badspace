@@ -75,7 +75,7 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     @Override
     public void relocated(int from, int to, Point3 position) {
         int place = placeInCell[from];
-        writable(keyOf(position)).slots.set(place, to);
+        writable(cells.get(keyOf(position))).slots.set(place, to);
         placeInCell[to] = place;
     }
 
@@ -116,18 +116,19 @@ final class UniformGridIndex3 implements SpatialIndex3 {
             cell = new Cell(key, lastCommit);
             cells.put(key, cell);
         } else {
-            cell = writable(key);
+            cell = writable(cell);
         }
         placeInCell[slot] = cell.slots.add(slot);
     }
 
     /** Removes the slot from its cell, moving the last slot of the cell into its place. */
     private void remove(int slot, CellKey key) {
-        if (cells.get(key).slots.size() == 1) {
+        Cell cell = cells.get(key);
+        if (cell.slots.size() == 1) {
             cells.remove(key);
             return;
         }
-        Cell cell = writable(key);
+        cell = writable(cell);
         int place = placeInCell[slot];
         int last = cell.slots.removeLast();
         if (last != slot) {
@@ -136,12 +137,11 @@ final class UniformGridIndex3 implements SpatialIndex3 {
         }
     }
 
-    /** Returns the cell of the key, copied first if an older version can see it. */
-    private Cell writable(CellKey key) {
-        Cell cell = cells.get(key);
+    /** Returns the cell, or a copy of it put in the map if an older version can see the cell. */
+    private Cell writable(Cell cell) {
         if (cell.commit != lastCommit) {
             cell = cell.copy(lastCommit);
-            cells.put(key, cell);
+            cells.put(cell.key, cell);
         }
         return cell;
     }
