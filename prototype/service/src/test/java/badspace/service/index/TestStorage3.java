@@ -68,6 +68,11 @@ final class TestStorage3 implements SlotView3 {
         }
     }
 
+    /** Closes a commit and returns the version of the index with a copy of the slots of the commit. */
+    Version commit(long n) {
+        return new Version(index.commit(n), List.copyOf(entities));
+    }
+
     List<Entity3> findInRegion(Region3 region) {
         return entitiesAt(index.findInRegion(region));
     }
@@ -92,10 +97,41 @@ final class TestStorage3 implements SlotView3 {
     }
 
     private List<Entity3> entitiesAt(int[] slots) {
+        return entitiesAt(entities, slots);
+    }
+
+    private static List<Entity3> entitiesAt(List<Entity3> entities, int[] slots) {
         List<Entity3> result = new ArrayList<>(slots.length);
         for (int slot : slots) {
             result.add(entities.get(slot));
         }
         return result;
+    }
+
+    /** A version of the index with the slots of its commit, which never change. */
+    record Version(IndexVersion3 index, List<Entity3> entities) implements SlotView3 {
+
+        List<Entity3> findInRegion(Region3 region) {
+            return entitiesAt(entities, index.findInRegion(region, this));
+        }
+
+        List<Entity3> findNearest(Point3 point, int count) {
+            return entitiesAt(entities, index.findNearest(point, count, this));
+        }
+
+        @Override
+        public int size() {
+            return entities.size();
+        }
+
+        @Override
+        public long idAt(int slot) {
+            return entities.get(slot).id();
+        }
+
+        @Override
+        public Point3 positionAt(int slot) {
+            return entities.get(slot).position();
+        }
     }
 }

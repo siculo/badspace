@@ -74,6 +74,12 @@ final class UniformGridIndex2 implements SpatialIndex2 {
     }
 
     @Override
+    public IndexVersion2 commit(long n) {
+        // Full copy until this index has copy-on-write versions.
+        return new RebuiltIndexVersion2(n, storage, slots -> new UniformGridIndex2(slots, cellSize));
+    }
+
+    @Override
     public int[] findInRegion(Region2 region) {
         CellRange range = switch (region) {
             case Box2 box -> new CellRange(

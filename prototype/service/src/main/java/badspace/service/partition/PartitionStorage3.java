@@ -149,6 +149,9 @@ final class PartitionStorage3 implements SlotView3 {
             throw new IllegalArgumentException(
                     "Commit " + commit + " is not greater than the last commit " + lastCommit);
         }
+        // The partition does not keep the version of the index yet: it will publish
+        // it together with the slots of the same commit.
+        index.commit(commit);
         lastCommit = commit;
     }
 

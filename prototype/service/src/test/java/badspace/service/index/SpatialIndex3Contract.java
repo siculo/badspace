@@ -49,6 +49,7 @@ abstract class SpatialIndex3Contract {
     private static final int QUERIES_PER_STEP = 5;
     private static final int MAX_BATCH = 20;
     private static final long MAX_ID = 300;
+    private static final int KEPT_VERSIONS = 3;
 
     private static final Comparator<Entity3> BY_ID = Comparator.comparingLong(Entity3::id);
 
@@ -65,6 +66,7 @@ abstract class SpatialIndex3Contract {
         Random random = new Random(seed);
         TestStorage3 storage = newStorage();
         Map<Long, Point3> model = new HashMap<>();
+        List<KeptVersion> kept = new ArrayList<>();
         for (int step = 0; step < STEPS; step++) {
             String write = randomWrite(random, storage, model);
             String where = "seed " + seed + ", step " + step + " (" + write + ")";
@@ -78,7 +80,32 @@ abstract class SpatialIndex3Contract {
                 assertEquals(expectedNearest(model, point, count), storage.findNearest(point, count),
                         where + ": findNearest " + point + " " + count);
             }
+            for (KeptVersion version : kept) {
+                checkVersion(random, version, where);
+            }
+            // Sometimes a commit, whose version must not change in the next steps
+            if (random.nextInt(4) == 0) {
+                kept.add(new KeptVersion(storage.commit(step + 1), Map.copyOf(model)));
+                if (kept.size() > KEPT_VERSIONS) {
+                    kept.removeFirst();
+                }
+            }
         }
+    }
+
+    @Test
+    void versionDoesNotChangeWhenTheWriterGoesOn() {
+        TestStorage3 storage = storageWith(entity(1, 0, 0, 0), entity(2, 5, 5, 5), entity(3, 9, 9, 9));
+        TestStorage3.Version version = storage.commit(1);
+        storage.updateAll(List.of(entity(1, 8, 8, 8)));
+        storage.removeAll(new long[] {2});
+        storage.insertAll(List.of(entity(4, 1, 1, 1)));
+        Box3 box = new Box3(new Point3(0, 0, 0), new Point3(6, 6, 6));
+        List<Entity3> committed = List.of(entity(1, 0, 0, 0), entity(2, 5, 5, 5));
+        assertEquals(1, version.index().commit());
+        assertEquals(committed, sortedById(version.findInRegion(box)));
+        assertEquals(committed, version.findNearest(new Point3(0, 0, 0), 2));
+        assertEquals(List.of(entity(4, 1, 1, 1)), sortedById(storage.findInRegion(box)));
     }
 
     @Test
@@ -151,6 +178,22 @@ abstract class SpatialIndex3Contract {
         TestStorage3 storage = storageWith();
         assertEquals(List.of(), storage.findInRegion(new Sphere3(new Point3(0, 0, 0), 1e9)));
         assertEquals(List.of(), storage.findNearest(new Point3(0, 0, 0), 3));
+    }
+
+    /** A version kept by the random test, with the model at its commit. */
+    private record KeptVersion(TestStorage3.Version version, Map<Long, Point3> model) {
+    }
+
+    /** Checks that a kept version gives the results of the model at its commit. */
+    private void checkVersion(Random random, KeptVersion kept, String where) {
+        String at = where + ", version " + kept.version().index().commit();
+        Region3 region = randomRegion(random);
+        assertEquals(expectedInRegion(kept.model(), region), sortedById(kept.version().findInRegion(region)),
+                at + ": findInRegion " + region);
+        Point3 point = randomPoint(random);
+        int count = 1 + random.nextInt(kept.model().size() + 2);
+        assertEquals(expectedNearest(kept.model(), point, count), kept.version().findNearest(point, count),
+                at + ": findNearest " + point + " " + count);
     }
 
     private TestStorage3 newStorage() {

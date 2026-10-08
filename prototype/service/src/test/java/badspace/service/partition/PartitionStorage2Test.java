@@ -9,6 +9,7 @@ import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
+import badspace.service.index.IndexVersion2;
 import badspace.service.index.SlotView2;
 import badspace.service.index.SpatialIndex2;
 import java.util.ArrayList;
@@ -130,6 +131,15 @@ class PartitionStorage2Test {
     }
 
     @Test
+    void commitGoesToTheIndexOnlyWhenTheNumberIsValid() {
+        storage.commit(3);
+        assertThrows(IllegalArgumentException.class, () -> storage.commit(3));
+        storage.commit(7);
+        assertEquals(List.of("commit 3", "commit 7"), index.calls);
+        assertEquals(7, storage.lastCommit());
+    }
+
+    @Test
     void findNearestWithZeroCountDoesNotCallTheIndex() {
         storage.insertAll(List.of(new Entity2(10, A)));
         index.calls.clear();
@@ -169,6 +179,13 @@ class PartitionStorage2Test {
         @Override
         public void relocated(int from, int to, Point2 position) {
             calls.add("relocated " + from + " -> " + to + " " + position + " id=" + storage.idAt(to));
+        }
+
+        @Override
+        public IndexVersion2 commit(long n) {
+            calls.add("commit " + n);
+            // The storage does not use the version yet.
+            return null;
         }
 
         @Override

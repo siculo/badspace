@@ -118,6 +118,12 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     }
 
     @Override
+    public IndexVersion2 commit(long n) {
+        // Full copy until this index has copy-on-write versions.
+        return new RebuiltIndexVersion2(n, storage, slots -> new GridQuadtreeIndex2(slots, cellSize, leafCapacity));
+    }
+
+    @Override
     public int[] findInRegion(Region2 region) {
         SlotList found = new SlotList();
         CellRange range = switch (region) {

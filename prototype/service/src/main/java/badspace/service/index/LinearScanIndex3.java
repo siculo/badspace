@@ -38,7 +38,22 @@ final class LinearScanIndex3 implements SpatialIndex3 {
     }
 
     @Override
+    public IndexVersion3 commit(long n) {
+        // Nothing to copy: a version reads the slots of its commit.
+        return new Version(n);
+    }
+
+    @Override
     public int[] findInRegion(Region3 region) {
+        return findInRegion(region, storage);
+    }
+
+    @Override
+    public int[] findNearest(Point3 point, int count) {
+        return findNearest(point, count, storage);
+    }
+
+    private static int[] findInRegion(Region3 region, SlotView3 storage) {
         int[] found = new int[storage.size()];
         int count = 0;
         for (int slot = 0; slot < storage.size(); slot++) {
@@ -49,12 +64,24 @@ final class LinearScanIndex3 implements SpatialIndex3 {
         return Arrays.copyOf(found, count);
     }
 
-    @Override
-    public int[] findNearest(Point3 point, int count) {
+    private static int[] findNearest(Point3 point, int count, SlotView3 storage) {
         NearestSlots nearest = new NearestSlots(count);
         for (int slot = 0; slot < storage.size(); slot++) {
             nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
         }
         return nearest.slots();
+    }
+
+    private record Version(long commit) implements IndexVersion3 {
+
+        @Override
+        public int[] findInRegion(Region3 region, SlotView3 slots) {
+            return LinearScanIndex3.findInRegion(region, slots);
+        }
+
+        @Override
+        public int[] findNearest(Point3 point, int count, SlotView3 slots) {
+            return LinearScanIndex3.findNearest(point, count, slots);
+        }
     }
 }

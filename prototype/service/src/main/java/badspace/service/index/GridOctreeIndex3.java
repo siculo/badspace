@@ -118,6 +118,12 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     }
 
     @Override
+    public IndexVersion3 commit(long n) {
+        // Full copy until this index has copy-on-write versions.
+        return new RebuiltIndexVersion3(n, storage, slots -> new GridOctreeIndex3(slots, cellSize, leafCapacity));
+    }
+
+    @Override
     public int[] findInRegion(Region3 region) {
         SlotList found = new SlotList();
         CellRange range = switch (region) {

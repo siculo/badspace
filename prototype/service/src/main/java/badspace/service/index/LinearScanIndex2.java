@@ -38,7 +38,22 @@ final class LinearScanIndex2 implements SpatialIndex2 {
     }
 
     @Override
+    public IndexVersion2 commit(long n) {
+        // Nothing to copy: a version reads the slots of its commit.
+        return new Version(n);
+    }
+
+    @Override
     public int[] findInRegion(Region2 region) {
+        return findInRegion(region, storage);
+    }
+
+    @Override
+    public int[] findNearest(Point2 point, int count) {
+        return findNearest(point, count, storage);
+    }
+
+    private static int[] findInRegion(Region2 region, SlotView2 storage) {
         int[] found = new int[storage.size()];
         int count = 0;
         for (int slot = 0; slot < storage.size(); slot++) {
@@ -49,12 +64,24 @@ final class LinearScanIndex2 implements SpatialIndex2 {
         return Arrays.copyOf(found, count);
     }
 
-    @Override
-    public int[] findNearest(Point2 point, int count) {
+    private static int[] findNearest(Point2 point, int count, SlotView2 storage) {
         NearestSlots nearest = new NearestSlots(count);
         for (int slot = 0; slot < storage.size(); slot++) {
             nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
         }
         return nearest.slots();
+    }
+
+    private record Version(long commit) implements IndexVersion2 {
+
+        @Override
+        public int[] findInRegion(Region2 region, SlotView2 slots) {
+            return LinearScanIndex2.findInRegion(region, slots);
+        }
+
+        @Override
+        public int[] findNearest(Point2 point, int count, SlotView2 slots) {
+            return LinearScanIndex2.findNearest(point, count, slots);
+        }
     }
 }
