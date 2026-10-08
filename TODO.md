@@ -13,7 +13,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [API da esporre](okf-bundle/decisions/api-surface.md).
 
-- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, snapshot, k nella configurazione della partizione, writer su thread diversi, fencing token. → [cose da fare](#fare-commit) · [decisioni](#decisioni-commit)
+- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, indici copy-on-write, snapshot degli slot, k nella configurazione della partizione, writer su thread diversi, fencing token. → [cose da fare](#fare-commit) · [decisioni](#decisioni-commit)
 
   Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md), [Conservazione delle versioni](okf-bundle/architecture/version-retention.md).
 
@@ -94,11 +94,15 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 <a id="fare-commit"></a>
 ### Commit e proprietà [↑](#blocchi)
 
-- [ ] Commit della partizione con contatore monotono
-- [ ] k nella configurazione della partizione: il numero di commit passati da conservare (default 0), usato dalle [letture coerenti](#fare-letture)
-- [ ] Letture isolate dai commit non completi: snapshot a ogni commit, slot copiati per intero, indici persistenti copy-on-write ([decisione](okf-bundle/decisions/read-isolation.md))
-- [ ] Misura del costo per commit della copia degli slot e dei nodi dell'indice, con diverse frazioni di entità in movimento
-- [ ] Writer su thread diversi per partizioni diverse
+Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/decisions/read-isolation.md): snapshot a ogni commit, slot copiati per intero, indici persistenti copy-on-write. Si arriva in più passi:
+
+- [ ] Commit minimo con contatore monotono: il commit incrementa solo il contatore, le scritture restano visibili subito (prima va presa la [forma delle chiamate](#decisioni-commit))
+- [ ] Indici persistenti copy-on-write che usano il contatore: un nodo si modifica sul posto solo se è del commit corrente, altrimenti si copia; test che una radice tenuta da parte non cambia dopo un commit (basta un solo thread)
+- [ ] Slot nello snapshot: coordinate copiate a ogni commit, ID e mappa ID → slot copiati solo con inserimenti o rimozioni (per ora tabella copiata, non HAMT)
+- [ ] Pubblicazione atomica della radice `(slot_N, indice_N)`: i reader vedono solo commit completi
+- [ ] k nella configurazione della partizione: il numero di commit passati da conservare (default 0), usato dalle [letture coerenti](#fare-letture); per ora solo le ultime k radici tenute vive, le versioni non usate le libera il GC
+- [ ] Writer su thread diversi per partizioni diverse, con pool dei buffer degli snapshot e conteggio dei reader per versione (o epoch-based reclamation)
+- [ ] Misura del costo per commit della copia degli slot e dei nodi dell'indice, con diverse frazioni di entità in movimento e reader concorrenti; i benchmark degli indici nel [TODO degli indici](TODO-indices.md) andranno ripetuti sulla versione copy-on-write
 - [ ] Proprietà della partizione con fencing token (acquisire, rilasciare, trasferire)
 
 <a id="fare-metadati"></a>
