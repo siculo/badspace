@@ -18,8 +18,8 @@ public interface Partition {
      */
     void removeAll(long[] entityIds);
 
-    /** Returns the removal policy chosen when the partition was created. */
-    RemovalPolicy removalPolicy();
+    /** Returns the configuration chosen when the partition was created. */
+    PartitionConfig config();
 
     /** Returns the number of entities in the partition. */
     int size();

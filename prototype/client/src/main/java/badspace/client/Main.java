@@ -3,6 +3,7 @@ package badspace.client;
 import badspace.api.Partition;
 import badspace.api.Partition2;
 import badspace.api.Partition3;
+import badspace.api.PartitionConfig;
 import badspace.api.RemovalPolicy;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.api.Space2;
@@ -12,6 +13,7 @@ import badspace.common.geometry.Circle2;
 import badspace.common.partition.Entity2;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Point3;
+import badspace.common.partition.IndexConfig;
 import badspace.service.partition.LocalPartitionNode2;
 import badspace.service.partition.LocalPartitionNode3;
 import java.util.List;
@@ -49,7 +51,8 @@ public class Main {
         System.out.printf("2D: the 2 nearest to (0,0): %s%n", p2a.findNearest(new Point2(0, 0), 2));
 
         Space3 space3 = new Space3(entityIds);
-        Partition3 p3 = space3.createPartition(new LocalPartitionNode3(), RemovalPolicy.DISCARD_ENTITIES);
+        Partition3 p3 = space3.createPartition(new LocalPartitionNode3(),
+                new PartitionConfig(IndexConfig.uniformGrid(10), RemovalPolicy.DISCARD_ENTITIES));
         long c = p3.insert(1.0, 2.0, 3.0);
         p3.update(c, new Point3(4.0, 5.0, 6.0));
         System.out.printf("3D: entity %d is at %s%n", c, p3.get(c).orElseThrow());

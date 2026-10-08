@@ -208,17 +208,37 @@ class Space3Test {
     }
 
     @Test
-    void defaultRemovalPolicyRequiresEmptyPartition() {
-        Partition3 p = newSpace().createPartition(new MapNode());
-        assertEquals(RemovalPolicy.REQUIRE_EMPTY, p.removalPolicy());
+    void defaultConfigUsesLinearScanAndRequiresEmptyPartition() {
+        MapNode node = new MapNode();
+        Partition3 p = newSpace().createPartition(node);
+        assertEquals(new PartitionConfig(IndexConfig.linearScan(), RemovalPolicy.REQUIRE_EMPTY), p.config());
+        assertEquals(IndexConfig.linearScan(), node.indices.values().iterator().next());
+    }
+
+    @Test
+    void chosenIndexGoesToTheNode() {
+        MapNode node = new MapNode();
+        IndexConfig index = IndexConfig.uniformGrid(2);
+        Partition3 p = newSpace().createPartition(node, PartitionConfig.defaults().withIndex(index));
+        assertEquals(index, p.config().index());
+        assertEquals(RemovalPolicy.REQUIRE_EMPTY, p.config().removalPolicy());
+        assertEquals(index, node.indices.values().iterator().next());
+        assertEquals(index.limits(), p.limits());
+    }
+
+    @Test
+    void configRejectsNull() {
+        assertThrows(NullPointerException.class, () -> new PartitionConfig(null, RemovalPolicy.REQUIRE_EMPTY));
+        assertThrows(NullPointerException.class, () -> PartitionConfig.defaults().withRemovalPolicy(null));
+        assertThrows(NullPointerException.class, () -> newSpace().createPartition(new MapNode(), null));
     }
 
     @Test
     void removeTakesThePartitionOffItsNode() {
         Space3 space = newSpace();
         MapNode node = new MapNode();
-        Partition3 empty = space.createPartition(node, RemovalPolicy.REQUIRE_EMPTY);
-        Partition3 full = space.createPartition(node, RemovalPolicy.DISCARD_ENTITIES);
+        Partition3 empty = space.createPartition(node, PartitionConfig.defaults().withRemovalPolicy(RemovalPolicy.REQUIRE_EMPTY));
+        Partition3 full = space.createPartition(node, PartitionConfig.defaults().withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES));
         full.insert(new Point3(1, 1, 1));
         space.removePartition(empty);
         space.removePartition(full);
@@ -228,7 +248,7 @@ class Space3Test {
     @Test
     void removeOfNonEmptyPartitionThatRequiresEmptyKeepsItUsable() {
         Space3 space = newSpace();
-        Partition3 p = space.createPartition(new MapNode(), RemovalPolicy.REQUIRE_EMPTY);
+        Partition3 p = space.createPartition(new MapNode(), PartitionConfig.defaults().withRemovalPolicy(RemovalPolicy.REQUIRE_EMPTY));
         long id = p.insert(new Point3(1, 1, 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(p));
         p.remove(id);

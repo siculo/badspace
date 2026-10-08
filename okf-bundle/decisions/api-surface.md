@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione e della creazione e rimozione delle partizioni con la politica di rimozione, mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione e della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:33:32Z }
 ---
 
 # Stato
@@ -122,11 +122,28 @@ sue partizioni.
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Creazione | `createPartition(node)`, `createPartition(node, RemovalPolicy)` | Crea una partizione vuota sul [nodo](/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio; senza politica vale `REQUIRE_EMPTY` |
+| Creazione | `createPartition(node)`, `createPartition(node, PartitionConfig)` | Crea una partizione vuota sul [nodo](/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio; senza configurazione vale quella di default |
 | Rimozione | `removePartition(partition)` | La chiama il writer della partizione; dopo la rimozione la partizione non si può più usare |
 
-La **politica di rimozione** si sceglie alla creazione e dice cosa
-succede alle entità quando la partizione viene rimossa:
+La **configurazione della partizione** (`PartitionConfig`) si sceglie
+alla creazione e poi non cambia; la partizione la restituisce con
+`config()`. Oggi contiene:
+
+- l'**indice** (`IndexConfig`), che fissa anche i [limiti delle
+  coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate);
+  il default è la scansione lineare;
+- la **politica di rimozione**, con default `REQUIRE_EMPTY`.
+
+`PartitionConfig.defaults()` dà la configurazione di default, e
+`withIndex` e `withRemovalPolicy` ne fanno una copia con un valore
+cambiato. Seguendo lo [sviluppo
+incrementale](/process/development-approach.md#sviluppo-incrementale),
+la configurazione si estende quando arrivano concetti nuovi: per
+esempio k, il numero di commit passati da conservare, arriva con i
+[commit](/architecture/partition-commit.md).
+
+La politica di rimozione dice cosa succede alle entità quando la
+partizione viene rimossa:
 
 - `REQUIRE_EMPTY`: la partizione si rimuove solo se è vuota; le sue
   entità vanno prima rimosse o spostate;
@@ -140,9 +157,8 @@ succede alle entità quando la partizione viene rimossa:
 Nel contratto del nodo la creazione riceve l'ID della partizione e la
 configurazione dell'indice (`IndexConfig`, scansione lineare se manca);
 la rimozione ha due operazioni, una per le partizioni vuote e una che
-scarta anche le entità. Nell'API la scelta dell'indice e di k alla
-creazione non c'è ancora: oggi le partizioni create dall'API usano la
-scansione lineare.
+scarta anche le entità. L'API passa al nodo l'indice della
+configurazione.
 
 ## Contratto del nodo
 

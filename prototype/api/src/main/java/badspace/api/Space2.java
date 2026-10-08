@@ -24,11 +24,11 @@ public final class Space2 implements Space<PartitionNode2, Partition2> {
     }
 
     @Override
-    public Partition2 createPartition(PartitionNode2 node, RemovalPolicy removalPolicy) {
-        Objects.requireNonNull(removalPolicy);
+    public Partition2 createPartition(PartitionNode2 node, PartitionConfig config) {
+        Objects.requireNonNull(config);
         PartitionId id = new PartitionId(nextPartitionId.getAndIncrement());
-        node.createPartition(id);
-        return new Partition2(this, node, id, removalPolicy);
+        node.createPartition(id, config.index());
+        return new Partition2(this, node, id, config);
     }
 
     @Override

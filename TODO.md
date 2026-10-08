@@ -9,7 +9,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [ID delle entità](okf-bundle/decisions/entity-ids.md), [Partizionamento del DB](okf-bundle/decisions/partitioning.md), [Architettura a livelli](okf-bundle/architecture/layers.md).
 
-- [ ] **Configurazione della partizione:** indice scelto alla creazione nell'API. Si usano gli indici così come sono oggi (scansione lineare, grid uniforme, griglia di quadtree); gli indici e i loro test sono nel [TODO degli indici](TODO-indices.md). → [cose da fare](#fare-configurazione)
+- [x] **Configurazione della partizione:** indice scelto alla creazione nell'API. Si usano gli indici così come sono oggi (scansione lineare, grid uniforme, griglia di quadtree); gli indici e i loro test sono nel [TODO degli indici](TODO-indices.md). → [cose da fare](#fare-configurazione)
 
   Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [API da esporre](okf-bundle/decisions/api-surface.md).
 
@@ -89,7 +89,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 - [x] Contratto delle query nel nodo (range e k-nearest)
 - [x] Scelta dell'indice alla creazione della partizione nel contratto del nodo
 - [x] Limiti delle coordinate per partizione, fissati dall'indice (`IndexConfig.limits()`, `limits()` su partizione e nodo): scritture fuori dai limiti rifiutate, solo valori finiti anche nelle query → [Limiti delle coordinate](okf-bundle/decisions/spatial-indexing.md#limiti-delle-coordinate)
-- [ ] Configurazione della partizione alla creazione nell'API: indice
+- [x] Configurazione della partizione alla creazione nell'API (`PartitionConfig`): indice e politica di rimozione
 
 <a id="fare-commit"></a>
 ### Commit e proprietà [↑](#blocchi)

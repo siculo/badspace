@@ -9,15 +9,15 @@ package badspace.api;
 public interface Space<N, P extends Partition> {
 
     /**
-     * Creates a partition on the given node, with the REQUIRE_EMPTY removal policy.
-     * The node must serve only this space.
+     * Creates a partition on the given node, with the {@linkplain PartitionConfig#defaults() default}
+     * configuration. The node must serve only this space.
      */
     default P createPartition(N node) {
-        return createPartition(node, RemovalPolicy.REQUIRE_EMPTY);
+        return createPartition(node, PartitionConfig.defaults());
     }
 
-    /** Creates a partition on the given node, with the given removal policy. The node must serve only this space. */
-    P createPartition(N node, RemovalPolicy removalPolicy);
+    /** Creates a partition on the given node, with the given configuration. The node must serve only this space. */
+    P createPartition(N node, PartitionConfig config);
 
     /**
      * Removes a partition from its node, following its removal policy. After this call the partition

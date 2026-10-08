@@ -21,14 +21,14 @@ public final class Partition2 implements Partition {
     private final Space2 space;
     private final PartitionNode2 node;
     private final PartitionId id;
-    private final RemovalPolicy removalPolicy;
+    private final PartitionConfig config;
     private boolean removed;
 
-    Partition2(Space2 space, PartitionNode2 node, PartitionId id, RemovalPolicy removalPolicy) {
+    Partition2(Space2 space, PartitionNode2 node, PartitionId id, PartitionConfig config) {
         this.space = space;
         this.node = node;
         this.id = id;
-        this.removalPolicy = removalPolicy;
+        this.config = config;
     }
 
     Space2 space() {
@@ -38,7 +38,7 @@ public final class Partition2 implements Partition {
     /** Removes the partition from its node, following its removal policy. */
     void removeFromNode() {
         checkNotRemoved();
-        switch (removalPolicy) {
+        switch (config.removalPolicy()) {
             case REQUIRE_EMPTY -> node.removePartition(id);
             case DISCARD_ENTITIES -> node.dropPartition(id);
         }
@@ -142,8 +142,8 @@ public final class Partition2 implements Partition {
     }
 
     @Override
-    public RemovalPolicy removalPolicy() {
-        return removalPolicy;
+    public PartitionConfig config() {
+        return config;
     }
 
     @Override
