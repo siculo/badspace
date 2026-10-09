@@ -4,7 +4,7 @@ title: Grid uniforme
 description: Indice che divide lo spazio in celle quadrate (2D) o cubiche (3D) della stessa dimensione, tenute in una mappa; aggiornamenti economici, query veloci se la cella è adatta alla densità e alle query.
 tags: [badspace, spatial-indexing, grid]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:59:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T07:46:40Z }
 ---
 
 # Come funziona
@@ -13,8 +13,9 @@ Lo spazio è diviso in celle di lato `cellSize`, scelto alla creazione
 della partizione (`IndexConfig.UniformGrid`). La cella di un punto si
 ricava con `floor(coordinata / cellSize)` su ogni asse.
 
-- Le celle stanno in una **mappa** (cella → slot delle entità): solo le
-  celle con entità usano memoria, quindi lo spazio **non ha limiti**.
+- Le celle stanno in una **mappa persistente** (cella → slot delle
+  entità, vedi [Versioni al commit](#versioni-al-commit)): solo le celle
+  con entità usano memoria, quindi lo spazio **non ha limiti**.
 - Per ogni slot l'indice tiene la **posizione nella lista della sua
   cella**: rimozione e `relocated` costano O(1).
 - **Aggiornamento:** cambia la cella solo se l'entità esce dalla sua
@@ -32,6 +33,34 @@ ricava con `floor(coordinata / cellSize)` su ogni asse.
 | Aggiornamento | O(1) |
 | Range query | celle coperte + entità lette |
 | K-nearest | anelli letti fino a trovare k entità |
+
+# Versioni al commit
+
+Per l'[isolamento delle letture](/decisions/read-isolation.md#gli-indici)
+l'indice dà a ogni commit una versione che le scritture successive non
+cambiano.
+
+- **Mappa delle celle:** è una `HashTrie`, una HAMT con transient scritta
+  nel progetto (nodi da 32 figli, 5 bit dell'hash per livello). Ogni
+  nodo tiene il commit in cui è stato creato: il writer lo modifica sul
+  posto solo se è del commit corrente, altrimenti lo copia con il
+  percorso dalla radice.
+- **Celle:** anche ogni cella tiene il suo commit di creazione, e il
+  writer la copia alla prima modifica dopo un commit; la copia tiene gli
+  slot nelle stesse posizioni.
+- **Posizione nella cella:** la mappa slot → posizione nella lista della
+  cella serve solo alle scritture, quindi è privata del writer e non
+  entra nelle versioni.
+- **Query:** lo stesso codice serve il writer e le versioni; una versione
+  legge le posizioni negli slot dello stesso commit.
+
+**Misure** (profilo rapido, 2026-10-08, celle da 100, senza commit nei
+benchmark, quindi senza copie): rispetto alla mappa non persistente le
+scritture costano 1,2–1,3 volte, le query 1,1–1,4 volte (fino a circa
+2,9 nei casi peggiori, con molte celle) e la memoria per entità l'1–6% in
+più. La causa è la lettura nella trie, che scende di qualche livello, al
+posto di un `HashMap`. Il guadagno della persistenza rispetto a una copia
+a ogni commit si misurerà con i commit.
 
 # Problematiche
 

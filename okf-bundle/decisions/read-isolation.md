@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T07:46:40Z }
 ---
 
 # Problema
@@ -137,6 +137,23 @@ nuovo: il writer non aspetta mai, cresce solo la memoria.
 I requisiti per gli alberi sono nel [modulo degli
 alberi](/indices/tree-module.md#versioni-copy-on-write).
 
+**Nel prototipo** ogni indice ha `commit(n)`, chiamato dallo storage
+quando la partizione chiude il commit n, che restituisce una versione
+dell'indice (`IndexVersion`). Le query della versione ricevono gli slot
+dello stesso commit, quindi la versione non dipende dallo storage del
+writer.
+
+- La [scansione lineare](/indices/linear-scan.md) non ha strutture: la
+  sua versione legge solo gli slot.
+- La [grid uniforme](/indices/uniform-grid.md#versioni-al-commit) e la
+  [griglia di quadtree e di
+  octree](/indices/grid-quadtree.md#implementazione-nel-prototipo)
+  tengono le celle in una HAMT con transient (`HashTrie`) e copiano
+  celle e nodi alla prima modifica dopo un commit.
+
+Lo storage non pubblica ancora le versioni: lo snapshot degli slot e la
+pubblicazione della radice sono i passi successivi.
+
 # Versioni passate
 
 Ogni snapshot è già una versione completa della partizione: la
@@ -175,7 +192,8 @@ dei buffer evita comunque le allocazioni a ogni tick.
 - Mappa ID → slot: tabella ad indirizzamento aperto copiata o HAMT.
 - Contatori dei reader per versione o epoch-based reclamation.
 - Il confine del commit nel prototipo, che oggi non c'è: ogni scrittura
-  è visibile appena eseguita.
+  è visibile appena eseguita. Gli indici danno già le versioni; mancano
+  lo snapshot degli slot e la pubblicazione della radice.
 
 # Correlati
 

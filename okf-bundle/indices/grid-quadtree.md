@@ -4,7 +4,7 @@ title: Griglia di quadtree
 description: Indice a due livelli, una grid uniforme in cui ogni cella è la radice di un quadtree (2D) o di un octree (3D); unisce lo spazio illimitato della grid con l'adattamento alla densità del quadtree.
 tags: [badspace, spatial-indexing, grid, quadtree, octree]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:59:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T07:46:40Z }
 ---
 
 # Come funziona
@@ -191,10 +191,13 @@ possono aggiornare in un tick, dati i tick al secondo, è nella
   - **Nodi come oggetti Java.** Un esperimento con i nodi in array (2D,
     2026-10-04) non ha dato guadagno, quindi si resta con gli oggetti
     (vedi [Costo delle scritture](#problematiche-aperte)).
-- **Movimento verso una foglia vicina (presa e implementata):** si
-  risale solo fino al primo nodo che contiene anche la nuova posizione,
-  e si scende da lì; uno spostamento in un'altra cella passa dalla mappa
-  delle celle. Sulla macchina dei benchmark non ha dato un guadagno
+- **Movimento verso una foglia vicina (presa e implementata):** cambia
+  solo i nodi sotto il primo nodo che contiene sia la vecchia sia la
+  nuova posizione; uno spostamento in un'altra cella passa dalla mappa
+  delle celle. Con le [versioni copy-on-write](#implementazione-nel-prototipo)
+  il nodo comune si trova scendendo dalla radice della cella invece che
+  risalendo dalla foglia, e uno spostamento dentro la stessa foglia non
+  copia niente. Sulla macchina dei benchmark non ha dato un guadagno
   misurabile (vedi [Benchmark](#benchmark)), ma si tiene: è corretto, i
   test controllano la struttura dell'albero, ed evita le riunioni
   inutili quando un'entità si sposta dentro lo stesso nodo.
@@ -236,6 +239,24 @@ possono aggiornare in un tick, dati i tick al secondo, è nella
 - **K-nearest:** ricerca best-first su una coda di nodi, a cui si
   aggiungono le celle ad anelli intorno al punto quando possono essere
   abbastanza vicine.
+- **Versioni copy-on-write:** a ogni commit l'indice dà una versione
+  che le scritture successive non cambiano (vedi [isolamento delle
+  letture](/decisions/read-isolation.md#gli-indici)).
+  - **Mappa delle celle:** la stessa `HashTrie` della [grid
+    uniforme](/indices/uniform-grid.md#versioni-al-commit).
+  - **Nodi:** ogni nodo tiene il commit in cui è stato creato; il writer
+    lo modifica sul posto solo se è del commit corrente, altrimenti lo
+    copia con il percorso dalla radice della cella. La copia condivide
+    i figli e tiene gli slot nelle stesse posizioni.
+  - **Niente link al padre né `leafOf`:** un nodo condiviso tra più
+    versioni può avere padri diversi, e un riferimento a una foglia
+    diventa vecchio quando la foglia si copia. Ogni scrittura scende
+    quindi dalla radice della cella seguendo la posizione; la posizione
+    nella foglia (`placeOf`) resta privata del writer.
+  - **Riunione:** scendendo, il primo nodo con poche entità è il più
+    alto da riunire, come prima.
+  - **Test:** il controllo della struttura verifica anche che sotto un
+    nodo di un commit vecchio non ci siano nodi del commit corrente.
 - **Benchmark:** nome `GRID_QUADTREE_<lato>` o
   `GRID_QUADTREE_<lato>_<capacità>`.
 
@@ -315,6 +336,16 @@ possono aggiornare in un tick, dati i tick al secondo, è nella
   su `FAR_CLUSTER` 19,5 µs contro 18,9. Il costo non viene dalla
   lunghezza del percorso (vedi [Costo delle
   scritture](#problematiche-aperte)).
+- **Versioni copy-on-write:** misure rapide del 2026-10-09 con celle da
+  128, senza commit nei benchmark (quindi senza copie), rispetto alla
+  versione con `leafOf` e il link al padre: update 1,65–1,9 volte (fino
+  a 3,1), remove 1,7–1,9, insert 1,1–1,2, query 1,1–1,5, memoria
+  invariata. Pesa la discesa dalla radice, con la lettura nella trie, al
+  posto dell'accesso diretto alla foglia: anche un movimento dentro la
+  stessa foglia ora scende l'albero, e una rimozione scende due volte
+  (`removed` e `relocated`). Possibile ottimizzazione: un `leafOf`
+  privato del writer valido per le foglie del commit corrente, che però
+  richiede di nuovo la risalita per i contatori.
 
 # Correlati
 

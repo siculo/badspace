@@ -4,7 +4,7 @@ title: Modulo degli alberi
 description: Proposta per l'implementazione finale di un modulo specifico per gli alberi degli indici (quadtree/octree): arena con handle, topologia, liste di slot delle foglie e mappa inversa dentro il modulo, geometria fuori; versioni copy-on-write per l'isolamento delle letture; handle generazionali in debug e regole per non usare handle scaduti nelle scritture.
 tags: [badspace, spatial-indexing, quadtree, octree, implementation, rust, c]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T07:42:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T07:46:40Z }
 ---
 
 # Scopo
@@ -20,8 +20,11 @@ La proposta è un **modulo specifico**, scritto per questi alberi, invece
 di una libreria generica: i requisiti sono troppo particolari per una
 libreria di alberi qualunque, ma abbastanza chiusi per un modulo piccolo
 e separato dal resto dell'indice. Riguarda l'implementazione finale, in
-qualunque [linguaggio](/decisions/language.md); il prototipo Java resta
-com'è. Non è una decisione.
+qualunque [linguaggio](/decisions/language.md). Il prototipo Java ha
+già le versioni copy-on-write, con i nodi come oggetti e senza il
+modulo (vedi [griglia di
+quadtree](/indices/grid-quadtree.md#implementazione-nel-prototipo)). Non
+è una decisione.
 
 Per l'[isolamento delle letture](/decisions/read-isolation.md) gli
 alberi sono **strutture persistenti copy-on-write**: i reader leggono
@@ -323,11 +326,15 @@ in fretta gli errori a queste regole.
 - **Risalita senza genitore nel nodo:** percorso ricostruito scendendo
   dalla radice della cella con la posizione di partenza (O(profondità),
   nessuna tabella) o tabella dei genitori privata del writer, da
-  aggiornare per i 2^D figli a ogni copia di un nodo interno.
+  aggiornare per i 2^D figli a ogni copia di un nodo interno. Il
+  prototipo usa la discesa: rispetto alla risalita con il genitore
+  nel nodo, update e remove costano 1,7–1,9 volte (misure in [griglia
+  di quadtree](/indices/grid-quadtree.md#benchmark)).
 - **Mappa inversa e copie delle foglie:** aggiornare le voci di tutti
   gli slot di una foglia quando la foglia si copia (al più una volta per
   commit), o tenere nella mappa solo la posizione nella foglia e
-  trovare la foglia con la discesa.
+  trovare la foglia con la discesa. Il prototipo tiene solo la
+  posizione.
 - **Liberazione dei nodi:** contatori dei reader per versione o
   epoch-based reclamation, come per i buffer degli slot.
 - **Contatori:** aggiornati dal modulo a ogni `add`/`remove`/`move_to`
