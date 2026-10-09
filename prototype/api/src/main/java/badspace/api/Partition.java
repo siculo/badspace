@@ -23,7 +23,8 @@ public interface Partition {
      * the tick. n must be greater than the {@linkplain #lastCommit() last commit}, but numbers
      * can be skipped. Fails with IllegalArgumentException if n is not greater; in this case
      * the partition does not change. A commit with no writes is valid.
-     * For now a commit only moves the counter: writes are visible as soon as they are done.
+     * The commit publishes the version of the partition at the commit, which the readers get
+     * from {@code lastVersion()} of Partition2 and Partition3.
      */
     void commit(long n);
 

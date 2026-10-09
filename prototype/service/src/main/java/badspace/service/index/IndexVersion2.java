@@ -10,6 +10,16 @@ import badspace.common.geometry.Region2;
  */
 public interface IndexVersion2 {
 
+    /**
+     * Returns the version of an index with no entities, at commit 0: the
+     * version of a partition before its first commit. It reads all the slots
+     * it gets, so it works with the empty slots of commit 0 for every kind
+     * of index.
+     */
+    static IndexVersion2 empty() {
+        return LinearScanIndex2.EMPTY;
+    }
+
     /** Returns the number of the commit of this version. */
     long commit();
 

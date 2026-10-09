@@ -10,6 +10,11 @@ import java.util.List;
  * A node serves a single space, so partition IDs never collide on a node.
  * Write operations work on many entities in one call, to reduce the number of
  * remote calls. Each write is all or nothing: if it fails, the partition does not change.
+ * <p>
+ * The reads of a partition by ID or by position see the state of its writer,
+ * with the writes not yet committed, and only the writer of the partition can
+ * call them. The other threads read the version of the last commit, from
+ * {@link #lastVersion}.
  */
 public interface PartitionNode3 {
 
@@ -75,10 +80,17 @@ public interface PartitionNode3 {
      * Closes the current commit of a partition with the given number. The number must be
      * greater than the last commit of the partition, but numbers can be skipped. Fails with
      * IllegalArgumentException if it is not greater; in this case the partition does not change.
-     * A commit with no writes is valid. For now a commit only moves the counter: writes
-     * are visible as soon as they are done.
+     * A commit with no writes is valid. The commit publishes the version of the partition
+     * at the commit, which {@link #lastVersion} then returns.
      */
     void commit(PartitionId partition, long commit);
+
+    /**
+     * Returns the version of the last commit of a partition: the empty version at commit 0
+     * if the partition has no commit yet. The version never changes. Unlike the other reads,
+     * any thread can call it.
+     */
+    PartitionVersion3 lastVersion(PartitionId partition);
 
     /** Returns the number of the last commit of a partition, or 0 if it has no commit yet. */
     long lastCommit(PartitionId partition);

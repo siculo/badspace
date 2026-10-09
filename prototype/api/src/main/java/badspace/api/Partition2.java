@@ -4,6 +4,7 @@ import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.PartitionVersion2;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import java.util.ArrayList;
@@ -11,7 +12,9 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Proxy of a 2D partition that lives on a node. It has a single writer and is not thread-safe.
+ * Proxy of a 2D partition that lives on a node. It has a single writer and is not thread-safe,
+ * except {@link #lastVersion()}. The reads of the proxy see the writes not yet committed;
+ * the other threads read the {@linkplain #lastVersion() version of the last commit}.
  * Single-entity operations are batches of one entity: to write many entities,
  * the batch operations make fewer calls to the node.
  * After the space removes the partition, every operation fails with IllegalStateException.
@@ -22,7 +25,8 @@ public final class Partition2 implements Partition {
     private final PartitionNode2 node;
     private final PartitionId id;
     private final PartitionConfig config;
-    private boolean removed;
+    // Volatile because lastVersion() can be called by any thread.
+    private volatile boolean removed;
 
     Partition2(Space2 space, PartitionNode2 node, PartitionId id, PartitionConfig config) {
         this.space = space;
@@ -145,6 +149,16 @@ public final class Partition2 implements Partition {
     public void commit(long n) {
         checkNotRemoved();
         node.commit(id, n);
+    }
+
+    /**
+     * Returns the version of the last commit: the empty version at commit 0 if the partition
+     * has no commit yet. The version never changes, and its reads see only that commit.
+     * Unlike the other methods, any thread can call it.
+     */
+    public PartitionVersion2 lastVersion() {
+        checkNotRemoved();
+        return node.lastVersion(id);
     }
 
     @Override

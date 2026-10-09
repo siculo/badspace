@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.common.geometry.Box2;
 import badspace.common.partition.CoordinateLimits;
@@ -18,6 +19,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +38,8 @@ class PartitionStorage2Test {
     private static final Point2 LIMITS_MIN = new Point2(-10, -10);
     private static final Point2 LIMITS_MAX = new Point2(10, 10);
     private static final long[] ALL_IDS = {10, 20, 30, 40};
+    private static final int READERS = 3;
+    private static final int COMMITS = 3000;
 
     private RecordingIndex index;
     private PartitionStorage2 storage;
@@ -151,12 +157,12 @@ class PartitionStorage2Test {
                 IndexConfig.linearScan(), IndexConfig.uniformGrid(4), IndexConfig.gridQuadtree(4, 2))) {
             PartitionStorage2 configured = new PartitionStorage2(config);
             configured.insertAll(List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)));
-            PartitionVersion2 first = configured.commit(1);
+            StorageVersion2 first = configured.commit(1);
             // The removal of 10 moves 30 into its slot.
             configured.updateAll(List.of(new Entity2(30, D)));
             configured.removeAll(new long[] {10});
             configured.insertAll(List.of(new Entity2(40, A)));
-            PartitionVersion2 second = configured.commit(2);
+            StorageVersion2 second = configured.commit(2);
             configured.removeAll(new long[] {20});
             configured.updateAll(List.of(new Entity2(40, B)));
 
@@ -193,6 +199,78 @@ class PartitionStorage2Test {
     }
 
     @Test
+    void readersSeeTheWritesOnlyAfterTheCommit() {
+        StorageVersion2 empty = storage.lastVersion();
+        assertEquals(0, empty.commit());
+        assertEquals(0, empty.size());
+        assertEquals(List.of(), empty.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX)));
+        assertEquals(List.of(), empty.findNearest(A, 1));
+        assertEquals(0, storage.commit(1).size());
+
+        storage.insertAll(List.of(new Entity2(10, A)));
+        assertEquals(List.of(new Entity2(10, A)), storage.getAll(ALL_IDS));
+        assertEquals(1, storage.lastVersion().commit());
+        assertEquals(List.of(), storage.lastVersion().getAll(ALL_IDS));
+        StorageVersion2 second = storage.commit(2);
+        assertSame(second, storage.lastVersion());
+        assertEquals(List.of(new Entity2(10, A)), second.getAll(ALL_IDS));
+
+        storage.updateAll(List.of(new Entity2(10, B)));
+        assertEquals(List.of(new Entity2(10, B)), storage.getAll(ALL_IDS));
+        assertSame(second, storage.lastVersion());
+        assertEquals(List.of(new Entity2(10, A)), storage.lastVersion().getAll(ALL_IDS));
+    }
+
+    /**
+     * A writer and some readers on other threads. At each commit the writer
+     * moves all the entities to positions that depend on the commit, and
+     * changes their number; it moves them with more than one call, so the
+     * states between the calls are mixed. The readers check that each version
+     * they read is a whole commit.
+     */
+    @Test
+    void readersOnOtherThreadsSeeOnlyWholeCommits() throws InterruptedException {
+        for (IndexConfig config : List.of(
+                IndexConfig.linearScan(), IndexConfig.uniformGrid(4), IndexConfig.gridQuadtree(4))) {
+            PartitionStorage2 configured = new PartitionStorage2(config);
+            AtomicBoolean done = new AtomicBoolean();
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            List<Thread> readers = new ArrayList<>();
+            CountDownLatch started = new CountDownLatch(READERS);
+            for (int r = 0; r < READERS; r++) {
+                Thread reader = new Thread(() -> {
+                    try {
+                        long last = 0;
+                        started.countDown();
+                        while (!done.get()) {
+                            StorageVersion2 version = configured.lastVersion();
+                            assertTrue(version.commit() >= last, "commits go back");
+                            last = version.commit();
+                            checkWholeCommit(version);
+                        }
+                    } catch (Throwable e) {
+                        failure.compareAndSet(null, e);
+                    }
+                });
+                reader.start();
+                readers.add(reader);
+            }
+            try {
+                started.await();
+                writeCommits(configured);
+            } finally {
+                done.set(true);
+                for (Thread reader : readers) {
+                    reader.join(10_000);
+                }
+            }
+            if (failure.get() != null) {
+                throw new AssertionError(config + ": a reader failed", failure.get());
+            }
+        }
+    }
+
+    @Test
     void findNearestWithZeroCountDoesNotCallTheIndex() {
         storage.insertAll(List.of(new Entity2(10, A)));
         index.calls.clear();
@@ -201,7 +279,7 @@ class PartitionStorage2Test {
     }
 
     /** Checks all the reads of the version, which must find exactly the expected entities, nearest to A first. */
-    private static void checkVersion(PartitionVersion2 version, long commit, List<Entity2> expected, String where) {
+    private static void checkVersion(StorageVersion2 version, long commit, List<Entity2> expected, String where) {
         assertEquals(commit, version.commit(), where);
         assertEquals(Set.copyOf(expected), Set.copyOf(version.getAll(ALL_IDS)), where);
         assertEquals(expected.size(), version.getAll(ALL_IDS).size(), where);
@@ -210,6 +288,60 @@ class PartitionStorage2Test {
         assertEquals(expected.size(), inRegion.size(), where);
         assertEquals(expected, version.findNearest(A, ALL_IDS.length), where);
         assertEquals(List.of(), version.findNearest(A, 0), where);
+    }
+
+    private static void writeCommits(PartitionStorage2 storage) {
+        List<Long> ids = new ArrayList<>();
+        long nextId = 1;
+        for (long commit = 1; commit <= COMMITS; commit++) {
+            List<Entity2> moved = new ArrayList<>();
+            for (long id : ids) {
+                moved.add(new Entity2(id, positionAt(commit, id)));
+            }
+            int half = moved.size() / 2;
+            storage.updateAll(moved.subList(0, half));
+            storage.updateAll(moved.subList(half, moved.size()));
+            while (ids.size() > sizeAt(commit)) {
+                storage.removeAll(new long[] {ids.removeFirst()});
+            }
+            while (ids.size() < sizeAt(commit)) {
+                long id = nextId++;
+                storage.insertAll(List.of(new Entity2(id, positionAt(commit, id))));
+                ids.add(id);
+            }
+            storage.commit(commit);
+        }
+    }
+
+    /** Checks that all the reads of the version see the entities of its commit, and only them. */
+    private static void checkWholeCommit(StorageVersion2 version) {
+        long commit = version.commit();
+        String where = "commit " + commit;
+        assertEquals(sizeAt(commit), version.size(), where);
+        List<Entity2> found = version.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX));
+        assertEquals(sizeAt(commit), found.size(), where);
+        for (Entity2 e : found) {
+            assertEquals(positionAt(commit, e.id()), e.position(), where);
+        }
+        long[] ids = found.stream().mapToLong(Entity2::id).toArray();
+        assertEquals(found.size(), version.getAll(ids).size(), where);
+        for (Entity2 e : version.getAll(ids)) {
+            assertEquals(positionAt(commit, e.id()), e.position(), where);
+        }
+        for (Entity2 e : version.findNearest(positionAt(commit, 0), sizeAt(commit) + 1)) {
+            assertEquals(positionAt(commit, e.id()), e.position(), where);
+        }
+    }
+
+    /** The number of entities at the commit: 0 at commit 0, then from 0 to 22. */
+    private static int sizeAt(long commit) {
+        return (int) (commit * 7 % 23);
+    }
+
+    /** The position of an entity at the commit, inside the limits; it changes cell often. */
+    private static Point2 positionAt(long commit, long id) {
+        double base = commit % 16 - 8;
+        return new Point2(base + (id % 10) * 0.25, -base - (id / 10 % 10) * 0.25);
     }
 
     /**

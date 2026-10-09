@@ -2,6 +2,7 @@ package badspace.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.api.id.SnowflakeIdGenerator;
@@ -12,6 +13,7 @@ import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.PartitionVersion2;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import java.util.ArrayList;
@@ -26,6 +28,25 @@ import org.junit.jupiter.api.Test;
 
 class Space2Test {
 
+    /** A version of {@link MapNode}: only the commit and the size, the reads are not needed. */
+    private record MapVersion(long commit, int size) implements PartitionVersion2 {
+
+        @Override
+        public List<Entity2> getAll(long[] entityIds) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<Entity2> findInRegion(Region2 region) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<Entity2> findNearest(Point2 point, int count) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
     /**
      * A simple node that keeps the entities of each partition in a map. It does not check the input,
      * except that a removed partition must be empty.
@@ -34,6 +55,7 @@ class Space2Test {
         final Map<PartitionId, Map<Long, Point2>> partitions = new HashMap<>();
         final Map<PartitionId, IndexConfig> indices = new HashMap<>();
         final Map<PartitionId, Long> commits = new HashMap<>();
+        final Map<PartitionId, MapVersion> versions = new HashMap<>();
         int calls;
 
         @Override
@@ -115,6 +137,13 @@ class Space2Test {
         public void commit(PartitionId partition, long commit) {
             calls++;
             commits.put(partition, commit);
+            versions.put(partition, new MapVersion(commit, partitions.get(partition).size()));
+        }
+
+        @Override
+        public PartitionVersion2 lastVersion(PartitionId partition) {
+            calls++;
+            return versions.computeIfAbsent(partition, p -> new MapVersion(0, 0));
         }
 
         @Override
@@ -282,6 +311,7 @@ class Space2Test {
         assertThrows(IllegalStateException.class, p::size);
         assertThrows(IllegalStateException.class, () -> p.commit(1));
         assertThrows(IllegalStateException.class, p::lastCommit);
+        assertThrows(IllegalStateException.class, p::lastVersion);
         assertThrows(IllegalStateException.class, () -> p.findInRegion(new Circle2(new Point2(0, 0), 1)));
         assertThrows(IllegalStateException.class, () -> p.findNearest(new Point2(0, 0), 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(p));
@@ -295,6 +325,16 @@ class Space2Test {
         Space2 other = newSpace();
         assertThrows(IllegalArgumentException.class, () -> other.removePartition(p));
         assertEquals(1, node.partitions.size());
+    }
+
+    @Test
+    void lastVersionComesFromTheNodeOfThePartition() {
+        MapNode node = new MapNode();
+        Partition2 p = newSpace().createPartition(node);
+        assertEquals(0, p.lastVersion().commit());
+        p.commit(3);
+        assertSame(node.versions.values().iterator().next(), p.lastVersion());
+        assertEquals(3, p.lastVersion().commit());
     }
 
     @Test

@@ -17,7 +17,8 @@ import java.util.Set;
 import java.util.function.Function;
 
 /**
- * Entities of a 2D partition. It has a single writer and is not thread-safe.
+ * Entities of a 2D partition. It has a single writer and is not thread-safe,
+ * except {@link #lastVersion()}.
  * Entities are stored in primitive arrays: ids[i] has coordinates
  * coords[2*i], coords[2*i+1]. A {@link SlotTable} gives the slot of each ID.
  * Removal moves the last entity into the free slot, so the arrays stay compact
@@ -29,11 +30,16 @@ import java.util.function.Function;
  * The positions of the entities must be in the limits of the index: writes
  * outside them fail, so the indices never see them.
  * Writes are grouped in commits, whose numbers always grow. Each commit makes
- * a {@link PartitionVersion2}: a snapshot of the slots and the version of the
+ * a {@link StorageVersion2}: a snapshot of the slots and the version of the
  * index of the same commit. The coordinates are copied at each commit; the
  * IDs and the table from ID to slot only after insertions or removals, else
- * the new snapshot shares them with the one before. For now nobody reads the
- * versions: the reads of the storage see all the writes at once.
+ * the new snapshot shares them with the one before.
+ * <p>
+ * The reads of the storage see the state of the writer, with the writes not
+ * yet committed, and only the writer can call them. The other threads read
+ * the {@linkplain #lastVersion() last version}: the commit publishes it with
+ * a single write of a volatile field, so a reader sees either the version
+ * before or the whole new version.
  */
 final class PartitionStorage2 implements SlotView2 {
 
@@ -45,8 +51,8 @@ final class PartitionStorage2 implements SlotView2 {
     private final SlotTable slotById = new SlotTable();
     private int size;
     private long lastCommit;
-    /** The snapshot of the last commit, null before the first commit. */
-    private SlotSnapshot2 lastSnapshot;
+    /** The version of the last commit, which the readers see. */
+    private volatile StorageVersion2 lastVersion = StorageVersion2.empty();
     /** True after an insertion or a removal not yet in a snapshot. */
     private boolean idsChanged;
     private final CoordinateLimits limits;
@@ -151,18 +157,23 @@ final class PartitionStorage2 implements SlotView2 {
         return limits;
     }
 
-    /** Closes the commit and returns the version of the partition at the commit. */
-    PartitionVersion2 commit(long commit) {
+    /** Closes the commit, publishes the version of the partition at the commit and returns it. */
+    StorageVersion2 commit(long commit) {
         if (commit <= lastCommit) {
             throw new IllegalArgumentException(
                     "Commit " + commit + " is not greater than the last commit " + lastCommit);
         }
-        SlotSnapshot2 snapshot = snapshot();
-        PartitionVersion2 version = new PartitionVersion2(commit, snapshot, index.commit(commit));
-        lastSnapshot = snapshot;
+        StorageVersion2 version = new StorageVersion2(commit, snapshot(), index.commit(commit));
         idsChanged = false;
         lastCommit = commit;
+        // The publication: the last write of the commit.
+        lastVersion = version;
         return version;
+    }
+
+    /** Returns the version of the last commit. Unlike the other methods, any thread can call it. */
+    StorageVersion2 lastVersion() {
+        return lastVersion;
     }
 
     long lastCommit() {
@@ -182,8 +193,9 @@ final class PartitionStorage2 implements SlotView2 {
 
     private SlotSnapshot2 snapshot() {
         double[] coordsCopy = Arrays.copyOf(coords, size * DIMENSIONS);
-        if (lastSnapshot != null && !idsChanged) {
-            return new SlotSnapshot2(lastSnapshot.ids, coordsCopy, lastSnapshot.slotById);
+        if (!idsChanged) {
+            SlotSnapshot2 last = lastVersion.slots();
+            return new SlotSnapshot2(last.ids, coordsCopy, last.slotById);
         }
         return new SlotSnapshot2(Arrays.copyOf(ids, size), coordsCopy, slotById.copy());
     }

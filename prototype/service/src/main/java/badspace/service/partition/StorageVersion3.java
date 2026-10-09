@@ -3,18 +3,30 @@ package badspace.service.partition;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.partition.Entity3;
+import badspace.common.partition.PartitionVersion3;
 import badspace.service.index.IndexVersion3;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A 3D partition at a commit: the slots and the index of the same commit. It
- * never changes, so its reads do not see the writes after the commit. The
- * storage makes a version at each commit.
+ * A 3D partition at a commit: the slots and the index of the same commit. The
+ * storage makes a version at each commit and publishes it to the readers.
  */
-record PartitionVersion3(long commit, SlotSnapshot3 slots, IndexVersion3 index) {
+record StorageVersion3(long commit, SlotSnapshot3 slots, IndexVersion3 index) implements PartitionVersion3 {
 
-    List<Entity3> getAll(long[] entityIds) {
+    /** Returns the empty version at commit 0, before the first commit. */
+    static StorageVersion3 empty() {
+        SlotSnapshot3 slots = new SlotSnapshot3(new long[0], new double[0], new SlotTable());
+        return new StorageVersion3(0, slots, IndexVersion3.empty());
+    }
+
+    @Override
+    public int size() {
+        return slots.size();
+    }
+
+    @Override
+    public List<Entity3> getAll(long[] entityIds) {
         List<Entity3> result = new ArrayList<>(entityIds.length);
         for (long id : entityIds) {
             int slot = slots.slotOf(id);
@@ -25,11 +37,13 @@ record PartitionVersion3(long commit, SlotSnapshot3 slots, IndexVersion3 index) 
         return result;
     }
 
-    List<Entity3> findInRegion(Region3 region) {
+    @Override
+    public List<Entity3> findInRegion(Region3 region) {
         return entitiesAt(index.findInRegion(region, slots));
     }
 
-    List<Entity3> findNearest(Point3 point, int count) {
+    @Override
+    public List<Entity3> findNearest(Point3 point, int count) {
         if (count < 0) {
             throw new IllegalArgumentException("Negative count: " + count);
         }

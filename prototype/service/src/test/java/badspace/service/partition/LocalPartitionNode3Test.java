@@ -7,11 +7,13 @@ import badspace.common.geometry.Box3;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionVersion3;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Sphere3;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -229,9 +231,23 @@ class LocalPartitionNode3Test {
     }
 
     @Test
+    void lastVersionHasOnlyTheCommittedWrites() {
+        assertEquals(0, node.lastVersion(P1).commit());
+        node.insertAll(P1, List.of(new Entity3(1, new Point3(1, 1, 1))));
+        assertEquals(0, node.lastVersion(P1).size());
+        node.commit(P1, 4);
+        PartitionVersion3 version = node.lastVersion(P1);
+        node.removeAll(P1, new long[] {1});
+        assertEquals(4, version.commit());
+        assertEquals(Optional.of(new Point3(1, 1, 1)), version.get(1));
+        assertEquals(0, node.size(P1));
+    }
+
+    @Test
     void commitRejectsUnknownPartition() {
         assertThrows(IllegalArgumentException.class, () -> node.commit(P2, 1));
         assertThrows(IllegalArgumentException.class, () -> node.lastCommit(P2));
+        assertThrows(IllegalArgumentException.class, () -> node.lastVersion(P2));
     }
 
     @Test

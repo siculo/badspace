@@ -11,6 +11,9 @@ import java.util.Arrays;
  */
 final class LinearScanIndex3 implements SpatialIndex3 {
 
+    /** The version at commit 0, see {@link IndexVersion3#empty()}. */
+    static final IndexVersion3 EMPTY = new Version(0);
+
     private final SlotView3 storage;
 
     LinearScanIndex3(SlotView3 storage) {

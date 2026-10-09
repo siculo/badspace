@@ -2,6 +2,7 @@ package badspace.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.api.id.SnowflakeIdGenerator;
@@ -11,6 +12,7 @@ import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
+import badspace.common.partition.PartitionVersion3;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.geometry.Sphere3;
@@ -26,6 +28,25 @@ import org.junit.jupiter.api.Test;
 
 class Space3Test {
 
+    /** A version of {@link MapNode}: only the commit and the size, the reads are not needed. */
+    private record MapVersion(long commit, int size) implements PartitionVersion3 {
+
+        @Override
+        public List<Entity3> getAll(long[] entityIds) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<Entity3> findInRegion(Region3 region) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<Entity3> findNearest(Point3 point, int count) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
     /**
      * A simple node that keeps the entities of each partition in a map. It does not check the input,
      * except that a removed partition must be empty.
@@ -34,6 +55,7 @@ class Space3Test {
         final Map<PartitionId, Map<Long, Point3>> partitions = new HashMap<>();
         final Map<PartitionId, IndexConfig> indices = new HashMap<>();
         final Map<PartitionId, Long> commits = new HashMap<>();
+        final Map<PartitionId, MapVersion> versions = new HashMap<>();
         int calls;
 
         @Override
@@ -116,6 +138,13 @@ class Space3Test {
         public void commit(PartitionId partition, long commit) {
             calls++;
             commits.put(partition, commit);
+            versions.put(partition, new MapVersion(commit, partitions.get(partition).size()));
+        }
+
+        @Override
+        public PartitionVersion3 lastVersion(PartitionId partition) {
+            calls++;
+            return versions.computeIfAbsent(partition, p -> new MapVersion(0, 0));
         }
 
         @Override
@@ -283,6 +312,7 @@ class Space3Test {
         assertThrows(IllegalStateException.class, p::size);
         assertThrows(IllegalStateException.class, () -> p.commit(1));
         assertThrows(IllegalStateException.class, p::lastCommit);
+        assertThrows(IllegalStateException.class, p::lastVersion);
         assertThrows(IllegalStateException.class, () -> p.findInRegion(new Sphere3(new Point3(0, 0, 0), 1)));
         assertThrows(IllegalStateException.class, () -> p.findNearest(new Point3(0, 0, 0), 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(p));
@@ -296,6 +326,16 @@ class Space3Test {
         Space3 other = newSpace();
         assertThrows(IllegalArgumentException.class, () -> other.removePartition(p));
         assertEquals(1, node.partitions.size());
+    }
+
+    @Test
+    void lastVersionComesFromTheNodeOfThePartition() {
+        MapNode node = new MapNode();
+        Partition3 p = newSpace().createPartition(node);
+        assertEquals(0, p.lastVersion().commit());
+        p.commit(3);
+        assertSame(node.versions.values().iterator().next(), p.lastVersion());
+        assertEquals(3, p.lastVersion().commit());
     }
 
     @Test
