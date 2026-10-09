@@ -6,8 +6,6 @@ import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.PriorityQueue;
 
 /**
@@ -32,6 +30,15 @@ import java.util.PriorityQueue;
  * k-nearest query reads the nodes from the nearest to the farthest, and adds
  * the cells in rings around the point when they can be near enough.
  * <p>
+ * At each commit the index gives a version that shares the nodes with the
+ * writer. The map of the cells is a {@link HashTrie}, and each node keeps the
+ * last commit at the time it was made: the writer copies a node, with the
+ * path from the root of its cell, the first time it changes the node after a
+ * commit. So the nodes have no link to their parent, and each write goes down
+ * from the root of the cell, following the position. The map from slot to
+ * place in the leaf is used only by the writer, so it is not in the versions;
+ * a copy keeps the slots in the same places.
+ * <p>
  * The storage keeps the entities in the limits of the index, at most
  * {@code IndexConfig.CELLS_PER_SIDE} cells from the origin on each axis, so
  * each entity is in a cell with int coordinates. The regions and the points
@@ -49,11 +56,10 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     private final int leafCapacity;
     private final int mergeLimit;
     /** The root node of each cell with entities. */
-    private final Map<CellKey, Node> cells = new HashMap<>();
-    /** For each slot, its leaf. */
-    private Node[] leafOf = new Node[16];
+    private final HashTrie<CellKey, Node> cells = new HashTrie<>();
     /** For each slot, its place in the list of its leaf. */
     private int[] placeOf = new int[16];
+    private long lastCommit;
 
     /** The cell size must be a power of 2 and the leaf capacity positive, as in {@code IndexConfig.GridQuadtree}. */
     GridQuadtreeIndex2(SlotView2 storage, double cellSize, int leafCapacity) {
@@ -66,163 +72,84 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     @Override
     public void inserted(int slot, Point2 position) {
         if (slot >= placeOf.length) {
-            int length = Math.max(slot + 1, placeOf.length * 2);
-            leafOf = Arrays.copyOf(leafOf, length);
-            placeOf = Arrays.copyOf(placeOf, length);
+            placeOf = Arrays.copyOf(placeOf, Math.max(slot + 1, placeOf.length * 2));
         }
         add(slot, position);
     }
 
     @Override
     public void moved(int slot, Point2 from, Point2 to) {
-        Node leaf = leafOf[slot];
-        if (leaf.contains(to)) {
-            if (leaf.stackedAt != null && !samePosition(leaf.stackedAt, to)) {
-                leaf.stackedAt = null;
-                splitIfFull(leaf);
-            }
-            return;
-        }
-        // Only the nodes below the first node that contains both positions
-        // change their counts. A move to another cell goes through the map
-        // of the cells.
-        Node common = leaf.parent;
-        while (common != null && !common.contains(to)) {
-            common = common.parent;
-        }
-        if (common == null) {
-            remove(slot);
+        CellKey key = keyOf(from);
+        if (!key.equals(keyOf(to))) {
+            remove(slot, from);
             add(slot, to);
             return;
         }
-        detach(slot, common);
-        // The leaf does not contain the new position, so the common node is
-        // above it and has children; a merge changes only the nodes below
-        // the child of the old position, so the common node keeps them.
-        descend(common.children[common.childIndex(to)], slot, to);
+        // Only the nodes below the first node that contains both positions
+        // change. When this node is a leaf, nothing changes, unless the
+        // entity leaves a stacked leaf.
+        Node root = cells.get(key);
+        Node common = root;
+        while (!common.isLeaf() && common.childIndex(from) == common.childIndex(to)) {
+            common = common.children[common.childIndex(to)];
+        }
+        if (common.isLeaf() && (common.stackedAt == null || samePosition(common.stackedAt, to))) {
+            return;
+        }
+        Node node = writable(key, root);
+        while (!node.isLeaf() && node.childIndex(from) == node.childIndex(to)) {
+            node = writableChild(node, node.childIndex(to));
+        }
+        if (node.isLeaf()) {
+            node.stackedAt = null;
+            splitIfFull(node);
+            return;
+        }
+        // The common node keeps its count; a merge changes only the nodes
+        // below the child of the old position, so the common node keeps its
+        // children.
+        detach(writableChild(node, node.childIndex(from)), slot, from);
+        descend(writableChild(node, node.childIndex(to)), slot, to);
     }
 
     @Override
     public void removed(int slot, Point2 position) {
-        remove(slot);
+        remove(slot, position);
     }
 
     @Override
     public void relocated(int from, int to, Point2 position) {
-        Node leaf = leafOf[from];
+        CellKey key = keyOf(position);
+        Node node = writable(key, cells.get(key));
+        while (!node.isLeaf()) {
+            node = writableChild(node, node.childIndex(position));
+        }
         int place = placeOf[from];
-        leaf.slots.set(place, to);
-        leafOf[to] = leaf;
+        node.slots.set(place, to);
         placeOf[to] = place;
-        leafOf[from] = null;
     }
 
     @Override
     public IndexVersion2 commit(long n) {
-        // Full copy until this index has copy-on-write versions.
-        return new RebuiltIndexVersion2(n, storage, slots -> new GridQuadtreeIndex2(slots, cellSize, leafCapacity));
+        lastCommit = n;
+        return new Version(n, cells.commit(n), cellSize);
     }
 
     @Override
     public int[] findInRegion(Region2 region) {
-        SlotList found = new SlotList();
-        CellRange range = switch (region) {
-            case Box2 box -> new CellRange(
-                    cellOf(box.min().x()), cellOf(box.max().x()),
-                    cellOf(box.min().y()), cellOf(box.max().y()));
-            // When the square of the radius overflows, the circle contains each
-            // point whose distance overflows too: all the cells must be read.
-            case Circle2 circle when circle.radius() * circle.radius() == Double.POSITIVE_INFINITY -> CellRange.ALL;
-            // A point on the border of the circle can be just outside the
-            // box around it, because of rounding: one more cell on each side
-            // keeps it in the range. The nodes then check the exact distance.
-            case Circle2 circle -> new CellRange(
-                    cellOf(circle.center().x() - circle.radius()) - 1,
-                    cellOf(circle.center().x() + circle.radius()) + 1,
-                    cellOf(circle.center().y() - circle.radius()) - 1,
-                    cellOf(circle.center().y() + circle.radius()) + 1);
-        };
-        if (range.cellCount() <= cells.size()) {
-            for (long cx = range.minX; cx <= range.maxX; cx++) {
-                for (long cy = range.minY; cy <= range.maxY; cy++) {
-                    Node root = cells.get(new CellKey((int) cx, (int) cy));
-                    if (root != null) {
-                        collect(root, region, found);
-                    }
-                }
-            }
-        } else {
-            for (Map.Entry<CellKey, Node> cell : cells.entrySet()) {
-                if (range.contains(cell.getKey())) {
-                    collect(cell.getValue(), region, found);
-                }
-            }
-        }
-        return found.toArray();
+        return new Search(cells.view(), cellSize, storage).findInRegion(region);
     }
 
     @Override
     public int[] findNearest(Point2 point, int count) {
-        NearestSlots nearest = new NearestSlots(count);
-        PriorityQueue<NodeDistance> queue =
-                new PriorityQueue<>(Comparator.comparingDouble(NodeDistance::distanceSquared));
-        long x = cellOf(point.x());
-        long y = cellOf(point.y());
-        // A point far outside the limits has no rings: all the cells go in the queue.
-        boolean allCellsQueued = !isInt(x) || !isInt(y);
-        if (allCellsQueued) {
-            for (Node root : cells.values()) {
-                queue.add(new NodeDistance(root, minDistanceSquared(root, point)));
-            }
-        }
-        long ring = 0;
-        while (true) {
-            double nodeLimit = queue.isEmpty() ? Double.POSITIVE_INFINITY : queue.peek().distanceSquared();
-            double ringLimit = allCellsQueued ? Double.POSITIVE_INFINITY : ringDistanceSquared(ring);
-            if (nearest.isComplete(Math.min(nodeLimit, ringLimit))) {
-                break;
-            }
-            if (!allCellsQueued && ringLimit <= nodeLimit) {
-                // Rings get larger and larger: when a ring and the rings inside
-                // it have more cells than the grid, it is faster to queue the
-                // cells of the grid that are not queued yet.
-                if ((2 * ring + 1.0) * (2 * ring + 1.0) > cells.size()) {
-                    for (Map.Entry<CellKey, Node> cell : cells.entrySet()) {
-                        if (ringOf(cell.getKey(), x, y) >= ring) {
-                            queue.add(new NodeDistance(cell.getValue(), minDistanceSquared(cell.getValue(), point)));
-                        }
-                    }
-                    allCellsQueued = true;
-                } else {
-                    queueRing(queue, point, x, y, ring);
-                    ring++;
-                }
-                continue;
-            }
-            if (queue.isEmpty()) {
-                break;
-            }
-            Node node = queue.poll().node();
-            if (node.isLeaf()) {
-                for (int i = 0; i < node.slots.size(); i++) {
-                    offer(nearest, point, node.slots.get(i));
-                }
-            } else {
-                for (Node child : node.children) {
-                    if (child.count > 0) {
-                        queue.add(new NodeDistance(child, minDistanceSquared(child, point)));
-                    }
-                }
-            }
-        }
-        return nearest.slots();
+        return new Search(cells.view(), cellSize, storage).findNearest(point, count);
     }
 
     /**
      * Returns the cell coordinate of a space coordinate. A coordinate of a
      * query that is too large for a cell gives a value outside the int range.
      */
-    private long cellOf(double coordinate) {
+    private static long cellOf(double coordinate, double cellSize) {
         double cell = Math.floor(coordinate / cellSize);
         if (!(cell >= Integer.MIN_VALUE && cell <= Integer.MAX_VALUE)) {
             return cell < 0 ? Integer.MIN_VALUE - 1L : Integer.MAX_VALUE + 1L;
@@ -232,20 +159,36 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
         return cell == 0 && coordinate < 0 ? -1 : (long) cell;
     }
 
-    private void add(int slot, Point2 position) {
-        long x = cellOf(position.x());
-        long y = cellOf(position.y());
-        // The limits of the index keep the cell coordinates in the int range.
-        Node node = cells.computeIfAbsent(new CellKey((int) x, (int) y),
-                key -> new Node(null, key.x * cellSize, key.y * cellSize, cellSize, 0));
-        descend(node, slot, position);
+    /** Returns the cell of a position of an entity. The limits of the index keep it in the int range. */
+    private CellKey keyOf(Point2 position) {
+        return new CellKey((int) cellOf(position.x(), cellSize), (int) cellOf(position.y(), cellSize));
     }
 
-    /** Adds the slot to the leaf of the position below the node, and counts it in each node on the way. */
+    /** Returns the cell of the root node of a cell. */
+    private static CellKey keyOf(Node root, double cellSize) {
+        return new CellKey((int) (root.minX / cellSize), (int) (root.minY / cellSize));
+    }
+
+    private void add(int slot, Point2 position) {
+        CellKey key = keyOf(position);
+        Node root = cells.get(key);
+        if (root == null) {
+            root = new Node(lastCommit, key.x * cellSize, key.y * cellSize, cellSize, 0);
+            cells.put(key, root);
+        } else {
+            root = writable(key, root);
+        }
+        descend(root, slot, position);
+    }
+
+    /**
+     * Adds the slot to the leaf of the position below the node, and counts it
+     * in each node on the way. The node must be writable.
+     */
     private void descend(Node node, int slot, Point2 position) {
         while (!node.isLeaf()) {
             node.count++;
-            node = node.children[node.childIndex(position)];
+            node = writableChild(node, node.childIndex(position));
         }
         addToLeaf(node, slot, position);
         splitIfFull(node);
@@ -256,51 +199,72 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
             leaf.stackedAt = null;
         }
         leaf.count++;
-        leafOf[slot] = leaf;
         placeOf[slot] = leaf.slots.add(slot);
     }
 
-    /** Removes the slot from its leaf, then merges the nodes that have few entities and drops an empty cell. */
-    private void remove(int slot) {
-        Node root = detach(slot, null);
-        if (root.count == 0) {
-            cells.remove(new CellKey((int) (root.minX / cellSize), (int) (root.minY / cellSize)));
+    /** Removes the slot from its cell, and drops the cell when it is empty. */
+    private void remove(int slot, Point2 position) {
+        CellKey key = keyOf(position);
+        Node root = cells.get(key);
+        if (root.count == 1) {
+            cells.remove(key);
+            return;
         }
+        detach(writable(key, root), slot, position);
     }
 
     /**
-     * Removes the slot from its leaf and from the counts of the nodes on the
-     * way up, until the node {@code stop}, which keeps its count; with stop
-     * null, until the root of the cell. Then merges the nodes that have few
-     * entities. Returns the highest node whose count changed.
+     * Removes the slot from the leaf of the position below the node, and from
+     * the counts of the nodes on the way. The counts get smaller from the node
+     * to the leaf, so the first node that has few entities is the highest one
+     * to merge: it becomes a leaf with all the entities of its subtree. The
+     * node must be writable.
      */
-    private Node detach(int slot, Node stop) {
-        Node leaf = leafOf[slot];
-        SlotList list = leaf.slots;
+    private void detach(Node node, int slot, Point2 position) {
+        while (true) {
+            node.count--;
+            if (node.isLeaf()) {
+                break;
+            }
+            if (node.count <= mergeLimit) {
+                merge(node);
+                break;
+            }
+            node = writableChild(node, node.childIndex(position));
+        }
+        SlotList list = node.slots;
         int place = placeOf[slot];
         int last = list.removeLast();
         if (last != slot) {
             list.set(place, last);
             placeOf[last] = place;
         }
-        leafOf[slot] = null;
-        // The counts grow from the leaf to the root, so the nodes to merge
-        // are at the start of the path; the highest one takes them all.
-        Node toMerge = null;
-        Node highest = leaf;
-        for (Node node = leaf; node != stop; node = node.parent) {
-            node.count--;
-            if (!node.isLeaf() && node.count <= mergeLimit) {
-                toMerge = node;
-            }
-            highest = node;
-        }
-        if (toMerge != null) {
-            merge(toMerge);
-        }
-        return highest;
     }
 
+    /** Returns the root of the cell, copied first and put in the map if an older version can see it. */
+    private Node writable(CellKey key, Node root) {
+        if (root.commit != lastCommit) {
+            root = root.copy(lastCommit);
+            cells.put(key, root);
+        }
+        return root;
+    }
+
+    /**
+     * Returns child i of the node, copied first if an older version can see
+     * it. The node must be writable, so that the copy can take the place of
+     * the child.
+     */
+    private Node writableChild(Node node, int i) {
+        Node child = node.children[i];
+        if (child.commit != lastCommit) {
+            child = child.copy(lastCommit);
+            node.children[i] = child;
+        }
+        return child;
+    }
+
+    /** Splits the leaf, which must be writable, if it has too many entities and they can be divided. */
     private void splitIfFull(Node leaf) {
         if (leaf.slots.size() <= leafCapacity || leaf.depth >= MAX_DEPTH
                 || !halvesAreExact(leaf.minX, leaf.side) || !halvesAreExact(leaf.minY, leaf.side)) {
@@ -316,14 +280,13 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
         leaf.slots = null;
         leaf.children = new Node[CHILDREN];
         for (int i = 0; i < CHILDREN; i++) {
-            leaf.children[i] = new Node(leaf,
+            leaf.children[i] = new Node(lastCommit,
                     leaf.minX + (i & 1) * half, leaf.minY + (i >> 1) * half, half, leaf.depth + 1);
         }
         for (int i = 0; i < slots.size(); i++) {
             int slot = slots.get(i);
             Node child = leaf.children[leaf.childIndex(storage.positionAt(slot))];
             child.count++;
-            leafOf[slot] = child;
             placeOf[slot] = child.slots.add(slot);
         }
         for (Node child : leaf.children) {
@@ -357,40 +320,40 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
 
     /**
      * Fails with IllegalStateException if the structure is not consistent:
-     * the counts of the nodes, the leaf and place of each slot, the nodes
-     * that should be merged, and the stacked leaves. Only for the tests.
+     * the counts of the nodes, the place of each slot, the nodes that should
+     * be merged, the stacked leaves, and the commits of the nodes. Only for
+     * the tests.
      */
     void checkStructure() {
-        int total = 0;
-        for (Node root : cells.values()) {
+        boolean[] seen = new boolean[storage.size()];
+        int[] total = new int[1];
+        cells.view().forEachValue(root -> {
             if (root.count == 0) {
                 throw new IllegalStateException("Empty cell");
             }
-            total += checkNode(root);
-        }
-        int slots = 0;
-        for (int slot = 0; slot < leafOf.length; slot++) {
-            if (leafOf[slot] != null) {
-                slots++;
-                if (leafOf[slot].slots.get(placeOf[slot]) != slot) {
-                    throw new IllegalStateException("Wrong place of slot " + slot);
-                }
-            }
-        }
-        if (total != slots) {
-            throw new IllegalStateException("Entities in the leaves: " + total + ", slots with a leaf: " + slots);
+            total[0] += checkNode(root, seen);
+        });
+        if (total[0] != storage.size()) {
+            throw new IllegalStateException("Entities in the leaves: " + total[0] + ", slots: " + storage.size());
         }
     }
 
     /** Checks the subtree and returns its number of entities. */
-    private int checkNode(Node node) {
+    private int checkNode(Node node, boolean[] seen) {
         int count;
         if (node.isLeaf()) {
             count = node.slots.size();
             for (int i = 0; i < count; i++) {
                 int slot = node.slots.get(i);
+                if (slot >= seen.length || seen[slot]) {
+                    throw new IllegalStateException("Slot " + slot + " is not a slot of the storage or is in two leaves");
+                }
+                seen[slot] = true;
+                if (placeOf[slot] != i) {
+                    throw new IllegalStateException("Wrong place of slot " + slot);
+                }
                 Point2 position = storage.positionAt(slot);
-                if (leafOf[slot] != node || !node.contains(position)) {
+                if (!node.contains(position)) {
                     throw new IllegalStateException("Slot " + slot + " is in the wrong leaf");
                 }
                 if (node.stackedAt != null && !samePosition(node.stackedAt, position)) {
@@ -403,7 +366,13 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
             }
             count = 0;
             for (Node child : node.children) {
-                count += checkNode(child);
+                // A node of the current commit under an older one could change
+                // what an older version sees.
+                if (child.commit > node.commit) {
+                    throw new IllegalStateException("Node of commit " + child.commit + " under a node of commit "
+                            + node.commit);
+                }
+                count += checkNode(child, seen);
             }
         }
         if (count != node.count) {
@@ -414,11 +383,9 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
 
     /** Returns the depth of the deepest leaf, or -1 if the index is empty. Only for the tests. */
     int maxDepth() {
-        int max = -1;
-        for (Node root : cells.values()) {
-            max = Math.max(max, maxDepth(root));
-        }
-        return max;
+        int[] max = {-1};
+        cells.view().forEachValue(root -> max[0] = Math.max(max[0], maxDepth(root)));
+        return max[0];
     }
 
     private static int maxDepth(Node node) {
@@ -432,14 +399,13 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
         return max;
     }
 
-    /** Makes the node a leaf with all the entities of its subtree. */
+    /** Makes the node, which must be writable, a leaf with all the entities of its subtree. */
     private void merge(Node node) {
         SlotList slots = new SlotList();
         collectAll(node, slots);
         node.children = null;
         node.slots = slots;
         for (int i = 0; i < slots.size(); i++) {
-            leafOf[slots.get(i)] = node;
             placeOf[slots.get(i)] = i;
         }
     }
@@ -452,27 +418,6 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
      */
     private static boolean halvesAreExact(double min, double side) {
         return Math.ulp(Math.max(Math.abs(min), Math.abs(min + side))) <= side / 2;
-    }
-
-    /** Adds the slots of the node inside the region to the list. */
-    private void collect(Node node, Region2 region, SlotList found) {
-        if (node.count == 0 || !touches(node, region)) {
-            return;
-        }
-        if (isInside(node, region)) {
-            collectAll(node, found);
-        } else if (node.isLeaf()) {
-            for (int i = 0; i < node.slots.size(); i++) {
-                int slot = node.slots.get(i);
-                if (region.contains(storage.positionAt(slot))) {
-                    found.add(slot);
-                }
-            }
-        } else {
-            for (Node child : node.children) {
-                collect(child, region, found);
-            }
-        }
     }
 
     /** Adds all the slots of the subtree to the list. */
@@ -536,37 +481,6 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     }
 
     /**
-     * Returns a squared distance that the entities in the ring, or in a ring
-     * outside it, cannot be nearer than. The point can be anywhere in its own
-     * cell, so the gap is one cell less than the ring. The cell borders are
-     * exact, so no margin is needed.
-     */
-    private double ringDistanceSquared(long ring) {
-        double gap = Math.max(0, ring - 1) * cellSize;
-        return gap * gap;
-    }
-
-    /** Adds to the queue the cells of the ring around the cell (x, y). */
-    private void queueRing(PriorityQueue<NodeDistance> queue, Point2 point, long x, long y, long ring) {
-        for (long cx = x - ring; cx <= x + ring; cx++) {
-            boolean side = Math.abs(cx - x) == ring;
-            for (long cy = y - ring; cy <= y + ring; cy += side ? 1 : 2 * ring) {
-                if (isInt(cx) && isInt(cy)) {
-                    Node root = cells.get(new CellKey((int) cx, (int) cy));
-                    if (root != null) {
-                        queue.add(new NodeDistance(root, minDistanceSquared(root, point)));
-                    }
-                }
-            }
-        }
-    }
-
-    private void offer(NearestSlots nearest, Point2 point, int slot) {
-        nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
-    }
-
-
-    /**
      * Returns the ring of the cell around the cell (x, y): the largest
      * distance between them on one axis, in cells.
      */
@@ -576,6 +490,181 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
 
     private static boolean isInt(long value) {
         return value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE;
+    }
+
+    /** The queries on the cells of a version, which read the positions in the slots of the same version. */
+    private static final class Search {
+
+        private final HashTrie.View<CellKey, Node> cells;
+        private final double cellSize;
+        private final SlotView2 storage;
+
+        Search(HashTrie.View<CellKey, Node> cells, double cellSize, SlotView2 storage) {
+            this.cells = cells;
+            this.cellSize = cellSize;
+            this.storage = storage;
+        }
+
+        int[] findInRegion(Region2 region) {
+            SlotList found = new SlotList();
+            CellRange range = switch (region) {
+                case Box2 box -> new CellRange(
+                        cellOf(box.min().x()), cellOf(box.max().x()),
+                        cellOf(box.min().y()), cellOf(box.max().y()));
+                // When the square of the radius overflows, the circle contains each
+                // point whose distance overflows too: all the cells must be read.
+                case Circle2 circle when circle.radius() * circle.radius() == Double.POSITIVE_INFINITY -> CellRange.ALL;
+                // A point on the border of the circle can be just outside the
+                // box around it, because of rounding: one more cell on each side
+                // keeps it in the range. The nodes then check the exact distance.
+                case Circle2 circle -> new CellRange(
+                        cellOf(circle.center().x() - circle.radius()) - 1,
+                        cellOf(circle.center().x() + circle.radius()) + 1,
+                        cellOf(circle.center().y() - circle.radius()) - 1,
+                        cellOf(circle.center().y() + circle.radius()) + 1);
+            };
+            if (range.cellCount() <= cells.size()) {
+                for (long cx = range.minX; cx <= range.maxX; cx++) {
+                    for (long cy = range.minY; cy <= range.maxY; cy++) {
+                        Node root = cells.get(new CellKey((int) cx, (int) cy));
+                        if (root != null) {
+                            collect(root, region, found);
+                        }
+                    }
+                }
+            } else {
+                cells.forEachValue(root -> {
+                    if (range.contains(keyOf(root, cellSize))) {
+                        collect(root, region, found);
+                    }
+                });
+            }
+            return found.toArray();
+        }
+
+        int[] findNearest(Point2 point, int count) {
+            NearestSlots nearest = new NearestSlots(count);
+            PriorityQueue<NodeDistance> queue =
+                    new PriorityQueue<>(Comparator.comparingDouble(NodeDistance::distanceSquared));
+            long x = cellOf(point.x());
+            long y = cellOf(point.y());
+            // A point far outside the limits has no rings: all the cells go in the queue.
+            boolean allCellsQueued = !isInt(x) || !isInt(y);
+            if (allCellsQueued) {
+                cells.forEachValue(root -> queue.add(new NodeDistance(root, minDistanceSquared(root, point))));
+            }
+            long ring = 0;
+            while (true) {
+                double nodeLimit = queue.isEmpty() ? Double.POSITIVE_INFINITY : queue.peek().distanceSquared();
+                double ringLimit = allCellsQueued ? Double.POSITIVE_INFINITY : ringDistanceSquared(ring);
+                if (nearest.isComplete(Math.min(nodeLimit, ringLimit))) {
+                    break;
+                }
+                if (!allCellsQueued && ringLimit <= nodeLimit) {
+                    // Rings get larger and larger: when a ring and the rings inside
+                    // it have more cells than the grid, it is faster to queue the
+                    // cells of the grid that are not queued yet.
+                    if ((2 * ring + 1.0) * (2 * ring + 1.0) > cells.size()) {
+                        long done = ring;
+                        cells.forEachValue(root -> {
+                            if (ringOf(keyOf(root, cellSize), x, y) >= done) {
+                                queue.add(new NodeDistance(root, minDistanceSquared(root, point)));
+                            }
+                        });
+                        allCellsQueued = true;
+                    } else {
+                        queueRing(queue, point, x, y, ring);
+                        ring++;
+                    }
+                    continue;
+                }
+                if (queue.isEmpty()) {
+                    break;
+                }
+                Node node = queue.poll().node();
+                if (node.isLeaf()) {
+                    for (int i = 0; i < node.slots.size(); i++) {
+                        offer(nearest, point, node.slots.get(i));
+                    }
+                } else {
+                    for (Node child : node.children) {
+                        if (child.count > 0) {
+                            queue.add(new NodeDistance(child, minDistanceSquared(child, point)));
+                        }
+                    }
+                }
+            }
+            return nearest.slots();
+        }
+
+        private long cellOf(double coordinate) {
+            return GridQuadtreeIndex2.cellOf(coordinate, cellSize);
+        }
+
+        /** Adds the slots of the node inside the region to the list. */
+        private void collect(Node node, Region2 region, SlotList found) {
+            if (node.count == 0 || !touches(node, region)) {
+                return;
+            }
+            if (isInside(node, region)) {
+                collectAll(node, found);
+            } else if (node.isLeaf()) {
+                for (int i = 0; i < node.slots.size(); i++) {
+                    int slot = node.slots.get(i);
+                    if (region.contains(storage.positionAt(slot))) {
+                        found.add(slot);
+                    }
+                }
+            } else {
+                for (Node child : node.children) {
+                    collect(child, region, found);
+                }
+            }
+        }
+
+        /**
+         * Returns a squared distance that the entities in the ring, or in a ring
+         * outside it, cannot be nearer than. The point can be anywhere in its own
+         * cell, so the gap is one cell less than the ring. The cell borders are
+         * exact, so no margin is needed.
+         */
+        private double ringDistanceSquared(long ring) {
+            double gap = Math.max(0, ring - 1) * cellSize;
+            return gap * gap;
+        }
+
+        /** Adds to the queue the cells of the ring around the cell (x, y). */
+        private void queueRing(PriorityQueue<NodeDistance> queue, Point2 point, long x, long y, long ring) {
+            for (long cx = x - ring; cx <= x + ring; cx++) {
+                boolean side = Math.abs(cx - x) == ring;
+                for (long cy = y - ring; cy <= y + ring; cy += side ? 1 : 2 * ring) {
+                    if (isInt(cx) && isInt(cy)) {
+                        Node root = cells.get(new CellKey((int) cx, (int) cy));
+                        if (root != null) {
+                            queue.add(new NodeDistance(root, minDistanceSquared(root, point)));
+                        }
+                    }
+                }
+            }
+        }
+
+        private void offer(NearestSlots nearest, Point2 point, int slot) {
+            nearest.offer(storage.positionAt(slot).distanceSquared(point), storage.idAt(slot), slot);
+        }
+    }
+
+    /** A version of the index at a commit. */
+    private record Version(long commit, HashTrie.View<CellKey, Node> cells, double cellSize) implements IndexVersion2 {
+
+        @Override
+        public int[] findInRegion(Region2 region, SlotView2 slots) {
+            return new Search(cells, cellSize, slots).findInRegion(region);
+        }
+
+        @Override
+        public int[] findNearest(Point2 point, int count, SlotView2 slots) {
+            return new Search(cells, cellSize, slots).findNearest(point, count);
+        }
     }
 
     /** The coordinates of a cell. */
@@ -590,11 +679,13 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
      * A node of the quadtree of a cell, with the box [minX, minX + side) x
      * [minY, minY + side). A leaf has slots and no children; the other nodes
      * have 4 children and no slots. Child i has the high half of x if bit 0
-     * of i is set, and the high half of y if bit 1 is set.
+     * of i is set, and the high half of y if bit 1 is set. The fields change
+     * only while the node belongs to the current commit.
      */
     private static final class Node {
 
-        final Node parent;
+        /** The last commit when the node was made. */
+        final long commit;
         final double minX;
         final double minY;
         final double side;
@@ -610,12 +701,22 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
         /** Number of entities in the subtree. */
         int count;
 
-        Node(Node parent, double minX, double minY, double side, int depth) {
-            this.parent = parent;
+        Node(long commit, double minX, double minY, double side, int depth) {
+            this.commit = commit;
             this.minX = minX;
             this.minY = minY;
             this.side = side;
             this.depth = depth;
+        }
+
+        /** Returns a copy for the given commit: it shares the children, and keeps the slots in the same places. */
+        Node copy(long commit) {
+            Node copy = new Node(commit, minX, minY, side, depth);
+            copy.children = children == null ? null : children.clone();
+            copy.slots = slots == null ? null : slots.copy();
+            copy.stackedAt = stackedAt;
+            copy.count = count;
+            return copy;
         }
 
         boolean isLeaf() {

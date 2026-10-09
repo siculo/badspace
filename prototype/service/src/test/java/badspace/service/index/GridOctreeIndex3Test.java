@@ -108,8 +108,10 @@ class GridOctreeIndex3Test {
 
     /**
      * Short steps in a dense cluster move the entities between near leaves,
-     * also across the cells and to the same position, so the move goes up
-     * only to the first node that contains the new position.
+     * also across the cells and to the same position, so the move changes
+     * only the nodes below the first node that contains both positions. A
+     * commit in each round checks that the moves copy the nodes that an
+     * older version can see.
      */
     @Test
     void shortStepsInADenseClusterKeepTheStructure() {
@@ -123,6 +125,7 @@ class GridOctreeIndex3Test {
         Map<Long, Entity3> current = new HashMap<>();
         entities.forEach(e -> current.put(e.id(), e));
         for (int round = 0; round < 100; round++) {
+            Comparison.Versions committed = c.commit(round + 1);
             for (int i = 0; i < 50; i++) {
                 long id = 1 + random.nextInt(entities.size());
                 Entity3 e = current.get(id);
@@ -139,6 +142,10 @@ class GridOctreeIndex3Test {
                 c.check(new Point3(300, 300, 300), 20);
                 c.check(new Point3(301.5, 299, 300), 5);
                 c.check(new Box3(new Point3(295, 295, 295), new Point3(302, 304, 304)));
+                // The moves of this round do not change the version of its commit.
+                committed.check(new Point3(300, 300, 300), 20);
+                committed.check(new Point3(301.5, 299, 300), 5);
+                committed.check(new Box3(new Point3(295, 295, 295), new Point3(302, 304, 304)));
             }
         }
     }
@@ -190,6 +197,10 @@ class GridOctreeIndex3Test {
             index.checkStructure();
         }
 
+        Versions commit(long n) {
+            return new Versions(tested.commit(n), reference.commit(n));
+        }
+
         int maxDepth() {
             return index.maxDepth();
         }
@@ -197,6 +208,20 @@ class GridOctreeIndex3Test {
         void removeAll(long[] ids) {
             tested.removeAll(ids);
             reference.removeAll(ids);
+        }
+
+        /** The versions of the two storages at the same commit. */
+        record Versions(TestStorage3.Version tested, TestStorage3.Version reference) {
+
+            void check(Point3 point, int count) {
+                assertEquals(reference.findNearest(point, count), tested.findNearest(point, count),
+                        "version findNearest " + point + " " + count);
+            }
+
+            void check(Region3 region) {
+                assertEquals(sortedById(reference.findInRegion(region)), sortedById(tested.findInRegion(region)),
+                        "version findInRegion " + region);
+            }
         }
 
         private static List<Entity3> sortedById(List<Entity3> entities) {
