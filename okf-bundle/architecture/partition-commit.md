@@ -4,7 +4,7 @@ title: Commit della partizione
 description: Le scritture del writer sono raggruppate in commit atomici, unica transazione del sistema, identificati da un contatore monotono il cui significato (tick locale, tick globale, batch) è deciso sopra il livello base.
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T07:46:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T13:11:53Z }
 ---
 
 # Primitiva
@@ -42,12 +42,12 @@ Un uso non legato al gioco potrebbe invece fare commit a batch.
 
 Il commit si chiude con `commit(n)`, con il numero n scelto dal
 software e maggiore dell'ultimo commit (vedi [API da
-esporre](/decisions/api-surface.md#commit)). Al commit gli indici
-producono già una versione che le scritture successive non cambiano
-(vedi [isolamento delle letture](/decisions/read-isolation.md#gli-indici)),
-ma lo storage non la pubblica ancora: il prototipo non ha ancora il
-confine del commit, e ogni scrittura è visibile ai lettori appena
-eseguita.
+esporre](/decisions/api-surface.md#commit)). Al commit lo storage
+produce la versione della partizione, con lo snapshot degli slot e la
+versione dell'indice, che le scritture successive non cambiano (vedi
+[isolamento delle letture](/decisions/read-isolation.md#gli-slot)). La
+versione non è ancora pubblicata: il prototipo non ha ancora il confine
+del commit, e ogni scrittura è visibile ai lettori appena eseguita.
 
 # Correlati
 

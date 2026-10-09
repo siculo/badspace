@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T07:46:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T13:11:53Z }
 ---
 
 # Problema
@@ -104,6 +104,23 @@ saranno, seguono la stessa regola):
 | ID | solo inserimenti e rimozioni | copia solo se il commit ha inserimenti o rimozioni, altrimenti condivisa con la versione precedente |
 | mappa ID → slot | solo inserimenti e rimozioni | come gli ID: una tabella hash ad indirizzamento aperto su array primitivi si copia come gli slot; in alternativa una mappa hash persistente (HAMT) |
 
+**Nel prototipo** la mappa ID → slot è una tabella ad indirizzamento
+aperto (`SlotTable`): un array di ID e uno di slot, sondaggio lineare,
+al massimo mezza piena. La rimozione sposta indietro le chiavi che
+seguono, quindi non ci sono tombstone; un posto vuoto ha slot -1, così
+ogni valore può essere un ID. La copia sono due array.
+
+- Al commit lo storage crea uno snapshot immutabile degli slot, con
+  array lunghi quanto gli slot occupati. Le coordinate si copiano
+  sempre; ID e tabella si copiano solo se il commit ha avuto
+  inserimenti o rimozioni, altrimenti lo snapshot li condivide con
+  quello precedente.
+- Snapshot e versione dell'indice formano la versione della partizione
+  (`PartitionVersion`: commit, slot e indice), con le letture `getAll`,
+  `findInRegion` e `findNearest`.
+- Per ora ogni commit alloca array nuovi: il pool dei buffer e la copia
+  delle sole pagine cambiate arrivano con i writer su thread diversi.
+
 **Riuso dei buffer.** I buffer degli snapshot stanno in un pool. Un
 buffer che si riusa contiene una versione vecchia, quindi basta copiare
 le pagine cambiate da allora: per ogni pagina si tiene il commit
@@ -151,8 +168,8 @@ writer.
   tengono le celle in una HAMT con transient (`HashTrie`) e copiano
   celle e nodi alla prima modifica dopo un commit.
 
-Lo storage non pubblica ancora le versioni: lo snapshot degli slot e la
-pubblicazione della radice sono i passi successivi.
+Lo storage combina la versione dell'indice con lo snapshot degli slot
+(vedi [Gli slot](#gli-slot)); manca la pubblicazione della radice.
 
 # Versioni passate
 
@@ -189,11 +206,14 @@ dei buffer evita comunque le allocazioni a ogni tick.
 - Misurare nel prototipo il costo della copia degli slot e della copia
   dei nodi dell'indice per commit, con diverse frazioni di entità in
   movimento.
-- Mappa ID → slot: tabella ad indirizzamento aperto copiata o HAMT.
+- Mappa ID → slot: nel prototipo tabella copiata; da rivedere con le
+  misure se la copia pesa con molte entità e inserimenti o rimozioni a
+  ogni commit (alternativa HAMT).
 - Contatori dei reader per versione o epoch-based reclamation.
 - Il confine del commit nel prototipo, che oggi non c'è: ogni scrittura
-  è visibile appena eseguita. Gli indici danno già le versioni; mancano
-  lo snapshot degli slot e la pubblicazione della radice.
+  è visibile appena eseguita. Lo storage produce già a ogni commit la
+  versione della partizione (slot e indice); manca la pubblicazione
+  della radice, e le letture vedono ancora lo stato del writer.
 
 # Correlati
 
