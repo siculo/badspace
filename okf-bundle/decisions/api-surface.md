@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione) e del commit (`commit(n)` con un numero scelto dal software, strettamente crescente), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader sulla versione dell'ultimo commit (`lastVersion()`), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T14:12:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T16:24:01Z }
 ---
 
 # Stato
@@ -14,7 +14,8 @@ posizione, query di range, k-nearest, raycasting e le operazioni su
 metadati, partizioni e commit). Il prototipo definisce la forma delle
 operazioni di scrittura e lettura per ID sulle entità, delle query di
 range e k-nearest su una partizione, della creazione e rimozione delle
-partizioni e del commit (vedi [Forma delle chiamate nel
+partizioni, del commit e delle letture dei reader sull'ultimo commit
+(vedi [Forma delle chiamate nel
 prototipo](#forma-delle-chiamate-nel-prototipo)), che resta
 rivalutabile; la forma delle altre operazioni, raycast compreso, è
 ancora da definire.
@@ -190,10 +191,30 @@ Scelte di dettaglio:
   chiamata, per ridurre le chiamate remote, è rimandato ai gruppi di
   partizioni o al nodo gRPC.
 
-In questo primo passo il commit fa solo avanzare il contatore: le
-scritture restano visibili appena eseguite. Come un reader ottiene e
-tiene una versione pubblicata si decide con la pubblicazione dello
-snapshot (vedi [isolamento delle letture](/decisions/read-isolation.md)).
+### Letture del writer e dei reader
+
+Il commit pubblica la versione della partizione (vedi [isolamento delle
+letture](/decisions/read-isolation.md#il-commit)). Le letture sono di
+due tipi:
+
+| Lettura | Forma | Note |
+|---|---|---|
+| Del writer | `getAll`, `findInRegion`, `findNearest` sul proxy della partizione | Leggono lo stato del writer, scritture non committate comprese; le chiama solo il writer |
+| Dei reader | `lastVersion()` su `Partition2`/`Partition3`; `lastVersion(PartitionId)` nel contratto del nodo | Restituisce la versione dell'ultimo commit, `PartitionVersion2`/`PartitionVersion3`: immutabile, leggibile da ogni thread, con `commit()`, `size()`, `get`, `getAll`, `findInRegion`, `findNearest`; prima del primo commit è la versione vuota del commit 0 |
+
+Tutte le letture di una versione vedono lo stesso commit; due chiamate
+a `lastVersion()` possono invece dare commit diversi.
+
+Scelte di dettaglio:
+
+- **Dopo la rimozione della partizione** `lastVersion()` fallisce, ma
+  una versione già presa resta leggibile e mostra la partizione al suo
+  commit: dati vecchi ma coerenti, come per ogni versione tenuta a
+  lungo.
+- **Vita delle versioni**: oggi un reader tiene una versione senza
+  limiti; il limite si decide con k (vedi [conservazione delle
+  versioni](/architecture/version-retention.md#punti-aperti)).
+
 Il [fencing token](/architecture/partition-ownership.md), quando
 arriva, si aggiunge al commit come alle altre scritture. La forma è
 provvisoria e si rivede con il tick globale e le [letture

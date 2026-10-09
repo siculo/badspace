@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T13:11:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T16:24:01Z }
 ---
 
 # Problema
@@ -76,6 +76,17 @@ Per sapere quando una versione non è più usata serve un contatore dei
 reader per versione o l'epoch-based reclamation: è lo stesso principio
 della *grace period* di RCU descritto nelle [letture
 coerenti](/mechanisms/consistent-reads.md).
+
+**Nel prototipo** la versione della partizione (snapshot degli slot e
+versione dell'indice) si pubblica con la scrittura di un campo
+`volatile`, l'ultima operazione del commit: chi legge il campo vede
+anche tutto quello che il commit ha scritto prima, quindi la versione
+precedente o tutta quella nuova. Prima del primo commit c'è una
+versione vuota al commit 0, con l'indice vuoto della scansione lineare,
+che con slot vuoti vale per ogni indice. Il writer legge il proprio
+stato, i reader la versione pubblicata con `lastVersion()` (vedi [API
+da esporre](/decisions/api-surface.md#letture-del-writer-e-dei-reader)).
+La liberazione delle versioni la fa per ora il GC.
 
 # Tutti i dati delle entità
 
@@ -169,7 +180,8 @@ writer.
   celle e nodi alla prima modifica dopo un commit.
 
 Lo storage combina la versione dell'indice con lo snapshot degli slot
-(vedi [Gli slot](#gli-slot)); manca la pubblicazione della radice.
+(vedi [Gli slot](#gli-slot)) e pubblica la versione della partizione
+(vedi [Il commit](#il-commit)).
 
 # Versioni passate
 
@@ -210,10 +222,9 @@ dei buffer evita comunque le allocazioni a ogni tick.
   misure se la copia pesa con molte entità e inserimenti o rimozioni a
   ogni commit (alternativa HAMT).
 - Contatori dei reader per versione o epoch-based reclamation.
-- Il confine del commit nel prototipo, che oggi non c'è: ogni scrittura
-  è visibile appena eseguita. Lo storage produce già a ogni commit la
-  versione della partizione (slot e indice); manca la pubblicazione
-  della radice, e le letture vedono ancora lo stato del writer.
+- Vita delle versioni tenute dai reader: oggi senza limiti (vedi
+  [conservazione delle
+  versioni](/architecture/version-retention.md#punti-aperti)).
 
 # Correlati
 
