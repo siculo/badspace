@@ -98,7 +98,7 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 
 - [x] Commit minimo con contatore monotono: il commit incrementa solo il contatore, le scritture restano visibili subito (`commit(n)` e `lastCommit()`, vedi la [forma delle chiamate](okf-bundle/decisions/api-surface.md#commit))
 - [x] Indici persistenti copy-on-write che usano il contatore: un nodo si modifica sul posto solo se è del commit corrente, altrimenti si copia; test che una radice tenuta da parte non cambia dopo un commit (basta un solo thread)
-- [ ] Slot nello snapshot: coordinate copiate a ogni commit, ID e mappa ID → slot copiati solo con inserimenti o rimozioni (per ora tabella copiata, non HAMT)
+- [x] Slot nello snapshot: coordinate copiate a ogni commit, ID e mappa ID → slot copiati solo con inserimenti o rimozioni (per ora tabella copiata, non HAMT)
 - [ ] Pubblicazione atomica della radice `(slot_N, indice_N)`: i reader vedono solo commit completi
 - [ ] k nella configurazione della partizione: il numero di commit passati da conservare (default 0), usato dalle [letture coerenti](#fare-letture); per ora solo le ultime k radici tenute vive, le versioni non usate le libera il GC
 - [ ] Writer su thread diversi per partizioni diverse, con pool dei buffer degli snapshot e conteggio dei reader per versione (o epoch-based reclamation)

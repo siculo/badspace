@@ -10,10 +10,8 @@ import badspace.service.index.SpatialIndex3;
 import badspace.service.index.SpatialIndexes;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.function.Function;
@@ -21,7 +19,7 @@ import java.util.function.Function;
 /**
  * Entities of a 3D partition. It has a single writer and is not thread-safe.
  * Entities are stored in primitive arrays: ids[i] has coordinates
- * coords[3*i], coords[3*i+1], coords[3*i+2]. A map gives the slot of each ID.
+ * coords[3*i], coords[3*i+1], coords[3*i+2]. A {@link SlotTable} gives the slot of each ID.
  * Removal moves the last entity into the free slot, so the arrays stay compact
  * and the order of the entities can change.
  * Each write first checks all the input, then applies it, so a failed write
@@ -30,8 +28,12 @@ import java.util.function.Function;
  * of each change. The index finds the slots and the storage builds the entities.
  * The positions of the entities must be in the limits of the index: writes
  * outside them fail, so the indices never see them.
- * Writes are grouped in commits, whose numbers always grow. For now a commit
- * only moves the counter.
+ * Writes are grouped in commits, whose numbers always grow. Each commit makes
+ * a {@link PartitionVersion3}: a snapshot of the slots and the version of the
+ * index of the same commit. The coordinates are copied at each commit; the
+ * IDs and the table from ID to slot only after insertions or removals, else
+ * the new snapshot shares them with the one before. For now nobody reads the
+ * versions: the reads of the storage see all the writes at once.
  */
 final class PartitionStorage3 implements SlotView3 {
 
@@ -40,9 +42,13 @@ final class PartitionStorage3 implements SlotView3 {
 
     private long[] ids = new long[INITIAL_CAPACITY];
     private double[] coords = new double[INITIAL_CAPACITY * DIMENSIONS];
-    private final Map<Long, Integer> slotById = new HashMap<>();
+    private final SlotTable slotById = new SlotTable();
     private int size;
     private long lastCommit;
+    /** The snapshot of the last commit, null before the first commit. */
+    private SlotSnapshot3 lastSnapshot;
+    /** True after an insertion or a removal not yet in a snapshot. */
+    private boolean idsChanged;
     private final CoordinateLimits limits;
     private final SpatialIndex3 index;
 
@@ -69,7 +75,7 @@ final class PartitionStorage3 implements SlotView3 {
     void insertAll(List<Entity3> entities) {
         Set<Long> seen = new HashSet<>();
         for (Entity3 e : entities) {
-            if (slotById.containsKey(e.id()) || !seen.add(e.id())) {
+            if (slotById.contains(e.id()) || !seen.add(e.id())) {
                 throw new IllegalArgumentException("Duplicate entity ID: " + e.id());
             }
             checkLimits(e);
@@ -80,6 +86,7 @@ final class PartitionStorage3 implements SlotView3 {
             ids[slot] = e.id();
             write(slot, e.position());
             slotById.put(e.id(), slot);
+            idsChanged = true;
             index.inserted(slot, e.position());
         }
     }
@@ -87,8 +94,8 @@ final class PartitionStorage3 implements SlotView3 {
     List<Entity3> getAll(long[] entityIds) {
         List<Entity3> result = new ArrayList<>(entityIds.length);
         for (long id : entityIds) {
-            Integer slot = slotById.get(id);
-            if (slot != null) {
+            int slot = slotById.get(id);
+            if (slot != SlotTable.NONE) {
                 result.add(new Entity3(id, positionAt(slot)));
             }
         }
@@ -144,15 +151,18 @@ final class PartitionStorage3 implements SlotView3 {
         return limits;
     }
 
-    void commit(long commit) {
+    /** Closes the commit and returns the version of the partition at the commit. */
+    PartitionVersion3 commit(long commit) {
         if (commit <= lastCommit) {
             throw new IllegalArgumentException(
                     "Commit " + commit + " is not greater than the last commit " + lastCommit);
         }
-        // The partition does not keep the version of the index yet: it will publish
-        // it together with the slots of the same commit.
-        index.commit(commit);
+        SlotSnapshot3 snapshot = snapshot();
+        PartitionVersion3 version = new PartitionVersion3(commit, snapshot, index.commit(commit));
+        lastSnapshot = snapshot;
+        idsChanged = false;
         lastCommit = commit;
+        return version;
     }
 
     long lastCommit() {
@@ -170,8 +180,17 @@ final class PartitionStorage3 implements SlotView3 {
         return new Point3(coords[base], coords[base + 1], coords[base + 2]);
     }
 
+    private SlotSnapshot3 snapshot() {
+        double[] coordsCopy = Arrays.copyOf(coords, size * DIMENSIONS);
+        if (lastSnapshot != null && !idsChanged) {
+            return new SlotSnapshot3(lastSnapshot.ids, coordsCopy, lastSnapshot.slotById);
+        }
+        return new SlotSnapshot3(Arrays.copyOf(ids, size), coordsCopy, slotById.copy());
+    }
+
     private void remove(long id) {
         int slot = slotById.remove(id);
+        idsChanged = true;
         Point3 position = positionAt(slot);
         int last = size - 1;
         if (slot != last) {
@@ -202,8 +221,8 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     private int slotOf(long id) {
-        Integer slot = slotById.get(id);
-        if (slot == null) {
+        int slot = slotById.get(id);
+        if (slot == SlotTable.NONE) {
             throw new NoSuchElementException("Unknown entity ID: " + id);
         }
         return slot;

@@ -1,6 +1,8 @@
 package badspace.service.partition;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.common.geometry.Box3;
@@ -15,6 +17,7 @@ import badspace.service.index.SpatialIndex3;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +31,9 @@ class PartitionStorage3Test {
 
     private static final Point3 OUTSIDE = new Point3(0, 0, -11);
     private static final CoordinateLimits LIMITS = new CoordinateLimits(-10, 10);
+    private static final Point3 LIMITS_MIN = new Point3(-10, -10, -10);
+    private static final Point3 LIMITS_MAX = new Point3(10, 10, 10);
+    private static final long[] ALL_IDS = {10, 20, 30, 40};
 
     private RecordingIndex index;
     private PartitionStorage3 storage;
@@ -140,11 +146,70 @@ class PartitionStorage3Test {
     }
 
     @Test
+    void versionOfACommitDoesNotSeeLaterWrites() {
+        for (IndexConfig config : List.of(
+                IndexConfig.linearScan(), IndexConfig.uniformGrid(4), IndexConfig.gridQuadtree(4, 2))) {
+            PartitionStorage3 configured = new PartitionStorage3(config);
+            configured.insertAll(List.of(new Entity3(10, A), new Entity3(20, B), new Entity3(30, C)));
+            PartitionVersion3 first = configured.commit(1);
+            // The removal of 10 moves 30 into its slot.
+            configured.updateAll(List.of(new Entity3(30, D)));
+            configured.removeAll(new long[] {10});
+            configured.insertAll(List.of(new Entity3(40, A)));
+            PartitionVersion3 second = configured.commit(2);
+            configured.removeAll(new long[] {20});
+            configured.updateAll(List.of(new Entity3(40, B)));
+
+            String where = config.toString();
+            checkVersion(first, 1, List.of(new Entity3(10, A), new Entity3(20, B), new Entity3(30, C)), where);
+            checkVersion(second, 2, List.of(new Entity3(40, A), new Entity3(20, B), new Entity3(30, D)), where);
+            assertEquals(List.of(new Entity3(30, D), new Entity3(40, B)), configured.getAll(ALL_IDS), where);
+        }
+    }
+
+    @Test
+    void commitWithoutInsertionsOrRemovalsSharesTheIds() {
+        storage.insertAll(List.of(new Entity3(10, A), new Entity3(20, B)));
+        SlotSnapshot3 first = storage.commit(1).slots();
+        storage.updateAll(List.of(new Entity3(20, C)));
+        SlotSnapshot3 moved = storage.commit(2).slots();
+        assertSame(first.ids, moved.ids);
+        assertSame(first.slotById, moved.slotById);
+        assertNotSame(first.coords, moved.coords);
+        assertEquals(B, first.positionAt(1));
+        assertEquals(C, moved.positionAt(1));
+
+        storage.removeAll(new long[] {10});
+        SlotSnapshot3 removed = storage.commit(3).slots();
+        assertNotSame(moved.ids, removed.ids);
+        assertNotSame(moved.slotById, removed.slotById);
+        storage.insertAll(List.of(new Entity3(30, D)));
+        SlotSnapshot3 inserted = storage.commit(4).slots();
+        assertNotSame(removed.ids, inserted.ids);
+        assertNotSame(removed.slotById, inserted.slotById);
+        assertEquals(2, moved.size());
+        assertEquals(1, removed.size());
+        assertEquals(2, inserted.size());
+    }
+
+    @Test
     void findNearestWithZeroCountDoesNotCallTheIndex() {
         storage.insertAll(List.of(new Entity3(10, A)));
         index.calls.clear();
         assertEquals(List.of(), storage.findNearest(A, 0));
         assertEquals(List.of(), index.calls);
+    }
+
+    /** Checks all the reads of the version, which must find exactly the expected entities, nearest to A first. */
+    private static void checkVersion(PartitionVersion3 version, long commit, List<Entity3> expected, String where) {
+        assertEquals(commit, version.commit(), where);
+        assertEquals(Set.copyOf(expected), Set.copyOf(version.getAll(ALL_IDS)), where);
+        assertEquals(expected.size(), version.getAll(ALL_IDS).size(), where);
+        List<Entity3> inRegion = version.findInRegion(new Box3(LIMITS_MIN, LIMITS_MAX));
+        assertEquals(Set.copyOf(expected), Set.copyOf(inRegion), where);
+        assertEquals(expected.size(), inRegion.size(), where);
+        assertEquals(expected, version.findNearest(A, ALL_IDS.length), where);
+        assertEquals(List.of(), version.findNearest(A, 0), where);
     }
 
     /**
@@ -184,7 +249,7 @@ class PartitionStorage3Test {
         @Override
         public IndexVersion3 commit(long n) {
             calls.add("commit " + n);
-            // The storage does not use the version yet.
+            // These tests do not read the version of the index.
             return null;
         }
 
