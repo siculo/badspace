@@ -32,7 +32,9 @@ sviluppo incrementale sono in `CLAUDE.md` e non si ripetono qui.
    - niente costrutti senza un equivalente semplice in entrambi: riflessione, annotation lette
      a runtime, framework, eccezioni usate come flusso normale;
    - niente gerarchie di ereditarietà: interfacce e composizione (trait in Rust, funzioni
-     parallele o puntatori a funzione in C);
+     parallele o puntatori a funzione in C). Vale per il codice da tradurre (`common`,
+     `service`, `api`); benchmark e test possono estendere classi (stati di JMH, test di
+     contratto);
    - proprietà dei dati chiara: ogni struttura ha un solo proprietario, niente riferimenti
      ciclici (per esempio puntatori al padre negli alberi: meglio indici in un array).
 4. **Niente infrastruttura non richiesta**: DI, logging, livelli o astrazioni arrivano solo
@@ -57,7 +59,8 @@ sviluppo incrementale sono in `CLAUDE.md` e non si ripetono qui.
    (`entityIds`, `commit`, `count`).
 6. **Nomi brevi solo in contesti ridotti e non esposti**: variabili locali di metodi brevi e
    indici dei cicli (`id`, `i`). Parametri, campi e tutto ciò che è visibile fuori dal metodo
-   hanno il nome completo (`entityId`, non `id`).
+   hanno il nome completo (`entityId`, non `id`). Eccezione: il campo di un record che porta
+   il nome del tipo resta breve (`Entity2.id()`, non `Entity2.entityId()`).
 7. **Nessun numero magico**: costanti con nome che dice il significato (`NONE`,
    `INITIAL_CAPACITY`).
 8. **Test**: il nome è una frase sul comportamento, in camelCase
@@ -77,7 +80,7 @@ sviluppo incrementale sono in `CLAUDE.md` e non si ripetono qui.
 
 1. `IllegalArgumentException` per input non validi, `IllegalStateException` per operazioni
    non permesse nello stato attuale. Il messaggio riporta il valore
-   (`"Unknown partition: " + partition`).
+   (`"Unknown partition: " + partitionId`).
 2. Validare all'ingresso del contratto, non nei cicli interni.
 
 ## 5. Commenti

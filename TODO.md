@@ -186,6 +186,8 @@ Non è deciso quanti e quali client servono: si costruiscono man mano. Scenari p
 
 Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici sono nel [TODO degli indici](TODO-indices.md).
 
+- [ ] Array di oggetti negli indici sostituiti da array paralleli di primitivi, come chiedono le [linee guida](prototype/coding-guidelines.md) (principio 2): `Node[] children` in `GridQuadtreeIndex2` e `GridOctreeIndex3`, `Object[]` ed `Entry[]` in `HashTrie`. Va fatto indipendentemente dal [TODO degli indici](TODO-indices.md)
+
 
 ## Decisioni da prendere
 
