@@ -206,8 +206,8 @@ abstract class SpatialIndex3Contract {
         return storage;
     }
 
-    private static Entity3 entity(long id, double x, double y, double z) {
-        return new Entity3(id, new Point3(x, y, z));
+    private static Entity3 entity(long entityId, double x, double y, double z) {
+        return new Entity3(entityId, new Point3(x, y, z));
     }
 
     private static List<Entity3> sortedById(List<Entity3> entities) {

@@ -32,8 +32,8 @@ class LocalPartitionNode2Test {
         node.createPartition(P1);
     }
 
-    private static Entity2 entity(long id, double x, double y) {
-        return new Entity2(id, new Point2(x, y));
+    private static Entity2 entity(long entityId, double x, double y) {
+        return new Entity2(entityId, new Point2(x, y));
     }
 
     @Test

@@ -19,21 +19,21 @@ import java.util.List;
 public interface PartitionNode2 {
 
     /** Creates an empty partition that uses the linear scan as index. Fails if the ID is already in use on this node. */
-    default void createPartition(PartitionId partition) {
-        createPartition(partition, IndexConfig.linearScan());
+    default void createPartition(PartitionId partitionId) {
+        createPartition(partitionId, IndexConfig.linearScan());
     }
 
     /** Creates an empty partition with the given index. Fails if the ID is already in use on this node. */
-    void createPartition(PartitionId partition, IndexConfig index);
+    void createPartition(PartitionId partitionId, IndexConfig index);
 
     /**
      * Removes an empty partition. Fails with IllegalArgumentException if the ID is unknown,
      * and with IllegalStateException if the partition still has entities.
      */
-    void removePartition(PartitionId partition);
+    void removePartition(PartitionId partitionId);
 
     /** Removes a partition together with its entities. Fails with IllegalArgumentException if the ID is unknown. */
-    void dropPartition(PartitionId partition);
+    void dropPartition(PartitionId partitionId);
 
     /**
      * Adds new entities to a partition. The API generates the entity IDs, which must
@@ -41,13 +41,13 @@ public interface PartitionNode2 {
      * already in the partition or appears twice in the list, or if a position is
      * outside the {@linkplain #limits limits} of the partition.
      */
-    void insertAll(PartitionId partition, List<Entity2> entities);
+    void insertAll(PartitionId partitionId, List<Entity2> entities);
 
     /**
      * Returns the entities with the given IDs, in the same order.
      * IDs that are not in the partition are skipped.
      */
-    List<Entity2> getAll(PartitionId partition, long[] entityIds);
+    List<Entity2> getAll(PartitionId partitionId, long[] entityIds);
 
     /**
      * Sets the position of existing entities. Fails with NoSuchElementException
@@ -55,26 +55,26 @@ public interface PartitionNode2 {
      * position is outside the {@linkplain #limits limits} of the partition.
      * If an ID appears more than once, the last position wins.
      */
-    void updateAll(PartitionId partition, List<Entity2> entities);
+    void updateAll(PartitionId partitionId, List<Entity2> entities);
 
     /**
      * Removes entities from a partition. Fails with NoSuchElementException if an ID
      * is not in the partition, and with IllegalArgumentException if an ID appears twice.
      */
-    void removeAll(PartitionId partition, long[] entityIds);
+    void removeAll(PartitionId partitionId, long[] entityIds);
 
     /**
      * Returns the entities of a partition that are inside the region or on its border.
      * The order of the result is not defined.
      */
-    List<Entity2> findInRegion(PartitionId partition, Region2 region);
+    List<Entity2> findInRegion(PartitionId partitionId, Region2 region);
 
     /**
      * Returns the entities of a partition that are nearest to a point, at most count of them.
      * The result is sorted by distance from the point; entities at the same distance are
      * sorted by ID. Fails with IllegalArgumentException if count is negative.
      */
-    List<Entity2> findNearest(PartitionId partition, Point2 point, int count);
+    List<Entity2> findNearest(PartitionId partitionId, Point2 point, int count);
 
     /**
      * Closes the current commit of a partition with the given number. The number must be
@@ -83,25 +83,25 @@ public interface PartitionNode2 {
      * A commit with no writes is valid. The commit publishes the version of the partition
      * at the commit, which {@link #lastVersion} then returns.
      */
-    void commit(PartitionId partition, long commit);
+    void commit(PartitionId partitionId, long commit);
 
     /**
      * Returns the version of the last commit of a partition: the empty version at commit 0
      * if the partition has no commit yet. The version never changes. Unlike the other reads,
      * any thread can call it.
      */
-    PartitionVersion2 lastVersion(PartitionId partition);
+    PartitionVersion2 lastVersion(PartitionId partitionId);
 
     /** Returns the number of the last commit of a partition, or 0 if it has no commit yet. */
-    long lastCommit(PartitionId partition);
+    long lastCommit(PartitionId partitionId);
 
     /** Returns the number of entities in a partition. */
-    int size(PartitionId partition);
+    int size(PartitionId partitionId);
 
     /**
      * Returns the coordinates that the entities of a partition can have. The
      * index of the partition sets them: they are the same as
      * {@link IndexConfig#limits()} of the index chosen at creation.
      */
-    CoordinateLimits limits(PartitionId partition);
+    CoordinateLimits limits(PartitionId partitionId);
 }

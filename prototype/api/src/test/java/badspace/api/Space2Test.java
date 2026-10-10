@@ -59,36 +59,36 @@ class Space2Test {
         int calls;
 
         @Override
-        public void createPartition(PartitionId partition, IndexConfig index) {
-            partitions.put(partition, new HashMap<>());
-            indices.put(partition, index);
+        public void createPartition(PartitionId partitionId, IndexConfig index) {
+            partitions.put(partitionId, new HashMap<>());
+            indices.put(partitionId, index);
         }
 
         @Override
-        public void removePartition(PartitionId partition) {
-            if (!partitions.get(partition).isEmpty()) {
+        public void removePartition(PartitionId partitionId) {
+            if (!partitions.get(partitionId).isEmpty()) {
                 throw new IllegalStateException("Partition is not empty");
             }
-            partitions.remove(partition);
+            partitions.remove(partitionId);
         }
 
         @Override
-        public void dropPartition(PartitionId partition) {
-            partitions.remove(partition);
+        public void dropPartition(PartitionId partitionId) {
+            partitions.remove(partitionId);
         }
 
         @Override
-        public void insertAll(PartitionId partition, List<Entity2> entities) {
+        public void insertAll(PartitionId partitionId, List<Entity2> entities) {
             calls++;
-            entities.forEach(e -> partitions.get(partition).put(e.id(), e.position()));
+            entities.forEach(e -> partitions.get(partitionId).put(e.id(), e.position()));
         }
 
         @Override
-        public List<Entity2> getAll(PartitionId partition, long[] entityIds) {
+        public List<Entity2> getAll(PartitionId partitionId, long[] entityIds) {
             calls++;
             List<Entity2> result = new ArrayList<>();
             for (long id : entityIds) {
-                Point2 p = partitions.get(partition).get(id);
+                Point2 p = partitions.get(partitionId).get(id);
                 if (p != null) {
                     result.add(new Entity2(id, p));
                 }
@@ -97,32 +97,32 @@ class Space2Test {
         }
 
         @Override
-        public void updateAll(PartitionId partition, List<Entity2> entities) {
+        public void updateAll(PartitionId partitionId, List<Entity2> entities) {
             calls++;
-            entities.forEach(e -> partitions.get(partition).put(e.id(), e.position()));
+            entities.forEach(e -> partitions.get(partitionId).put(e.id(), e.position()));
         }
 
         @Override
-        public void removeAll(PartitionId partition, long[] entityIds) {
+        public void removeAll(PartitionId partitionId, long[] entityIds) {
             calls++;
             for (long id : entityIds) {
-                partitions.get(partition).remove(id);
+                partitions.get(partitionId).remove(id);
             }
         }
 
         @Override
-        public List<Entity2> findInRegion(PartitionId partition, Region2 region) {
+        public List<Entity2> findInRegion(PartitionId partitionId, Region2 region) {
             calls++;
-            return partitions.get(partition).entrySet().stream()
+            return partitions.get(partitionId).entrySet().stream()
                     .filter(e -> region.contains(e.getValue()))
                     .map(e -> new Entity2(e.getKey(), e.getValue()))
                     .toList();
         }
 
         @Override
-        public List<Entity2> findNearest(PartitionId partition, Point2 point, int count) {
+        public List<Entity2> findNearest(PartitionId partitionId, Point2 point, int count) {
             calls++;
-            return partitions.get(partition).entrySet().stream()
+            return partitions.get(partitionId).entrySet().stream()
                     .sorted(Comparator.comparingDouble((Map.Entry<Long, Point2> e) -> {
                         double dx = e.getValue().x() - point.x();
                         double dy = e.getValue().y() - point.y();
@@ -134,33 +134,33 @@ class Space2Test {
         }
 
         @Override
-        public void commit(PartitionId partition, long commit) {
+        public void commit(PartitionId partitionId, long commit) {
             calls++;
-            commits.put(partition, commit);
-            versions.put(partition, new MapVersion(commit, partitions.get(partition).size()));
+            commits.put(partitionId, commit);
+            versions.put(partitionId, new MapVersion(commit, partitions.get(partitionId).size()));
         }
 
         @Override
-        public PartitionVersion2 lastVersion(PartitionId partition) {
+        public PartitionVersion2 lastVersion(PartitionId partitionId) {
             calls++;
-            return versions.computeIfAbsent(partition, p -> new MapVersion(0, 0));
+            return versions.computeIfAbsent(partitionId, p -> new MapVersion(0, 0));
         }
 
         @Override
-        public long lastCommit(PartitionId partition) {
+        public long lastCommit(PartitionId partitionId) {
             calls++;
-            return commits.getOrDefault(partition, 0L);
+            return commits.getOrDefault(partitionId, 0L);
         }
 
         @Override
-        public int size(PartitionId partition) {
-            return partitions.get(partition).size();
+        public int size(PartitionId partitionId) {
+            return partitions.get(partitionId).size();
         }
 
         @Override
-        public CoordinateLimits limits(PartitionId partition) {
+        public CoordinateLimits limits(PartitionId partitionId) {
             calls++;
-            return indices.get(partition).limits();
+            return indices.get(partitionId).limits();
         }
 
         Map<Long, Point2> onlyPartition() {

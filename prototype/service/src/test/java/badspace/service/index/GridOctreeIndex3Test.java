@@ -161,8 +161,8 @@ class GridOctreeIndex3Test {
         c.check(new Point3(-1e-300, -1e-300, -1e-300), 2);
     }
 
-    private static Entity3 entity(long id, double x, double y) {
-        return new Entity3(id, new Point3(x, y, y));
+    private static Entity3 entity(long entityId, double x, double y) {
+        return new Entity3(entityId, new Point3(x, y, y));
     }
 
     /** The same entities in a storage with the grid of octrees and in one with the linear scan. */
@@ -205,9 +205,9 @@ class GridOctreeIndex3Test {
             return index.maxDepth();
         }
 
-        void removeAll(long[] ids) {
-            tested.removeAll(ids);
-            reference.removeAll(ids);
+        void removeAll(long[] entityIds) {
+            tested.removeAll(entityIds);
+            reference.removeAll(entityIds);
         }
 
         /** The versions of the two storages at the same commit. */

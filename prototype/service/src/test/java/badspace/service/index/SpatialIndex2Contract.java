@@ -204,8 +204,8 @@ abstract class SpatialIndex2Contract {
         return storage;
     }
 
-    private static Entity2 entity(long id, double x, double y) {
-        return new Entity2(id, new Point2(x, y));
+    private static Entity2 entity(long entityId, double x, double y) {
+        return new Entity2(entityId, new Point2(x, y));
     }
 
     private static List<Entity2> sortedById(List<Entity2> entities) {

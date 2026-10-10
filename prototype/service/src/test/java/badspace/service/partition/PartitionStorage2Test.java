@@ -339,9 +339,9 @@ class PartitionStorage2Test {
     }
 
     /** The position of an entity at the commit, inside the limits; it changes cell often. */
-    private static Point2 positionAt(long commit, long id) {
+    private static Point2 positionAt(long commit, long entityId) {
         double base = commit % 16 - 8;
-        return new Point2(base + (id % 10) * 0.25, -base - (id / 10 % 10) * 0.25);
+        return new Point2(base + (entityId % 10) * 0.25, -base - (entityId / 10 % 10) * 0.25);
     }
 
     /**

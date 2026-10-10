@@ -51,8 +51,8 @@ final class TestStorage3 implements SlotView3 {
         }
     }
 
-    void removeAll(long[] ids) {
-        for (long id : ids) {
+    void removeAll(long[] entityIds) {
+        for (long id : entityIds) {
             int slot = slotById.remove(id);
             Point3 position = entities.get(slot).position();
             int last = entities.size() - 1;
