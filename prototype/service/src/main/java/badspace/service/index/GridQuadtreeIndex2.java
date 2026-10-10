@@ -50,6 +50,7 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     static final int MAX_DEPTH = 24;
 
     private static final int CHILDREN = 4;
+    private static final int INITIAL_CAPACITY = 16;
 
     private final SlotView2 storage;
     private final double cellSize;
@@ -58,7 +59,7 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
     /** The root node of each cell with entities. */
     private final HashTrie<CellKey, Node> cells = new HashTrie<>();
     /** For each slot, its place in the list of its leaf. */
-    private int[] placeOf = new int[16];
+    private int[] placeOf = new int[INITIAL_CAPACITY];
     private long lastCommit;
 
     /** The cell size must be a power of 2 and the leaf capacity positive, as in {@code IndexConfig.GridQuadtree}. */
@@ -735,6 +736,7 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
             return p.x() >= minX && p.x() < maxX() && p.y() >= minY && p.y() < maxY();
         }
 
+        // One bit per axis: bit 0 is set in the upper half of x, bit 1 in the upper half of y.
         int childIndex(Point2 p) {
             double half = side / 2;
             return (p.x() < minX + half ? 0 : 1) + (p.y() < minY + half ? 0 : 2);

@@ -5,7 +5,9 @@ import java.util.Arrays;
 /** A list of slots in a growing int array, without boxing. */
 final class SlotList {
 
-    private int[] slots = new int[4];
+    private static final int INITIAL_CAPACITY = 4;
+
+    private int[] slots = new int[INITIAL_CAPACITY];
     private int size;
 
     /** Adds the slot at the end and returns its place in the list. */

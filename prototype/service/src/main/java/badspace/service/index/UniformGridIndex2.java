@@ -40,11 +40,13 @@ final class UniformGridIndex2 implements SpatialIndex2 {
      */
     private static final double ROUNDING_MARGIN = 1e-5;
 
+    private static final int INITIAL_CAPACITY = 16;
+
     private final SlotView2 storage;
     private final double cellSize;
     private final HashTrie<CellKey, Cell> cells = new HashTrie<>();
     /** For each slot, its place in the list of its cell. */
-    private int[] placeInCell = new int[16];
+    private int[] placeInCell = new int[INITIAL_CAPACITY];
     private long lastCommit;
 
     UniformGridIndex2(SlotView2 storage, double cellSize) {

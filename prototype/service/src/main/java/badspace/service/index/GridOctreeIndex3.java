@@ -50,6 +50,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     static final int MAX_DEPTH = 24;
 
     private static final int CHILDREN = 8;
+    private static final int INITIAL_CAPACITY = 16;
 
     private final SlotView3 storage;
     private final double cellSize;
@@ -58,7 +59,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     /** The root node of each cell with entities. */
     private final HashTrie<CellKey, Node> cells = new HashTrie<>();
     /** For each slot, its place in the list of its leaf. */
-    private int[] placeOf = new int[16];
+    private int[] placeOf = new int[INITIAL_CAPACITY];
     private long lastCommit;
 
     /** The cell size must be a power of 2 and the leaf capacity positive, as in {@code IndexConfig.GridQuadtree}. */
@@ -757,6 +758,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
                     && p.z() >= minZ && p.z() < maxZ();
         }
 
+        // One bit per axis: bits 0, 1 and 2 are set in the upper half of x, y and z.
         int childIndex(Point3 p) {
             double half = side / 2;
             return (p.x() < minX + half ? 0 : 1) + (p.y() < minY + half ? 0 : 2) + (p.z() < minZ + half ? 0 : 4);
