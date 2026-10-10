@@ -112,18 +112,18 @@ public final class SnowflakeIdGenerator {
     }
 
     /** Returns the timestamp field of an ID, in milliseconds since the Unix epoch. */
-    public static long timestampMillis(long id) {
-        return (id >>> (GENERATOR_BITS + SEQUENCE_BITS)) + EPOCH_MILLIS;
+    public static long timestampMillis(long entityId) {
+        return (entityId >>> (GENERATOR_BITS + SEQUENCE_BITS)) + EPOCH_MILLIS;
     }
 
     /** Returns the generator ID field of an ID. */
-    public static long generatorId(long id) {
-        return (id >>> SEQUENCE_BITS) & MAX_GENERATOR_ID;
+    public static long generatorId(long entityId) {
+        return (entityId >>> SEQUENCE_BITS) & MAX_GENERATOR_ID;
     }
 
     /** Returns the sequence field of an ID. */
-    public static long sequence(long id) {
-        return id & MAX_SEQUENCE;
+    public static long sequence(long entityId) {
+        return entityId & MAX_SEQUENCE;
     }
 
     private long now() {

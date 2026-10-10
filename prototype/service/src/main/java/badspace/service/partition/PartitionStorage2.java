@@ -19,7 +19,7 @@ import java.util.function.Function;
 /**
  * Entities of a 2D partition. It has a single writer and is not thread-safe,
  * except {@link #lastVersion()}.
- * Entities are stored in primitive arrays: ids[i] has coordinates
+ * Entities are stored in primitive arrays: slotEntityIds[i] has coordinates
  * coords[2*i], coords[2*i+1]. A {@link SlotTable} gives the slot of each ID.
  * Removal moves the last entity into the free slot, so the arrays stay compact
  * and the order of the entities can change.
@@ -46,7 +46,10 @@ final class PartitionStorage2 implements SlotView2 {
     private static final int DIMENSIONS = 2;
     private static final int INITIAL_CAPACITY = 16;
 
-    private long[] ids = new long[INITIAL_CAPACITY];
+    // Slot: entity ID and position. coords holds DIMENSIONS values per slot (x, y),
+    // so slot i is slotEntityIds[i] and coords[DIMENSIONS * i ...]. The capacity of
+    // coords is always DIMENSIONS times the capacity of slotEntityIds.
+    private long[] slotEntityIds = new long[INITIAL_CAPACITY];
     private double[] coords = new double[INITIAL_CAPACITY * DIMENSIONS];
     private final SlotTable slotById = new SlotTable();
     private int size;
@@ -89,7 +92,7 @@ final class PartitionStorage2 implements SlotView2 {
         ensureCapacity(size + entities.size());
         for (Entity2 e : entities) {
             int slot = size++;
-            ids[slot] = e.id();
+            slotEntityIds[slot] = e.id();
             write(slot, e.position());
             slotById.put(e.id(), slot);
             idsChanged = true;
@@ -182,7 +185,7 @@ final class PartitionStorage2 implements SlotView2 {
 
     @Override
     public long idAt(int slot) {
-        return ids[slot];
+        return slotEntityIds[slot];
     }
 
     @Override
@@ -195,20 +198,20 @@ final class PartitionStorage2 implements SlotView2 {
         double[] coordsCopy = Arrays.copyOf(coords, size * DIMENSIONS);
         if (!idsChanged) {
             SlotSnapshot2 last = lastVersion.slots();
-            return new SlotSnapshot2(last.ids, coordsCopy, last.slotById);
+            return new SlotSnapshot2(last.slotEntityIds, coordsCopy, last.slotById);
         }
-        return new SlotSnapshot2(Arrays.copyOf(ids, size), coordsCopy, slotById.copy());
+        return new SlotSnapshot2(Arrays.copyOf(slotEntityIds, size), coordsCopy, slotById.copy());
     }
 
-    private void remove(long id) {
-        int slot = slotById.remove(id);
+    private void remove(long entityId) {
+        int slot = slotById.remove(entityId);
         idsChanged = true;
         Point2 position = positionAt(slot);
         int last = size - 1;
         if (slot != last) {
-            ids[slot] = ids[last];
+            slotEntityIds[slot] = slotEntityIds[last];
             System.arraycopy(coords, last * DIMENSIONS, coords, slot * DIMENSIONS, DIMENSIONS);
-            slotById.put(ids[slot], slot);
+            slotById.put(slotEntityIds[slot], slot);
         }
         size--;
         index.removed(slot, position);
@@ -227,15 +230,15 @@ final class PartitionStorage2 implements SlotView2 {
     private List<Entity2> entitiesAt(int[] slots) {
         List<Entity2> result = new ArrayList<>(slots.length);
         for (int slot : slots) {
-            result.add(new Entity2(ids[slot], positionAt(slot)));
+            result.add(new Entity2(slotEntityIds[slot], positionAt(slot)));
         }
         return result;
     }
 
-    private int slotOf(long id) {
-        int slot = slotById.get(id);
+    private int slotOf(long entityId) {
+        int slot = slotById.get(entityId);
         if (slot == SlotTable.NONE) {
-            throw new NoSuchElementException("Unknown entity ID: " + id);
+            throw new NoSuchElementException("Unknown entity ID: " + entityId);
         }
         return slot;
     }
@@ -247,14 +250,14 @@ final class PartitionStorage2 implements SlotView2 {
     }
 
     private void ensureCapacity(int needed) {
-        if (needed <= ids.length) {
+        if (needed <= slotEntityIds.length) {
             return;
         }
-        int capacity = ids.length;
+        int capacity = slotEntityIds.length;
         while (capacity < needed) {
             capacity *= 2;
         }
-        ids = Arrays.copyOf(ids, capacity);
+        slotEntityIds = Arrays.copyOf(slotEntityIds, capacity);
         coords = Arrays.copyOf(coords, capacity * DIMENSIONS);
     }
 }

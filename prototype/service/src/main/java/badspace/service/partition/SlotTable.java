@@ -18,7 +18,9 @@ final class SlotTable {
     static final int NONE = -1;
     private static final int INITIAL_CAPACITY = 16;
 
-    private long[] ids;
+    // Place: entity ID and slot. The two arrays have the same length and the same
+    // index for the same place; an empty place has slot NONE.
+    private long[] entityIds;
     private int[] slots;
     private int size;
 
@@ -26,29 +28,29 @@ final class SlotTable {
         this(new long[INITIAL_CAPACITY], emptySlots(INITIAL_CAPACITY), 0);
     }
 
-    private SlotTable(long[] ids, int[] slots, int size) {
-        this.ids = ids;
+    private SlotTable(long[] entityIds, int[] slots, int size) {
+        this.entityIds = entityIds;
         this.slots = slots;
         this.size = size;
     }
 
     /** Returns the slot of the ID, or {@link #NONE} if the ID is not in the table. */
-    int get(long id) {
+    int get(long entityId) {
         int mask = slots.length - 1;
-        for (int i = placeOf(id, mask); slots[i] != NONE; i = (i + 1) & mask) {
-            if (ids[i] == id) {
+        for (int i = placeOf(entityId, mask); slots[i] != NONE; i = (i + 1) & mask) {
+            if (entityIds[i] == entityId) {
                 return slots[i];
             }
         }
         return NONE;
     }
 
-    boolean contains(long id) {
-        return get(id) != NONE;
+    boolean contains(long entityId) {
+        return get(entityId) != NONE;
     }
 
     /** Sets the slot of the ID. The slot must not be negative. */
-    void put(long id, int slot) {
+    void put(long entityId, int slot) {
         if (slot < 0) {
             throw new IllegalArgumentException("Negative slot: " + slot);
         }
@@ -56,22 +58,22 @@ final class SlotTable {
             grow();
         }
         int mask = slots.length - 1;
-        int i = placeOf(id, mask);
-        while (slots[i] != NONE && ids[i] != id) {
+        int i = placeOf(entityId, mask);
+        while (slots[i] != NONE && entityIds[i] != entityId) {
             i = (i + 1) & mask;
         }
         if (slots[i] == NONE) {
             size++;
         }
-        ids[i] = id;
+        entityIds[i] = entityId;
         slots[i] = slot;
     }
 
     /** Removes the ID and returns its slot, or {@link #NONE} if the ID was not in the table. */
-    int remove(long id) {
+    int remove(long entityId) {
         int mask = slots.length - 1;
-        int i = placeOf(id, mask);
-        while (slots[i] != NONE && ids[i] != id) {
+        int i = placeOf(entityId, mask);
+        while (slots[i] != NONE && entityIds[i] != entityId) {
             i = (i + 1) & mask;
         }
         int slot = slots[i];
@@ -83,9 +85,9 @@ final class SlotTable {
         // only by passing over the free place.
         int free = i;
         for (int j = (i + 1) & mask; slots[j] != NONE; j = (j + 1) & mask) {
-            int home = placeOf(ids[j], mask);
+            int home = placeOf(entityIds[j], mask);
             if (((j - home) & mask) >= ((j - free) & mask)) {
-                ids[free] = ids[j];
+                entityIds[free] = entityIds[j];
                 slots[free] = slots[j];
                 free = j;
             }
@@ -100,25 +102,25 @@ final class SlotTable {
 
     /** Returns a copy that does not change when this table changes. */
     SlotTable copy() {
-        return new SlotTable(ids.clone(), slots.clone(), size);
+        return new SlotTable(entityIds.clone(), slots.clone(), size);
     }
 
     private void grow() {
-        long[] oldIds = ids;
+        long[] oldEntityIds = entityIds;
         int[] oldSlots = slots;
-        ids = new long[oldSlots.length * 2];
+        entityIds = new long[oldSlots.length * 2];
         slots = emptySlots(oldSlots.length * 2);
         size = 0;
         for (int i = 0; i < oldSlots.length; i++) {
             if (oldSlots[i] != NONE) {
-                put(oldIds[i], oldSlots[i]);
+                put(oldEntityIds[i], oldSlots[i]);
             }
         }
     }
 
     /** Returns the place chosen by the hash of the ID. The bits of the ID are mixed, so near IDs go to far places. */
-    private static int placeOf(long id, int mask) {
-        long h = id;
+    private static int placeOf(long entityId, int mask) {
+        long h = entityId;
         h ^= h >>> 33;
         h *= 0xff51afd7ed558ccdL;
         h ^= h >>> 33;

@@ -33,7 +33,7 @@ public class BuildBenchmark {
 
     @Benchmark
     public PartitionNode2 build(BuildState s) {
-        s.node.insertAll(WorkloadState.PARTITION, s.workload.entities());
+        s.node.insertAll(WorkloadState.PARTITION_ID, s.workload.entities());
         return s.node;
     }
 }

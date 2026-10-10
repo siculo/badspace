@@ -17,7 +17,7 @@ import org.openjdk.jmh.annotations.State;
 @State(Scope.Thread)
 public abstract class WorkloadState {
 
-    static final PartitionId PARTITION = new PartitionId(1);
+    static final PartitionId PARTITION_ID = new PartitionId(1);
     static final long SEED = 42;
 
     /** Name of the index, see {@link IndexNames}. */
@@ -45,7 +45,7 @@ public abstract class WorkloadState {
     /** Returns a new node with an empty partition that uses the index of the benchmark. */
     PartitionNode2 newNode() {
         PartitionNode2 node = new LocalPartitionNode2();
-        node.createPartition(PARTITION, IndexNames.parse(index));
+        node.createPartition(PARTITION_ID, IndexNames.parse(index));
         return node;
     }
 }

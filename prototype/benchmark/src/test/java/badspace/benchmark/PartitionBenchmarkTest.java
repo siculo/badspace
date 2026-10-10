@@ -28,7 +28,7 @@ class PartitionBenchmarkTest {
     }
 
     private static List<Entity2> content(PartitionBenchmark.PartitionState s) {
-        return s.node.findInRegion(WorkloadState.PARTITION, WORLD).stream()
+        return s.node.findInRegion(WorkloadState.PARTITION_ID, WORLD).stream()
                 .sorted(Comparator.comparingLong(Entity2::id))
                 .toList();
     }
@@ -41,7 +41,7 @@ class PartitionBenchmarkTest {
         List<Entity2> before = content(s);
         for (int i = 0; i < 2 * PartitionBenchmark.BATCH_COUNT; i++) {
             benchmark.insert(s);
-            assertEquals(SIZE + 100, s.node.size(WorkloadState.PARTITION));
+            assertEquals(SIZE + 100, s.node.size(WorkloadState.PARTITION_ID));
             s.removeInserted();
         }
         assertEquals(before, content(s));
@@ -55,7 +55,7 @@ class PartitionBenchmarkTest {
         List<Entity2> before = content(s);
         for (int i = 0; i < 2 * PartitionBenchmark.BATCH_COUNT; i++) {
             benchmark.remove(s);
-            assertEquals(SIZE - 100, s.node.size(WorkloadState.PARTITION));
+            assertEquals(SIZE - 100, s.node.size(WorkloadState.PARTITION_ID));
             s.insertRemoved();
         }
         assertEquals(before, content(s));

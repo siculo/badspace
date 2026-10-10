@@ -10,7 +10,7 @@ import java.util.PriorityQueue;
 final class NearestSlots {
 
     private static final Comparator<Candidate> NEAREST_FIRST =
-            Comparator.comparingDouble(Candidate::distanceSquared).thenComparingLong(Candidate::id);
+            Comparator.comparingDouble(Candidate::distanceSquared).thenComparingLong(Candidate::entityId);
 
     private final int count;
     // The head of the queue is the farthest of the nearest entities found so far.
@@ -22,8 +22,8 @@ final class NearestSlots {
     }
 
     /** Offers an entity: it is kept if it is one of the nearest so far. */
-    void offer(double distanceSquared, long id, int slot) {
-        Candidate c = new Candidate(distanceSquared, id, slot);
+    void offer(double distanceSquared, long entityId, int slot) {
+        Candidate c = new Candidate(distanceSquared, entityId, slot);
         if (nearest.size() < count) {
             nearest.add(c);
         } else if (NEAREST_FIRST.compare(c, nearest.peek()) < 0) {
@@ -47,6 +47,6 @@ final class NearestSlots {
     }
 
     /** An offered entity, with its squared distance from the point. */
-    private record Candidate(double distanceSquared, long id, int slot) {
+    private record Candidate(double distanceSquared, long entityId, int slot) {
     }
 }

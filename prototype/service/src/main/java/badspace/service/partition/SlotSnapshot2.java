@@ -17,21 +17,23 @@ final class SlotSnapshot2 implements SlotView2 {
     private static final int DIMENSIONS = 2;
 
     private final int size;
+    // Slot: entity ID and position, as in the storage. coords holds DIMENSIONS values
+    // per slot (x, y), so slot i is slotEntityIds[i] and coords[DIMENSIONS * i ...].
     /** Package-private so that the tests can check what the snapshots share. */
-    final long[] ids;
+    final long[] slotEntityIds;
     final double[] coords;
     final SlotTable slotById;
 
-    SlotSnapshot2(long[] ids, double[] coords, SlotTable slotById) {
-        this.size = ids.length;
-        this.ids = ids;
+    SlotSnapshot2(long[] slotEntityIds, double[] coords, SlotTable slotById) {
+        this.size = slotEntityIds.length;
+        this.slotEntityIds = slotEntityIds;
         this.coords = coords;
         this.slotById = slotById;
     }
 
     /** Returns the slot of the ID, or {@link SlotTable#NONE} if the ID is not in the snapshot. */
-    int slotOf(long id) {
-        return slotById.get(id);
+    int slotOf(long entityId) {
+        return slotById.get(entityId);
     }
 
     @Override
@@ -41,7 +43,7 @@ final class SlotSnapshot2 implements SlotView2 {
 
     @Override
     public long idAt(int slot) {
-        return ids[slot];
+        return slotEntityIds[slot];
     }
 
     @Override

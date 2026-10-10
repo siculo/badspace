@@ -122,8 +122,8 @@ final class Footprint {
         for (int r = 0; r < REPEAT; r++) {
             long before = usedHeap();
             PartitionNode2 node = new LocalPartitionNode2();
-            node.createPartition(WorkloadState.PARTITION, IndexNames.parse(index));
-            node.insertAll(WorkloadState.PARTITION, workload.entities());
+            node.createPartition(WorkloadState.PARTITION_ID, IndexNames.parse(index));
+            node.insertAll(WorkloadState.PARTITION_ID, workload.entities());
             long after = usedHeap();
             Reference.reachabilityFence(node);
             samples[r] = (double) (after - before) / workload.entities().size();

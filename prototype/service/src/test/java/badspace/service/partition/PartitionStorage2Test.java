@@ -179,7 +179,7 @@ class PartitionStorage2Test {
         SlotSnapshot2 first = storage.commit(1).slots();
         storage.updateAll(List.of(new Entity2(20, C)));
         SlotSnapshot2 moved = storage.commit(2).slots();
-        assertSame(first.ids, moved.ids);
+        assertSame(first.slotEntityIds, moved.slotEntityIds);
         assertSame(first.slotById, moved.slotById);
         assertNotSame(first.coords, moved.coords);
         assertEquals(B, first.positionAt(1));
@@ -187,11 +187,11 @@ class PartitionStorage2Test {
 
         storage.removeAll(new long[] {10});
         SlotSnapshot2 removed = storage.commit(3).slots();
-        assertNotSame(moved.ids, removed.ids);
+        assertNotSame(moved.slotEntityIds, removed.slotEntityIds);
         assertNotSame(moved.slotById, removed.slotById);
         storage.insertAll(List.of(new Entity2(30, D)));
         SlotSnapshot2 inserted = storage.commit(4).slots();
-        assertNotSame(removed.ids, inserted.ids);
+        assertNotSame(removed.slotEntityIds, inserted.slotEntityIds);
         assertNotSame(removed.slotById, inserted.slotById);
         assertEquals(2, moved.size());
         assertEquals(1, removed.size());

@@ -23,15 +23,16 @@ public final class Partition2 implements Partition {
 
     private final Space2 space;
     private final PartitionNode2 node;
-    private final PartitionId id;
+    private final PartitionId partitionId;
     private final PartitionConfig config;
-    // Volatile because lastVersion() can be called by any thread.
+    // Written only by the writer, when the space removes the partition. Volatile
+    // because lastVersion() can be called by any thread.
     private volatile boolean removed;
 
-    Partition2(Space2 space, PartitionNode2 node, PartitionId id, PartitionConfig config) {
+    Partition2(Space2 space, PartitionNode2 node, PartitionId partitionId, PartitionConfig config) {
         this.space = space;
         this.node = node;
-        this.id = id;
+        this.partitionId = partitionId;
         this.config = config;
     }
 
@@ -43,15 +44,15 @@ public final class Partition2 implements Partition {
     void removeFromNode() {
         checkNotRemoved();
         switch (config.removalPolicy()) {
-            case REQUIRE_EMPTY -> node.removePartition(id);
-            case DISCARD_ENTITIES -> node.dropPartition(id);
+            case REQUIRE_EMPTY -> node.removePartition(partitionId);
+            case DISCARD_ENTITIES -> node.dropPartition(partitionId);
         }
         removed = true;
     }
 
     private void checkNotRemoved() {
         if (removed) {
-            throw new IllegalStateException("Partition was removed: " + id);
+            throw new IllegalStateException("Partition was removed: " + partitionId);
         }
     }
 
@@ -78,14 +79,14 @@ public final class Partition2 implements Partition {
             entityIds[i] = space.nextEntityId();
             entities.add(new Entity2(entityIds[i], positions.get(i)));
         }
-        node.insertAll(id, entities);
+        node.insertAll(partitionId, entities);
         return entityIds;
     }
 
     /** Returns the position of an entity, or empty if the ID is not in the partition. */
     public Optional<Point2> get(long entityId) {
         checkNotRemoved();
-        List<Entity2> found = node.getAll(id, new long[] {entityId});
+        List<Entity2> found = node.getAll(partitionId, new long[] {entityId});
         return found.stream().findFirst().map(Entity2::position);
     }
 
@@ -95,7 +96,7 @@ public final class Partition2 implements Partition {
      */
     public List<Entity2> getAll(long[] entityIds) {
         checkNotRemoved();
-        return node.getAll(id, entityIds);
+        return node.getAll(partitionId, entityIds);
     }
 
     /**
@@ -113,7 +114,7 @@ public final class Partition2 implements Partition {
      */
     public void updateAll(List<Entity2> entities) {
         checkNotRemoved();
-        node.updateAll(id, entities);
+        node.updateAll(partitionId, entities);
     }
 
     /**
@@ -122,7 +123,7 @@ public final class Partition2 implements Partition {
      */
     public List<Entity2> findInRegion(Region2 region) {
         checkNotRemoved();
-        return node.findInRegion(id, region);
+        return node.findInRegion(partitionId, region);
     }
 
     /**
@@ -131,7 +132,7 @@ public final class Partition2 implements Partition {
      */
     public List<Entity2> findNearest(Point2 point, int count) {
         checkNotRemoved();
-        return node.findNearest(id, point, count);
+        return node.findNearest(partitionId, point, count);
     }
 
     @Override
@@ -142,13 +143,13 @@ public final class Partition2 implements Partition {
     @Override
     public void removeAll(long[] entityIds) {
         checkNotRemoved();
-        node.removeAll(id, entityIds);
+        node.removeAll(partitionId, entityIds);
     }
 
     @Override
     public void commit(long n) {
         checkNotRemoved();
-        node.commit(id, n);
+        node.commit(partitionId, n);
     }
 
     /**
@@ -158,13 +159,13 @@ public final class Partition2 implements Partition {
      */
     public PartitionVersion2 lastVersion() {
         checkNotRemoved();
-        return node.lastVersion(id);
+        return node.lastVersion(partitionId);
     }
 
     @Override
     public long lastCommit() {
         checkNotRemoved();
-        return node.lastCommit(id);
+        return node.lastCommit(partitionId);
     }
 
     @Override
@@ -175,12 +176,12 @@ public final class Partition2 implements Partition {
     @Override
     public int size() {
         checkNotRemoved();
-        return node.size(id);
+        return node.size(partitionId);
     }
 
     @Override
     public CoordinateLimits limits() {
         checkNotRemoved();
-        return node.limits(id);
+        return node.limits(partitionId);
     }
 }

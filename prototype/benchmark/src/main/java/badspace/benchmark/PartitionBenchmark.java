@@ -50,7 +50,7 @@ public class PartitionBenchmark {
         @Override
         void afterWorkload() {
             node = newNode();
-            node.insertAll(PARTITION, workload.entities());
+            node.insertAll(PARTITION_ID, workload.entities());
             random = new SplittableRandom(SEED + 1);
             prepare();
         }
@@ -72,7 +72,7 @@ public class PartitionBenchmark {
     }
 
     /** A batch of entities with their IDs. */
-    record Batch(List<Entity2> entities, long[] ids) {
+    record Batch(List<Entity2> entities, long[] entityIds) {
 
         static Batch of(List<Entity2> entities) {
             return new Batch(List.copyOf(entities), entities.stream().mapToLong(Entity2::id).toArray());
@@ -110,7 +110,7 @@ public class PartitionBenchmark {
 
         @TearDown(Level.Invocation)
         public void removeInserted() {
-            node.removeAll(PARTITION, current.ids());
+            node.removeAll(PARTITION_ID, current.entityIds());
         }
     }
 
@@ -141,7 +141,7 @@ public class PartitionBenchmark {
 
         @TearDown(Level.Invocation)
         public void insertRemoved() {
-            node.insertAll(PARTITION, current.entities());
+            node.insertAll(PARTITION_ID, current.entities());
         }
     }
 
@@ -279,31 +279,31 @@ public class PartitionBenchmark {
 
     @Benchmark
     public void insert(InsertState s) {
-        s.node.insertAll(WorkloadState.PARTITION, s.nextBatch().entities());
+        s.node.insertAll(WorkloadState.PARTITION_ID, s.nextBatch().entities());
     }
 
     @Benchmark
     public void remove(RemoveState s) {
-        s.node.removeAll(WorkloadState.PARTITION, s.nextBatch().ids());
+        s.node.removeAll(WorkloadState.PARTITION_ID, s.nextBatch().entityIds());
     }
 
     @Benchmark
     public void update(UpdateState s) {
-        s.node.updateAll(WorkloadState.PARTITION, s.nextBatch());
+        s.node.updateAll(WorkloadState.PARTITION_ID, s.nextBatch());
     }
 
     @Benchmark
     public List<Entity2> get(GetState s) {
-        return s.node.getAll(WorkloadState.PARTITION, s.nextBatch());
+        return s.node.getAll(WorkloadState.PARTITION_ID, s.nextBatch());
     }
 
     @Benchmark
     public List<Entity2> findInRegion(RangeState s) {
-        return s.node.findInRegion(WorkloadState.PARTITION, s.nextRegion());
+        return s.node.findInRegion(WorkloadState.PARTITION_ID, s.nextRegion());
     }
 
     @Benchmark
     public List<Entity2> findNearest(NearestState s) {
-        return s.node.findNearest(WorkloadState.PARTITION, s.nextPoint(), s.k);
+        return s.node.findNearest(WorkloadState.PARTITION_ID, s.nextPoint(), s.k);
     }
 }
