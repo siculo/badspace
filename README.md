@@ -2,9 +2,9 @@
 
 [Italiano](README.it.md)
 
-BADSPACE will be a real-time database for entities in a 2D or 3D space, meant as a base for simulation, monitoring or gaming software. It will track the position of entities and answer proximity queries (range, k-nearest, raycasting) while thousands of entities move at every tick. It will scale by dividing the world into partitions that are created and removed dynamically, each with a single writer.
+BADSPACE is a project for a real-time database of entities in a 2D or 3D space, designed as a foundation for simulation, monitoring or gaming software. The goal is to track entity positions and answer proximity queries (range, k-nearest, raycasting) while thousands of entities move at every tick. Scalability is based on dividing the world into partitions that are created and removed dynamically, each with a single writer.
 
-The goal is a flexible tool that developers will adapt to their own needs, instead of using it as it is. It will be usable as a library or as a service: developers will choose partitioning and clustering strategies, and build their own application logic on top of its APIs. BADSPACE will be designed for people who do not want a ready-made service, but the tools to build their own solution.
+The goal is a flexible tool that developers can adapt to their own needs. The design allows for use as a library or as a service, a choice of partitioning and clustering strategies, and APIs on which to build application logic. BADSPACE is aimed at developers looking for the tools to build their own solution.
 
 The project is at the prototype stage: the Java prototype (`prototype/`) is used to validate the design decisions, documented in the [OKF bundle](okf-bundle/index.md). Current status:
 
