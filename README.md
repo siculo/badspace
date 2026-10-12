@@ -13,36 +13,13 @@ The project is at the prototype stage: the Java prototype (`prototype/`) is used
 
 > **Note on language:** the documentation is currently in Italian, while the code is in English. English documentation will be written when the project is more mature.
 
-## Checkout
+## Setup for coding agents
 
-The repository contains a symbolic link: `.claude/skills` points to `.agents/skills`. On Linux and macOS, git creates it with no extra steps.
+The skills for coding agents are in `.agents/skills`. Claude Code reads them from `.claude/skills`, which is not in the repository. After you clone the repository, run the setup script from any directory:
 
-On Windows, git creates symbolic links only when `core.symlinks` is `true` and the user can create them (Developer Mode enabled, or a shell run as administrator). Otherwise git writes a plain text file with the target path, and the skills are not found. To clone the repository with symbolic links enabled:
+- Linux and macOS: `./agents-setup.sh`, which creates a symbolic link.
+- Windows: `agents-setup.cmd`, which creates a directory junction and needs no special permissions.
 
-```bash
-git clone -c core.symlinks=true git@github.com:siculo/badspace.git
-```
-
-If the repository is already cloned, enable the option and restore the link:
-
-```bash
-git config core.symlinks true
-git checkout -- .claude/skills
-```
-
-If you cannot enable Developer Mode or use an administrator shell, you can create a directory junction instead, which needs no special permissions. From `cmd`, in the repository root:
-
-```cmd
-del .claude\skills
-mklink /J .claude\skills .agents\skills
-git update-index --skip-worktree .claude/skills
-```
-
-Notes on the junction:
-
-- `del` removes the text file that git wrote in place of the link.
-- Windows stores the junction target as an absolute path: if you move the repository, create the junction again.
-- Git still expects a text file at `.claude/skills`. The `skip-worktree` flag stops git from showing it as changed, so a `git add -A` does not commit the content of the skills in place of the link. If a future commit changes the link, run `git update-index --no-skip-worktree .claude/skills` before you pull.
-- This setup has not been tested yet with Claude Code on Windows.
+You can run the script again at any time, for example after you move the repository: it only fixes what is missing or wrong.
 
 License: [Apache 2.0](LICENSE).

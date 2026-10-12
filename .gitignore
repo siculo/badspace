@@ -1,4 +1,5 @@
 .claude/invocation-log.jsonl
+.claude/skills
 okf-sources/
 
 # Maven
