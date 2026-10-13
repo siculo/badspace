@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (oggi `lastVersion()`, da sostituire con acquisizione, lettura e rilascio delle versioni conservate, con scadenza opzionale), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione, lettura e rilascio delle versioni conservate; la scadenza opzionale è da implementare), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T16:00:00Z }
 ---
 
 # Stato
@@ -211,18 +211,13 @@ due tipi:
 | Lettura | Forma | Note |
 |---|---|---|
 | Del writer | `getAll`, `findInRegion`, `findNearest` sul proxy della partizione | Leggono lo stato del writer, scritture non committate comprese; le chiama solo il writer |
-| Dei reader (oggi) | `lastVersion()` su `Partition2`/`Partition3`; `lastVersion(PartitionId)` nel contratto del nodo | Restituisce la versione dell'ultimo commit, `PartitionVersion2`/`PartitionVersion3`: immutabile, leggibile da ogni thread, con `commit()`, `size()`, `get`, `getAll`, `findInRegion`, `findNearest`; prima del primo commit è la versione vuota del commit 0 |
+| Dei reader | Le [acquisizioni](#acquisizione-delle-versioni) su `Partition2`/`Partition3` e nel contratto del nodo | Una versione acquisita è immutabile e leggibile da ogni thread; prima del primo commit l'ultima versione è quella vuota del commit 0 |
 
-Tutte le letture di una versione vedono lo stesso commit; due chiamate
-a `lastVersion()` possono invece dare commit diversi. Dopo la rimozione
-della partizione `lastVersion()` fallisce, ma una versione già presa
-resta leggibile e mostra la partizione al suo commit.
-
-`lastVersion()` dà al reader la versione interna, che si può leggere
-senza limiti: con l'[acquisizione delle
-versioni](#acquisizione-delle-versioni) esce dal proxy e dal contratto
-del nodo, e resta solo come metodo interno del nodo. Le letture del
-writer non cambiano.
+Tutte le letture di una versione acquisita vedono lo stesso commit; due
+acquisizioni dell'ultima versione possono invece dare commit diversi.
+La versione interna della partizione non esce dal nodo: nel service lo
+storage ha ancora `lastVersion()`, per uso interno. `lastCommit()` si
+può chiamare da ogni thread, ma è solo un metadato.
 
 ### Acquisizione delle versioni
 

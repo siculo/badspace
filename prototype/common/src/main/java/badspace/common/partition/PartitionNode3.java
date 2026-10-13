@@ -104,13 +104,6 @@ public interface PartitionNode3 {
     void commit(PartitionId partitionId, long commit);
 
     /**
-     * Returns the version of the last commit of a partition: the empty version at commit 0
-     * if the partition has no commit yet. The version never changes. Unlike the other reads,
-     * any thread can call it.
-     */
-    PartitionVersion3 lastVersion(PartitionId partitionId);
-
-    /**
      * Acquires the version of the last commit of a partition: the empty version at
      * commit 0 if the partition has no commit yet. Choosing the version and acquiring
      * it is a single step, so a commit at the same time cannot make it go away.
@@ -173,7 +166,11 @@ public interface PartitionNode3 {
      */
     List<Entity3> findNearest(Acquisition acquisition, Point3 point, int count);
 
-    /** Returns the number of the last commit of a partition, or 0 if it has no commit yet. */
+    /**
+     * Returns the number of the last commit of a partition, or 0 if it has no commit yet.
+     * Any thread can call it. It is only information: to read a version, acquire it, since
+     * the window can change between the two calls.
+     */
     long lastCommit(PartitionId partitionId);
 
     /** Returns the number of entities in a partition. */

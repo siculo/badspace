@@ -3,7 +3,6 @@ package badspace.service.partition;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import badspace.common.partition.Entity2;
-import badspace.common.partition.PartitionVersion2;
 import badspace.service.index.IndexVersion2;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,8 +10,11 @@ import java.util.List;
 /**
  * A 2D partition at a commit: the slots and the index of the same commit. The
  * storage makes a version at each commit and publishes it to the readers.
+ * It never changes, so many threads can read it at the same time while the
+ * writer goes on. The readers outside the node reach it only through an
+ * acquisition.
  */
-record StorageVersion2(long commit, SlotSnapshot2 slots, IndexVersion2 index) implements PartitionVersion2 {
+record StorageVersion2(long commit, SlotSnapshot2 slots, IndexVersion2 index) {
 
     /** Returns the empty version at commit 0, before the first commit. */
     static StorageVersion2 empty() {
@@ -20,12 +22,10 @@ record StorageVersion2(long commit, SlotSnapshot2 slots, IndexVersion2 index) im
         return new StorageVersion2(0, slots, IndexVersion2.empty());
     }
 
-    @Override
     public int size() {
         return slots.size();
     }
 
-    @Override
     public List<Entity2> getAll(long[] entityIds) {
         List<Entity2> result = new ArrayList<>(entityIds.length);
         for (long id : entityIds) {
@@ -37,12 +37,10 @@ record StorageVersion2(long commit, SlotSnapshot2 slots, IndexVersion2 index) im
         return result;
     }
 
-    @Override
     public List<Entity2> findInRegion(Region2 region) {
         return entitiesAt(index.findInRegion(region, slots));
     }
 
-    @Override
     public List<Entity2> findNearest(Point2 point, int count) {
         if (count < 0) {
             throw new IllegalArgumentException("Negative count: " + count);

@@ -4,7 +4,6 @@ import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
-import badspace.common.partition.PartitionVersion3;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import java.util.ArrayList;
@@ -13,7 +12,7 @@ import java.util.Optional;
 
 /**
  * Proxy of a 3D partition that lives on a node. It has a single writer and is not thread-safe,
- * except {@link #lastVersion()} and the acquisitions. The reads of the proxy see the writes
+ * except {@link #lastCommit()} and the acquisitions. The reads of the proxy see the writes
  * not yet committed; the other threads {@linkplain #acquireLatest() acquire} the version of
  * a commit and read it.
  * Single-entity operations are batches of one entity: to write many entities,
@@ -27,7 +26,7 @@ public final class Partition3 implements Partition {
     private final PartitionId partitionId;
     private final PartitionConfig config;
     // Written only by the writer, when the space removes the partition. Volatile
-    // because lastVersion() and the acquisitions can be called by any thread.
+    // because lastCommit() and the acquisitions can be called by any thread.
     private volatile boolean removed;
 
     Partition3(Space3 space, PartitionNode3 node, PartitionId partitionId, PartitionConfig config) {
@@ -151,16 +150,6 @@ public final class Partition3 implements Partition {
     public void commit(long n) {
         checkNotRemoved();
         node.commit(partitionId, n);
-    }
-
-    /**
-     * Returns the version of the last commit: the empty version at commit 0 if the partition
-     * has no commit yet. The version never changes, and its reads see only that commit.
-     * Unlike the other methods, any thread can call it.
-     */
-    public PartitionVersion3 lastVersion() {
-        checkNotRemoved();
-        return node.lastVersion(partitionId);
     }
 
     /**

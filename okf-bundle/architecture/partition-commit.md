@@ -4,7 +4,7 @@ title: Commit della partizione
 description: Le scritture del writer sono raggruppate in commit atomici, unica transazione del sistema, identificati da un contatore monotono il cui significato (tick locale, tick globale, batch) è deciso sopra il livello base.
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T16:00:00Z }
 ---
 
 # Primitiva
@@ -53,8 +53,7 @@ produce la versione della partizione, con lo snapshot degli slot e la
 versione dell'indice, che le scritture successive non cambiano, e la
 pubblica (vedi [isolamento delle
 letture](/decisions/read-isolation.md#il-commit)). I lettori la leggono
-oggi con `lastVersion()`, che lascerà il posto all'[acquisizione delle
-versioni](/architecture/version-retention.md#acquisizione-e-rilascio),
+attraverso un'[acquisizione](/architecture/version-retention.md#acquisizione-e-rilascio),
 e vedono solo commit completi; il writer vede le
 proprie scritture anche prima del commit (vedi [letture del writer e dei
 reader](/decisions/api-surface.md#letture-del-writer-e-dei-reader)).

@@ -28,7 +28,11 @@ public interface Partition {
      */
     void commit(long n);
 
-    /** Returns the number of the last commit, or 0 if the partition has no commit yet. */
+    /**
+     * Returns the number of the last commit, or 0 if the partition has no commit yet.
+     * Any thread can call it. It is only information: to read a version, acquire it, since
+     * the window can change between the two calls.
+     */
     long lastCommit();
 
     /** Returns the configuration chosen when the partition was created. */

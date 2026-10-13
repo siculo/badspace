@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica e letti attraverso un'acquisizione controllata; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T11:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T16:00:00Z }
 ---
 
 # Problema
@@ -88,11 +88,11 @@ una versione nuova con la finestra vecchia. Anche l'ultimo commit si
 legge dalla versione pubblicata, quindi da ogni thread. Prima del primo commit c'è una
 versione vuota al commit 0, con l'indice vuoto della scansione lineare,
 che con slot vuoti vale per ogni indice. Il writer legge il proprio
-stato, i reader la versione pubblicata con `lastVersion()` (vedi [API
-da esporre](/decisions/api-surface.md#letture-del-writer-e-dei-reader)),
-che oggi dà al reader la versione interna, leggibile senza limiti: con
-l'acquisizione la sostituisce una view controllata (vedi [Accesso dei
-reader](#accesso-dei-reader)). La liberazione delle versioni la fa per
+stato, i reader le versioni pubblicate attraverso le acquisizioni, con
+una view controllata (vedi [API da
+esporre](/decisions/api-surface.md#letture-del-writer-e-dei-reader) e
+[Accesso dei reader](#accesso-dei-reader)): la versione interna non
+esce dal nodo. La liberazione delle versioni la fa per
 ora il GC.
 
 # Accesso dei reader
@@ -160,8 +160,8 @@ ogni valore può essere un ID. La copia sono due array.
   inserimenti o rimozioni, altrimenti lo snapshot li condivide con
   quello precedente.
 - Snapshot e versione dell'indice formano la versione della partizione
-  (`PartitionVersion`: commit, slot e indice), con le letture `getAll`,
-  `findInRegion` e `findNearest`.
+  (`StorageVersion`, interna al service: commit, slot e indice), con le
+  letture `getAll`, `findInRegion` e `findNearest`.
 - Per ora ogni commit alloca array nuovi: il pool dei buffer e la copia
   delle sole pagine cambiate arrivano con i writer su thread diversi.
 

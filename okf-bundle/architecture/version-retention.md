@@ -4,7 +4,7 @@ title: Conservazione delle versioni
 description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza opzionale, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T16:00:00Z }
 ---
 
 # Primitiva
@@ -193,9 +193,9 @@ esporre](/decisions/api-surface.md#acquisizione-delle-versioni)).
 Mancano la scadenza e la semantica della rimozione della partizione:
 oggi dopo la rimozione le letture attraverso un'acquisizione falliscono
 perché il nodo non trova più la partizione, e i numeri delle
-acquisizioni di una nuova partizione con lo stesso ID ripartono da 1.
-`lastVersion()` resta, finché non esce dal proxy e dal contratto del
-nodo.
+acquisizioni di una nuova partizione con lo stesso ID ripartono da 1. I reader
+non hanno altro modo di leggere una versione: `lastVersion()` è solo un
+metodo interno dello storage.
 
 # Punti aperti
 

@@ -10,13 +10,11 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
-import badspace.common.partition.PartitionVersion2;
 import badspace.common.partition.VersionNotAvailableException;
 import badspace.common.geometry.Point2;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -234,16 +232,15 @@ class LocalPartitionNode2Test {
     }
 
     @Test
-    void lastVersionHasOnlyTheCommittedWrites() {
-        assertEquals(0, node.lastVersion(P1).commit());
-        node.insertAll(P1, List.of(new Entity2(1, new Point2(1, 1))));
-        assertEquals(0, node.lastVersion(P1).size());
+    void acquiredVersionHasOnlyTheCommittedWrites() {
+        node.insertAll(P1, List.of(entity(1, 1, 1)));
+        Acquisition beforeCommit = node.acquireLatest(P1);
+        assertEquals(0, beforeCommit.commit());
+        assertEquals(0, node.size(beforeCommit));
         node.commit(P1, 4);
-        PartitionVersion2 version = node.lastVersion(P1);
-        node.removeAll(P1, new long[] {1});
-        assertEquals(4, version.commit());
-        assertEquals(Optional.of(new Point2(1, 1)), version.get(1));
-        assertEquals(0, node.size(P1));
+        Acquisition afterCommit = node.acquireLatest(P1);
+        assertEquals(4, afterCommit.commit());
+        assertEquals(List.of(entity(1, 1, 1)), node.getAll(afterCommit, new long[] {1}));
     }
 
     @Test
@@ -398,7 +395,6 @@ class LocalPartitionNode2Test {
     void commitRejectsUnknownPartition() {
         assertThrows(IllegalArgumentException.class, () -> node.commit(P2, 1));
         assertThrows(IllegalArgumentException.class, () -> node.lastCommit(P2));
-        assertThrows(IllegalArgumentException.class, () -> node.lastVersion(P2));
     }
 
     @Test

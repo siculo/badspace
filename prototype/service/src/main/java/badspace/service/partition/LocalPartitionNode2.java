@@ -6,7 +6,6 @@ import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
-import badspace.common.partition.PartitionVersion2;
 import badspace.common.partition.VersionNotAvailableException;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
@@ -79,11 +78,6 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public void commit(PartitionId partitionId, long commit) {
         find(partitionId).commit(commit);
-    }
-
-    @Override
-    public PartitionVersion2 lastVersion(PartitionId partitionId) {
-        return find(partitionId).lastVersion();
     }
 
     @Override
