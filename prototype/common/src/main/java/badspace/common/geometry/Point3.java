@@ -15,6 +15,16 @@ public record Point3(double x, double y, double z) {
         }
     }
 
+    /**
+     * Returns this point moved by dx on the x axis, by dy on the y axis and by dz on the
+     * z axis. Fails with IllegalArgumentException if a coordinate of the result is not
+     * finite. The result can be outside the limits of a partition: the write of the
+     * entity checks them.
+     */
+    public Point3 add(double dx, double dy, double dz) {
+        return new Point3(x + dx, y + dy, z + dz);
+    }
+
     /** Returns the squared distance from the other point. */
     public double distanceSquared(Point3 other) {
         double dx = x - other.x;

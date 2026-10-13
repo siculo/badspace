@@ -15,6 +15,15 @@ public record Point2(double x, double y) {
         }
     }
 
+    /**
+     * Returns this point moved by dx on the x axis and by dy on the y axis. Fails with
+     * IllegalArgumentException if a coordinate of the result is not finite. The result
+     * can be outside the limits of a partition: the write of the entity checks them.
+     */
+    public Point2 add(double dx, double dy) {
+        return new Point2(x + dx, y + dy);
+    }
+
     /** Returns the squared distance from the other point. */
     public double distanceSquared(Point2 other) {
         double dx = x - other.x;
