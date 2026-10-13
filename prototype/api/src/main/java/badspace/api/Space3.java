@@ -27,7 +27,7 @@ public final class Space3 implements Space<PartitionNode3, Partition3> {
     public Partition3 createPartition(PartitionNode3 node, PartitionConfig config) {
         Objects.requireNonNull(config);
         PartitionId id = new PartitionId(nextPartitionId.getAndIncrement());
-        node.createPartition(id, config.index());
+        node.createPartition(id, config.index(), config.retainedPastVersions());
         return new Partition3(this, node, id, config);
     }
 

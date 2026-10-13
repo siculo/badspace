@@ -134,6 +134,12 @@ class PartitionStorage2Test {
     }
 
     @Test
+    void storageKeepsTheNumberOfRetainedPastVersions() {
+        assertEquals(0, new PartitionStorage2(IndexConfig.linearScan()).retainedPastVersions());
+        assertEquals(2, new PartitionStorage2(IndexConfig.linearScan(), 2).retainedPastVersions());
+    }
+
+    @Test
     void queriesReturnTheEntitiesOfTheSlotsInTheGivenOrder() {
         storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)));
         index.result = new int[] {2, 0};

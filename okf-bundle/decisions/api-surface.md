@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (oggi `lastVersion()`, da sostituire con acquisizione, lettura e rilascio delle versioni conservate, con scadenza opzionale), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T10:00:00Z }
 ---
 
 # Stato
@@ -134,17 +134,16 @@ alla creazione e poi non cambia; la partizione la restituisce con
 - l'**indice** (`IndexConfig`), che fissa anche i [limiti delle
   coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate);
   il default è la scansione lineare;
-- la **politica di rimozione**, con default `REQUIRE_EMPTY`.
+- la **politica di rimozione**, con default `REQUIRE_EMPTY`;
+- **k** (`retainedPastVersions`), il numero di versioni passate
+  conservate oltre alla corrente, per l'[acquisizione delle
+  versioni](#acquisizione-delle-versioni): ≥ 0, default 0.
 
 `PartitionConfig.defaults()` dà la configurazione di default, e
-`withIndex` e `withRemovalPolicy` ne fanno una copia con un valore
-cambiato. Seguendo lo [sviluppo
+`withIndex`, `withRemovalPolicy` e `withRetainedPastVersions` ne fanno
+una copia con un valore cambiato. Seguendo lo [sviluppo
 incrementale](/process/development-approach.md#sviluppo-incrementale),
-la configurazione si estende quando arrivano concetti nuovi: k, il
-numero di versioni passate conservate oltre alla corrente (≥ 0, default
-0), arriva con l'[acquisizione delle
-versioni](#acquisizione-delle-versioni), insieme a un metodo che fa una
-copia della configurazione con k cambiato.
+la configurazione si estende quando arrivano concetti nuovi.
 
 La politica di rimozione dice cosa succede alle entità quando la
 partizione viene rimossa:
@@ -157,12 +156,15 @@ partizione viene rimossa:
 |---|---|
 | Partizione non vuota con `REQUIRE_EMPTY` (la partizione non cambia), o già rimossa | `IllegalStateException` |
 | Partizione di un altro spazio | `IllegalArgumentException` |
+| k negativo nella configurazione | `IllegalArgumentException` |
 
-Nel contratto del nodo la creazione riceve l'ID della partizione e la
-configurazione dell'indice (`IndexConfig`, scansione lineare se manca);
-la rimozione ha due operazioni, una per le partizioni vuote e una che
-scarta anche le entità. L'API passa al nodo l'indice della
-configurazione; con k la creazione riceverà anche il suo valore.
+Nel contratto del nodo la creazione riceve l'ID della partizione, la
+configurazione dell'indice (`IndexConfig`, scansione lineare se manca)
+e k (0 se manca), e fallisce con `IllegalArgumentException` se k è
+negativo; la rimozione ha due operazioni, una per le partizioni vuote e
+una che scarta anche le entità. L'API passa al nodo l'indice e k della
+configurazione. Il nodo conserva k nello storage della partizione, ma
+per ora non lo usa: lo userà il catalogo delle versioni.
 
 ## Commit
 

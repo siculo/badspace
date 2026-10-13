@@ -14,6 +14,7 @@ import badspace.common.partition.Entity2;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Point3;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.RetentionWindow;
 import badspace.service.partition.LocalPartitionNode2;
 import badspace.service.partition.LocalPartitionNode3;
 import java.util.List;
@@ -57,7 +58,8 @@ public class Main {
 
         Space3 space3 = new Space3(entityIds);
         Partition3 p3 = space3.createPartition(new LocalPartitionNode3(),
-                new PartitionConfig(IndexConfig.uniformGrid(10), RemovalPolicy.DISCARD_ENTITIES));
+                new PartitionConfig(IndexConfig.uniformGrid(10), RemovalPolicy.DISCARD_ENTITIES,
+                        RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS));
         long c = p3.insert(1.0, 2.0, 3.0);
         p3.update(c, new Point3(4.0, 5.0, 6.0));
         System.out.printf("3D: entity %d is at %s%n", c, p3.get(c).orElseThrow());

@@ -13,6 +13,7 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
 import badspace.common.partition.PartitionVersion3;
+import badspace.common.partition.RetentionWindow;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.geometry.Sphere3;
@@ -54,14 +55,16 @@ class Space3Test {
     private static final class MapNode implements PartitionNode3 {
         final Map<PartitionId, Map<Long, Point3>> partitions = new HashMap<>();
         final Map<PartitionId, IndexConfig> indices = new HashMap<>();
+        final Map<PartitionId, Integer> retainedPastVersions = new HashMap<>();
         final Map<PartitionId, Long> commits = new HashMap<>();
         final Map<PartitionId, MapVersion> versions = new HashMap<>();
         int calls;
 
         @Override
-        public void createPartition(PartitionId partitionId, IndexConfig index) {
+        public void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastVersions) {
             partitions.put(partitionId, new HashMap<>());
             indices.put(partitionId, index);
+            this.retainedPastVersions.put(partitionId, retainedPastVersions);
         }
 
         @Override
@@ -253,8 +256,24 @@ class Space3Test {
     void defaultConfigUsesLinearScanAndRequiresEmptyPartition() {
         MapNode node = new MapNode();
         Partition3 p = newSpace().createPartition(node);
-        assertEquals(new PartitionConfig(IndexConfig.linearScan(), RemovalPolicy.REQUIRE_EMPTY), p.config());
+        assertEquals(new PartitionConfig(IndexConfig.linearScan(), RemovalPolicy.REQUIRE_EMPTY,
+                RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS), p.config());
         assertEquals(IndexConfig.linearScan(), node.indices.values().iterator().next());
+        assertEquals(RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS, node.retainedPastVersions.values().iterator().next());
+    }
+
+    @Test
+    void chosenRetainedPastVersionsGoToTheNode() {
+        MapNode node = new MapNode();
+        Partition3 p = newSpace().createPartition(node, PartitionConfig.defaults().withRetainedPastVersions(2));
+        assertEquals(2, p.config().retainedPastVersions());
+        assertEquals(IndexConfig.linearScan(), p.config().index());
+        assertEquals(2, node.retainedPastVersions.values().iterator().next());
+    }
+
+    @Test
+    void configRejectsNegativeRetainedPastVersions() {
+        assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedPastVersions(-1));
     }
 
     @Test
@@ -270,7 +289,7 @@ class Space3Test {
 
     @Test
     void configRejectsNull() {
-        assertThrows(NullPointerException.class, () -> new PartitionConfig(null, RemovalPolicy.REQUIRE_EMPTY));
+        assertThrows(NullPointerException.class, () -> new PartitionConfig(null, RemovalPolicy.REQUIRE_EMPTY, 0));
         assertThrows(NullPointerException.class, () -> PartitionConfig.defaults().withRemovalPolicy(null));
         assertThrows(NullPointerException.class, () -> newSpace().createPartition(new MapNode(), null));
     }

@@ -281,6 +281,12 @@ class LocalPartitionNode3Test {
     }
 
     @Test
+    void rejectsNegativeRetainedPastVersions() {
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, IndexConfig.linearScan(), -1));
+        assertThrows(IllegalArgumentException.class, () -> node.size(P2));
+    }
+
+    @Test
     void rejectsDuplicatePartition() {
         assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1));
     }

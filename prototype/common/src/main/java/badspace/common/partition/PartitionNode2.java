@@ -23,8 +23,21 @@ public interface PartitionNode2 {
         createPartition(partitionId, IndexConfig.linearScan());
     }
 
-    /** Creates an empty partition with the given index. Fails if the ID is already in use on this node. */
-    void createPartition(PartitionId partitionId, IndexConfig index);
+    /**
+     * Creates an empty partition with the given index and the default number of past versions.
+     * Fails if the ID is already in use on this node.
+     */
+    default void createPartition(PartitionId partitionId, IndexConfig index) {
+        createPartition(partitionId, index, RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS);
+    }
+
+    /**
+     * Creates an empty partition with the given index. The partition keeps the last version and
+     * retainedPastVersions versions before it. Fails with IllegalArgumentException if the ID is
+     * already in use on this node or if retainedPastVersions is negative; in these cases no
+     * partition is created.
+     */
+    void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastVersions);
 
     /**
      * Removes an empty partition. Fails with IllegalArgumentException if the ID is unknown,

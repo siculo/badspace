@@ -3,6 +3,7 @@ package badspace.service.partition;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.RetentionWindow;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import badspace.service.index.SlotView2;
@@ -60,25 +61,43 @@ final class PartitionStorage2 implements SlotView2 {
     private boolean idsChanged;
     private final CoordinateLimits limits;
     private final SpatialIndex2 index;
+    /** k: the past versions kept besides the last one. */
+    private final int retainedPastVersions;
 
     /** Creates a storage that uses the linear scan as index. */
     PartitionStorage2() {
         this(IndexConfig.linearScan());
     }
 
-    /** Creates a storage with the given index, and with its limits. */
+    /** Creates a storage with the given index, and with its limits, and the default number of past versions. */
     PartitionStorage2(IndexConfig index) {
-        this(index.limits(), slots -> SpatialIndexes.create(index, slots));
+        this(index, RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS);
+    }
+
+    /** Creates a storage with the given index, and with its limits, that keeps retainedPastVersions past versions. */
+    PartitionStorage2(IndexConfig index, int retainedPastVersions) {
+        this(index.limits(), slots -> SpatialIndexes.create(index, slots), retainedPastVersions);
     }
 
     /**
-     * Creates a storage with the given limits and the index made by the
-     * factory. The factory gets this storage, so the index can read it
-     * during the queries.
+     * Creates a storage with the given limits, the index made by the factory
+     * and the default number of past versions. The factory gets this storage,
+     * so the index can read it during the queries.
      */
     PartitionStorage2(CoordinateLimits limits, Function<SlotView2, SpatialIndex2> indexFactory) {
+        this(limits, indexFactory, RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS);
+    }
+
+    /**
+     * Creates a storage with the given limits, the index made by the factory and
+     * retainedPastVersions past versions. The factory gets this storage, so the index can
+     * read it during the queries.
+     */
+    PartitionStorage2(CoordinateLimits limits, Function<SlotView2, SpatialIndex2> indexFactory,
+            int retainedPastVersions) {
         this.limits = limits;
         this.index = indexFactory.apply(this);
+        this.retainedPastVersions = retainedPastVersions;
     }
 
     void insertAll(List<Entity2> entities) {
@@ -158,6 +177,11 @@ final class PartitionStorage2 implements SlotView2 {
 
     CoordinateLimits limits() {
         return limits;
+    }
+
+    /** Returns k: the number of past versions kept besides the last one. */
+    int retainedPastVersions() {
+        return retainedPastVersions;
     }
 
     /** Closes the commit, publishes the version of the partition at the commit and returns it. */

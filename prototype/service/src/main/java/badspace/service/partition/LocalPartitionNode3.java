@@ -19,8 +19,11 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     private final Map<PartitionId, PartitionStorage3> partitions = new ConcurrentHashMap<>();
 
     @Override
-    public void createPartition(PartitionId partitionId, IndexConfig index) {
-        if (partitions.putIfAbsent(partitionId, new PartitionStorage3(index)) != null) {
+    public void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastVersions) {
+        if (retainedPastVersions < 0) {
+            throw new IllegalArgumentException("Negative number of retained past versions: " + retainedPastVersions);
+        }
+        if (partitions.putIfAbsent(partitionId, new PartitionStorage3(index, retainedPastVersions)) != null) {
             throw new IllegalArgumentException("Partition already exists: " + partitionId);
         }
     }
