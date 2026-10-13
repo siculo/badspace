@@ -4,7 +4,7 @@ title: Commit della partizione
 description: Le scritture del writer sono raggruppate in commit atomici, unica transazione del sistema, identificati da un contatore monotono il cui significato (tick locale, tick globale, batch) è deciso sopra il livello base.
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T16:24:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
 ---
 
 # Primitiva
@@ -38,6 +38,12 @@ Nel caso tipico si fa esattamente un commit per tick, e il contatore è:
 
 Un uso non legato al gioco potrebbe invece fare commit a batch.
 
+La versione di un commit diventa visibile ai lettori quando il commit
+finisce, non a un istante preciso del tick: regole come "leggere non
+prima del tick globale − 1" e la barriera tra partizioni spettano ai
+livelli superiori. Ogni partizione ha il suo ciclo di commit e pubblica
+per conto suo: non c'è atomicità tra partizioni.
+
 # Nel prototipo
 
 Il commit si chiude con `commit(n)`, con il numero n scelto dal
@@ -47,7 +53,9 @@ produce la versione della partizione, con lo snapshot degli slot e la
 versione dell'indice, che le scritture successive non cambiano, e la
 pubblica (vedi [isolamento delle
 letture](/decisions/read-isolation.md#il-commit)). I lettori la leggono
-con `lastVersion()` e vedono solo commit completi; il writer vede le
+oggi con `lastVersion()`, che lascerà il posto all'[acquisizione delle
+versioni](/architecture/version-retention.md#acquisizione-e-rilascio),
+e vedono solo commit completi; il writer vede le
 proprie scritture anche prima del commit (vedi [letture del writer e dei
 reader](/decisions/api-surface.md#letture-del-writer-e-dei-reader)).
 

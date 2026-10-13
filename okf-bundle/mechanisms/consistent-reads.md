@@ -4,7 +4,7 @@ title: Letture coerenti su più partizioni
 description: Letture su più partizioni riferite allo stesso tick N tramite tick globale e conservazione delle versioni; la rimozione differita è un'alternativa più economica che garantisce solo che ogni entità si veda almeno una volta.
 tags: [badspace, partitioning, consistency, protocol]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T07:57:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
 ---
 
 # Problema
@@ -21,15 +21,21 @@ l'entità da nessuna parte.
 - Tutte le partizioni coinvolte usano il **tick globale** come
   contatore dei [commit](/architecture/partition-commit.md).
 - Il lettore sceglie N non superiore all'ultimo commit di ciascuna
-  partizione e non inferiore al più vecchio conservato da ciascuna
+  partizione e non inferiore al più vecchio acquisibile in ciascuna
   (vedi [conservazione delle versioni](/architecture/version-retention.md)).
 - k e l'eventuale barriera vanno dimensionati in modo che il ritardo
   massimo tra le partizioni coinvolte non superi k tick.
-- In ogni partizione il lettore legge lo **snapshot del commit N**:
-  ogni commit pubblica uno snapshot completo della partizione (vedi
-  [isolamento delle letture](/decisions/read-isolation.md)), e con k
-  la partizione tiene vivi gli ultimi k + 1 snapshot: il corrente e i k
-  precedenti.
+- In ogni partizione il lettore **acquisisce lo snapshot del commit
+  N**, o il più recente prima di N se la partizione non ha un commit a
+  ogni tick: ogni commit pubblica uno snapshot completo della partizione
+  (vedi [isolamento delle letture](/decisions/read-isolation.md)), e con
+  k la partizione tiene vivi gli ultimi k + 1 snapshot: il corrente e i
+  k precedenti. L'acquisizione è atomica: se nel frattempo N esce dalla
+  finestra, fallisce e il lettore riprova con un N più recente. Il
+  lettore rilascia le acquisizioni alla fine della lettura.
+- Ogni partizione pubblica per conto suo: la vista coerente nasce dalla
+  scelta dello stesso N, non da un commit atomico tra partizioni. Il
+  tick globale e la barriera stanno sopra il livello base.
 
 Poiché nella migrazione A rimuove in un tick strettamente successivo a
 quello dell'inserimento in B, in ogni commit N l'entità è presente in
@@ -54,7 +60,9 @@ quindi:
 - **limitare la durata delle letture**: una lettura su più partizioni
   deve concludersi entro D (non attraversare più di k confini di tick).
   Se la scadenza viene superata, i risultati si scartano e la lettura
-  si ripete, oppure si segnalano come possibilmente incompleti.
+  si ripete, oppure si segnalano come possibilmente incompleti. Questa
+  scadenza riguarda la lettura su più partizioni ed è diversa dalla
+  [scadenza di un'acquisizione](/architecture/version-retention.md#scadenza).
 
 Con la scadenza la garanzia è certa, non probabilistica: una lettura
 lenta non diventa mai una lettura silenziosamente incompleta. È lo

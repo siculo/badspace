@@ -4,7 +4,7 @@ title: Architettura a livelli
 description: I tre livelli di BADSPACE partizionato — software, API comune di supporto, layer delle partizioni ospitato dai nodi — chi decide cosa e dove passa il futuro confine di rete.
 tags: [badspace, architecture, partitioning, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T08:29:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
 ---
 
 # Livelli
@@ -34,9 +34,9 @@ migrazione devono vedere più partizioni, quindi stanno sopra.
 
 | Livello | Responsabilità |
 |---|---|
-| Software | strategia di partizionamento, nodo su cui creare ogni partizione, mappa ID → partizione, quando migrare un'entità, quali partizioni interrogare |
+| Software | strategia di partizionamento, nodo su cui creare ogni partizione, mappa ID → partizione, quando migrare un'entità, quali partizioni interrogare, tick e barriera tra partizioni, rilascio e scadenza delle versioni che acquisisce |
 | API comune | generazione degli [ID](/decisions/entity-ids.md) di entità e partizioni, [aggregazione](/mechanisms/query-aggregation.md), creazione e configurazione delle partizioni (incluso l'indice), meccanismi come la [migrazione](/mechanisms/entity-migration.md) e le [letture coerenti](/mechanisms/consistent-reads.md) |
-| Layer delle partizioni | le primitive dell'[architettura minima](/architecture/minimal-core.md), offerte dai nodi |
+| Layer delle partizioni | le primitive dell'[architettura minima](/architecture/minimal-core.md), offerte dai nodi, comprese la conservazione e l'acquisizione delle versioni |
 
 Le decisioni sul ciclo di vita delle istanze (quali e quante
 partizioni, nodi e istanze dell'API) stanno sopra i meccanismi che le
@@ -56,7 +56,9 @@ ogni partizione.
 - **Contratto a identificatori.** Tra processi non si passano
   riferimenti a oggetti: il contratto dei nodi usa l'ID della partizione
   e gli ID delle entità. È la forma del futuro servizio gRPC; oggi
-  l'implementazione è una chiamata nello stesso processo.
+  l'implementazione è una chiamata nello stesso processo. Anche le
+  [acquisizioni delle versioni](/architecture/version-retention.md#acquisizione-e-rilascio)
+  passano come identificatori, e le tiene il nodo.
 - **Proxy nell'API.** L'oggetto partizione visto dal software è un
   proxy che conosce il proprio nodo e l'ID della propria partizione.
 - **Il nodo si fida degli ID.** Gli ID di entità e partizioni li genera

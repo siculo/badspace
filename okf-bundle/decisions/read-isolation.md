@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: Isolamento delle letture
-description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
+description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica e letti attraverso un'acquisizione controllata; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T07:57:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
 ---
 
 # Problema
@@ -38,7 +38,8 @@ con una scrittura atomica. Slot e indice vanno sempre insieme: l'indice
 parla di slot, e uno slot ha senso solo nella sua versione.
 
 Il risultato: i reader non si bloccano mai, non bloccano mai il writer,
-e una versione resta valida finché qualcuno la usa.
+e una versione resta leggibile finché ha acquisizioni valide o query in
+corso (vedi [Accesso dei reader](#accesso-dei-reader)).
 
 # Perché due soluzioni diverse
 
@@ -67,9 +68,9 @@ Slot e indici cambiano con frequenze molto diverse.
 2. Al commit gli array degli slot si copiano in un buffer per lo
    snapshot, e i nodi copiati nel commit diventano immutabili.
 3. La nuova radice si pubblica con una scrittura atomica.
-4. Le versioni che nessun reader usa più (e che non servono alla
-   [conservazione delle versioni](/architecture/version-retention.md))
-   si liberano: i loro buffer tornano disponibili, e i nodi dell'indice
+4. Le versioni fuori dalla finestra di [conservazione delle
+   versioni](/architecture/version-retention.md), senza acquisizioni
+   valide né query in corso, si liberano: i loro buffer tornano disponibili, e i nodi dell'indice
    non più usati da nessuna versione tornano liberi.
 
 Per sapere quando una versione non è più usata serve un contatore dei
@@ -85,8 +86,37 @@ precedente o tutta quella nuova. Prima del primo commit c'è una
 versione vuota al commit 0, con l'indice vuoto della scansione lineare,
 che con slot vuoti vale per ogni indice. Il writer legge il proprio
 stato, i reader la versione pubblicata con `lastVersion()` (vedi [API
-da esporre](/decisions/api-surface.md#letture-del-writer-e-dei-reader)).
-La liberazione delle versioni la fa per ora il GC.
+da esporre](/decisions/api-surface.md#letture-del-writer-e-dei-reader)),
+che oggi dà al reader la versione interna, leggibile senza limiti: con
+l'acquisizione la sostituisce una view controllata (vedi [Accesso dei
+reader](#accesso-dei-reader)). La liberazione delle versioni la fa per
+ora il GC.
+
+# Accesso dei reader
+
+Le versioni pubblicate hanno due usi distinti:
+
+- **uso interno** del nodo: lo storage, il catalogo della
+  [conservazione delle versioni](/architecture/version-retention.md)
+  e, in futuro, la [persistenza](/decisions/persistence.md) tengono
+  riferimenti alle versioni senza passare dalle acquisizioni;
+- **accesso dei reader**: un reader legge una versione solo attraverso
+  un'[acquisizione](/architecture/version-retention.md#acquisizione-e-rilascio).
+  La versione interna non esce mai dal nodo: il reader riceve una view
+  che controlla l'acquisizione all'inizio di ogni lettura, quindi dopo
+  il rilascio o la scadenza non c'è modo di interrogarla.
+
+La verifica dell'acquisizione e la presa di un riferimento stabile alla
+versione sono un'unica operazione atomica (l'ammissione della query).
+Dopo l'ammissione la query non tiene lock: legge la versione immutabile
+come prima, e se il rilascio o la scadenza arrivano nel frattempo la
+query finisce e il suo risultato è valido.
+
+Restano invariati la pubblicazione atomica, il copy-on-write e la
+lettura delle proprie scritture da parte del writer. Dopo la rimozione
+della partizione le acquisizioni già fatte restano leggibili (vedi
+[conservazione delle
+versioni](/architecture/version-retention.md#rimozione-della-partizione)).
 
 # Tutti i dati delle entità
 
@@ -142,8 +172,8 @@ entità in movimento è molto meglio. Nelle partizioni di entità statiche
 dinamiche](/decisions/static-vs-dynamic-entities.md)) gli slot non
 cambiano mai e lo snapshot non copia niente.
 
-**Reader lento.** Se un reader tiene una versione a lungo, il suo buffer
-resta occupato e il writer ne prende un altro dal pool, o ne alloca uno
+**Reader lento.** Se un reader tiene a lungo un'acquisizione, il buffer
+della versione resta occupato e il writer ne prende un altro dal pool, o ne alloca uno
 nuovo: il writer non aspetta mai, cresce solo la memoria.
 
 # Gli indici
@@ -191,7 +221,8 @@ significa tenere vive le ultime k + 1 radici: la corrente e le k
 precedenti. Gli indici condividono
 i nodi non cambiati; gli slot costano una copia per versione
 conservata. Per le [letture coerenti](/mechanisms/consistent-reads.md)
-il lettore sceglie la radice del commit N.
+il lettore acquisisce la versione del commit N, o la più recente prima
+di N.
 
 # Costi
 
@@ -199,8 +230,8 @@ il lettore sceglie la radice del commit N.
   massimo tutti) più la copia dei nodi dell'indice toccati, una sola
   volta per nodo nel commit.
 - **Memoria:** una copia degli slot per ogni versione viva (l'ultima
-  pubblicata, le k precedenti conservate e quelle tenute dai reader), più i nodi
-  dell'indice non condivisi.
+  pubblicata, le k precedenti conservate e quelle uscite dalla finestra
+  ma ancora acquisite), più i nodi dell'indice non condivisi.
 
 Per 1 000 000 di entità gli slot sono circa 24 MB in 2D e 32 MB in 3D;
 la copia completa costa qualche ms, da misurare, su un tick di circa
@@ -222,10 +253,8 @@ dei buffer evita comunque le allocazioni a ogni tick.
 - Mappa ID → slot: nel prototipo tabella copiata; da rivedere con le
   misure se la copia pesa con molte entità e inserimenti o rimozioni a
   ogni commit (alternativa HAMT).
-- Contatori dei reader per versione o epoch-based reclamation.
-- Vita delle versioni tenute dai reader: oggi senza limiti (vedi
-  [conservazione delle
-  versioni](/architecture/version-retention.md#punti-aperti)).
+- Contatori dei reader per versione o epoch-based reclamation nel
+  [linguaggio finale](/decisions/language.md), senza GC.
 
 # Correlati
 

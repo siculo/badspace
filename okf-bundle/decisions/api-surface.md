@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader sulla versione dell'ultimo commit (`lastVersion()`), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (oggi `lastVersion()`, da sostituire con acquisizione, lettura e rilascio delle versioni conservate, con scadenza opzionale), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T16:24:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
 ---
 
 # Stato
@@ -37,7 +37,8 @@ evolvere aggiungendo il supporto a ulteriori meccanismi.
 | Partizioni | Proprietà | Acquisire, rilasciare e trasferire l'esclusività di scrittura con il [fencing token](/architecture/partition-ownership.md) |
 | Commit | `commit(n)` | Chiude il [commit](/architecture/partition-commit.md) corrente con il numero n, scelto dal software; per un server a frame, alla fine del tick |
 | Commit | Ultimo commit persistito | [Durabilità osservabile](/architecture/observable-durability.md) |
-| Commit | Lettura al tick N | Sulle partizioni con k ≥ 1 (vedi [conservazione delle versioni](/architecture/version-retention.md)) |
+| Commit | Acquisizione e rilascio delle versioni | Ultima, precedente, al tick N o prima, esatta; con scadenza opzionale (vedi [acquisizione delle versioni](#acquisizione-delle-versioni)) |
+| Commit | Lettura al tick N | Acquisizione al tick N o prima su ogni partizione; k ≥ 1 se il writer può essere avanti (vedi [conservazione delle versioni](/architecture/version-retention.md)) |
 
 La mappa ID → partizione spetta al software, che decide dove creare le
 entità e quando spostarle. È una scelta naturale quando tutte le entità
@@ -139,9 +140,11 @@ alla creazione e poi non cambia; la partizione la restituisce con
 `withIndex` e `withRemovalPolicy` ne fanno una copia con un valore
 cambiato. Seguendo lo [sviluppo
 incrementale](/process/development-approach.md#sviluppo-incrementale),
-la configurazione si estende quando arrivano concetti nuovi: per
-esempio k, il numero di commit passati da conservare, arriva con i
-[commit](/architecture/partition-commit.md).
+la configurazione si estende quando arrivano concetti nuovi: k, il
+numero di versioni passate conservate oltre alla corrente (≥ 0, default
+0), arriva con l'[acquisizione delle
+versioni](#acquisizione-delle-versioni), insieme a un metodo che fa una
+copia della configurazione con k cambiato.
 
 La politica di rimozione dice cosa succede alle entità quando la
 partizione viene rimossa:
@@ -159,7 +162,7 @@ Nel contratto del nodo la creazione riceve l'ID della partizione e la
 configurazione dell'indice (`IndexConfig`, scansione lineare se manca);
 la rimozione ha due operazioni, una per le partizioni vuote e una che
 scarta anche le entità. L'API passa al nodo l'indice della
-configurazione.
+configurazione; con k la creazione riceverà anche il suo valore.
 
 ## Commit
 
@@ -191,6 +194,11 @@ Scelte di dettaglio:
   chiamata, per ridurre le chiamate remote, è rimandato ai gruppi di
   partizioni o al nodo gRPC.
 
+Il [fencing token](/architecture/partition-ownership.md), quando
+arriva, si aggiunge al commit come alle altre scritture. La forma è
+provvisoria e si rivede con il tick globale e le [letture
+coerenti](/mechanisms/consistent-reads.md).
+
 ### Letture del writer e dei reader
 
 Il commit pubblica la versione della partizione (vedi [isolamento delle
@@ -200,25 +208,69 @@ due tipi:
 | Lettura | Forma | Note |
 |---|---|---|
 | Del writer | `getAll`, `findInRegion`, `findNearest` sul proxy della partizione | Leggono lo stato del writer, scritture non committate comprese; le chiama solo il writer |
-| Dei reader | `lastVersion()` su `Partition2`/`Partition3`; `lastVersion(PartitionId)` nel contratto del nodo | Restituisce la versione dell'ultimo commit, `PartitionVersion2`/`PartitionVersion3`: immutabile, leggibile da ogni thread, con `commit()`, `size()`, `get`, `getAll`, `findInRegion`, `findNearest`; prima del primo commit è la versione vuota del commit 0 |
+| Dei reader (oggi) | `lastVersion()` su `Partition2`/`Partition3`; `lastVersion(PartitionId)` nel contratto del nodo | Restituisce la versione dell'ultimo commit, `PartitionVersion2`/`PartitionVersion3`: immutabile, leggibile da ogni thread, con `commit()`, `size()`, `get`, `getAll`, `findInRegion`, `findNearest`; prima del primo commit è la versione vuota del commit 0 |
 
 Tutte le letture di una versione vedono lo stesso commit; due chiamate
-a `lastVersion()` possono invece dare commit diversi.
+a `lastVersion()` possono invece dare commit diversi. Dopo la rimozione
+della partizione `lastVersion()` fallisce, ma una versione già presa
+resta leggibile e mostra la partizione al suo commit.
+
+`lastVersion()` dà al reader la versione interna, che si può leggere
+senza limiti: con l'[acquisizione delle
+versioni](#acquisizione-delle-versioni) esce dal proxy e dal contratto
+del nodo, e resta solo come metodo interno del nodo. Le letture del
+writer non cambiano.
+
+### Acquisizione delle versioni
+
+Forma decisa, da implementare nel prototipo; la semantica è nella
+[conservazione delle
+versioni](/architecture/version-retention.md#acquisizione-e-rilascio).
+I reader leggono una versione solo attraverso un'acquisizione.
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Ultima | `acquireLatest(options)` | La versione corrente, anche quella vuota del commit 0 |
+| Precedente | `acquirePrevious(int offset, options)` | `offset` = 0 è l'ultima, `offset` = i l'i-esimo commit pubblicato prima |
+| Al tick o prima | `acquireAtOrBefore(long tick, options)` | La versione acquisibile con il commit più grande ≤ tick |
+| Esatta | `acquireExact(long commit, options)` | Solo la versione di quel commit |
+| Lettura | `commit()`, `size()`, `get`, `getAll`, `findInRegion`, `findNearest` sulla view | Ogni lettura controlla l'acquisizione all'inizio |
+| Rilascio | `close()` sulla view; `release` nel contratto del nodo | Idempotente e thread-safe |
+
+Le opzioni dicono la scadenza: `noTimeout()`, il default, oppure una
+durata positiva misurata dal momento dell'acquisizione con il clock
+monotono del nodo. Una durata troppo grande per il clock vale come
+nessuna scadenza.
+
+**Locale e remoto.** Nell'API la versione acquisita è una view
+`AutoCloseable` (2D e 3D), da usare con `try`-with-resources. Nel
+contratto del nodo un'acquisizione restituisce un identificatore
+serializzabile dell'acquisizione, con il commit acquisito; le letture
+ricevono l'identificatore e `release` lo chiude. Le acquisizioni le
+tiene il nodo, non il processo del reader, e la semantica è la stessa
+in locale e attraverso gRPC.
+
+| Errore | Eccezione |
+|---|---|
+| Versione non acquisibile: fuori dalla finestra, commit mai pubblicato, nessun commit ≤ tick | eccezione di dominio dedicata (versione non disponibile); nessuna acquisizione creata |
+| `offset`, tick o commit negativi; durata zero o negativa | `IllegalArgumentException` |
+| Lettura attraverso un'acquisizione rilasciata o scaduta | `IllegalStateException` |
+| Acquisizione su una partizione rimossa | `IllegalStateException` |
+| Rilascio di un identificatore mai emesso o di un'altra partizione, nel contratto del nodo | `IllegalArgumentException`; le altre acquisizioni non cambiano |
 
 Scelte di dettaglio:
 
-- **Dopo la rimozione della partizione** `lastVersion()` fallisce, ma
-  una versione già presa resta leggibile e mostra la partizione al suo
-  commit: dati vecchi ma coerenti, come per ogni versione tenuta a
-  lungo.
-- **Vita delle versioni**: oggi un reader tiene una versione senza
-  limiti; il limite si decide con k (vedi [conservazione delle
-  versioni](/architecture/version-retention.md#punti-aperti)).
-
-Il [fencing token](/architecture/partition-ownership.md), quando
-arriva, si aggiunge al commit come alle altre scritture. La forma è
-provvisoria e si rivede con il tick globale e le [letture
-coerenti](/mechanisms/consistent-reads.md).
+- **Rilascio ripetuto**: il secondo rilascio della stessa acquisizione,
+  o il rilascio dopo la scadenza, non fa niente.
+- **Query in corso**: una query iniziata prima del rilascio o della
+  scadenza finisce e il suo risultato è valido; i dati già letti
+  restano validi anche dopo il rilascio.
+- **`lastCommit()`** resta un metadato: non si usa per scegliere la
+  versione da acquisire, perché tra i due passi la finestra può
+  cambiare.
+- **Dopo la rimozione della partizione** le acquisizioni già fatte
+  restano leggibili; una nuova partizione con lo stesso ID non le
+  riceve.
 
 ## Contratto del nodo
 
