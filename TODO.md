@@ -13,7 +13,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [API da esporre](okf-bundle/decisions/api-surface.md).
 
-- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, indici copy-on-write, snapshot degli slot, k nella configurazione della partizione, writer su thread diversi, fencing token. → [cose da fare](#fare-commit)
+- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, indici copy-on-write, snapshot degli slot, conservazione e acquisizione delle versioni (k nella configurazione, rilascio, scadenza), writer su thread diversi, fencing token. → [cose da fare](#fare-commit)
 
   Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md), [Conservazione delle versioni](okf-bundle/architecture/version-retention.md).
 
@@ -37,7 +37,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Tombstone](okf-bundle/architecture/tombstones.md), [Migrazione di entità tra partizioni](okf-bundle/mechanisms/entity-migration.md), [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md).
 
-- [ ] **Letture coerenti:** versioni conservate, tick globale, lettura al tick N, rimozione differita. → [cose da fare](#fare-letture) · [decisioni](#decisioni-letture)
+- [ ] **Letture coerenti:** tick globale, lettura al tick N sulle versioni conservate, rimozione differita. → [cose da fare](#fare-letture) · [decisioni](#decisioni-letture)
 
   Documenti: [Conservazione delle versioni](okf-bundle/architecture/version-retention.md), [Letture coerenti su più partizioni](okf-bundle/mechanisms/consistent-reads.md), [Architettura minima](okf-bundle/architecture/minimal-core.md).
 
@@ -100,9 +100,17 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 - [x] Indici persistenti copy-on-write che usano il contatore: un nodo si modifica sul posto solo se è del commit corrente, altrimenti si copia; test che una radice tenuta da parte non cambia dopo un commit (basta un solo thread)
 - [x] Slot nello snapshot: coordinate copiate a ogni commit, ID e mappa ID → slot copiati solo con inserimenti o rimozioni (per ora tabella copiata, non HAMT)
 - [x] Pubblicazione atomica della radice `(slot_N, indice_N)`: i reader vedono solo commit completi
-- [ ] k nella configurazione della partizione: il numero di versioni passate (commit effettivamente pubblicati) da conservare oltre alla corrente (default 0, k = 0 conserva solo la corrente), usato dalle [letture coerenti](#fare-letture); per ora solo le ultime k + 1 radici tenute vive, le versioni non usate le libera il GC. Oggi un reader può tenere una versione (`lastVersion()`) senza limiti: con k la vita di una versione si misura in commit, e si decide come si chiude la finestra quando la partizione viene rimossa, perché il suo contatore non avanza più (la rimozione chiude la finestra, oppure un contatore che continua, come il tick globale). Una versione resta leggibile dopo la rimozione: mostra la partizione al suo commit
-- [ ] Writer su thread diversi per partizioni diverse, con pool dei buffer degli snapshot e conteggio dei reader per versione (o epoch-based reclamation)
-- [ ] Misura del costo per commit della copia degli slot e dei nodi dell'indice, con diverse frazioni di entità in movimento e reader concorrenti; i benchmark degli indici nel [TODO degli indici](TODO-indices.md) andranno ripetuti sulla versione copy-on-write
+- [ ] Conservazione e acquisizione delle versioni, in passi (semantica in [Conservazione delle versioni](okf-bundle/architecture/version-retention.md#acquisizione-e-rilascio), forma in [API da esporre](okf-bundle/decisions/api-surface.md#acquisizione-delle-versioni)); ogni passo per 2D e 3D, con i test:
+  - [ ] k nella configurazione della partizione: versioni passate conservate oltre alla corrente, ≥ 0, default 0, con un metodo che fa una copia della configurazione con k cambiato; passato dallo spazio alla creazione nel contratto del nodo e nel nodo locale. Test: valore negativo rifiutato, default 0
+  - [ ] Catalogo delle versioni per partizione nel service: al commit registra la stessa versione pubblicata dallo storage (niente copie di slot o indici) e tiene acquisibili le ultime k + 1, versione vuota del commit 0 compresa; nessun reader vede un commit nuovo con il catalogo vecchio. `lastCommit()` letto dalla versione pubblicata, così è visibile agli altri thread. Test: k = 0, e k = 2 con commit 100, 103, 107, 110
+  - [ ] Acquisizione e rilascio nel contratto del nodo (identificatore serializzabile, `acquireLatest`, `acquirePrevious`, `acquireAtOrBefore`, `acquireExact`, `release` idempotente, eccezione dedicata per la versione non disponibile) e view `AutoCloseable` nell'API; ammissione atomica delle query, con il riferimento rilasciato anche quando la query fallisce. Test: offset fuori dalla finestra, due reader sulla stessa versione, versione fuori dalla finestra leggibile finché acquisita e poi non più acquisibile, acquisizione fallita senza pin, doppio `close()`, identificatore non valido che non libera altre acquisizioni, read-your-writes del writer invariato
+  - [ ] `lastVersion()` fuori dal proxy e dal contratto del nodo, sostituita dall'acquisizione nei test; resta solo come metodo interno del service
+  - [ ] Test di concorrenza con latch o barriere, senza sleep: commit durante una query, acquisizione concorrente alla rotazione della finestra, rilascio concorrente a una query; slot e indice sempre dello stesso commit, writer mai bloccato da una query lenta
+  - [ ] Scadenza opzionale delle acquisizioni: `noTimeout()` di default, durata positiva con clock monotono sostituibile nei test, durata zero o negativa rifiutata, durata troppo grande come nessuna scadenza, acquisizioni scadute eliminate a ogni evento della partizione. Test con clock finto: scadenza prima della prima query, durante una query ammessa, rilascio dopo la scadenza, nuova acquisizione distinta
+  - [ ] Rimozione della partizione: niente nuove acquisizioni né scritture, acquisizioni già fatte leggibili fino al rilascio o alla scadenza, catalogo che sopravvive alla rimozione dal nodo, acquisizioni vecchie che non vedono una nuova partizione con lo stesso ID. Test per `removePartition` e `dropPartition`
+  - [ ] Test del salvataggio lento: una versione acquisita senza scadenza resta leggibile dopo molti commit, finché non si rilascia
+- [ ] Writer su thread diversi per partizioni diverse, con pool dei buffer degli snapshot
+- [ ] Misura del costo per commit della copia degli slot e dei nodi dell'indice, con diverse frazioni di entità in movimento e reader concorrenti, e costo di acquisizione e rilascio; i benchmark degli indici nel [TODO degli indici](TODO-indices.md) andranno ripetuti sulla versione copy-on-write
 - [ ] Proprietà della partizione con fencing token (acquisire, rilasciare, trasferire)
 
 <a id="fare-metadati"></a>
@@ -151,9 +159,8 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-letture"></a>
 ### Letture coerenti [↑](#blocchi)
 
-- [ ] Conservazione delle versioni degli ultimi k commit (copy-on-write)
 - [ ] Tick globale e barriera
-- [ ] Lettura al tick N
+- [ ] Lettura al tick N: acquisizione al tick N o prima su ogni partizione, nuovo tentativo se N esce dalla finestra, rilascio alla fine della lettura
 - [ ] Rimozione differita come alternativa alle letture al tick N
 
 <a id="fare-gruppi"></a>
@@ -215,7 +222,8 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [x] Entità statiche e dinamiche come caso di partizionamento
 - [x] Aggregazione per tipo di query
 - [x] Commit distinto dal tick (al più un commit per tick)
-- [x] k configurabile per partizione, default 0
+- [x] k configurabile per partizione, default 0: versioni passate conservate oltre alla corrente
+- [x] Acquisizione e rilascio delle versioni: selezione atomica rispetto al commit, pin fuori dalla finestra, scadenza opzionale con clock monotono (durata zero rifiutata, senza rinnovo), acquisizioni leggibili dopo la rimozione della partizione
 - [x] Scritture condizionate al posto delle transazioni
 - [x] Regole delle tombstone ed epoca
 - [x] Protocollo di migrazione (outbox con consumer idempotente)
