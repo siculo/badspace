@@ -4,7 +4,7 @@ title: Partizionamento del DB
 description: Il DB di BADSPACE è diviso in partizioni indipendenti, single-writer e con indice proprio, create e rimosse dinamicamente per scalare; la strategia di partizionamento la sceglie il software.
 tags: [badspace, design, partitioning, scalability]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T10:47:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T07:57:00Z }
 ---
 
 # Decisione
@@ -33,7 +33,7 @@ processi. La struttura a livelli è descritta in
 
 - Il DB **non prevede partizioni predefinite**: il software crea tutte
   quelle che gli servono e configura ciascuna in modo diverso (tipo di
-  indice, numero k di [versioni conservate](/architecture/version-retention.md)).
+  indice, numero k di [versioni passate conservate](/architecture/version-retention.md)).
 - Le partizioni si **creano e si rimuovono dinamicamente**, mentre il
   sistema è in funzione.
 - È questo che rende il DB **scalabile**: il carico si ridistribuisce

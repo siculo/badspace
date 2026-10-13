@@ -4,7 +4,7 @@ title: Glossario
 description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, gruppo di partizioni, generatorId, commit, tick, snapshot, slot, copy-on-write e transient, fencing token, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T07:57:00Z }
 ---
 
 # Termini
@@ -29,7 +29,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
 | Epoca | Contatore di sistema che cresce a ogni migrazione e stabilisce quale copia è valida. Vedi [metadati delle entità](/architecture/entity-metadata.md). |
 | Tombstone | Metadati di sistema che restano dopo la rimozione e impediscono le resurrezioni. Vedi [tombstone](/architecture/tombstones.md). |
 | Scrittura condizionata | Scrittura applicata solo se una condizione sui metadati è vera (compare-and-set). |
-| k | Numero di commit passati conservati da una partizione, default 0. Vedi [conservazione delle versioni](/architecture/version-retention.md). |
+| k | Numero di versioni passate (commit effettivamente pubblicati) che una partizione conserva oltre alla versione corrente: le versioni conservate sono k + 1, e k = 0 conserva solo la versione corrente. k ≥ 0, default 0. I numeri di commit saltati non contano. Vedi [conservazione delle versioni](/architecture/version-retention.md). |
 | Limiti delle coordinate | Intervallo `[min, max]`, uguale su tutti gli assi, delle coordinate che le entità di una partizione possono avere; lo fissa l'indice, e le scritture fuori dai limiti falliscono. Le query non hanno limiti. Vedi [indicizzazione spaziale](/decisions/spatial-indexing.md#limiti-delle-coordinate). |
 | Cella | Quadrato (2D) o cubo (3D) di lato fisso in cui un indice a celle divide lo spazio, come la [grid uniforme](/indices/uniform-grid.md) e la [griglia di quadtree](/indices/grid-quadtree.md). |
 | Foglia | Nodo di un quadtree o di un octree senza figli, che contiene le entità della sua area; quando ne ha troppe si divide. Vedi [quadtree e octree](/indices/quadtree.md). |

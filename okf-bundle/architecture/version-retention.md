@@ -1,19 +1,22 @@
 ---
 type: Architecture Primitive
 title: Conservazione delle versioni
-description: Ogni partizione può conservare lo stato degli ultimi k commit (k configurabile, default 0) tenendo vivi gli snapshot dei commit, base delle letture coerenti su più partizioni.
+description: Ogni partizione può conservare lo stato della versione corrente e dei k commit precedenti (k + 1 versioni, k configurabile, default 0) tenendo vivi gli snapshot dei commit, base delle letture coerenti su più partizioni.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T16:24:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T07:57:00Z }
 ---
 
 # Primitiva
 
-Ogni partizione può conservare gli stati degli ultimi **k
-[commit](/architecture/partition-commit.md)**, con k configurabile per
-partizione e **zero come default**. Ogni commit pubblica già uno
+Ogni partizione può conservare, oltre alla versione corrente, gli
+stati dei **k [commit](/architecture/partition-commit.md) precedenti**,
+con k configurabile per partizione e **zero come default**: le versioni
+conservate sono quindi k + 1, e con k = 0 resta solo la versione
+corrente. Contano solo i commit effettivamente pubblicati: i numeri di
+commit saltati non creano versioni. Ogni commit pubblica già uno
 snapshot per l'[isolamento delle letture](/decisions/read-isolation.md),
-e conservare k versioni significa tenere vive le ultime k radici. Gli
+e conservare le versioni significa tenere vive le ultime k + 1 radici. Gli
 indici condividono i nodi non cambiati (copy-on-write); gli slot
 costano una copia per versione.
 

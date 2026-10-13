@@ -4,7 +4,7 @@ title: Architettura minima del layer delle partizioni
 description: Le cinque primitive minime del layer delle partizioni, i principi che le reggono e come i meccanismi (migrazione, letture coerenti, aggregazione, ribilanciamento) si costruiscono sopra di esse.
 tags: [badspace, architecture, partitioning]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T07:57:00Z }
 ---
 
 # Obiettivo
@@ -60,7 +60,8 @@ Quattro principi reggono l'insieme:
 4. [Durabilità osservabile](/architecture/observable-durability.md) —
    ultimo commit persistito.
 5. [Conservazione delle versioni](/architecture/version-retention.md) —
-   ultimi k commit, k configurabile per partizione.
+   versione corrente e k commit precedenti, k configurabile per
+   partizione.
 
 # Meccanismi sopra il livello base
 

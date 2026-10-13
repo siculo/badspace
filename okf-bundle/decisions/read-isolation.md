@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T16:24:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T07:57:00Z }
 ---
 
 # Problema
@@ -186,8 +186,9 @@ Lo storage combina la versione dell'indice con lo snapshot degli slot
 # Versioni passate
 
 Ogni snapshot è già una versione completa della partizione: la
-[conservazione delle versioni](/architecture/version-retention.md) con
-k > 0 significa tenere vive le ultime k radici. Gli indici condividono
+[conservazione delle versioni](/architecture/version-retention.md)
+significa tenere vive le ultime k + 1 radici: la corrente e le k
+precedenti. Gli indici condividono
 i nodi non cambiati; gli slot costano una copia per versione
 conservata. Per le [letture coerenti](/mechanisms/consistent-reads.md)
 il lettore sceglie la radice del commit N.
@@ -198,7 +199,7 @@ il lettore sceglie la radice del commit N.
   massimo tutti) più la copia dei nodi dell'indice toccati, una sola
   volta per nodo nel commit.
 - **Memoria:** una copia degli slot per ogni versione viva (l'ultima
-  pubblicata, quelle tenute dai reader e le k conservate), più i nodi
+  pubblicata, le k precedenti conservate e quelle tenute dai reader), più i nodi
   dell'indice non condivisi.
 
 Per 1 000 000 di entità gli slot sono circa 24 MB in 2D e 32 MB in 3D;
