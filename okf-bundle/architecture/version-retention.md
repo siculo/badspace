@@ -4,7 +4,7 @@ title: Conservazione delle versioni
 description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza opzionale, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T18:00:00Z }
 ---
 
 # Primitiva
@@ -189,6 +189,15 @@ variabile locale, che il GC tratta come la protezione dei riferimenti
 delle query in corso, anche quando la query fallisce. Le versioni senza
 acquisizioni né query le libera il GC (vedi [API da
 esporre](/decisions/api-surface.md#acquisizione-delle-versioni)).
+
+I test di concorrenza fermano una query a metà con un cancello
+nell'indice, senza sleep: un commit durante la query non cambia il suo
+risultato e il writer non aspetta la query; un rilascio durante la
+query, anche con la versione uscita dalla finestra, la lascia finire
+con un risultato valido. Con più reader che acquisiscono l'ultima
+versione o quella prima mentre il writer fa commit, ogni versione letta
+ha slot e indice dello stesso commit, e quelle tenute restano leggibili
+dopo l'uscita dalla finestra.
 
 Mancano la scadenza e la semantica della rimozione della partizione:
 oggi dopo la rimozione le letture attraverso un'acquisizione falliscono
