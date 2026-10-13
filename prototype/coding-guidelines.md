@@ -69,7 +69,9 @@ sviluppo incrementale sono in `CLAUDE.md` e non si ripetono qui.
 ## 3. Tipi e struttura
 
 1. **Record** per i valori immutabili (`Point2`, `PartitionId`); validazione nel compact
-   constructor.
+   constructor. I record usati spesso nei test e nei client hanno un metodo statico con
+   il nome del tipo in minuscolo (`Point2.point(x, y)`, `Entity2.entity(id, x, y)`), da
+   usare con `import static` nei test e nei client; il codice principale usa il costruttore.
 2. **Sealed interface + `switch` esaustivo** per le varianti chiuse (`Region2`), senza
    `default`.
 3. **`interface`** solo per i contratti del bundle o con più implementazioni.

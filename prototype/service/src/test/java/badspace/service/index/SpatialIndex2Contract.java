@@ -1,5 +1,6 @@
 package badspace.service.index;
 
+import static badspace.common.partition.Entity2.entity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import badspace.common.geometry.Box2;
@@ -202,10 +203,6 @@ abstract class SpatialIndex2Contract {
         TestStorage2 storage = newStorage();
         storage.insertAll(List.of(entities));
         return storage;
-    }
-
-    private static Entity2 entity(long entityId, double x, double y) {
-        return new Entity2(entityId, new Point2(x, y));
     }
 
     private static List<Entity2> sortedById(List<Entity2> entities) {

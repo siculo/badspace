@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import static badspace.common.geometry.Point3.point;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
@@ -41,10 +42,10 @@ class AcquisitionConcurrency3Test {
     private static final List<IndexConfig> CONFIGS = List.of(
             IndexConfig.linearScan(), IndexConfig.uniformGrid(4), IndexConfig.gridQuadtree(4));
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
-    private static final Point3 A = point(1, 2);
-    private static final Point3 B = point(3, 4);
-    private static final Point3 C = point(5, 6);
-    private static final Point3 D = point(7, 8);
+    private static final Point3 A = point(1, 2, 0);
+    private static final Point3 B = point(3, 4, 0);
+    private static final Point3 C = point(5, 6, 0);
+    private static final Point3 D = point(7, 8, 0);
     private static final long[] ALL_IDS = {10, 20, 30};
     private static final PartitionId P1 = new PartitionId(1);
     private static final int READERS = 3;
@@ -52,11 +53,6 @@ class AcquisitionConcurrency3Test {
     private static final int ENTITIES = 4;
     /** The readers keep one acquisition in this many, to read it again at the end. */
     private static final int KEEP_EVERY = 50;
-
-    /** Returns a point with z = 0: the positions of these tests do not need z. */
-    private static Point3 point(double x, double y) {
-        return new Point3(x, y, 0);
-    }
 
     @Test
     void commitDuringAQueryDoesNotChangeItsResultAndDoesNotWait() throws Exception {
@@ -209,7 +205,7 @@ class AcquisitionConcurrency3Test {
 
     /** The position of an entity at a commit: all the entities move at each commit. */
     private static Point3 positionAt(long commit, long entityId) {
-        return point(commit % 1000, entityId);
+        return point(commit % 1000, entityId, 0);
     }
 
     /**
@@ -226,7 +222,7 @@ class AcquisitionConcurrency3Test {
         for (Entity3 e : byId) {
             assertEquals(positionAt(commit, e.id()), e.position(), where);
         }
-        Region3 all = new Box3(point(-1, -1), point(1000, entityIds.length + 1));
+        Region3 all = new Box3(point(-1, -1, 0), point(1000, entityIds.length + 1, 0));
         assertEquals(Set.copyOf(byId), Set.copyOf(node.findInRegion(acquisition, all)), where);
         assertEquals(expectedSize, node.size(acquisition), where);
     }
@@ -254,7 +250,7 @@ class AcquisitionConcurrency3Test {
         public void run() {
             try {
                 StorageVersion3 version = storage.admit(acquisitionId);
-                inRegion = version.findInRegion(new Box3(point(-100, -100), point(100, 100)));
+                inRegion = version.findInRegion(new Box3(point(-100, -100, 0), point(100, 100, 0)));
                 byId = version.getAll(ALL_IDS);
             } catch (Throwable e) {
                 failure = e;

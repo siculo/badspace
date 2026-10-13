@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import static badspace.common.partition.Entity3.entity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -31,10 +32,6 @@ class LocalPartitionNode3Test {
     void setUp() {
         node = new LocalPartitionNode3();
         node.createPartition(P1);
-    }
-
-    private static Entity3 entity(long entityId, double x, double y, double z) {
-        return new Entity3(entityId, new Point3(x, y, z));
     }
 
     @Test

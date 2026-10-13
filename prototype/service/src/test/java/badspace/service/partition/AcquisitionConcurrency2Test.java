@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import static badspace.common.geometry.Point2.point;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
@@ -52,10 +53,6 @@ class AcquisitionConcurrency2Test {
     private static final int ENTITIES = 4;
     /** The readers keep one acquisition in this many, to read it again at the end. */
     private static final int KEEP_EVERY = 50;
-
-    private static Point2 point(double x, double y) {
-        return new Point2(x, y);
-    }
 
     @Test
     void commitDuringAQueryDoesNotChangeItsResultAndDoesNotWait() throws Exception {

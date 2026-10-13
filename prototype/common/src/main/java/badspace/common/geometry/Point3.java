@@ -16,6 +16,14 @@ public record Point3(double x, double y, double z) {
     }
 
     /**
+     * Returns the point (x, y, z): the same as the constructor, but shorter to use with an
+     * import static, for example in tests and clients. Fails like the constructor.
+     */
+    public static Point3 point(double x, double y, double z) {
+        return new Point3(x, y, z);
+    }
+
+    /**
      * Returns this point moved by dx on the x axis, by dy on the y axis and by dz on the
      * z axis. Fails with IllegalArgumentException if a coordinate of the result is not
      * finite. The result can be outside the limits of a partition: the write of the

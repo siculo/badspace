@@ -1,5 +1,6 @@
 package badspace.service.index;
 
+import static badspace.common.partition.Entity2.entity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import badspace.common.geometry.Box2;
@@ -158,10 +159,6 @@ class GridQuadtreeIndex2Test {
         c.check(new Box2(new Point2(-1, -1), new Point2(-small, 1)));
         c.check(new Box2(new Point2(0, 0), new Point2(1, 1)));
         c.check(new Point2(-1e-300, -1e-300), 2);
-    }
-
-    private static Entity2 entity(long entityId, double x, double y) {
-        return new Entity2(entityId, new Point2(x, y));
     }
 
     /** The same entities in a storage with the grid of quadtrees and in one with the linear scan. */

@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-14
+* **Edit**: [API da esporre](/decisions/api-surface.md#coordinate-come-record): metodi statici `point` su `Point2`/`Point3` ed `entity` su `Entity2`/`Entity3`, da usare con `import static` in test e client.
+
 ## 2026-10-13
 * **Edit**: [Conservazione delle versioni](/architecture/version-retention.md#nel-prototipo): riportati i test di concorrenza fatti nel prototipo (commit e rilascio durante una query fermata con un cancello nell'indice, writer che non aspetta, acquisizioni durante lo spostamento della finestra con slot e indice dello stesso commit).
 * **Edit**: [API da esporre](/decisions/api-surface.md#coordinate-come-record): metodi di comodo per gli aggiornamenti di posizione, nati da un client di prova: `add` su `Point2`/`Point3`, `withPosition` e `moveBy` su `Entity2`/`Entity3`.

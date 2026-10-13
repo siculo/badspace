@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione, lettura e rilascio delle versioni conservate; la scadenza opzionale è da implementare), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T17:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T09:00:00Z }
 ---
 
 # Stato
@@ -59,6 +59,9 @@ prototipo conta la chiarezza più delle prestazioni, e con i record non
 servono controlli sulla lunghezza degli array né c'è il rischio di
 scambiare le coordinate.
 
+Per test e client i record hanno metodi statici da usare con `import
+static`: `point(x, y)` e `point(x, y, z)` su `Point2`/`Point3`,
+`entity(id, x, y)` ed `entity(id, x, y, z)` su `Entity2`/`Entity3`.
 Per gli aggiornamenti di posizione i record hanno metodi di comodo, nati
 da un client di prova: `add(dx, dy)` su `Point2` (e `add(dx, dy, dz)`
 su `Point3`) restituisce il punto spostato, `withPosition(p)` e

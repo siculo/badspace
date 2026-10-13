@@ -1,5 +1,6 @@
 package badspace.service.index;
 
+import static badspace.common.partition.Entity3.entity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import badspace.common.geometry.Box3;
@@ -73,9 +74,9 @@ class GridOctreeIndex3Test {
     @Test
     void manyEntitiesInTheSamePositionStayInOneLeaf() {
         List<Entity3> entities = new ArrayList<>();
-        LongStream.rangeClosed(1, 2000).forEach(id -> entities.add(entity(id, 3, 3)));
-        entities.add(entity(5000, 3.5, 3));
-        entities.add(entity(5001, 2.5, 3));
+        LongStream.rangeClosed(1, 2000).forEach(id -> entities.add(entityWithZEqualToY(id, 3, 3)));
+        entities.add(entityWithZEqualToY(5000, 3.5, 3));
+        entities.add(entityWithZEqualToY(5001, 2.5, 3));
         Comparison c = new Comparison(1, 1, entities);
         c.check(new Point3(3, 3, 3), 5);
         c.check(new Point3(3.4, 3, 3), 3);
@@ -90,17 +91,18 @@ class GridOctreeIndex3Test {
     void entitiesInTheSamePositionDoNotMakeAChainOfNodes() {
         List<Entity3> entities = new ArrayList<>();
         // 0.0 and -0.0 are the same position for the index.
-        LongStream.rangeClosed(1, 100).forEach(id -> entities.add(entity(id, id % 2 == 0 ? 0.0 : -0.0, 0)));
-        LongStream.rangeClosed(101, 200).forEach(id -> entities.add(entity(id, 300, 300)));
+        LongStream.rangeClosed(1, 100)
+                .forEach(id -> entities.add(entityWithZEqualToY(id, id % 2 == 0 ? 0.0 : -0.0, 0)));
+        LongStream.rangeClosed(101, 200).forEach(id -> entities.add(entityWithZEqualToY(id, 300, 300)));
         Comparison c = new Comparison(128, 16, entities);
         assertEquals(0, c.maxDepth());
 
         // In the cell [256, 384), 300 and 301 go in different children at
         // depth 7; the 99 entities still in 300 then stay in one leaf.
-        c.update(entity(101, 301, 300));
+        c.update(entityWithZEqualToY(101, 301, 300));
         assertEquals(7, c.maxDepth());
         c.check(new Point3(300.6, 300, 300), 3);
-        c.update(entity(101, 300, 300));
+        c.update(entityWithZEqualToY(101, 300, 300));
         assertEquals(7, c.maxDepth());
         c.check(new Point3(300.6, 300, 300), 3);
         c.check(new Box3(new Point3(-1, -1, -1), new Point3(0, 0, 0)));
@@ -118,7 +120,8 @@ class GridOctreeIndex3Test {
         Random random = new Random(1);
         List<Entity3> entities = new ArrayList<>();
         for (long id = 1; id <= 2000; id++) {
-            entities.add(entity(id, 300 + random.nextGaussian() * 5, 300 + random.nextGaussian() * 5));
+            entities.add(entityWithZEqualToY(
+                    id, 300 + random.nextGaussian() * 5, 300 + random.nextGaussian() * 5));
         }
         Comparison c = new Comparison(64, 4, entities);
         c.checkStructure();
@@ -131,8 +134,8 @@ class GridOctreeIndex3Test {
                 Entity3 e = current.get(id);
                 double step = random.nextInt(10) == 0 ? 50 : 0.5;
                 Entity3 moved = random.nextInt(10) == 0
-                        ? entity(id, 300, 300)
-                        : entity(id, e.position().x() + random.nextGaussian() * step,
+                        ? entityWithZEqualToY(id, 300, 300)
+                        : entityWithZEqualToY(id, e.position().x() + random.nextGaussian() * step,
                                 e.position().y() + random.nextGaussian() * step);
                 c.update(moved);
                 current.put(id, moved);
@@ -154,15 +157,17 @@ class GridOctreeIndex3Test {
     void smallNegativeCoordinatesAreInTheRightCell() {
         double small = Double.MIN_VALUE;
         Comparison c = new Comparison(0x1p20, 1, List.of(
-                entity(1, -small, -small), entity(2, small, small), entity(3, 0, 0), entity(4, -small, small)));
+                entityWithZEqualToY(1, -small, -small), entityWithZEqualToY(2, small, small),
+                entityWithZEqualToY(3, 0, 0), entityWithZEqualToY(4, -small, small)));
         c.check(new Box3(new Point3(-small, -small, -small), new Point3(-small, -small, -small)));
         c.check(new Box3(new Point3(-1, -1, -1), new Point3(-small, 1, 1)));
         c.check(new Box3(new Point3(0, 0, 0), new Point3(1, 1, 1)));
         c.check(new Point3(-1e-300, -1e-300, -1e-300), 2);
     }
 
-    private static Entity3 entity(long entityId, double x, double y) {
-        return new Entity3(entityId, new Point3(x, y, y));
+    /** Returns an entity at (x, y, y): these tests keep z equal to y. */
+    private static Entity3 entityWithZEqualToY(long entityId, double x, double y) {
+        return entity(entityId, x, y, y);
     }
 
     /** The same entities in a storage with the grid of octrees and in one with the linear scan. */

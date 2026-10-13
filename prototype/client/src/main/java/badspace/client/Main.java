@@ -1,5 +1,9 @@
 package badspace.client;
 
+import static badspace.common.geometry.Point2.point;
+import static badspace.common.geometry.Point3.point;
+import static badspace.common.partition.Entity2.entity;
+
 import badspace.api.Partition;
 import badspace.api.Partition2;
 import badspace.api.Partition3;
@@ -10,9 +14,6 @@ import badspace.api.Space2;
 import badspace.api.Space3;
 import badspace.common.geometry.Box2;
 import badspace.common.geometry.Circle2;
-import badspace.common.partition.Entity2;
-import badspace.common.geometry.Point2;
-import badspace.common.geometry.Point3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.RetentionWindow;
 import badspace.service.partition.LocalPartitionNode2;
@@ -39,17 +40,17 @@ public class Main {
         System.out.printf("2D: entity %d on node A, entity %d on node B%n", a, b);
 
         // Batch operations: one call to the node for many entities
-        long[] ids = p2a.insertAll(List.of(new Point2(0, 0), new Point2(1, 1), new Point2(2, 2)));
-        p2a.updateAll(List.of(new Entity2(ids[0], new Point2(5, 5)), new Entity2(ids[1], new Point2(6, 6))));
+        long[] ids = p2a.insertAll(List.of(point(0, 0), point(1, 1), point(2, 2)));
+        p2a.updateAll(List.of(entity(ids[0], 5, 5), entity(ids[1], 6, 6)));
         p2a.removeAll(new long[] {ids[2]});
         System.out.printf("2D: after the batch, node A has %s%n", p2a.getAll(new long[] {a, ids[0], ids[1], ids[2]}));
 
         // Queries: entities in a region and entities nearest to a point
         System.out.printf("2D: in the box (4,4)-(7,7): %s%n",
-                p2a.findInRegion(new Box2(new Point2(4, 4), new Point2(7, 7))));
+                p2a.findInRegion(new Box2(point(4, 4), point(7, 7))));
         System.out.printf("2D: in the circle of radius 1 around (10,3): %s%n",
-                p2a.findInRegion(new Circle2(new Point2(10, 3), 1)));
-        System.out.printf("2D: the 2 nearest to (0,0): %s%n", p2a.findNearest(new Point2(0, 0), 2));
+                p2a.findInRegion(new Circle2(point(10, 3), 1)));
+        System.out.printf("2D: the 2 nearest to (0,0): %s%n", p2a.findNearest(point(0, 0), 2));
 
         // The software chooses the commit number, for example the tick, and can skip numbers
         p2a.commit(1);
@@ -61,7 +62,7 @@ public class Main {
                 new PartitionConfig(IndexConfig.uniformGrid(10), RemovalPolicy.DISCARD_ENTITIES,
                         RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS));
         long c = p3.insert(1.0, 2.0, 3.0);
-        p3.update(c, new Point3(4.0, 5.0, 6.0));
+        p3.update(c, point(4.0, 5.0, 6.0));
         System.out.printf("3D: entity %d is at %s%n", c, p3.get(c).orElseThrow());
 
         // 2D and 3D partitions through the common interface

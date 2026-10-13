@@ -16,6 +16,14 @@ public record Point2(double x, double y) {
     }
 
     /**
+     * Returns the point (x, y): the same as the constructor, but shorter to use with an
+     * import static, for example in tests and clients. Fails like the constructor.
+     */
+    public static Point2 point(double x, double y) {
+        return new Point2(x, y);
+    }
+
+    /**
      * Returns this point moved by dx on the x axis and by dy on the y axis. Fails with
      * IllegalArgumentException if a coordinate of the result is not finite. The result
      * can be outside the limits of a partition: the write of the entity checks them.

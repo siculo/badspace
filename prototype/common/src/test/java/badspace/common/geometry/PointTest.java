@@ -26,6 +26,14 @@ class PointTest {
     }
 
     @Test
+    void pointIsTheSameAsTheConstructor() {
+        assertEquals(new Point2(1, 2), Point2.point(1, 2));
+        assertEquals(new Point3(1, 2, 3), Point3.point(1, 2, 3));
+        assertThrows(IllegalArgumentException.class, () -> Point2.point(Double.NaN, 0));
+        assertThrows(IllegalArgumentException.class, () -> Point3.point(0, 0, Double.POSITIVE_INFINITY));
+    }
+
+    @Test
     void addMovesThePointIn2D() {
         assertEquals(new Point2(4, 1), new Point2(1, 2).add(3, -1));
         assertEquals(new Point2(1, 2), new Point2(1, 2).add(0, 0));

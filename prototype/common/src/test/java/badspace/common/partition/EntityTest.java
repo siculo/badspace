@@ -10,6 +10,13 @@ import org.junit.jupiter.api.Test;
 class EntityTest {
 
     @Test
+    void entityIsTheSameAsTheConstructors() {
+        assertEquals(new Entity2(7, new Point2(1, 2)), Entity2.entity(7, 1, 2));
+        assertEquals(new Entity3(7, new Point3(1, 2, 3)), Entity3.entity(7, 1, 2, 3));
+        assertThrows(IllegalArgumentException.class, () -> Entity2.entity(7, Double.NaN, 0));
+    }
+
+    @Test
     void withPositionKeepsTheId() {
         assertEquals(new Entity2(7, new Point2(5, 6)), new Entity2(7, new Point2(1, 2)).withPosition(new Point2(5, 6)));
         assertEquals(new Entity3(7, new Point3(5, 6, 7)),
