@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (oggi `lastVersion()`, da sostituire con acquisizione, lettura e rilascio delle versioni conservate, con scadenza opzionale), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T10:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T11:00:00Z }
 ---
 
 # Stato
@@ -163,8 +163,9 @@ configurazione dell'indice (`IndexConfig`, scansione lineare se manca)
 e k (0 se manca), e fallisce con `IllegalArgumentException` se k è
 negativo; la rimozione ha due operazioni, una per le partizioni vuote e
 una che scarta anche le entità. L'API passa al nodo l'indice e k della
-configurazione. Il nodo conserva k nello storage della partizione, ma
-per ora non lo usa: lo userà il catalogo delle versioni.
+configurazione. Il nodo passa k al catalogo delle versioni della
+partizione, che tiene le ultime k + 1 versioni pubblicate (vedi
+[Conservazione delle versioni](/architecture/version-retention.md#nel-prototipo)).
 
 ## Commit
 

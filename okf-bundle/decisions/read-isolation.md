@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica e letti attraverso un'acquisizione controllata; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T11:00:00Z }
 ---
 
 # Problema
@@ -79,10 +79,13 @@ della *grace period* di RCU descritto nelle [letture
 coerenti](/mechanisms/consistent-reads.md).
 
 **Nel prototipo** la versione della partizione (snapshot degli slot e
-versione dell'indice) si pubblica con la scrittura di un campo
-`volatile`, l'ultima operazione del commit: chi legge il campo vede
-anche tutto quello che il commit ha scritto prima, quindi la versione
-precedente o tutta quella nuova. Prima del primo commit c'è una
+versione dell'indice) entra nel catalogo delle versioni, un oggetto
+immutabile con le ultime k + 1 versioni, e il catalogo nuovo si
+pubblica con la scrittura di un campo `volatile`, l'ultima operazione
+del commit: chi legge il campo vede anche tutto quello che il commit ha
+scritto prima, quindi il catalogo precedente o tutto quello nuovo, mai
+una versione nuova con la finestra vecchia. Anche l'ultimo commit si
+legge dalla versione pubblicata, quindi da ogni thread. Prima del primo commit c'è una
 versione vuota al commit 0, con l'indice vuoto della scansione lineare,
 che con slot vuoti vale per ogni indice. Il writer legge il proprio
 stato, i reader la versione pubblicata con `lastVersion()` (vedi [API

@@ -1,10 +1,10 @@
 ---
 type: Glossary
 title: Glossario
-description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, gruppo di partizioni, generatorId, commit, tick, gTick, snapshot, versione, finestra di conservazione, acquisizione, rilascio, pin, scadenza, slot, copy-on-write e transient, fencing token, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
+description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, gruppo di partizioni, generatorId, commit, tick, gTick, snapshot, versione, finestra di conservazione, catalogo delle versioni, acquisizione, rilascio, pin, scadenza, slot, copy-on-write e transient, fencing token, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T11:00:00Z }
 ---
 
 # Termini
@@ -33,6 +33,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
 | k | Numero di versioni passate (commit effettivamente pubblicati) che una partizione conserva oltre alla versione corrente: le versioni conservate sono k + 1, e k = 0 conserva solo la versione corrente. k ≥ 0, default 0. I numeri di commit saltati non contano. Vedi [conservazione delle versioni](/architecture/version-retention.md). |
 | Versione | Lo snapshot di una sola partizione a un commit, con slot e indice dello stesso commit; immutabile. Vedi [isolamento delle letture](/decisions/read-isolation.md). |
 | Finestra di conservazione | Le ultime k + 1 versioni pubblicate di una partizione: le sole che ammettono nuove acquisizioni. Vedi [conservazione delle versioni](/architecture/version-retention.md). |
+| Catalogo delle versioni | Le versioni di una partizione tenute dal nodo: per ora le versioni della finestra di conservazione, pubblicate tutte insieme a ogni commit. Vedi [conservazione delle versioni](/architecture/version-retention.md#nel-prototipo). |
 | Acquisizione | Diritto, solo logico e con identità propria, di interrogare una versione; più acquisizioni della stessa versione sono indipendenti. Le tiene il nodo. Vedi [conservazione delle versioni](/architecture/version-retention.md#acquisizione-e-rilascio). |
 | Rilascio | Chiusura di una sola acquisizione: idempotente; dopo il rilascio le nuove letture attraverso quell'acquisizione falliscono, e la versione non viene per forza eliminata. |
 | Pin | Stato di una versione uscita dalla finestra di conservazione ma ancora tenuta da acquisizioni valide o da query già ammesse: si legge, ma non si può più acquisire. Vedi [conservazione delle versioni](/architecture/version-retention.md#vita-di-una-versione). |

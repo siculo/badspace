@@ -40,6 +40,8 @@ class PartitionStorage3Test {
     private static final long[] ALL_IDS = {10, 20, 30, 40};
     private static final int READERS = 3;
     private static final int COMMITS = 3000;
+    /** k of the partitions in the tests with concurrent readers. */
+    private static final int RETAINED_PAST_VERSIONS = 2;
 
     private RecordingIndex index;
     private PartitionStorage3 storage;
@@ -205,6 +207,19 @@ class PartitionStorage3Test {
     }
 
     @Test
+    void catalogHoldsTheSameVersionsThatTheCommitsReturn() {
+        PartitionStorage3 configured = new PartitionStorage3(IndexConfig.linearScan(), 1);
+        StorageVersion3 empty = configured.lastVersion();
+        StorageVersion3 first = configured.commit(1);
+        assertSame(empty, configured.catalog().versions().get(0));
+        assertSame(first, configured.catalog().versions().get(1));
+        StorageVersion3 second = configured.commit(2);
+        assertSame(first, configured.catalog().versions().get(0));
+        assertSame(second, configured.catalog().versions().get(1));
+        assertSame(second, configured.lastVersion());
+    }
+
+    @Test
     void readersSeeTheWritesOnlyAfterTheCommit() {
         StorageVersion3 empty = storage.lastVersion();
         assertEquals(0, empty.commit());
@@ -232,13 +247,14 @@ class PartitionStorage3Test {
      * moves all the entities to positions that depend on the commit, and
      * changes their number; it moves them with more than one call, so the
      * states between the calls are mixed. The readers check that each version
-     * they read is a whole commit.
+     * they read is a whole commit, and that the catalog has the window of the
+     * same commit.
      */
     @Test
     void readersOnOtherThreadsSeeOnlyWholeCommits() throws InterruptedException {
         for (IndexConfig config : List.of(
                 IndexConfig.linearScan(), IndexConfig.uniformGrid(4), IndexConfig.gridQuadtree(4))) {
-            PartitionStorage3 configured = new PartitionStorage3(config);
+            PartitionStorage3 configured = new PartitionStorage3(config, RETAINED_PAST_VERSIONS);
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
             List<Thread> readers = new ArrayList<>();
@@ -249,10 +265,13 @@ class PartitionStorage3Test {
                         long last = 0;
                         started.countDown();
                         while (!done.get()) {
-                            StorageVersion3 version = configured.lastVersion();
+                            VersionCatalog3 catalog = configured.catalog();
+                            StorageVersion3 version = catalog.lastVersion();
                             assertTrue(version.commit() >= last, "commits go back");
                             last = version.commit();
+                            checkWindow(catalog);
                             checkWholeCommit(version);
+                            assertTrue(configured.lastCommit() >= last, "last commit goes back");
                         }
                     } catch (Throwable e) {
                         failure.compareAndSet(null, e);
@@ -294,6 +313,20 @@ class PartitionStorage3Test {
         assertEquals(expected.size(), inRegion.size(), where);
         assertEquals(expected, version.findNearest(A, ALL_IDS.length), where);
         assertEquals(List.of(), version.findNearest(A, 0), where);
+    }
+
+    /**
+     * Checks that the window of the catalog ends with its last version and has
+     * the commits before it. writeCommits() makes the commits 1, 2, 3 and so on.
+     */
+    private static void checkWindow(VersionCatalog3 catalog) {
+        long lastCommit = catalog.lastVersion().commit();
+        List<StorageVersion3> versions = catalog.versions();
+        String where = "window at commit " + lastCommit;
+        assertEquals(Math.min(lastCommit, RETAINED_PAST_VERSIONS) + 1, versions.size(), where);
+        for (int i = 0; i < versions.size(); i++) {
+            assertEquals(lastCommit - versions.size() + 1 + i, versions.get(i).commit(), where);
+        }
     }
 
     private static void writeCommits(PartitionStorage3 storage) {

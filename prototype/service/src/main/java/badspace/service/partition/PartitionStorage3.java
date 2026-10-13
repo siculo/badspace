@@ -19,7 +19,7 @@ import java.util.function.Function;
 
 /**
  * Entities of a 3D partition. It has a single writer and is not thread-safe,
- * except {@link #lastVersion()}.
+ * except {@link #catalog()}, {@link #lastVersion()} and {@link #lastCommit()}.
  * Entities are stored in primitive arrays: slotEntityIds[i] has coordinates
  * coords[3*i], coords[3*i+1], coords[3*i+2]. A {@link SlotTable} gives the slot of each ID.
  * Removal moves the last entity into the free slot, so the arrays stay compact
@@ -36,11 +36,14 @@ import java.util.function.Function;
  * IDs and the table from ID to slot only after insertions or removals, else
  * the new snapshot shares them with the one before.
  * <p>
+ * The commit also adds the version to the {@link VersionCatalog3}, which keeps
+ * the last k + 1 versions. The catalog holds the same versions, not copies.
+ * <p>
  * The reads of the storage see the state of the writer, with the writes not
  * yet committed, and only the writer can call them. The other threads read
- * the {@linkplain #lastVersion() last version}: the commit publishes it with
- * a single write of a volatile field, so a reader sees either the version
- * before or the whole new version.
+ * the {@linkplain #catalog() catalog}: the commit publishes it with a single
+ * write of a volatile field, so a reader sees either the catalog before or the
+ * whole new catalog, never a new last version with an old window.
  */
 final class PartitionStorage3 implements SlotView3 {
 
@@ -54,15 +57,13 @@ final class PartitionStorage3 implements SlotView3 {
     private double[] coords = new double[INITIAL_CAPACITY * DIMENSIONS];
     private final SlotTable slotById = new SlotTable();
     private int size;
-    private long lastCommit;
-    /** The version of the last commit, which the readers see. */
-    private volatile StorageVersion3 lastVersion = StorageVersion3.empty();
+    // The writer replaces the catalog at each commit and any thread reads it. The
+    // volatile write publishes the new version and the new window together.
+    private volatile VersionCatalog3 catalog;
     /** True after an insertion or a removal not yet in a snapshot. */
     private boolean idsChanged;
     private final CoordinateLimits limits;
     private final SpatialIndex3 index;
-    /** k: the past versions kept besides the last one. */
-    private final int retainedPastVersions;
 
     /** Creates a storage that uses the linear scan as index. */
     PartitionStorage3() {
@@ -97,7 +98,7 @@ final class PartitionStorage3 implements SlotView3 {
             int retainedPastVersions) {
         this.limits = limits;
         this.index = indexFactory.apply(this);
-        this.retainedPastVersions = retainedPastVersions;
+        this.catalog = VersionCatalog3.empty(retainedPastVersions);
     }
 
     void insertAll(List<Entity3> entities) {
@@ -181,30 +182,42 @@ final class PartitionStorage3 implements SlotView3 {
 
     /** Returns k: the number of past versions kept besides the last one. */
     int retainedPastVersions() {
-        return retainedPastVersions;
+        return catalog.retainedPastVersions();
     }
 
     /** Closes the commit, publishes the version of the partition at the commit and returns it. */
     StorageVersion3 commit(long commit) {
+        long lastCommit = lastCommit();
         if (commit <= lastCommit) {
             throw new IllegalArgumentException(
                     "Commit " + commit + " is not greater than the last commit " + lastCommit);
         }
         StorageVersion3 version = new StorageVersion3(commit, snapshot(), index.commit(commit));
         idsChanged = false;
-        lastCommit = commit;
         // The publication: the last write of the commit.
-        lastVersion = version;
+        catalog = catalog.withVersion(version);
         return version;
+    }
+
+    /**
+     * Returns the catalog of the last commit, with the versions in the retention
+     * window. Unlike the other methods, any thread can call it.
+     */
+    VersionCatalog3 catalog() {
+        return catalog;
     }
 
     /** Returns the version of the last commit. Unlike the other methods, any thread can call it. */
     StorageVersion3 lastVersion() {
-        return lastVersion;
+        return catalog.lastVersion();
     }
 
+    /**
+     * Returns the number of the last commit, from the published version, so any
+     * thread can call it. It is 0 before the first commit.
+     */
     long lastCommit() {
-        return lastCommit;
+        return catalog.lastVersion().commit();
     }
 
     @Override
@@ -221,7 +234,7 @@ final class PartitionStorage3 implements SlotView3 {
     private SlotSnapshot3 snapshot() {
         double[] coordsCopy = Arrays.copyOf(coords, size * DIMENSIONS);
         if (!idsChanged) {
-            SlotSnapshot3 last = lastVersion.slots();
+            SlotSnapshot3 last = catalog.lastVersion().slots();
             return new SlotSnapshot3(last.slotEntityIds, coordsCopy, last.slotById);
         }
         return new SlotSnapshot3(Arrays.copyOf(slotEntityIds, size), coordsCopy, slotById.copy());

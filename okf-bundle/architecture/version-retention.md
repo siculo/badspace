@@ -4,7 +4,7 @@ title: Conservazione delle versioni
 description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza opzionale, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T11:00:00Z }
 ---
 
 # Primitiva
@@ -169,11 +169,20 @@ suo ciclo di commit: non c'è atomicità tra partizioni.
 
 # Nel prototipo
 
-Oggi un reader prende la versione dell'ultimo commit con
-`lastVersion()` e la tiene senza limiti; la conservazione delle k
-versioni, l'acquisizione, il rilascio e la scadenza sono da
-implementare (vedi [API da
-esporre](/decisions/api-surface.md#acquisizione-delle-versioni)).
+Ogni partizione ha un **catalogo delle versioni** nel service: un
+oggetto immutabile con le versioni della finestra, dalla più vecchia
+all'ultima, versione vuota del commit 0 compresa finché non esce dalla
+finestra. Il catalogo tiene le stesse versioni che lo storage pubblica,
+senza copie di slot o indici. A ogni commit il writer crea un catalogo
+nuovo con la nuova versione, che fa uscire la più vecchia se la
+finestra è piena, e lo pubblica con una sola scrittura: un reader vede
+sempre l'ultima versione e la finestra dello stesso commit.
+
+Un reader prende ancora la versione dell'ultimo commit con
+`lastVersion()` e la tiene senza limiti; l'acquisizione, il rilascio e
+la scadenza sono da implementare (vedi [API da
+esporre](/decisions/api-surface.md#acquisizione-delle-versioni)), e le
+versioni uscite dalla finestra le libera il GC quando nessuno le usa.
 
 # Punti aperti
 
