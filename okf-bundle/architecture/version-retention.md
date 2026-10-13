@@ -4,7 +4,7 @@ title: Conservazione delle versioni
 description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza opzionale, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T11:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T14:00:00Z }
 ---
 
 # Primitiva
@@ -178,11 +178,24 @@ nuovo con la nuova versione, che fa uscire la più vecchia se la
 finestra è piena, e lo pubblica con una sola scrittura: un reader vede
 sempre l'ultima versione e la finestra dello stesso commit.
 
-Un reader prende ancora la versione dell'ultimo commit con
-`lastVersion()` e la tiene senza limiti; l'acquisizione, il rilascio e
-la scadenza sono da implementare (vedi [API da
-esporre](/decisions/api-surface.md#acquisizione-delle-versioni)), e le
-versioni uscite dalla finestra le libera il GC quando nessuno le usa.
+Le quattro selezioni scelgono la versione da un solo catalogo
+pubblicato, quindi sono atomiche rispetto al commit. Le acquisizioni le
+tiene lo storage della partizione in una mappa concorrente dal numero
+dell'acquisizione alla versione: una versione uscita dalla finestra
+resta raggiungibile da lì finché ha acquisizioni, e il rilascio toglie
+solo la sua voce. L'ammissione di una query è la lettura della voce
+nella mappa: la query tiene il riferimento alla versione in una
+variabile locale, che il GC tratta come la protezione dei riferimenti
+delle query in corso, anche quando la query fallisce. Le versioni senza
+acquisizioni né query le libera il GC (vedi [API da
+esporre](/decisions/api-surface.md#acquisizione-delle-versioni)).
+
+Mancano la scadenza e la semantica della rimozione della partizione:
+oggi dopo la rimozione le letture attraverso un'acquisizione falliscono
+perché il nodo non trova più la partizione, e i numeri delle
+acquisizioni di una nuova partizione con lo stesso ID ripartono da 1.
+`lastVersion()` resta, finché non esce dal proxy e dal contratto del
+nodo.
 
 # Punti aperti
 

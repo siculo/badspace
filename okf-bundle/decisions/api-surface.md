@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (oggi `lastVersion()`, da sostituire con acquisizione, lettura e rilascio delle versioni conservate, con scadenza opzionale), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T11:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T14:00:00Z }
 ---
 
 # Stato
@@ -226,10 +226,12 @@ writer non cambiano.
 
 ### Acquisizione delle versioni
 
-Forma decisa, da implementare nel prototipo; la semantica è nella
-[conservazione delle
+La semantica è nella [conservazione delle
 versioni](/architecture/version-retention.md#acquisizione-e-rilascio).
-I reader leggono una versione solo attraverso un'acquisizione.
+I reader leggono una versione solo attraverso un'acquisizione. Nel
+prototipo ci sono già le quattro selezioni, le letture e il rilascio;
+le opzioni arrivano con la scadenza, quindi oggi le chiamate non le
+ricevono e ogni acquisizione è senza scadenza.
 
 | Operazione | Forma | Note |
 |---|---|---|
@@ -246,20 +248,25 @@ monotono del nodo. Una durata troppo grande per il clock vale come
 nessuna scadenza.
 
 **Locale e remoto.** Nell'API la versione acquisita è una view
-`AutoCloseable` (2D e 3D), da usare con `try`-with-resources. Nel
-contratto del nodo un'acquisizione restituisce un identificatore
-serializzabile dell'acquisizione, con il commit acquisito; le letture
-ricevono l'identificatore e `release` lo chiude. Le acquisizioni le
-tiene il nodo, non il processo del reader, e la semantica è la stessa
-in locale e attraverso gRPC.
+`AutoCloseable`, `AcquiredVersion2`/`AcquiredVersion3`, da usare con
+`try`-with-resources; il suo `commit()` viene dall'identificatore e non
+controlla l'acquisizione. Nel contratto del nodo un'acquisizione
+restituisce un identificatore serializzabile, il record `Acquisition`
+con l'ID della partizione, il numero dell'acquisizione e il commit
+acquisito; le letture (`size`, `getAll`, `findInRegion`, `findNearest`)
+ricevono l'identificatore e `release` lo chiude. Il numero lo sceglie
+la partizione, parte da 1 e non si riusa. Le acquisizioni le tiene il
+nodo, non il processo del reader, e la semantica è la stessa in locale
+e attraverso gRPC.
 
 | Errore | Eccezione |
 |---|---|
-| Versione non acquisibile: fuori dalla finestra, commit mai pubblicato, nessun commit ≤ tick | eccezione di dominio dedicata (versione non disponibile); nessuna acquisizione creata |
+| Versione non acquisibile: fuori dalla finestra, commit mai pubblicato, nessun commit ≤ tick | `VersionNotAvailableException`, eccezione di dominio dedicata; nessuna acquisizione creata |
 | `offset`, tick o commit negativi; durata zero o negativa | `IllegalArgumentException` |
 | Lettura attraverso un'acquisizione rilasciata o scaduta | `IllegalStateException` |
 | Acquisizione su una partizione rimossa | `IllegalStateException` |
-| Rilascio di un identificatore mai emesso o di un'altra partizione, nel contratto del nodo | `IllegalArgumentException`; le altre acquisizioni non cambiano |
+| Rilascio o lettura con un identificatore mai emesso o di un'altra partizione, nel contratto del nodo | `IllegalArgumentException`; le altre acquisizioni non cambiano |
+| Lettura con un identificatore il cui commit non è quello della versione acquisita, nel contratto del nodo | `IllegalArgumentException` |
 
 Scelte di dettaglio:
 

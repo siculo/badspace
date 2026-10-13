@@ -1,0 +1,78 @@
+package badspace.api;
+
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Region2;
+import badspace.common.partition.Acquisition;
+import badspace.common.partition.Entity2;
+import badspace.common.partition.PartitionNode2;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * A version of a 2D partition that a reader acquired: the partition as it was
+ * at a commit. The version never changes, so all its reads see the same commit
+ * while the writer goes on, also after the version leaves the retention window.
+ * Use it with try-with-resources: {@link #close()} releases the acquisition.
+ * <p>
+ * Each read checks the acquisition when it starts. After the release, a new read
+ * fails with IllegalStateException; a read that started before ends normally, and
+ * the entities already read stay valid. Any thread can use the view.
+ */
+public final class AcquiredVersion2 implements AutoCloseable {
+
+    private final PartitionNode2 node;
+    private final Acquisition acquisition;
+
+    AcquiredVersion2(PartitionNode2 node, Acquisition acquisition) {
+        this.node = node;
+        this.acquisition = acquisition;
+    }
+
+    /**
+     * Returns the number of the commit, or 0 for the empty version before the first commit.
+     * It does not check the acquisition: the number is part of it.
+     */
+    public long commit() {
+        return acquisition.commit();
+    }
+
+    /** Returns the number of entities. */
+    public int size() {
+        return node.size(acquisition);
+    }
+
+    /** Returns the position of an entity, or empty if the ID is not in the version. */
+    public Optional<Point2> get(long entityId) {
+        return getAll(new long[] {entityId}).stream().findFirst().map(Entity2::position);
+    }
+
+    /**
+     * Returns the entities with the given IDs, in the same order.
+     * IDs that are not in the version are skipped.
+     */
+    public List<Entity2> getAll(long[] entityIds) {
+        return node.getAll(acquisition, entityIds);
+    }
+
+    /**
+     * Returns the entities that are inside the region or on its border.
+     * The order of the result is not defined.
+     */
+    public List<Entity2> findInRegion(Region2 region) {
+        return node.findInRegion(acquisition, region);
+    }
+
+    /**
+     * Returns the entities nearest to a point, at most count of them, sorted by distance
+     * from the point and then by ID. Fails with IllegalArgumentException if count is negative.
+     */
+    public List<Entity2> findNearest(Point2 point, int count) {
+        return node.findNearest(acquisition, point, count);
+    }
+
+    /** Releases the acquisition. Calling it again does nothing. */
+    @Override
+    public void close() {
+        node.release(acquisition);
+    }
+}

@@ -15,11 +15,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 /**
  * Entities of a 2D partition. It has a single writer and is not thread-safe,
- * except {@link #catalog()}, {@link #lastVersion()} and {@link #lastCommit()}.
+ * except {@link #catalog()}, {@link #lastVersion()}, {@link #lastCommit()} and the
+ * methods of the acquisitions.
  * Entities are stored in primitive arrays: slotEntityIds[i] has coordinates
  * coords[2*i], coords[2*i+1]. A {@link SlotTable} gives the slot of each ID.
  * Removal moves the last entity into the free slot, so the arrays stay compact
@@ -44,6 +47,10 @@ import java.util.function.Function;
  * the {@linkplain #catalog() catalog}: the commit publishes it with a single
  * write of a volatile field, so a reader sees either the catalog before or the
  * whole new catalog, never a new last version with an old window.
+ * <p>
+ * The storage also keeps the acquisitions of the versions: each one has a number
+ * and holds its version, also after the version leaves the window, until it is
+ * released.
  */
 final class PartitionStorage2 implements SlotView2 {
 
@@ -60,6 +67,12 @@ final class PartitionStorage2 implements SlotView2 {
     // The writer replaces the catalog at each commit and any thread reads it. The
     // volatile write publishes the new version and the new window together.
     private volatile VersionCatalog2 catalog;
+    // Acquisition number -> acquired version. Any thread acquires, reads and releases:
+    // the map makes each of these steps atomic, and a query keeps its own reference
+    // to the version, so a release during the query does not stop it.
+    private final ConcurrentHashMap<Long, StorageVersion2> acquisitions = new ConcurrentHashMap<>();
+    // The number of the last acquisition. Numbers start from 1 and are never used again.
+    private final AtomicLong lastAcquisitionId = new AtomicLong();
     /** True after an insertion or a removal not yet in a snapshot. */
     private boolean idsChanged;
     private final CoordinateLimits limits;
@@ -220,6 +233,46 @@ final class PartitionStorage2 implements SlotView2 {
         return catalog.lastVersion().commit();
     }
 
+    /**
+     * Acquires the version and returns the number of the acquisition. The caller chooses
+     * the version from a {@linkplain #catalog() catalog}. Any thread can call it.
+     */
+    long acquire(StorageVersion2 version) {
+        long acquisitionId = lastAcquisitionId.incrementAndGet();
+        acquisitions.put(acquisitionId, version);
+        return acquisitionId;
+    }
+
+    /**
+     * Returns the acquired version, which a query then reads. Checking the acquisition
+     * and taking the version is a single step: the query can end also if the acquisition
+     * is released in the meantime. Fails with IllegalStateException if the acquisition
+     * was released, and with IllegalArgumentException if this storage never made it.
+     * Any thread can call it.
+     */
+    StorageVersion2 admit(long acquisitionId) {
+        StorageVersion2 version = acquisitions.get(acquisitionId);
+        if (version == null) {
+            checkMade(acquisitionId);
+            throw new IllegalStateException("Acquisition was released: " + acquisitionId);
+        }
+        return version;
+    }
+
+    /**
+     * Releases an acquisition. Releasing it again does nothing. Fails with
+     * IllegalArgumentException if this storage never made it. Any thread can call it.
+     */
+    void release(long acquisitionId) {
+        checkMade(acquisitionId);
+        acquisitions.remove(acquisitionId);
+    }
+
+    /** Returns the number of acquisitions not yet released. Any thread can call it. */
+    int acquisitionCount() {
+        return acquisitions.size();
+    }
+
     @Override
     public long idAt(int slot) {
         return slotEntityIds[slot];
@@ -238,6 +291,12 @@ final class PartitionStorage2 implements SlotView2 {
             return new SlotSnapshot2(last.slotEntityIds, coordsCopy, last.slotById);
         }
         return new SlotSnapshot2(Arrays.copyOf(slotEntityIds, size), coordsCopy, slotById.copy());
+    }
+
+    private void checkMade(long acquisitionId) {
+        if (acquisitionId < 1 || acquisitionId > lastAcquisitionId.get()) {
+            throw new IllegalArgumentException("Unknown acquisition: " + acquisitionId);
+        }
     }
 
     private void remove(long entityId) {

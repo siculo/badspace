@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Box2;
+import badspace.common.partition.Acquisition;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.geometry.Circle2;
 import badspace.common.partition.Entity2;
@@ -15,6 +16,7 @@ import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.PartitionVersion2;
 import badspace.common.partition.RetentionWindow;
+import badspace.common.partition.VersionNotAvailableException;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import java.util.ArrayList;
@@ -58,6 +60,9 @@ class Space2Test {
         final Map<PartitionId, Integer> retainedPastVersions = new HashMap<>();
         final Map<PartitionId, Long> commits = new HashMap<>();
         final Map<PartitionId, MapVersion> versions = new HashMap<>();
+        /** The acquisitions not yet released, by number. */
+        final Map<Long, MapVersion> acquired = new HashMap<>();
+        long lastAcquisitionId;
         int calls;
 
         @Override
@@ -147,6 +152,72 @@ class Space2Test {
         public PartitionVersion2 lastVersion(PartitionId partitionId) {
             calls++;
             return versions.computeIfAbsent(partitionId, p -> new MapVersion(0, 0));
+        }
+
+        /** Acquires the last version: the map node keeps only that one. */
+        @Override
+        public Acquisition acquireLatest(PartitionId partitionId) {
+            calls++;
+            MapVersion version = versions.computeIfAbsent(partitionId, p -> new MapVersion(0, 0));
+            acquired.put(++lastAcquisitionId, version);
+            return new Acquisition(partitionId, lastAcquisitionId, version.commit());
+        }
+
+        @Override
+        public Acquisition acquirePrevious(PartitionId partitionId, int offset) {
+            return acquireLatestIf(partitionId, offset == 0);
+        }
+
+        @Override
+        public Acquisition acquireAtOrBefore(PartitionId partitionId, long tick) {
+            return acquireLatestIf(partitionId, lastCommit(partitionId) <= tick);
+        }
+
+        @Override
+        public Acquisition acquireExact(PartitionId partitionId, long commit) {
+            return acquireLatestIf(partitionId, lastCommit(partitionId) == commit);
+        }
+
+        private Acquisition acquireLatestIf(PartitionId partitionId, boolean available) {
+            if (!available) {
+                throw new VersionNotAvailableException("Only the last version");
+            }
+            return acquireLatest(partitionId);
+        }
+
+        @Override
+        public void release(Acquisition acquisition) {
+            calls++;
+            acquired.remove(acquisition.id());
+        }
+
+        @Override
+        public int size(Acquisition acquisition) {
+            calls++;
+            return admit(acquisition).size();
+        }
+
+        @Override
+        public List<Entity2> getAll(Acquisition acquisition, long[] entityIds) {
+            return admit(acquisition).getAll(entityIds);
+        }
+
+        @Override
+        public List<Entity2> findInRegion(Acquisition acquisition, Region2 region) {
+            return admit(acquisition).findInRegion(region);
+        }
+
+        @Override
+        public List<Entity2> findNearest(Acquisition acquisition, Point2 point, int count) {
+            return admit(acquisition).findNearest(point, count);
+        }
+
+        private MapVersion admit(Acquisition acquisition) {
+            MapVersion version = acquired.get(acquisition.id());
+            if (version == null) {
+                throw new IllegalStateException("Acquisition was released");
+            }
+            return version;
         }
 
         @Override
@@ -331,6 +402,10 @@ class Space2Test {
         assertThrows(IllegalStateException.class, () -> p.commit(1));
         assertThrows(IllegalStateException.class, p::lastCommit);
         assertThrows(IllegalStateException.class, p::lastVersion);
+        assertThrows(IllegalStateException.class, p::acquireLatest);
+        assertThrows(IllegalStateException.class, () -> p.acquirePrevious(0));
+        assertThrows(IllegalStateException.class, () -> p.acquireAtOrBefore(0));
+        assertThrows(IllegalStateException.class, () -> p.acquireExact(0));
         assertThrows(IllegalStateException.class, () -> p.findInRegion(new Circle2(new Point2(0, 0), 1)));
         assertThrows(IllegalStateException.class, () -> p.findNearest(new Point2(0, 0), 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(p));
@@ -354,6 +429,45 @@ class Space2Test {
         p.commit(3);
         assertSame(node.versions.values().iterator().next(), p.lastVersion());
         assertEquals(3, p.lastVersion().commit());
+    }
+
+    @Test
+    void acquiredVersionReadsThroughTheNode() {
+        MapNode node = new MapNode();
+        Partition2 p = newSpace().createPartition(node);
+        p.insert(1, 1);
+        p.commit(3);
+        AcquiredVersion2 version = p.acquireLatest();
+        assertEquals(3, version.commit());
+        assertEquals(1, version.size());
+        assertEquals(1, node.acquired.size());
+    }
+
+    @Test
+    void closeReleasesTheAcquisitionAndCanBeCalledAgain() {
+        MapNode node = new MapNode();
+        Partition2 p = newSpace().createPartition(node);
+        AcquiredVersion2 version;
+        try (AcquiredVersion2 v = p.acquireLatest()) {
+            version = v;
+            assertEquals(0, version.size());
+        }
+        assertEquals(0, node.acquired.size());
+        version.close();
+        assertThrows(IllegalStateException.class, version::size);
+        assertEquals(0, version.commit());
+    }
+
+    @Test
+    void selectionsGoToTheNodeOfThePartition() {
+        MapNode node = new MapNode();
+        Partition2 p = newSpace().createPartition(node);
+        p.commit(3);
+        assertEquals(3, p.acquirePrevious(0).commit());
+        assertEquals(3, p.acquireAtOrBefore(5).commit());
+        assertEquals(3, p.acquireExact(3).commit());
+        assertThrows(VersionNotAvailableException.class, () -> p.acquireExact(2));
+        assertEquals(3, node.acquired.size());
     }
 
     @Test

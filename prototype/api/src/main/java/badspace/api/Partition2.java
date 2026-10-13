@@ -13,8 +13,9 @@ import java.util.Optional;
 
 /**
  * Proxy of a 2D partition that lives on a node. It has a single writer and is not thread-safe,
- * except {@link #lastVersion()}. The reads of the proxy see the writes not yet committed;
- * the other threads read the {@linkplain #lastVersion() version of the last commit}.
+ * except {@link #lastVersion()} and the acquisitions. The reads of the proxy see the writes
+ * not yet committed; the other threads {@linkplain #acquireLatest() acquire} the version of
+ * a commit and read it.
  * Single-entity operations are batches of one entity: to write many entities,
  * the batch operations make fewer calls to the node.
  * After the space removes the partition, every operation fails with IllegalStateException.
@@ -26,7 +27,7 @@ public final class Partition2 implements Partition {
     private final PartitionId partitionId;
     private final PartitionConfig config;
     // Written only by the writer, when the space removes the partition. Volatile
-    // because lastVersion() can be called by any thread.
+    // because lastVersion() and the acquisitions can be called by any thread.
     private volatile boolean removed;
 
     Partition2(Space2 space, PartitionNode2 node, PartitionId partitionId, PartitionConfig config) {
@@ -160,6 +161,47 @@ public final class Partition2 implements Partition {
     public PartitionVersion2 lastVersion() {
         checkNotRemoved();
         return node.lastVersion(partitionId);
+    }
+
+    /**
+     * Acquires the version of the last commit: the empty version at commit 0 if the
+     * partition has no commit yet. Choosing the version and acquiring it is a single
+     * step, so a commit at the same time cannot make it go away. Any thread can call it.
+     */
+    public AcquiredVersion2 acquireLatest() {
+        checkNotRemoved();
+        return new AcquiredVersion2(node, node.acquireLatest(partitionId));
+    }
+
+    /**
+     * Acquires a version in the retention window: offset 0 is the last version, offset i
+     * the i-th published commit before it. Fails with IllegalArgumentException if offset
+     * is negative, and with VersionNotAvailableException if the window has no version at
+     * that offset. Any thread can call it.
+     */
+    public AcquiredVersion2 acquirePrevious(int offset) {
+        checkNotRemoved();
+        return new AcquiredVersion2(node, node.acquirePrevious(partitionId, offset));
+    }
+
+    /**
+     * Acquires the version in the retention window with the greatest commit that is not
+     * greater than tick. Fails with IllegalArgumentException if tick is negative, and with
+     * VersionNotAvailableException if there is no such version. Any thread can call it.
+     */
+    public AcquiredVersion2 acquireAtOrBefore(long tick) {
+        checkNotRemoved();
+        return new AcquiredVersion2(node, node.acquireAtOrBefore(partitionId, tick));
+    }
+
+    /**
+     * Acquires the version of the given commit. Fails with IllegalArgumentException if
+     * commit is negative, and with VersionNotAvailableException if that version is not in
+     * the retention window. Any thread can call it.
+     */
+    public AcquiredVersion2 acquireExact(long commit) {
+        checkNotRemoved();
+        return new AcquiredVersion2(node, node.acquireExact(partitionId, commit));
     }
 
     @Override

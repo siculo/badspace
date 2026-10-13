@@ -1,13 +1,16 @@
 package badspace.service.partition;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.common.geometry.Box3;
+import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionVersion3;
+import badspace.common.partition.VersionNotAvailableException;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Sphere3;
 import java.util.ArrayList;
@@ -241,6 +244,154 @@ class LocalPartitionNode3Test {
         assertEquals(4, version.commit());
         assertEquals(Optional.of(new Point3(1, 1, 1)), version.get(1));
         assertEquals(0, node.size(P1));
+    }
+
+    @Test
+    void acquiredVersionDoesNotSeeLaterWrites() {
+        node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
+        node.commit(P1, 4);
+        Acquisition acquisition = node.acquireLatest(P1);
+        node.removeAll(P1, new long[] {1});
+        node.commit(P1, 5);
+        assertEquals(new Acquisition(P1, acquisition.id(), 4), acquisition);
+        assertEquals(1, node.size(acquisition));
+        assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(acquisition, new long[] {1}));
+        assertEquals(List.of(entity(1, 1, 1, 1)), node.findNearest(acquisition, new Point3(0, 0, 0), 1));
+        assertEquals(0, node.size(P1));
+    }
+
+    @Test
+    void newPartitionHasTheEmptyVersionAtCommitZero() {
+        Acquisition acquisition = node.acquireLatest(P1);
+        assertEquals(0, acquisition.commit());
+        assertEquals(0, node.size(acquisition));
+        assertEquals(0, node.acquireExact(P1, 0).commit());
+        assertEquals(0, node.acquireAtOrBefore(P1, 0).commit());
+    }
+
+    @Test
+    void selectionsChooseTheVersionInTheWindow() {
+        node.createPartition(P2, IndexConfig.linearScan(), 2);
+        node.commit(P2, 100);
+        node.commit(P2, 103);
+        node.commit(P2, 107);
+        assertEquals(107, node.acquireLatest(P2).commit());
+        assertEquals(107, node.acquirePrevious(P2, 0).commit());
+        assertEquals(103, node.acquirePrevious(P2, 1).commit());
+        assertEquals(100, node.acquirePrevious(P2, 2).commit());
+        assertEquals(103, node.acquireAtOrBefore(P2, 105).commit());
+        assertEquals(103, node.acquireExact(P2, 103).commit());
+    }
+
+    @Test
+    void versionsOutsideTheWindowAreNotAvailable() {
+        node.createPartition(P2, IndexConfig.linearScan(), 2);
+        node.commit(P2, 100);
+        node.commit(P2, 103);
+        node.commit(P2, 107);
+        assertThrows(VersionNotAvailableException.class, () -> node.acquirePrevious(P2, 3));
+        assertThrows(VersionNotAvailableException.class, () -> node.acquireAtOrBefore(P2, 99));
+        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 105));
+        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 0));
+    }
+
+    @Test
+    void negativeSelectionsAreRejected() {
+        assertThrows(IllegalArgumentException.class, () -> node.acquirePrevious(P1, -1));
+        assertThrows(IllegalArgumentException.class, () -> node.acquireAtOrBefore(P1, -1));
+        assertThrows(IllegalArgumentException.class, () -> node.acquireExact(P1, -1));
+    }
+
+    @Test
+    void acquisitionsRejectUnknownPartition() {
+        assertThrows(IllegalArgumentException.class, () -> node.acquireLatest(P2));
+        assertThrows(IllegalArgumentException.class, () -> node.acquirePrevious(P2, 0));
+        assertThrows(IllegalArgumentException.class, () -> node.acquireAtOrBefore(P2, 0));
+        assertThrows(IllegalArgumentException.class, () -> node.acquireExact(P2, 0));
+    }
+
+    @Test
+    void versionOutsideTheWindowStaysReadableWhileAcquired() {
+        node.createPartition(P2, IndexConfig.linearScan(), 2);
+        node.insertAll(P2, List.of(entity(1, 1, 1, 1)));
+        node.commit(P2, 100);
+        Acquisition acquisition = node.acquireExact(P2, 100);
+        node.removeAll(P2, new long[] {1});
+        node.commit(P2, 103);
+        node.commit(P2, 107);
+        node.commit(P2, 110);
+        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 100));
+        assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(acquisition, new long[] {1}));
+        node.release(acquisition);
+        assertThrows(IllegalStateException.class, () -> node.size(acquisition));
+    }
+
+    @Test
+    void twoReadersOfTheSameVersionAreIndependent() {
+        node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
+        node.commit(P1, 1);
+        Acquisition first = node.acquireLatest(P1);
+        Acquisition second = node.acquireLatest(P1);
+        assertNotEquals(first.id(), second.id());
+        node.release(first);
+        assertThrows(IllegalStateException.class, () -> node.size(first));
+        assertEquals(1, node.size(second));
+    }
+
+    @Test
+    void failedAcquisitionMakesNoAcquisition() {
+        Acquisition before = node.acquireLatest(P1);
+        assertThrows(VersionNotAvailableException.class, () -> node.acquirePrevious(P1, 1));
+        Acquisition after = node.acquireLatest(P1);
+        // No number was used by the failed acquisition.
+        assertEquals(before.id() + 1, after.id());
+    }
+
+    @Test
+    void releaseAgainDoesNothing() {
+        Acquisition acquisition = node.acquireLatest(P1);
+        node.release(acquisition);
+        node.release(acquisition);
+        assertThrows(IllegalStateException.class, () -> node.size(acquisition));
+        assertThrows(IllegalStateException.class, () -> node.getAll(acquisition, new long[] {1}));
+        assertThrows(IllegalStateException.class,
+                () -> node.findInRegion(acquisition, new Sphere3(new Point3(0, 0, 0), 1)));
+        assertThrows(IllegalStateException.class, () -> node.findNearest(acquisition, new Point3(0, 0, 0), 1));
+    }
+
+    @Test
+    void unknownAcquisitionIsRejectedAndTheOthersDoNotChange() {
+        node.createPartition(P2);
+        Acquisition acquisition = node.acquireLatest(P1);
+        Acquisition neverMade = new Acquisition(P1, acquisition.id() + 1, 0);
+        assertThrows(IllegalArgumentException.class, () -> node.release(neverMade));
+        assertThrows(IllegalArgumentException.class, () -> node.size(neverMade));
+        Acquisition otherPartition = new Acquisition(P2, acquisition.id(), 0);
+        assertThrows(IllegalArgumentException.class, () -> node.release(otherPartition));
+        Acquisition wrongCommit = new Acquisition(P1, acquisition.id(), 7);
+        assertThrows(IllegalArgumentException.class, () -> node.size(wrongCommit));
+        assertEquals(0, node.size(acquisition));
+    }
+
+    @Test
+    void failedQueryKeepsTheAcquisition() {
+        node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
+        node.commit(P1, 1);
+        Acquisition acquisition = node.acquireLatest(P1);
+        assertThrows(IllegalArgumentException.class, () -> node.findNearest(acquisition, new Point3(0, 0, 0), -1));
+        assertEquals(1, node.size(acquisition));
+        node.release(acquisition);
+        assertThrows(IllegalStateException.class, () -> node.size(acquisition));
+    }
+
+    @Test
+    void writerStillReadsItsOwnWritesWhileAVersionIsAcquired() {
+        node.commit(P1, 1);
+        Acquisition acquisition = node.acquireLatest(P1);
+        node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
+        assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(P1, new long[] {1}));
+        assertEquals(1, node.size(P1));
+        assertEquals(0, node.size(acquisition));
     }
 
     @Test

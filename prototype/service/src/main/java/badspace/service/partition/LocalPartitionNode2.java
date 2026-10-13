@@ -1,11 +1,13 @@
 package badspace.service.partition;
 
+import badspace.common.partition.Acquisition;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.PartitionVersion2;
+import badspace.common.partition.VersionNotAvailableException;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import java.util.List;
@@ -85,6 +87,79 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
+    public Acquisition acquireLatest(PartitionId partitionId) {
+        PartitionStorage2 storage = find(partitionId);
+        return acquire(partitionId, storage, storage.catalog().lastVersion());
+    }
+
+    @Override
+    public Acquisition acquirePrevious(PartitionId partitionId, int offset) {
+        if (offset < 0) {
+            throw new IllegalArgumentException("Negative offset: " + offset);
+        }
+        PartitionStorage2 storage = find(partitionId);
+        StorageVersion2 version = storage.catalog().previous(offset);
+        if (version == null) {
+            throw new VersionNotAvailableException(
+                    "No version at offset " + offset + " in partition " + partitionId);
+        }
+        return acquire(partitionId, storage, version);
+    }
+
+    @Override
+    public Acquisition acquireAtOrBefore(PartitionId partitionId, long tick) {
+        if (tick < 0) {
+            throw new IllegalArgumentException("Negative tick: " + tick);
+        }
+        PartitionStorage2 storage = find(partitionId);
+        StorageVersion2 version = storage.catalog().atOrBefore(tick);
+        if (version == null) {
+            throw new VersionNotAvailableException(
+                    "No version at tick " + tick + " or before in partition " + partitionId);
+        }
+        return acquire(partitionId, storage, version);
+    }
+
+    @Override
+    public Acquisition acquireExact(PartitionId partitionId, long commit) {
+        if (commit < 0) {
+            throw new IllegalArgumentException("Negative commit: " + commit);
+        }
+        PartitionStorage2 storage = find(partitionId);
+        StorageVersion2 version = storage.catalog().exact(commit);
+        if (version == null) {
+            throw new VersionNotAvailableException(
+                    "No version of commit " + commit + " in partition " + partitionId);
+        }
+        return acquire(partitionId, storage, version);
+    }
+
+    @Override
+    public void release(Acquisition acquisition) {
+        find(acquisition.partitionId()).release(acquisition.id());
+    }
+
+    @Override
+    public int size(Acquisition acquisition) {
+        return admit(acquisition).size();
+    }
+
+    @Override
+    public List<Entity2> getAll(Acquisition acquisition, long[] entityIds) {
+        return admit(acquisition).getAll(entityIds);
+    }
+
+    @Override
+    public List<Entity2> findInRegion(Acquisition acquisition, Region2 region) {
+        return admit(acquisition).findInRegion(region);
+    }
+
+    @Override
+    public List<Entity2> findNearest(Acquisition acquisition, Point2 point, int count) {
+        return admit(acquisition).findNearest(point, count);
+    }
+
+    @Override
     public long lastCommit(PartitionId partitionId) {
         return find(partitionId).lastCommit();
     }
@@ -97,6 +172,22 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public CoordinateLimits limits(PartitionId partitionId) {
         return find(partitionId).limits();
+    }
+
+    private static Acquisition acquire(PartitionId partitionId, PartitionStorage2 storage, StorageVersion2 version) {
+        return new Acquisition(partitionId, storage.acquire(version), version.commit());
+    }
+
+    /**
+     * Returns the version of the acquisition, which the query keeps until it ends.
+     * The commit in the acquisition must be the one of the version.
+     */
+    private StorageVersion2 admit(Acquisition acquisition) {
+        StorageVersion2 version = find(acquisition.partitionId()).admit(acquisition.id());
+        if (version.commit() != acquisition.commit()) {
+            throw new IllegalArgumentException("Wrong commit in acquisition: " + acquisition);
+        }
+        return version;
     }
 
     private PartitionStorage2 find(PartitionId partitionId) {

@@ -1,8 +1,5 @@
 package badspace.service.partition;
 
-import java.util.Arrays;
-import java.util.List;
-
 /**
  * The versions of a 2D partition in the retention window: the last version
  * and up to k past versions before it, so at most k + 1 versions. Only the
@@ -54,11 +51,34 @@ final class VersionCatalog2 {
     }
 
     /**
-     * Returns the versions in the window, from the oldest to the last one. Only the
-     * tests use it, to check the window, until the acquisition selects the versions.
+     * Returns the version at the given offset from the last one: offset 0 is the last
+     * version, offset i the i-th version before it. Returns null if the window has no
+     * version at that offset. The offset must not be negative: the node checks it.
      */
-    List<StorageVersion2> versions() {
-        return List.copyOf(Arrays.asList(versions));
+    StorageVersion2 previous(int offset) {
+        if (offset >= versions.length) {
+            return null;
+        }
+        return versions[versions.length - 1 - offset];
+    }
+
+    /**
+     * Returns the version in the window with the greatest commit that is not greater
+     * than tick, or null if there is none.
+     */
+    StorageVersion2 atOrBefore(long tick) {
+        for (int i = versions.length - 1; i >= 0; i--) {
+            if (versions[i].commit() <= tick) {
+                return versions[i];
+            }
+        }
+        return null;
+    }
+
+    /** Returns the version in the window with the given commit, or null if there is none. */
+    StorageVersion2 exact(long commit) {
+        StorageVersion2 version = atOrBefore(commit);
+        return version != null && version.commit() == commit ? version : null;
     }
 
     /** Returns k: the number of past versions kept besides the last one. */

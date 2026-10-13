@@ -1,7 +1,9 @@
 package badspace.service.partition;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -211,12 +213,51 @@ class PartitionStorage3Test {
         PartitionStorage3 configured = new PartitionStorage3(IndexConfig.linearScan(), 1);
         StorageVersion3 empty = configured.lastVersion();
         StorageVersion3 first = configured.commit(1);
-        assertSame(empty, configured.catalog().versions().get(0));
-        assertSame(first, configured.catalog().versions().get(1));
+        assertSame(first, configured.catalog().previous(0));
+        assertSame(empty, configured.catalog().previous(1));
         StorageVersion3 second = configured.commit(2);
-        assertSame(first, configured.catalog().versions().get(0));
-        assertSame(second, configured.catalog().versions().get(1));
+        assertSame(second, configured.catalog().previous(0));
+        assertSame(first, configured.catalog().previous(1));
         assertSame(second, configured.lastVersion());
+    }
+
+    @Test
+    void acquisitionKeepsItsVersionUntilTheRelease() {
+        StorageVersion3 first = storage.commit(1);
+        long acquisitionId = storage.acquire(first);
+        storage.commit(2);
+        assertSame(first, storage.admit(acquisitionId));
+        storage.release(acquisitionId);
+        assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId));
+        assertEquals(0, storage.acquisitionCount());
+    }
+
+    @Test
+    void eachAcquisitionHasItsOwnNumber() {
+        StorageVersion3 version = storage.commit(1);
+        long first = storage.acquire(version);
+        long second = storage.acquire(version);
+        assertNotEquals(first, second);
+        storage.release(first);
+        assertSame(version, storage.admit(second));
+        assertEquals(1, storage.acquisitionCount());
+    }
+
+    @Test
+    void releaseAgainDoesNothing() {
+        long acquisitionId = storage.acquire(storage.lastVersion());
+        storage.release(acquisitionId);
+        storage.release(acquisitionId);
+        assertEquals(0, storage.acquisitionCount());
+    }
+
+    @Test
+    void acquisitionNeverMadeIsRejected() {
+        long acquisitionId = storage.acquire(storage.lastVersion());
+        assertThrows(IllegalArgumentException.class, () -> storage.release(acquisitionId + 1));
+        assertThrows(IllegalArgumentException.class, () -> storage.admit(acquisitionId + 1));
+        assertThrows(IllegalArgumentException.class, () -> storage.release(0));
+        assertEquals(1, storage.acquisitionCount());
     }
 
     @Test
@@ -316,17 +357,17 @@ class PartitionStorage3Test {
     }
 
     /**
-     * Checks that the window of the catalog ends with its last version and has
+     * Checks that the window of the catalog starts from its last version and has
      * the commits before it. writeCommits() makes the commits 1, 2, 3 and so on.
      */
     private static void checkWindow(VersionCatalog3 catalog) {
         long lastCommit = catalog.lastVersion().commit();
-        List<StorageVersion3> versions = catalog.versions();
+        int windowSize = (int) Math.min(lastCommit, RETAINED_PAST_VERSIONS) + 1;
         String where = "window at commit " + lastCommit;
-        assertEquals(Math.min(lastCommit, RETAINED_PAST_VERSIONS) + 1, versions.size(), where);
-        for (int i = 0; i < versions.size(); i++) {
-            assertEquals(lastCommit - versions.size() + 1 + i, versions.get(i).commit(), where);
+        for (int offset = 0; offset < windowSize; offset++) {
+            assertEquals(lastCommit - offset, catalog.previous(offset).commit(), where);
         }
+        assertNull(catalog.previous(windowSize), where);
     }
 
     private static void writeCommits(PartitionStorage3 storage) {

@@ -13,8 +13,13 @@ import java.util.List;
  * <p>
  * The reads of a partition by ID or by position see the state of its writer,
  * with the writes not yet committed, and only the writer of the partition can
- * call them. The other threads read the version of the last commit, from
- * {@link #lastVersion}.
+ * call them. The other threads read the versions of the commits: they
+ * {@linkplain #acquireLatest acquire} a version, read it through the
+ * {@link Acquisition} and then {@linkplain #release release} it. The partition
+ * keeps the last version and k versions before it acquirable (the retention
+ * window); a version that leaves the window stays readable through the
+ * acquisitions made before, until they are released. The acquisitions, the
+ * reads through them and the release are thread-safe.
  */
 public interface PartitionNode3 {
 
@@ -94,7 +99,7 @@ public interface PartitionNode3 {
      * greater than the last commit of the partition, but numbers can be skipped. Fails with
      * IllegalArgumentException if it is not greater; in this case the partition does not change.
      * A commit with no writes is valid. The commit publishes the version of the partition
-     * at the commit, which {@link #lastVersion} then returns.
+     * at the commit, which {@link #acquireLatest} then acquires.
      */
     void commit(PartitionId partitionId, long commit);
 
@@ -104,6 +109,69 @@ public interface PartitionNode3 {
      * any thread can call it.
      */
     PartitionVersion3 lastVersion(PartitionId partitionId);
+
+    /**
+     * Acquires the version of the last commit of a partition: the empty version at
+     * commit 0 if the partition has no commit yet. Choosing the version and acquiring
+     * it is a single step, so a commit at the same time cannot make it go away.
+     */
+    Acquisition acquireLatest(PartitionId partitionId);
+
+    /**
+     * Acquires a version in the retention window of a partition: offset 0 is the last
+     * version, offset i the i-th published commit before it. Fails with
+     * IllegalArgumentException if offset is negative, and with
+     * VersionNotAvailableException if the window has no version at that offset.
+     */
+    Acquisition acquirePrevious(PartitionId partitionId, int offset);
+
+    /**
+     * Acquires the version in the retention window of a partition with the greatest
+     * commit that is not greater than tick. Fails with IllegalArgumentException if
+     * tick is negative, and with VersionNotAvailableException if no version in the
+     * window has such a commit.
+     */
+    Acquisition acquireAtOrBefore(PartitionId partitionId, long tick);
+
+    /**
+     * Acquires the version of the given commit of a partition. Fails with
+     * IllegalArgumentException if commit is negative, and with
+     * VersionNotAvailableException if that version is not in the retention window.
+     */
+    Acquisition acquireExact(PartitionId partitionId, long commit);
+
+    /**
+     * Releases an acquisition: after this, its reads fail. Releasing it again does
+     * nothing. Fails with IllegalArgumentException if the partition never made the
+     * acquisition; the other acquisitions do not change.
+     */
+    void release(Acquisition acquisition);
+
+    /**
+     * Returns the number of entities in the acquired version. Fails with
+     * IllegalStateException if the acquisition was released, and with
+     * IllegalArgumentException if the partition never made it.
+     */
+    int size(Acquisition acquisition);
+
+    /**
+     * Returns the entities of the acquired version with the given IDs, in the same order.
+     * IDs that are not in the version are skipped. Fails like {@link #size(Acquisition)}.
+     */
+    List<Entity3> getAll(Acquisition acquisition, long[] entityIds);
+
+    /**
+     * Returns the entities of the acquired version that are inside the region or on its
+     * border. The order of the result is not defined. Fails like {@link #size(Acquisition)}.
+     */
+    List<Entity3> findInRegion(Acquisition acquisition, Region3 region);
+
+    /**
+     * Returns the entities of the acquired version nearest to a point, at most count of
+     * them, sorted by distance from the point and then by ID. Fails like
+     * {@link #size(Acquisition)}, and with IllegalArgumentException if count is negative.
+     */
+    List<Entity3> findNearest(Acquisition acquisition, Point3 point, int count);
 
     /** Returns the number of the last commit of a partition, or 0 if it has no commit yet. */
     long lastCommit(PartitionId partitionId);
