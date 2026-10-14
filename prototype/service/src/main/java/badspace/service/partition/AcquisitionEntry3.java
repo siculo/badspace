@@ -9,7 +9,7 @@ import badspace.common.partition.AcquireOptions;
  *
  * @param version the acquired version
  * @param acquiredAtNanos the time of the acquisition on the clock of the node
- * @param timeoutNanos the timeout, or {@link AcquireOptions#NO_TIMEOUT}
+ * @param timeoutNanos the timeout
  */
 record AcquisitionEntry3(StorageVersion3 version, long acquiredAtNanos, long timeoutNanos) {
 
@@ -21,6 +21,6 @@ record AcquisitionEntry3(StorageVersion3 version, long acquiredAtNanos, long tim
     /** Returns true if the timeout has passed at the given time. */
     boolean isExpired(long nowNanos) {
         // The difference does not overflow, unlike a deadline computed as a sum.
-        return timeoutNanos != AcquireOptions.NO_TIMEOUT && nowNanos - acquiredAtNanos >= timeoutNanos;
+        return nowNanos - acquiredAtNanos >= timeoutNanos;
     }
 }

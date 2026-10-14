@@ -1,9 +1,7 @@
 package badspace.common.partition;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
@@ -11,16 +9,13 @@ import org.junit.jupiter.api.Test;
 class AcquireOptionsTest {
 
     @Test
-    void noTimeoutHasNoTimeout() {
-        assertFalse(AcquireOptions.noTimeout().hasTimeout());
-        assertEquals(AcquireOptions.NO_TIMEOUT, AcquireOptions.noTimeout().timeoutNanos());
+    void defaultOptionsHaveTheDefaultTimeout() {
+        assertEquals(AcquireOptions.DEFAULT_TIMEOUT.toNanos(), AcquireOptions.defaultTimeout().timeoutNanos());
     }
 
     @Test
     void positiveTimeoutIsKeptInNanoseconds() {
-        AcquireOptions options = AcquireOptions.timeout(Duration.ofMillis(1500));
-        assertTrue(options.hasTimeout());
-        assertEquals(1_500_000_000L, options.timeoutNanos());
+        assertEquals(1_500_000_000L, AcquireOptions.timeout(Duration.ofMillis(1500)).timeoutNanos());
         assertEquals(1, AcquireOptions.timeout(Duration.ofNanos(1)).timeoutNanos());
     }
 
@@ -34,9 +29,12 @@ class AcquireOptionsTest {
     }
 
     @Test
-    void timeoutTooLargeForTheClockIsNoTimeout() {
-        assertEquals(AcquireOptions.noTimeout(), AcquireOptions.timeout(Duration.ofNanos(Long.MAX_VALUE)));
-        assertEquals(AcquireOptions.noTimeout(), AcquireOptions.timeout(Duration.ofSeconds(Long.MAX_VALUE)));
-        assertTrue(AcquireOptions.timeout(Duration.ofNanos(Long.MAX_VALUE - 1)).hasTimeout());
+    void maxTimeoutIsAcceptedAndGreaterTimeoutsAreRejected() {
+        Duration max = AcquireOptions.MAX_TIMEOUT;
+        assertEquals(max.toNanos(), AcquireOptions.timeout(max).timeoutNanos());
+        assertThrows(IllegalArgumentException.class, () -> AcquireOptions.timeout(max.plusNanos(1)));
+        assertThrows(IllegalArgumentException.class, () -> new AcquireOptions(max.toNanos() + 1));
+        // Too large for nanoseconds in a long: rejected, not an overflow.
+        assertThrows(IllegalArgumentException.class, () -> AcquireOptions.timeout(Duration.ofSeconds(Long.MAX_VALUE)));
     }
 }

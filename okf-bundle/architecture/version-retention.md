@@ -1,10 +1,10 @@
 ---
 type: Architecture Primitive
 title: Conservazione delle versioni
-description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza opzionale, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni versione, e la rimozione della partizione diventa effettiva quando sono finite tutte.
+description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza obbligatoria, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni versione, e la rimozione della partizione diventa effettiva quando sono finite tutte.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T18:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T19:00:00Z }
 ---
 
 # Primitiva
@@ -81,7 +81,9 @@ una finestra abbastanza ampia per il caso più lento costerebbe memoria
 a tutti i commit. Con l'acquisizione solo la versione che serve resta
 in memoria, e la finestra resta piccola. Il costo del rilascio
 esplicito è che un reader che non rilascia trattiene memoria: per
-questo c'è la [scadenza](#scadenza) opzionale.
+questo ogni acquisizione ha una [scadenza](#scadenza). Un reader che
+deve tenere una versione più a lungo della scadenza massima ne fa una
+copia, con una funzione ancora da progettare.
 
 # Vita di una versione
 
@@ -142,15 +144,18 @@ attraverso gRPC.
 
 # Scadenza
 
-Ogni acquisizione può avere una **scadenza** opzionale: una durata
+Ogni acquisizione ha una **scadenza** obbligatoria: una durata
 misurata dal momento dell'acquisizione con il clock monotono locale del
-nodo, non con l'ora di sistema né con il tick.
+nodo, non con l'ora di sistema né con il tick. Così un reader che muore
+senza rilasciare non può trattenere una versione per sempre, e la
+[rimozione della partizione](#rimozione-della-partizione) finisce
+sempre.
 
-- **Nessuna scadenza** è una scelta valida ed esplicita
-  dell'applicazione, utile per esempio per la persistenza lenta; il
-  rilascio è allora tutto a carico del reader.
-- Una durata **zero o negativa è rifiutata**. Una durata troppo grande
-  per il clock vale come nessuna scadenza.
+- Se il reader non indica la durata, vale una **scadenza di default**.
+- Una durata **zero o negativa è rifiutata**, e così una durata
+  maggiore della **scadenza massima**. Chi deve tenere una versione
+  più a lungo, per esempio per un salvataggio molto lento, ne fa una
+  copia invece di acquisirla.
 - La scadenza è **definitiva**: non si rinnova. Un'acquisizione nuova
   è possibile solo se la versione è ancora nella finestra, e non
   riattiva quella scaduta.
@@ -272,7 +277,8 @@ che i test sostituiscono con un clock che avanza solo quando lo dicono:
 scadenza prima della prima query, scadenza durante una query ammessa
 (che finisce con un risultato valido anche se un'altra acquisizione
 toglie la voce nel frattempo), rilascio dopo la scadenza, nuova
-acquisizione distinta, durata troppo grande come nessuna scadenza.
+acquisizione distinta, scadenza di default e scadenza massima che
+scadono anche loro.
 
 I test della fine delle versioni la verificano a ogni evento: commit
 senza utilizzi, rilascio dell'ultima acquisizione, scadenza trovata da
@@ -295,9 +301,11 @@ metodo interno dello storage.
 
 - Costo in memoria degli slot con k alto: una copia per versione, da
   misurare.
-- Un'acquisizione senza scadenza può trattenere memoria senza limiti:
-  è una responsabilità dell'applicazione, non un errore del database.
-  Pochi metadati diagnostici (acquisizioni attive, versioni pinnate,
+- Scadenza massima: oggi è una costante; diventerà una configurazione
+  del nodo.
+- Copia di una versione per chi deve tenerla oltre la scadenza
+  massima, da progettare.
+- Pochi metadati diagnostici (acquisizioni attive, versioni pinnate,
   commit pinnato più vecchio) solo se servono alla verifica.
 - Pulizia periodica delle acquisizioni scadute, se servirà un tempo di
   recupero garantito.

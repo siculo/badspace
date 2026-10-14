@@ -1,6 +1,6 @@
 package badspace.service.partition;
 
-import static badspace.common.partition.AcquireOptions.noTimeout;
+import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.geometry.Point3.point;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -194,7 +194,7 @@ class AcquisitionConcurrency3Test {
                         while (!done.get()) {
                             Acquisition acquisition;
                             try {
-                                acquisition = previous ? node.acquirePrevious(P1, 1, noTimeout()) : node.acquireLatest(P1, noTimeout());
+                                acquisition = previous ? node.acquirePrevious(P1, 1, defaultTimeout()) : node.acquireLatest(P1, defaultTimeout());
                             } catch (VersionNotAvailableException e) {
                                 // At commit 0 the window has no version before the last one.
                                 continue;

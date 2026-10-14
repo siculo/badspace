@@ -442,17 +442,17 @@ class Space2Test {
     }
 
     @Test
-    void acquisitionsWithoutOptionsHaveNoTimeout() {
+    void acquisitionsWithoutOptionsHaveTheDefaultTimeout() {
         MapNode node = new MapNode();
         Partition2 p = newSpace().createPartition(node);
         p.acquireLatest();
-        assertEquals(AcquireOptions.noTimeout(), node.lastOptions);
+        assertEquals(AcquireOptions.defaultTimeout(), node.lastOptions);
         p.acquirePrevious(0);
-        assertEquals(AcquireOptions.noTimeout(), node.lastOptions);
+        assertEquals(AcquireOptions.defaultTimeout(), node.lastOptions);
         p.acquireAtOrBefore(0);
-        assertEquals(AcquireOptions.noTimeout(), node.lastOptions);
+        assertEquals(AcquireOptions.defaultTimeout(), node.lastOptions);
         p.acquireExact(0);
-        assertEquals(AcquireOptions.noTimeout(), node.lastOptions);
+        assertEquals(AcquireOptions.defaultTimeout(), node.lastOptions);
     }
 
     @Test

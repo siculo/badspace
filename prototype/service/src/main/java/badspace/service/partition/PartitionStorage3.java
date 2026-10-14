@@ -283,11 +283,11 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     /**
-     * Acquires the version without timeout and returns the number of the acquisition,
+     * Acquires the version with the default timeout and returns the number of the acquisition,
      * or NOT_ACQUIRED if the version left the window.
      */
     long acquire(StorageVersion3 version) {
-        return acquire(version, AcquireOptions.noTimeout());
+        return acquire(version, AcquireOptions.defaultTimeout());
     }
 
     /**

@@ -153,9 +153,9 @@ public final class Partition2 implements Partition {
         node.commit(partitionId, n);
     }
 
-    /** Acquires the version of the last commit without timeout, like {@link #acquireLatest(AcquireOptions)}. */
+    /** Acquires the version of the last commit with the default timeout, like {@link #acquireLatest(AcquireOptions)}. */
     public AcquiredVersion2 acquireLatest() {
-        return acquireLatest(AcquireOptions.noTimeout());
+        return acquireLatest(AcquireOptions.defaultTimeout());
     }
 
     /**
@@ -169,9 +169,9 @@ public final class Partition2 implements Partition {
         return new AcquiredVersion2(node, node.acquireLatest(partitionId, options));
     }
 
-    /** Acquires a version in the retention window without timeout, like {@link #acquirePrevious(int, AcquireOptions)}. */
+    /** Acquires a version in the retention window with the default timeout, like {@link #acquirePrevious(int, AcquireOptions)}. */
     public AcquiredVersion2 acquirePrevious(int offset) {
-        return acquirePrevious(offset, AcquireOptions.noTimeout());
+        return acquirePrevious(offset, AcquireOptions.defaultTimeout());
     }
 
     /**
@@ -185,9 +185,9 @@ public final class Partition2 implements Partition {
         return new AcquiredVersion2(node, node.acquirePrevious(partitionId, offset, options));
     }
 
-    /** Acquires a version at a tick or before without timeout, like {@link #acquireAtOrBefore(long, AcquireOptions)}. */
+    /** Acquires a version at a tick or before with the default timeout, like {@link #acquireAtOrBefore(long, AcquireOptions)}. */
     public AcquiredVersion2 acquireAtOrBefore(long tick) {
-        return acquireAtOrBefore(tick, AcquireOptions.noTimeout());
+        return acquireAtOrBefore(tick, AcquireOptions.defaultTimeout());
     }
 
     /**
@@ -201,9 +201,9 @@ public final class Partition2 implements Partition {
         return new AcquiredVersion2(node, node.acquireAtOrBefore(partitionId, tick, options));
     }
 
-    /** Acquires the version of a commit without timeout, like {@link #acquireExact(long, AcquireOptions)}. */
+    /** Acquires the version of a commit with the default timeout, like {@link #acquireExact(long, AcquireOptions)}. */
     public AcquiredVersion2 acquireExact(long commit) {
-        return acquireExact(commit, AcquireOptions.noTimeout());
+        return acquireExact(commit, AcquireOptions.defaultTimeout());
     }
 
     /**

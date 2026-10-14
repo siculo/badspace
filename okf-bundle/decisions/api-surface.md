@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione con scadenza opzionale, lettura e rilascio delle versioni conservate), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione con scadenza obbligatoria, lettura e rilascio delle versioni conservate), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T19:00:00Z }
 ---
 
 # Stato
@@ -37,7 +37,7 @@ evolvere aggiungendo il supporto a ulteriori meccanismi.
 | Partizioni | Proprietà | Acquisire, rilasciare e trasferire l'esclusività di scrittura con il [fencing token](/architecture/partition-ownership.md) |
 | Commit | `commit(n)` | Chiude il [commit](/architecture/partition-commit.md) corrente con il numero n, scelto dal software; per un server a frame, alla fine del tick |
 | Commit | Ultimo commit persistito | [Durabilità osservabile](/architecture/observable-durability.md) |
-| Commit | Acquisizione e rilascio delle versioni | Ultima, precedente, al tick N o prima, esatta; con scadenza opzionale (vedi [acquisizione delle versioni](#acquisizione-delle-versioni)) |
+| Commit | Acquisizione e rilascio delle versioni | Ultima, precedente, al tick N o prima, esatta; con scadenza obbligatoria (vedi [acquisizione delle versioni](#acquisizione-delle-versioni)) |
 | Commit | Lettura al tick N | Acquisizione al tick N o prima su ogni partizione; k ≥ 1 se il writer può essere avanti (vedi [conservazione delle versioni](/architecture/version-retention.md)) |
 
 La mappa ID → partizione spetta al software, che decide dove creare le
@@ -247,17 +247,19 @@ rilascio.
 | Lettura | `commit()`, `size()`, `get`, `getAll`, `findInRegion`, `findNearest` sulla view | Ogni lettura controlla l'acquisizione all'inizio |
 | Rilascio | `close()` sulla view; `release` nel contratto del nodo | Idempotente e thread-safe |
 
-Le opzioni dicono la scadenza: `noTimeout()`, il default, oppure una
-durata positiva misurata dal momento dell'acquisizione con il clock
-monotono del nodo. Una durata troppo grande per il clock vale come
-nessuna scadenza.
+Le opzioni dicono la scadenza, che c'è sempre: la scadenza di default
+oppure una durata positiva, non maggiore della scadenza massima,
+misurata dal momento dell'acquisizione con il clock monotono del nodo.
 
 Nel prototipo le opzioni sono il record `AcquireOptions` in `common`,
-con la durata in nanosecondi: `AcquireOptions.noTimeout()` e
-`AcquireOptions.timeout(Duration)`; da circa 292 anni in su la durata
-vale come nessuna scadenza. Nel contratto del nodo le quattro
-selezioni ricevono sempre le opzioni; nell'API ogni selezione ha anche
-la forma senza opzioni, che vale `noTimeout()`.
+con la durata in nanosecondi: `AcquireOptions.defaultTimeout()` e
+`AcquireOptions.timeout(Duration)`. Le costanti `DEFAULT_TIMEOUT`
+(1 minuto) e `MAX_TIMEOUT` (1 ora) sono nel record, che rifiuta una
+durata maggiore con `IllegalArgumentException` anche quando lo crea
+il nodo; la scadenza massima diventerà una configurazione del nodo.
+Nel contratto del nodo le quattro selezioni ricevono sempre le
+opzioni; nell'API ogni selezione ha anche la forma senza opzioni, che
+vale `defaultTimeout()`.
 
 **Locale e remoto.** Nell'API la versione acquisita è una view
 `AutoCloseable`, `AcquiredVersion2`/`AcquiredVersion3`, da usare con
