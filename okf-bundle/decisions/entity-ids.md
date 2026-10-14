@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: ID delle entità
-description: Gli ID delle entità sono univoci su tutte le partizioni, generati dall'API comune in stile Snowflake a 64 bit, mai riusati e senza indicazione della partizione; un generatore per processo API, con generatorId assegnato a ogni avvio.
+description: Gli ID delle entità sono univoci su tutte le partizioni, mai riusati e senza indicazione della partizione; li crea un generatore dell'API comune dietro un contratto proprio, senza garanzie di ordine né di segno. Lo schema scelto, sostituibile, è Snowflake a 64 bit: un generatore per processo API, con generatorId assegnato a ogni avvio.
 tags: [badspace, design, partitioning, ids]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:24:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T20:00:00Z }
 ---
 
 # Decisione
@@ -13,10 +13,13 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:24:18Z }
 - La generazione è **esterna al layer delle partizioni** ed è
   responsabilità dell'[API comune](/architecture/layers.md), non del
   software.
-- Schema scelto: **stile Snowflake**. Un ID a 64 bit composto da un
-  timestamp, un identificativo del generatore e una sequenza locale:
-  univoco senza coordinamento a runtime, regge anche il passaggio al
-  cluster. I dettagli sono nella sezione [Generatore](#generatore).
+- La generazione passa per un **generatore di ID** con un contratto
+  proprio (vedi [Contratto del generatore](#contratto-del-generatore)).
+- Schema scelto oggi: **stile Snowflake**, sostituibile. Un ID a 64 bit
+  composto da un timestamp, un identificativo del generatore e una
+  sequenza locale: univoco senza coordinamento a runtime, regge anche il
+  passaggio al cluster. I dettagli sono nella sezione [Schema
+  Snowflake](#schema-snowflake).
 - Gli ID **non vanno riusati**, altrimenti un riferimento vecchio
   finisce su un'entità nuova. Con 64 bit si può semplicemente non
   riusarli mai.
@@ -27,7 +30,36 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:24:18Z }
 La mappa ID → partizione è del software; l'API potrebbe
 offrirla in futuro come aiuto opzionale.
 
-# Generatore
+# Contratto del generatore
+
+Il resto del sistema vede il generatore solo attraverso questo
+contratto:
+
+- Una sola operazione: restituisce un **nuovo ID**, un intero a 64 bit
+  (`long`).
+- Gli ID sono **univoci su tutte le partizioni e su tutti gli spazi**
+  del processo, e il generatore non restituisce mai due volte lo stesso
+  ID, neanche dopo un riavvio dell'istanza.
+- L'ID **non indica la partizione**.
+- **Nessuna garanzia di ordine né di segno**: qualunque valore `long` è
+  un ID valido, e nessuna parte del sistema deve dipendere dall'ordine,
+  dalla densità o dal contenuto dei bit degli ID.
+- L'operazione è **sincrona**; può fallire solo in casi eccezionali,
+  che il generatore segnala.
+- L'API usa **un solo generatore, condiviso da tutti gli spazi**.
+- La scelta dello schema e la sua configurazione (per Snowflake il
+  `generatorId`) sono di chi crea il generatore, non degli spazi.
+
+Il contratto esiste perché lo schema si possa sostituire quando un
+deployment lo richiede: per esempio blocchi di ID presi in lease da un
+contatore centrale (ID densi, nessuna dipendenza dall'orologio), una
+sequenza di un DB, o un contatore semplice nei test. Il tipo `long`
+esclude gli schemi più larghi di 64 bit, come gli UUID, perché gli ID
+stanno in array primitivi.
+
+# Schema Snowflake
+
+Snowflake è l'implementazione scelta del [contratto](#contratto-del-generatore).
 
 ## Formato dell'ID
 
@@ -57,11 +89,15 @@ timestamp resti negli stessi bit e il tempo del generatore non torni
 indietro al momento del cambio. La scelta è rimandata (vedi [Punti
 aperti](#punti-aperti)).
 
+Gli ID di un generatore Snowflake sono crescenti; è una proprietà
+dello schema, non del contratto.
+
 ## Un generatore per processo
 
 C'è **un solo generatore per processo API, condiviso da tutti gli
-spazi**. L'unicità dipende dal `generatorId`: due generatori nello
-stesso processo con lo stesso `generatorId` produrrebbero ID uguali.
+spazi**. Per Snowflake è anche un vincolo: l'unicità dipende dal
+`generatorId`, e due generatori nello stesso processo con lo stesso
+`generatorId` produrrebbero ID uguali.
 
 ## Tempo logico
 
@@ -121,7 +157,7 @@ fidano degli ID ricevuti, di entità e di partizioni.
 
 # Punti aperti
 
-- Divisione dei bit tra `generatorId` e sequenza. L'alternativa
+- Snowflake: divisione dei bit tra `generatorId` e sequenza. L'alternativa
   principale è 41/12/10: 4096 generatori e 1.024.000 ID al secondo
   per generatore. La decisione è rimandata alla fase di chiusura
   (implementazione finale e forma a cluster), perché dipende dal

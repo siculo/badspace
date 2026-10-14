@@ -1,10 +1,10 @@
 ---
 type: Glossary
 title: Glossario
-description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, gruppo di partizioni, generatorId, commit, tick, gTick, snapshot, versione, finestra di conservazione, catalogo delle versioni, acquisizione, rilascio, pin, versione eliminabile, incarnazione, scadenza, slot, copy-on-write e transient, fencing token, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
+description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, gruppo di partizioni, generatore di ID, generatorId, commit, tick, gTick, snapshot, versione, finestra di conservazione, catalogo delle versioni, acquisizione, rilascio, pin, versione eliminabile, incarnazione, scadenza, slot, copy-on-write e transient, fencing token, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T20:00:00Z }
 ---
 
 # Termini
@@ -18,7 +18,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T19:00:00Z }
 | API comune | Livello di supporto sopra le partizioni: ID, aggregazione, configurazione e meccanismi. Vedi [API da esporre](/decisions/api-surface.md). |
 | Politica di rimozione | Scelta fatta alla creazione di una partizione su cosa succede alle sue entità quando la si rimuove: si rimuove solo se vuota (`REQUIRE_EMPTY`, il default) o insieme alle entità (`DISCARD_ENTITIES`). Vedi [API da esporre](/decisions/api-surface.md#creazione-e-rimozione-delle-partizioni). |
 | Gruppo di partizioni | Insieme di partizioni con una configurazione condivisa (indice, k, politica di rimozione), distinto dall'insieme di partizioni da interrogare; la sua API sta sopra quella delle singole partizioni. Punto aperto: vedi [API da esporre](/decisions/api-surface.md#gruppi-di-partizioni). |
-| generatorId | Identificativo del generatore di ID dentro un ID Snowflake; ogni istanza dell'API ne riceve uno nuovo a ogni avvio. Vedi [ID delle entità](/decisions/entity-ids.md#generatore). |
+| Generatore di ID | Componente dell'API comune che crea gli ID delle entità secondo un contratto proprio: ID `long` univoci su tutte le partizioni e gli spazi, mai riusati, senza garanzie di ordine né di segno; uno solo, condiviso da tutti gli spazi. Lo schema scelto è Snowflake, sostituibile. Vedi [ID delle entità](/decisions/entity-ids.md#contratto-del-generatore). |
+| generatorId | Identificativo del generatore di ID dentro un ID Snowflake; ogni istanza dell'API ne riceve uno nuovo a ogni avvio. Vedi [ID delle entità](/decisions/entity-ids.md#schema-snowflake). |
 | Commit | Gruppo atomico di scritture di una partizione, identificato da un numero scelto dal software, positivo e strettamente crescente per partizione, con salti ammessi; è l'unica transazione del sistema e non coincide necessariamente con un tick. Il commit 0 è lo stato iniziale vuoto. Vedi [commit della partizione](/architecture/partition-commit.md). |
 | Tick | Intervallo di tempo entro cui il software esegue le sue operazioni (il frame time di un server di gioco); per partizione al più un commit per tick, tipicamente esattamente uno; locale o globale. |
 | gTick | Tick globale del software, esterno a BADSPACE: il software può usarlo come numero dei commit, ma clock, barriera e scadenze del tick non li gestisce BADSPACE. Vedi [letture coerenti](/mechanisms/consistent-reads.md). |

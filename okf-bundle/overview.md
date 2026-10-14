@@ -4,7 +4,7 @@ title: Panoramica di BADSPACE
 description: Panoramica di progettazione di BADSPACE, un database real-time per entità in uno spazio 2D o 3D, base per software di simulazione, monitoraggio o gaming, e delle sue decisioni architetturali principali.
 tags: [badspace, design]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T20:00:00Z }
 ---
 
 # Cos'è BADSPACE
@@ -54,8 +54,9 @@ partizione: quasi tutte le altre decisioni ne discendono.
 - [Partizionamento del DB](/decisions/partitioning.md) — partizioni
   indipendenti, single-writer, con indice proprio, create e rimosse
   dinamicamente; strategia scelta dal software.
-- [ID delle entità](/decisions/entity-ids.md) — Snowflake a 64 bit,
-  univoci su tutte le partizioni.
+- [ID delle entità](/decisions/entity-ids.md) — univoci su tutte le
+  partizioni, a 64 bit, creati da un generatore dietro un contratto;
+  schema Snowflake, sostituibile.
 - [Indicizzazione spaziale](/decisions/spatial-indexing.md) — supporto a
   tipi diversi di indice spaziale, scelto per partizione.
 - [Supporto a 2D e 3D](/decisions/2d-3d-support.md) — implementazioni
