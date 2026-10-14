@@ -290,9 +290,7 @@ final class PartitionStorage3 implements SlotView3 {
         // check and the version disagree.
         AcquisitionEntry3 entry = acquisitions.get(acquisitionId);
         if (entry == null || entry.isExpired(clock.nanoTime())) {
-            checkMade(acquisitionId);
-            // After the removal of an expired entry the storage cannot tell why it is missing.
-            throw new IllegalStateException("Acquisition was released or is expired: " + acquisitionId);
+            throw missingAcquisition(acquisitionId);
         }
         return entry.version();
     }
@@ -348,9 +346,26 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     private void checkMade(long acquisitionId) {
-        if (acquisitionId < 1 || acquisitionId > lastAcquisitionId.get()) {
+        if (!isMade(acquisitionId)) {
             throw new IllegalArgumentException("Unknown acquisition: " + acquisitionId);
         }
+    }
+
+    /**
+     * Returns the error for an acquisition that admit cannot find: IllegalArgumentException
+     * if this storage never made it, IllegalStateException if it was released or is expired.
+     * After the removal of an expired entry the storage cannot tell the two cases apart.
+     */
+    private RuntimeException missingAcquisition(long acquisitionId) {
+        if (!isMade(acquisitionId)) {
+            return new IllegalArgumentException("Unknown acquisition: " + acquisitionId);
+        }
+        return new IllegalStateException("Acquisition was released or is expired: " + acquisitionId);
+    }
+
+    /** Returns true if this storage made the acquisition: its number was given by acquire. */
+    private boolean isMade(long acquisitionId) {
+        return acquisitionId >= 1 && acquisitionId <= lastAcquisitionId.get();
     }
 
     private void remove(long entityId) {
