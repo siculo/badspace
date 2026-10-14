@@ -9,6 +9,7 @@ import badspace.api.Partition2;
 import badspace.api.Partition3;
 import badspace.api.PartitionConfig;
 import badspace.api.RemovalPolicy;
+import badspace.api.id.IdGenerator;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.api.Space2;
 import badspace.api.Space3;
@@ -30,7 +31,7 @@ public class Main {
     public static void main(String[] args) {
         // One generator for the whole process. The generator ID comes from the configuration.
         long generatorId = Long.getLong("badspace.generatorId", 0);
-        SnowflakeIdGenerator entityIds = new SnowflakeIdGenerator(generatorId);
+        IdGenerator entityIds = new SnowflakeIdGenerator(generatorId);
 
         Space2 space2 = new Space2(entityIds);
         Partition2 p2a = space2.createPartition(new LocalPartitionNode2());

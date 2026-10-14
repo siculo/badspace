@@ -1,6 +1,6 @@
 package badspace.api;
 
-import badspace.api.id.SnowflakeIdGenerator;
+import badspace.api.id.IdGenerator;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
 import java.util.Objects;
@@ -15,11 +15,11 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class Space2 implements Space<PartitionNode2, Partition2> {
 
     // Partitions may have writers on different threads, and they share these generators.
-    private final SnowflakeIdGenerator entityIds;
+    private final IdGenerator entityIds;
     private final AtomicLong nextPartitionId = new AtomicLong(1);
 
     /** Creates a space. All the spaces of a process must share the same entity ID generator. */
-    public Space2(SnowflakeIdGenerator entityIds) {
+    public Space2(IdGenerator entityIds) {
         this.entityIds = entityIds;
     }
 

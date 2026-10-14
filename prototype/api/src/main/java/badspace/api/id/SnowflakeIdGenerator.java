@@ -5,8 +5,8 @@ import java.util.function.LongSupplier;
 
 /**
  * Generates unique 64-bit entity IDs in Snowflake style.
- * There must be one generator per API process, shared by all spaces:
- * two generators with the same generator ID can create the same IDs.
+ * Two generators with the same generator ID can create the same IDs.
+ * The IDs of a generator are increasing, but {@link IdGenerator} does not promise it.
  *
  * <p>Layout of an ID, from the highest bit:
  * <pre>
@@ -22,7 +22,7 @@ import java.util.function.LongSupplier;
  *
  * <p>Thread-safe.
  */
-public final class SnowflakeIdGenerator {
+public final class SnowflakeIdGenerator implements IdGenerator {
 
     /** Start of the timestamp field: 2026-01-01T00:00:00Z. Never change it. */
     public static final long EPOCH_MILLIS = 1_767_225_600_000L;
@@ -85,6 +85,7 @@ public final class SnowflakeIdGenerator {
      * @throws IllegalStateException if the logical time would be too far ahead of the clock,
      *                               or if the timestamp field is used up
      */
+    @Override
     public synchronized long nextId() {
         long now = now();
         long timestamp;
