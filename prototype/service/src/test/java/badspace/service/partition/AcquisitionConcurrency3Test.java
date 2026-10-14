@@ -3,6 +3,7 @@ package badspace.service.partition;
 import static badspace.common.partition.AcquireOptions.noTimeout;
 import static badspace.common.geometry.Point3.point;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
@@ -56,6 +57,10 @@ class AcquisitionConcurrency3Test {
     private static final int ENTITIES = 4;
     /** The readers keep one acquisition in this many, to read it again at the end. */
     private static final int KEEP_EVERY = 50;
+    /** How long a reader keeps its acquisition shared, in spins. */
+    private static final int SPINS = 100;
+    /** No acquisition shared. */
+    private static final long NONE = -1;
 
     @Test
     void commitDuringAQueryDoesNotChangeItsResultAndDoesNotWait() throws Exception {
@@ -95,7 +100,8 @@ class AcquisitionConcurrency3Test {
             GatedIndex[] index = new GatedIndex[1];
             PartitionStorage3 storage = gatedStorage(config, index, 0);
             storage.insertAll(List.of(new Entity3(10, A)));
-            long acquisitionId = storage.acquire(storage.commit(1));
+            StorageVersion3 version = storage.commit(1);
+            long acquisitionId = storage.acquire(version);
             Gate gate = new Gate();
             index[0].gate = gate;
             QueryThread query = new QueryThread(storage, acquisitionId);
@@ -108,10 +114,13 @@ class AcquisitionConcurrency3Test {
             storage.removeAll(new long[] {10});
             storage.commit(2);
             assertEquals(0, storage.acquisitionCount());
+            assertFalse(version.uses().isEnded(), config + ": the version ended during the query");
 
             gate.open();
             query.join();
             query.check(List.of(new Entity3(10, A)), config.toString());
+            assertTrue(version.uses().isEnded(), config + ": the version did not end with the query");
+            assertEquals(1, storage.liveVersionCount());
         }
     }
 
@@ -237,6 +246,101 @@ class AcquisitionConcurrency3Test {
                     assertThrows(IllegalStateException.class, () -> node.size(acquisition));
                 }
             }
+            // The queries of the node gave back their uses: only the window stays (k = 1).
+            assertEquals(2, node.find(P1).liveVersionCount(), config.toString());
+        }
+    }
+
+    /**
+     * The writer commits while each reader acquires a version and a querier reads the
+     * same acquisition until the reader releases it. Acquisitions race with the commits
+     * that move the window, and admissions race with the releases. At the end every
+     * version out of the window must have ended once: only the window stays.
+     */
+    @Test
+    void racingAcquisitionsQueriesAndReleasesEndEachVersionOnce() throws Exception {
+        for (IndexConfig config : CONFIGS) {
+            PartitionStorage3 storage = new PartitionStorage3(config, 1);
+            storage.insertAll(List.of(new Entity3(10, A), new Entity3(20, B)));
+            AtomicBoolean done = new AtomicBoolean();
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            CyclicBarrier start = new CyclicBarrier(2 * READERS + 1);
+            List<Thread> threads = new ArrayList<>();
+            for (int r = 0; r < READERS; r++) {
+                int offset = r % 2;
+                // The acquisition that the reader shares with its querier, or NONE.
+                AtomicLong shared = new AtomicLong(NONE);
+                threads.add(new Thread(() -> {
+                    try {
+                        start.await();
+                        while (!done.get()) {
+                            StorageVersion3 version = storage.catalog().previous(offset);
+                            if (version == null) {
+                                continue;
+                            }
+                            long acquisitionId = storage.acquire(version);
+                            if (acquisitionId == PartitionStorage3.NOT_ACQUIRED) {
+                                continue;
+                            }
+                            shared.set(acquisitionId);
+                            // Gives the querier some time to admit queries before the release.
+                            for (int i = 0; i < SPINS; i++) {
+                                Thread.onSpinWait();
+                            }
+                            shared.set(NONE);
+                            storage.release(acquisitionId);
+                        }
+                    } catch (Throwable e) {
+                        failure.compareAndSet(null, e);
+                    }
+                }));
+                threads.add(new Thread(() -> {
+                    try {
+                        start.await();
+                        while (!done.get()) {
+                            long acquisitionId = shared.get();
+                            if (acquisitionId == NONE) {
+                                continue;
+                            }
+                            StorageVersion3 version;
+                            try {
+                                version = storage.admit(acquisitionId);
+                            } catch (IllegalStateException e) {
+                                // The reader released it first.
+                                continue;
+                            }
+                            try {
+                                version.size();
+                            } finally {
+                                storage.endQuery(version);
+                            }
+                        }
+                    } catch (Throwable e) {
+                        failure.compareAndSet(null, e);
+                    }
+                }));
+            }
+            for (Thread thread : threads) {
+                thread.start();
+            }
+
+            try {
+                start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+                for (long commit = 1; commit <= COMMITS; commit++) {
+                    storage.commit(commit);
+                }
+            } finally {
+                done.set(true);
+                for (Thread thread : threads) {
+                    thread.join(TIMEOUT.toMillis());
+                }
+            }
+            if (failure.get() != null) {
+                throw new AssertionError(config + ": a thread failed", failure.get());
+            }
+            assertEquals(0, storage.acquisitionCount(), config.toString());
+            // k = 1: the last version and the one before it.
+            assertEquals(2, storage.liveVersionCount(), config + ": a version did not end, or ended twice");
         }
     }
 
@@ -287,8 +391,12 @@ class AcquisitionConcurrency3Test {
         public void run() {
             try {
                 StorageVersion3 version = storage.admit(acquisitionId);
-                inRegion = version.findInRegion(new Box3(point(-100, -100, 0), point(100, 100, 0)));
-                byId = version.getAll(ALL_IDS);
+                try {
+                    inRegion = version.findInRegion(new Box3(point(-100, -100, -100), point(100, 100, 100)));
+                    byId = version.getAll(ALL_IDS);
+                } finally {
+                    storage.endQuery(version);
+                }
             } catch (Throwable e) {
                 failure = e;
             }

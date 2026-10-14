@@ -1,6 +1,7 @@
 package badspace.service.partition;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -301,6 +302,92 @@ class PartitionStorage3Test {
         assertThrows(IllegalStateException.class, () -> timed.admit(acquisitionId));
         // Only the events of the partition remove it: a read is not one of them.
         assertEquals(1, timed.acquisitionCount());
+    }
+
+    @Test
+    void versionWithoutUsesEndsWhenItLeavesTheWindow() {
+        PartitionStorage3 kept = new PartitionStorage3(IndexConfig.linearScan(), 2);
+        assertEquals(1, kept.liveVersionCount());
+        StorageVersion3 empty = kept.lastVersion();
+        kept.commit(100);
+        kept.commit(103);
+        assertEquals(3, kept.liveVersionCount());
+        assertFalse(empty.uses().isEnded());
+        StorageVersion3 last = kept.commit(107);
+        assertTrue(empty.uses().isEnded());
+        assertEquals(3, kept.liveVersionCount());
+        assertFalse(last.uses().isEnded());
+    }
+
+    @Test
+    void versionInTheWindowDoesNotEndAtTheRelease() {
+        StorageVersion3 version = storage.commit(1);
+        long acquisitionId = storage.acquire(version);
+        storage.release(acquisitionId);
+        assertFalse(version.uses().isEnded());
+        storage.commit(2);
+        assertTrue(version.uses().isEnded());
+        assertEquals(1, storage.liveVersionCount());
+    }
+
+    @Test
+    void versionOutOfTheWindowEndsAtTheReleaseOfTheLastAcquisition() {
+        StorageVersion3 version = storage.commit(1);
+        long first = storage.acquire(version);
+        long second = storage.acquire(version);
+        storage.commit(2);
+        assertEquals(2, storage.liveVersionCount());
+        storage.release(first);
+        assertFalse(version.uses().isEnded());
+        storage.release(second);
+        assertTrue(version.uses().isEnded());
+        assertEquals(1, storage.liveVersionCount());
+        // A release again does not end it twice.
+        storage.release(second);
+        assertEquals(1, storage.liveVersionCount());
+    }
+
+    @Test
+    void versionOutOfTheWindowEndsWhenItsLastAcquisitionExpires() {
+        FakeClock clock = new FakeClock();
+        PartitionStorage3 timed = new PartitionStorage3(IndexConfig.linearScan(), 0, clock);
+        StorageVersion3 version = timed.commit(1);
+        long acquisitionId = timed.acquire(version, AcquireOptions.timeout(TIMEOUT));
+        clock.advance(TIMEOUT);
+        // The expiry alone is not an event: the commit finds it, and also moves the window.
+        assertFalse(version.uses().isEnded());
+        timed.commit(2);
+        assertTrue(version.uses().isEnded());
+        assertEquals(1, timed.liveVersionCount());
+        // The release after the removal does not end it twice.
+        timed.release(acquisitionId);
+        assertEquals(1, timed.liveVersionCount());
+    }
+
+    @Test
+    void queryKeepsAReleasedVersionOutOfTheWindowUntilItEnds() {
+        StorageVersion3 version = storage.commit(1);
+        long acquisitionId = storage.acquire(version);
+        StorageVersion3 queried = storage.admit(acquisitionId);
+        storage.release(acquisitionId);
+        storage.commit(2);
+        assertFalse(version.uses().isEnded());
+        assertEquals(2, storage.liveVersionCount());
+        storage.endQuery(queried);
+        assertTrue(version.uses().isEnded());
+        assertEquals(1, storage.liveVersionCount());
+    }
+
+    @Test
+    void versionOutOfTheWindowIsNotAcquiredAgain() {
+        StorageVersion3 version = storage.commit(1);
+        long kept = storage.acquire(version);
+        storage.commit(2);
+        assertEquals(PartitionStorage3.NOT_ACQUIRED, storage.acquire(version));
+        // The failed acquisition used no number.
+        assertEquals(kept + 1, storage.acquire(storage.lastVersion()));
+        storage.release(kept);
+        assertEquals(PartitionStorage3.NOT_ACQUIRED, storage.acquire(version));
     }
 
     @Test

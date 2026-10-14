@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 /** A node that hosts 2D partitions in the same process as the API. */
 public final class LocalPartitionNode2 implements PartitionNode2 {
@@ -97,8 +98,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options) {
         Objects.requireNonNull(options);
-        PartitionStorage2 storage = find(partitionId);
-        return acquire(partitionId, storage, storage.catalog().lastVersion(), options);
+        return acquire(partitionId, options, VersionCatalog2::lastVersion,
+                "No last version in partition " + partitionId);
     }
 
     @Override
@@ -107,13 +108,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         if (offset < 0) {
             throw new IllegalArgumentException("Negative offset: " + offset);
         }
-        PartitionStorage2 storage = find(partitionId);
-        StorageVersion2 version = storage.catalog().previous(offset);
-        if (version == null) {
-            throw new VersionNotAvailableException(
-                    "No version at offset " + offset + " in partition " + partitionId);
-        }
-        return acquire(partitionId, storage, version, options);
+        return acquire(partitionId, options, catalog -> catalog.previous(offset),
+                "No version at offset " + offset + " in partition " + partitionId);
     }
 
     @Override
@@ -122,13 +118,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         if (tick < 0) {
             throw new IllegalArgumentException("Negative tick: " + tick);
         }
-        PartitionStorage2 storage = find(partitionId);
-        StorageVersion2 version = storage.catalog().atOrBefore(tick);
-        if (version == null) {
-            throw new VersionNotAvailableException(
-                    "No version at tick " + tick + " or before in partition " + partitionId);
-        }
-        return acquire(partitionId, storage, version, options);
+        return acquire(partitionId, options, catalog -> catalog.atOrBefore(tick),
+                "No version at tick " + tick + " or before in partition " + partitionId);
     }
 
     @Override
@@ -137,13 +128,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         if (commit < 0) {
             throw new IllegalArgumentException("Negative commit: " + commit);
         }
-        PartitionStorage2 storage = find(partitionId);
-        StorageVersion2 version = storage.catalog().exact(commit);
-        if (version == null) {
-            throw new VersionNotAvailableException(
-                    "No version of commit " + commit + " in partition " + partitionId);
-        }
-        return acquire(partitionId, storage, version, options);
+        return acquire(partitionId, options, catalog -> catalog.exact(commit),
+                "No version of commit " + commit + " in partition " + partitionId);
     }
 
     @Override
@@ -153,22 +139,22 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     @Override
     public int size(Acquisition acquisition) {
-        return admit(acquisition).size();
+        return query(acquisition, StorageVersion2::size);
     }
 
     @Override
     public List<Entity2> getAll(Acquisition acquisition, long[] entityIds) {
-        return admit(acquisition).getAll(entityIds);
+        return query(acquisition, version -> version.getAll(entityIds));
     }
 
     @Override
     public List<Entity2> findInRegion(Acquisition acquisition, Region2 region) {
-        return admit(acquisition).findInRegion(region);
+        return query(acquisition, version -> version.findInRegion(region));
     }
 
     @Override
     public List<Entity2> findNearest(Acquisition acquisition, Point2 point, int count) {
-        return admit(acquisition).findNearest(point, count);
+        return query(acquisition, version -> version.findNearest(point, count));
     }
 
     @Override
@@ -186,24 +172,46 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         return find(partitionId).limits();
     }
 
-    private static Acquisition acquire(PartitionId partitionId, PartitionStorage2 storage, StorageVersion2 version,
-            AcquireOptions options) {
-        return new Acquisition(partitionId, storage.acquire(version, options), version.commit());
+    /**
+     * Acquires the version that the selection chooses from the catalog. If a commit makes
+     * the version leave the window before the acquisition, it chooses again from the new
+     * catalog. Fails with VersionNotAvailableException if the selection finds no version.
+     */
+    private Acquisition acquire(PartitionId partitionId, AcquireOptions options,
+            Function<VersionCatalog2, StorageVersion2> selection, String notAvailable) {
+        PartitionStorage2 storage = find(partitionId);
+        while (true) {
+            StorageVersion2 version = selection.apply(storage.catalog());
+            if (version == null) {
+                throw new VersionNotAvailableException(notAvailable);
+            }
+            long acquisitionId = storage.acquire(version, options);
+            if (acquisitionId != PartitionStorage2.NOT_ACQUIRED) {
+                return new Acquisition(partitionId, acquisitionId, version.commit());
+            }
+        }
     }
 
     /**
-     * Returns the version of the acquisition, which the query keeps until it ends.
-     * The commit in the acquisition must be the one of the version.
+     * Runs a query on the version of the acquisition. The query keeps the version until
+     * it ends, and then gives it back, also if it fails. The commit in the acquisition
+     * must be the one of the version.
      */
-    private StorageVersion2 admit(Acquisition acquisition) {
-        StorageVersion2 version = find(acquisition.partitionId()).admit(acquisition.id());
-        if (version.commit() != acquisition.commit()) {
-            throw new IllegalArgumentException("Wrong commit in acquisition: " + acquisition);
+    private <T> T query(Acquisition acquisition, Function<StorageVersion2, T> query) {
+        PartitionStorage2 storage = find(acquisition.partitionId());
+        StorageVersion2 version = storage.admit(acquisition.id());
+        try {
+            if (version.commit() != acquisition.commit()) {
+                throw new IllegalArgumentException("Wrong commit in acquisition: " + acquisition);
+            }
+            return query.apply(version);
+        } finally {
+            storage.endQuery(version);
         }
-        return version;
     }
 
-    private PartitionStorage2 find(PartitionId partitionId) {
+    /** Returns the storage of a partition. Package-private for the tests. */
+    PartitionStorage2 find(PartitionId partitionId) {
         PartitionStorage2 storage = partitions.get(partitionId);
         if (storage == null) {
             throw new IllegalArgumentException("Unknown partition: " + partitionId);

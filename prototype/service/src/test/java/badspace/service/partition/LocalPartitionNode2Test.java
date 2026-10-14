@@ -393,6 +393,23 @@ class LocalPartitionNode2Test {
     }
 
     @Test
+    void queriesGiveBackTheVersionAlsoWhenTheyFail() {
+        node.insertAll(P1, List.of(entity(1, 1, 1)));
+        node.commit(P1, 1);
+        Acquisition acquisition = node.acquireLatest(P1, noTimeout());
+        assertEquals(1, node.size(acquisition));
+        assertEquals(List.of(entity(1, 1, 1)), node.getAll(acquisition, new long[] {1}));
+        assertEquals(1, node.findInRegion(acquisition, new Circle2(new Point2(0, 0), 5)).size());
+        assertThrows(IllegalArgumentException.class, () -> node.findNearest(acquisition, new Point2(0, 0), -1));
+        Acquisition wrongCommit = new Acquisition(P1, acquisition.id(), 7);
+        assertThrows(IllegalArgumentException.class, () -> node.size(wrongCommit));
+        node.release(acquisition);
+        // With no queries left, the version ends when it leaves the window.
+        node.commit(P1, 2);
+        assertEquals(1, node.find(P1).liveVersionCount());
+    }
+
+    @Test
     void acquisitionsRejectNullOptions() {
         assertThrows(NullPointerException.class, () -> node.acquireLatest(P1, null));
         assertThrows(NullPointerException.class, () -> node.acquirePrevious(P1, 0, null));

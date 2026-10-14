@@ -45,6 +45,14 @@ final class VersionCatalog2 {
         return new VersionCatalog2(retainedPastVersions, next);
     }
 
+    /**
+     * Returns the version that the next {@link #withVersion} makes leave the window,
+     * or null if the window is not full.
+     */
+    StorageVersion2 nextToLeave() {
+        return versions.length == retainedPastVersions + 1 ? versions[0] : null;
+    }
+
     /** Returns the version of the last commit. */
     StorageVersion2 lastVersion() {
         return versions[versions.length - 1];

@@ -14,9 +14,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
@@ -55,11 +57,19 @@ import java.util.function.Function;
  * of the node. At each acquisition, release and commit the storage removes the
  * expired acquisitions, so a reader that never releases does not keep its
  * version in memory after the timeout.
+ * <p>
+ * Each version ends when it is out of the window, with no valid acquisitions and
+ * no admitted queries (see {@link VersionUses}). The event that removes the last of
+ * these ends it: the commit that moves the window, the release or the removal after
+ * the timeout of the last acquisition, the end of the last query. The storage counts
+ * the versions that did not end yet.
  */
 final class PartitionStorage3 implements SlotView3 {
 
     private static final int DIMENSIONS = 3;
     private static final int INITIAL_CAPACITY = 16;
+    /** The value that {@code acquire} returns when the version left the window. */
+    static final long NOT_ACQUIRED = 0;
 
     // Slot: entity ID and position. coords holds DIMENSIONS values per slot (x, y, z),
     // so slot i is slotEntityIds[i] and coords[DIMENSIONS * i ...]. The capacity of
@@ -77,6 +87,9 @@ final class PartitionStorage3 implements SlotView3 {
     private final ConcurrentHashMap<Long, AcquisitionEntry3> acquisitions = new ConcurrentHashMap<>();
     // The number of the last acquisition. Numbers start from 1 and are never used again.
     private final AtomicLong lastAcquisitionId = new AtomicLong();
+    // The versions that did not end yet, the empty version at commit 0 included. The
+    // commit adds one; the thread that ends a version, any thread, removes one.
+    private final AtomicInteger liveVersions = new AtomicInteger(1);
     /** True after an insertion or a removal not yet in a snapshot. */
     private boolean idsChanged;
     private final CoordinateLimits limits;
@@ -224,6 +237,7 @@ final class PartitionStorage3 implements SlotView3 {
 
     /**
      * Closes the commit, publishes the version of the partition at the commit and returns it.
+     * If the window was full, the oldest version leaves it, and ends if it has no uses.
      * It also removes the expired acquisitions.
      */
     StorageVersion3 commit(long commit) {
@@ -234,8 +248,15 @@ final class PartitionStorage3 implements SlotView3 {
         }
         StorageVersion3 version = new StorageVersion3(commit, snapshot(), index.commit(commit));
         idsChanged = false;
-        // The publication: the last write of the commit.
+        StorageVersion3 leaving = catalog.nextToLeave();
+        liveVersions.incrementAndGet();
+        // The publication of the new version and window.
         catalog = catalog.withVersion(version);
+        // After the publication, so a new acquisition finds the version either in the
+        // window or out of it, and in that case it chooses again from the new window.
+        if (leaving != null && leaving.uses().leaveWindow()) {
+            versionEnded();
+        }
         removeExpired();
         return version;
     }
@@ -261,7 +282,10 @@ final class PartitionStorage3 implements SlotView3 {
         return catalog.lastVersion().commit();
     }
 
-    /** Acquires the version without timeout and returns the number of the acquisition. */
+    /**
+     * Acquires the version without timeout and returns the number of the acquisition,
+     * or NOT_ACQUIRED if the version left the window.
+     */
     long acquire(StorageVersion3 version) {
         return acquire(version, AcquireOptions.noTimeout());
     }
@@ -269,9 +293,16 @@ final class PartitionStorage3 implements SlotView3 {
     /**
      * Acquires the version with the given options and returns the number of the
      * acquisition. The caller chooses the version from a {@linkplain #catalog() catalog}.
-     * It also removes the expired acquisitions. Any thread can call it.
+     * Returns NOT_ACQUIRED, and uses no number, if a commit made the version leave the
+     * window after the choice: the caller chooses again from the new catalog. It also
+     * removes the expired acquisitions. Any thread can call it.
      */
     long acquire(StorageVersion3 version, AcquireOptions options) {
+        // Checking the window and adding the use is a single step, so a version that
+        // left the window is never acquired again.
+        if (!version.uses().addUseIfInWindow()) {
+            return NOT_ACQUIRED;
+        }
         long acquisitionId = lastAcquisitionId.incrementAndGet();
         acquisitions.put(acquisitionId, AcquisitionEntry3.of(version, options, clock.nanoTime()));
         removeExpired();
@@ -279,11 +310,12 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     /**
-     * Returns the acquired version, which a query then reads. Checking the acquisition
-     * and taking the version is a single step: the query can end also if the acquisition
-     * is released or expires in the meantime. Fails with IllegalStateException if the
-     * acquisition was released or is expired, and with IllegalArgumentException if this
-     * storage never made it. Any thread can call it.
+     * Admits a query: returns the acquired version, which the query then reads, and adds
+     * a use to it. The query must call {@link #endQuery} when it ends, also if it fails.
+     * Checking the acquisition and taking the version is a single step: the query can end
+     * also if the acquisition is released or expires in the meantime. Fails with
+     * IllegalStateException if the acquisition was released or is expired, and with
+     * IllegalArgumentException if this storage never made it. Any thread can call it.
      */
     StorageVersion3 admit(long acquisitionId) {
         // A single read of the entry: a removal at the same time cannot make the
@@ -292,17 +324,36 @@ final class PartitionStorage3 implements SlotView3 {
         if (entry == null || entry.isExpired(clock.nanoTime())) {
             throw missingAcquisition(acquisitionId);
         }
+        // A release at the same time can end the version after the read of the entry:
+        // then the query fails, as after the release.
+        if (!entry.version().uses().addUseIfNotEnded()) {
+            throw missingAcquisition(acquisitionId);
+        }
         return entry.version();
     }
 
     /**
-     * Releases an acquisition. Releasing it again, or after its timeout, does nothing.
-     * It also removes the expired acquisitions. Fails with IllegalArgumentException if
-     * this storage never made it. Any thread can call it.
+     * Ends a query admitted by {@link #admit}: removes its use, which can end the
+     * version. Any thread can call it.
+     */
+    void endQuery(StorageVersion3 version) {
+        removeUse(version);
+    }
+
+    /**
+     * Releases an acquisition: removes its use, which can end the version. Releasing it
+     * again, or after its timeout, does nothing. It also removes the expired acquisitions.
+     * Fails with IllegalArgumentException if this storage never made it. Any thread can
+     * call it.
      */
     void release(long acquisitionId) {
         checkMade(acquisitionId);
-        acquisitions.remove(acquisitionId);
+        // Only one thread gets the entry: a second release or the removal after the
+        // timeout finds nothing, so the use is removed once.
+        AcquisitionEntry3 entry = acquisitions.remove(acquisitionId);
+        if (entry != null) {
+            removeUse(entry.version());
+        }
         removeExpired();
     }
 
@@ -313,6 +364,14 @@ final class PartitionStorage3 implements SlotView3 {
      */
     int acquisitionCount() {
         return acquisitions.size();
+    }
+
+    /**
+     * Returns the number of versions that did not end yet: the versions in the window
+     * and the ones out of it that still have uses. Any thread can call it.
+     */
+    int liveVersionCount() {
+        return liveVersions.get();
     }
 
     @Override
@@ -336,13 +395,33 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     /**
-     * Removes the expired acquisitions, so their versions can go away. The reader of an
-     * expired acquisition may never come back, so the storage does not wait for it.
-     * It scans all the acquisitions; the map does not block the other threads.
+     * Removes the expired acquisitions and their uses, which can end their versions.
+     * The reader of an expired acquisition may never come back, so the storage does
+     * not wait for it. It scans all the acquisitions; the map does not block the
+     * other threads.
      */
     private void removeExpired() {
         long now = clock.nanoTime();
-        acquisitions.values().removeIf(entry -> entry.isExpired(now));
+        for (Map.Entry<Long, AcquisitionEntry3> e : acquisitions.entrySet()) {
+            // remove(key, value) succeeds for one thread only, like the release.
+            if (e.getValue().isExpired(now) && acquisitions.remove(e.getKey(), e.getValue())) {
+                removeUse(e.getValue().version());
+            }
+        }
+    }
+
+    private void removeUse(StorageVersion3 version) {
+        if (version.uses().removeUse()) {
+            versionEnded();
+        }
+    }
+
+    /**
+     * The point where a version ends: nobody uses it and nobody can ask for it again.
+     * Called once for each version, by the thread that ends it.
+     */
+    private void versionEnded() {
+        liveVersions.decrementAndGet();
     }
 
     private void checkMade(long acquisitionId) {

@@ -4,7 +4,7 @@ title: Conservazione delle versioni
 description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza opzionale, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni versione, e la rimozione della partizione diventa effettiva quando sono finite tutte.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T15:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T18:00:00Z }
 ---
 
 # Primitiva
@@ -229,11 +229,27 @@ tiene lo storage della partizione in una mappa concorrente dal numero
 dell'acquisizione alla versione: una versione uscita dalla finestra
 resta raggiungibile da lì finché ha acquisizioni, e il rilascio toglie
 solo la sua voce. L'ammissione di una query è la lettura della voce
-nella mappa: la query tiene il riferimento alla versione in una
-variabile locale, che il GC tratta come la protezione dei riferimenti
-delle query in corso, anche quando la query fallisce. Le versioni senza
-acquisizioni né query le libera il GC (vedi [API da
+nella mappa, e la query tiene il riferimento alla versione finché non
+finisce. La memoria delle versioni finite la libera il GC (vedi [API da
 esporre](/decisions/api-surface.md#acquisizione-delle-versioni)).
+
+Ogni versione ha un contatore atomico dei suoi utilizzi, acquisizioni
+valide e query ammesse, con un bit per "fuori dalla finestra"; lo
+stato "finita" è un valore a parte, da cui non si torna. Ogni
+cambiamento è un `compareAndSet`, e solo la chiamata che porta la
+versione fuori dalla finestra e senza utilizzi la fa finire.
+L'acquisizione aggiunge un utilizzo solo se la versione è ancora nella
+finestra, prima di prendere un numero: se un commit l'ha fatta uscire
+dopo la scelta, il nodo sceglie di nuovo dal catalogo nuovo, per tutte
+e quattro le selezioni. L'ammissione aggiunge un utilizzo solo se la
+versione non è finita, e il nodo lo toglie alla fine della query in un
+`finally`, anche quando la query fallisce o l'identificatore ha il
+commit sbagliato. Il commit fa uscire la versione più vecchia dopo aver
+pubblicato il catalogo nuovo; rilascio e scadenza tolgono la voce dalla
+mappa con un'operazione che riesce a un solo thread, e solo quel thread
+toglie l'utilizzo. Lo storage conta le versioni non finite: il punto
+in cui una versione finisce è un solo metodo, che decrementa quel
+conteggio.
 
 I test di concorrenza fermano una query a metà con un cancello
 nell'indice, senza sleep: un commit durante la query non cambia il suo
@@ -258,10 +274,18 @@ scadenza prima della prima query, scadenza durante una query ammessa
 toglie la voce nel frattempo), rilascio dopo la scadenza, nuova
 acquisizione distinta, durata troppo grande come nessuna scadenza.
 
-Mancano la fine delle versioni e la rimozione in due fasi. Oggi la
-partizione non sa quando una versione finisce: le voci delle
-acquisizioni sono indipendenti e le query in corso non si contano.
-Dopo la rimozione le letture attraverso un'acquisizione falliscono
+I test della fine delle versioni la verificano a ogni evento: commit
+senza utilizzi, rilascio dell'ultima acquisizione, scadenza trovata da
+un commit, fine dell'ultima query; una versione nella finestra non
+finisce al rilascio, una query tiene viva una versione rilasciata e
+fuori dalla finestra, una versione uscita dalla finestra non si
+acquisisce più, e le query del nodo tolgono il loro utilizzo anche
+quando falliscono. Un test di concorrenza fa correre acquisizioni e
+commit, e ammissioni e rilasci della stessa acquisizione: alla fine
+restano solo le versioni della finestra, quindi ogni altra è finita una
+e una sola volta.
+
+Manca la rimozione in due fasi. Dopo la rimozione le letture attraverso un'acquisizione falliscono
 perché il nodo non trova più la partizione, e i numeri delle
 acquisizioni di una nuova partizione con lo stesso ID ripartono da 1. I reader
 non hanno altro modo di leggere una versione: `lastVersion()` è solo un

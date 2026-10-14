@@ -92,8 +92,9 @@ stato, i reader le versioni pubblicate attraverso le acquisizioni, con
 una view controllata (vedi [API da
 esporre](/decisions/api-surface.md#letture-del-writer-e-dei-reader) e
 [Accesso dei reader](#accesso-dei-reader)): la versione interna non
-esce dal nodo. La liberazione delle versioni la fa per
-ora il GC.
+esce dal nodo. La partizione rileva quando una versione finisce (vedi
+[Vita di una versione](/architecture/version-retention.md#vita-di-una-versione));
+la liberazione della memoria la fa per ora il GC.
 
 # Accesso dei reader
 
