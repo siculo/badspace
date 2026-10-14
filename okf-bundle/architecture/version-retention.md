@@ -1,10 +1,10 @@
 ---
 type: Architecture Primitive
 title: Conservazione delle versioni
-description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza opzionale, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide.
+description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza opzionale, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni versione, e la rimozione della partizione diventa effettiva quando sono finite tutte.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T15:00:00Z }
 ---
 
 # Primitiva
@@ -91,10 +91,38 @@ questo c'è la [scadenza](#scadenza) opzionale.
    ma non si può più acquisire: una versione uscita dalla finestra non
    torna mai acquisibile.
 3. **Eliminabile**: è fuori dalla finestra, senza acquisizioni valide
-   né query in corso. La memoria la libera il GC nel prototipo, e un
-   conteggio dei riferimenti o l'epoch-based reclamation nel
-   [linguaggio finale](/decisions/language.md); eliminabile non vuol
-   dire liberata subito.
+   né query in corso: nessuno la sta usando e nessuno la può più
+   richiedere. Per la partizione la versione non esiste più. La
+   memoria la libera il GC nel prototipo, e un conteggio dei
+   riferimenti o l'epoch-based reclamation nel [linguaggio
+   finale](/decisions/language.md); eliminabile non vuol dire liberata
+   subito.
+
+**Fine di una versione.** Il passaggio a eliminabile è un momento
+preciso, che la partizione rileva: succede una sola volta, nel primo
+istante in cui la versione è fuori dalla finestra e senza utilizzi.
+Gli utilizzi sono le acquisizioni valide e le query ammesse: anche una
+query in corso usa la versione, quindi la versione finisce alla fine
+dell'ultima query, non al rilascio. Il passaggio lo fa l'evento che
+toglie l'ultima delle due condizioni:
+
+- il **commit** che fa uscire la versione dalla finestra, se non ha
+  utilizzi;
+- il **rilascio** o la **scadenza** dell'ultima acquisizione, con la
+  versione già fuori dalla finestra;
+- la **fine dell'ultima query** ammessa, con la versione fuori dalla
+  finestra e senza acquisizioni valide;
+- la **rimozione della partizione**, che chiude la finestra per tutte
+  le versioni.
+
+Una versione eliminabile non torna mai in uso. Per questo l'ammissione
+di una query e l'acquisizione aggiungono un utilizzo solo se la
+versione non è già finita, in un'unica operazione atomica: altrimenti
+un rilascio concorrente, o un commit che fa uscire la versione dalla
+finestra, potrebbe farla finire mentre la si prende. Una query che
+trova la versione finita fallisce come per un'acquisizione rilasciata;
+un'acquisizione che la trova finita sceglie di nuovo dalla finestra
+pubblicata, e fallisce se la versione chiesta non c'è più.
 
 **Ammissione delle query.** Una query verifica l'acquisizione e prende
 un riferimento interno stabile alla versione in un'unica operazione
@@ -132,8 +160,12 @@ nodo, non con l'ora di sistema né con il tick.
 - Il nodo elimina le acquisizioni scadute **da solo**, senza aspettare
   il reader che magari ha perso il collegamento: nella prima forma le
   cerca a ogni evento della partizione (acquisizione, rilascio,
-  commit). Il limite è che una partizione senza eventi tiene in memoria
-  le versioni con acquisizioni scadute fino all'evento successivo; un
+  commit). Una partizione segnata come rimossa non ha più eventi suoi:
+  le sue acquisizioni scadute il nodo le cerca a ogni evento del nodo,
+  cioè a ogni evento di una qualunque delle sue partizioni, compresa la
+  creazione e la rimozione. Il limite è che una partizione senza
+  eventi, e un nodo senza eventi per le partizioni rimosse, tiene in
+  memoria le versioni con acquisizioni scadute fino all'evento successivo; un
   tempo di recupero garantito richiederebbe una pulizia periodica, oggi
   non prevista.
 
@@ -149,10 +181,23 @@ leggibili** fino al rilascio o alla scadenza, e le query già ammesse
 finiscono. Una versione letta dopo la rimozione non è sbagliata: mostra
 la partizione al suo commit, dati vecchi ma coerenti.
 
-Il catalogo delle versioni sopravvive quindi alla rimozione della
-partizione dal nodo, finché ha acquisizioni valide. Una nuova
-partizione con lo stesso ID è un'altra incarnazione: le acquisizioni
-vecchie restano legate a quella rimossa e non vedono mai la nuova.
+La rimozione avviene quindi in **due fasi**:
+
+1. **Segno di rimozione.** `removePartition` e `dropPartition` segnano
+   la partizione come rimossa: da quel momento niente scritture,
+   commit né nuove acquisizioni, e l'ID si può subito usare per una
+   nuova partizione. Il segno chiude la finestra, quindi le versioni
+   senza utilizzi finiscono subito.
+2. **Rimozione effettiva.** Il catalogo delle versioni sopravvive al
+   segno finché la partizione ha versioni non ancora finite. Quando
+   finisce l'ultima, il nodo toglie la partizione per davvero; senza
+   acquisizioni né query in corso succede già nella prima fase.
+
+Il momento giusto per controllare se una partizione segnata non ha più
+versioni è la [fine di una versione](#vita-di-una-versione): il nodo non
+deve cercarlo altrove. Una nuova partizione con lo stesso ID è un'altra
+**incarnazione**: le acquisizioni vecchie restano legate a quella
+rimossa e non vedono mai la nuova.
 
 Una fase intermedia più semplice è **rifiutare la rimozione** finché la
 partizione ha acquisizioni attive; non è però la semantica decisa, solo
@@ -213,8 +258,10 @@ scadenza prima della prima query, scadenza durante una query ammessa
 toglie la voce nel frattempo), rilascio dopo la scadenza, nuova
 acquisizione distinta, durata troppo grande come nessuna scadenza.
 
-Manca la semantica della rimozione della partizione: oggi dopo la
-rimozione le letture attraverso un'acquisizione falliscono
+Mancano la fine delle versioni e la rimozione in due fasi. Oggi la
+partizione non sa quando una versione finisce: le voci delle
+acquisizioni sono indipendenti e le query in corso non si contano.
+Dopo la rimozione le letture attraverso un'acquisizione falliscono
 perché il nodo non trova più la partizione, e i numeri delle
 acquisizioni di una nuova partizione con lo stesso ID ripartono da 1. I reader
 non hanno altro modo di leggere una versione: `lastVersion()` è solo un

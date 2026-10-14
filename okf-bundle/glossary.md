@@ -1,10 +1,10 @@
 ---
 type: Glossary
 title: Glossario
-description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, gruppo di partizioni, generatorId, commit, tick, gTick, snapshot, versione, finestra di conservazione, catalogo delle versioni, acquisizione, rilascio, pin, scadenza, slot, copy-on-write e transient, fencing token, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
+description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, gruppo di partizioni, generatorId, commit, tick, gTick, snapshot, versione, finestra di conservazione, catalogo delle versioni, acquisizione, rilascio, pin, versione eliminabile, incarnazione, scadenza, slot, copy-on-write e transient, fencing token, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T11:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T15:00:00Z }
 ---
 
 # Termini
@@ -37,6 +37,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T11:00:00Z }
 | Acquisizione | Diritto, solo logico e con identità propria, di interrogare una versione; più acquisizioni della stessa versione sono indipendenti. Le tiene il nodo. Vedi [conservazione delle versioni](/architecture/version-retention.md#acquisizione-e-rilascio). |
 | Rilascio | Chiusura di una sola acquisizione: idempotente; dopo il rilascio le nuove letture attraverso quell'acquisizione falliscono, e la versione non viene per forza eliminata. |
 | Pin | Stato di una versione uscita dalla finestra di conservazione ma ancora tenuta da acquisizioni valide o da query già ammesse: si legge, ma non si può più acquisire. Vedi [conservazione delle versioni](/architecture/version-retention.md#vita-di-una-versione). |
+| Versione eliminabile | Versione fuori dalla finestra di conservazione, senza acquisizioni valide né query in corso: nessuno la usa e nessuno la può più richiedere, quindi per la partizione non esiste più. Il passaggio è un momento preciso che la partizione rileva (fine della versione); non è la liberazione della memoria. Vedi [conservazione delle versioni](/architecture/version-retention.md#vita-di-una-versione). |
+| Incarnazione | Una partizione dalla creazione alla rimozione effettiva; una nuova partizione con lo stesso ID è un'altra incarnazione, e le acquisizioni di quella rimossa non la vedono mai. Vedi [conservazione delle versioni](/architecture/version-retention.md#rimozione-della-partizione). |
 | Scadenza | Durata opzionale di una singola acquisizione, misurata con il clock monotono del nodo; definitiva, non si rinnova, e non è una durata massima della versione. Vedi [conservazione delle versioni](/architecture/version-retention.md#scadenza). |
 | Limiti delle coordinate | Intervallo `[min, max]`, uguale su tutti gli assi, delle coordinate che le entità di una partizione possono avere; lo fissa l'indice, e le scritture fuori dai limiti falliscono. Le query non hanno limiti. Vedi [indicizzazione spaziale](/decisions/spatial-indexing.md#limiti-delle-coordinate). |
 | Cella | Quadrato (2D) o cubo (3D) di lato fisso in cui un indice a celle divide lo spazio, come la [grid uniforme](/indices/uniform-grid.md) e la [griglia di quadtree](/indices/grid-quadtree.md). |
