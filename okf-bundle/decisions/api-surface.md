@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione, lettura e rilascio delle versioni conservate; la scadenza opzionale è da implementare), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione con scadenza opzionale, lettura e rilascio delle versioni conservate), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T09:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T12:00:00Z }
 ---
 
 # Stato
@@ -235,9 +235,8 @@ può chiamare da ogni thread, ma è solo un metadato.
 La semantica è nella [conservazione delle
 versioni](/architecture/version-retention.md#acquisizione-e-rilascio).
 I reader leggono una versione solo attraverso un'acquisizione. Nel
-prototipo ci sono già le quattro selezioni, le letture e il rilascio;
-le opzioni arrivano con la scadenza, quindi oggi le chiamate non le
-ricevono e ogni acquisizione è senza scadenza.
+prototipo ci sono le quattro selezioni con le opzioni, le letture e il
+rilascio.
 
 | Operazione | Forma | Note |
 |---|---|---|
@@ -252,6 +251,13 @@ Le opzioni dicono la scadenza: `noTimeout()`, il default, oppure una
 durata positiva misurata dal momento dell'acquisizione con il clock
 monotono del nodo. Una durata troppo grande per il clock vale come
 nessuna scadenza.
+
+Nel prototipo le opzioni sono il record `AcquireOptions` in `common`,
+con la durata in nanosecondi: `AcquireOptions.noTimeout()` e
+`AcquireOptions.timeout(Duration)`; da circa 292 anni in su la durata
+vale come nessuna scadenza. Nel contratto del nodo le quattro
+selezioni ricevono sempre le opzioni; nell'API ogni selezione ha anche
+la forma senza opzioni, che vale `noTimeout()`.
 
 **Locale e remoto.** Nell'API la versione acquisita è una view
 `AutoCloseable`, `AcquiredVersion2`/`AcquiredVersion3`, da usare con
@@ -269,7 +275,7 @@ e attraverso gRPC.
 |---|---|
 | Versione non acquisibile: fuori dalla finestra, commit mai pubblicato, nessun commit ≤ tick | `VersionNotAvailableException`, eccezione di dominio dedicata; nessuna acquisizione creata |
 | `offset`, tick o commit negativi; durata zero o negativa | `IllegalArgumentException` |
-| Lettura attraverso un'acquisizione rilasciata o scaduta | `IllegalStateException` |
+| Lettura attraverso un'acquisizione rilasciata o scaduta | `IllegalStateException`, con lo stesso messaggio nei due casi: dopo l'eliminazione di un'acquisizione scaduta il nodo non sa più se era stata rilasciata |
 | Acquisizione su una partizione rimossa | `IllegalStateException` |
 | Rilascio o lettura con un identificatore mai emesso o di un'altra partizione, nel contratto del nodo | `IllegalArgumentException`; le altre acquisizioni non cambiano |
 | Lettura con un identificatore il cui commit non è quello della versione acquisita, nel contratto del nodo | `IllegalArgumentException` |
@@ -278,6 +284,12 @@ Scelte di dettaglio:
 
 - **Rilascio ripetuto**: il secondo rilascio della stessa acquisizione,
   o il rilascio dopo la scadenza, non fa niente.
+- **Scadenza controllata dal nodo**: il record `Acquisition` non porta
+  la scadenza e la view dell'API non la controlla. La scadenza è
+  misurata con il clock del nodo, che in un altro processo non vale, e
+  il nodo non può fidarsi di una scadenza ricevuta dal reader. Un
+  controllo anticipato nella view risparmierebbe solo una chiamata
+  remota destinata a fallire: si valuta con il nodo gRPC.
 - **Query in corso**: una query iniziata prima del rilascio o della
   scadenza finisce e il suo risultato è valido; i dati già letti
   restano validi anche dopo il rilascio.

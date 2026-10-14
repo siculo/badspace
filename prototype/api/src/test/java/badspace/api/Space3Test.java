@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Box3;
+import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
@@ -17,6 +18,7 @@ import badspace.common.partition.VersionNotAvailableException;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.geometry.Sphere3;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -45,6 +47,8 @@ class Space3Test {
         final Map<PartitionId, MapVersion> versions = new HashMap<>();
         /** The acquisitions not yet released, by number. */
         final Map<Long, MapVersion> acquired = new HashMap<>();
+        // The options of the last acquisition.
+        AcquireOptions lastOptions;
         long lastAcquisitionId;
         int calls;
 
@@ -134,33 +138,34 @@ class Space3Test {
 
         /** Acquires the last version: the map node keeps only that one. */
         @Override
-        public Acquisition acquireLatest(PartitionId partitionId) {
+        public Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options) {
             calls++;
+            lastOptions = options;
             MapVersion version = versions.computeIfAbsent(partitionId, p -> new MapVersion(0, 0));
             acquired.put(++lastAcquisitionId, version);
             return new Acquisition(partitionId, lastAcquisitionId, version.commit());
         }
 
         @Override
-        public Acquisition acquirePrevious(PartitionId partitionId, int offset) {
-            return acquireLatestIf(partitionId, offset == 0);
+        public Acquisition acquirePrevious(PartitionId partitionId, int offset, AcquireOptions options) {
+            return acquireLatestIf(partitionId, offset == 0, options);
         }
 
         @Override
-        public Acquisition acquireAtOrBefore(PartitionId partitionId, long tick) {
-            return acquireLatestIf(partitionId, lastCommit(partitionId) <= tick);
+        public Acquisition acquireAtOrBefore(PartitionId partitionId, long tick, AcquireOptions options) {
+            return acquireLatestIf(partitionId, lastCommit(partitionId) <= tick, options);
         }
 
         @Override
-        public Acquisition acquireExact(PartitionId partitionId, long commit) {
-            return acquireLatestIf(partitionId, lastCommit(partitionId) == commit);
+        public Acquisition acquireExact(PartitionId partitionId, long commit, AcquireOptions options) {
+            return acquireLatestIf(partitionId, lastCommit(partitionId) == commit, options);
         }
 
-        private Acquisition acquireLatestIf(PartitionId partitionId, boolean available) {
+        private Acquisition acquireLatestIf(PartitionId partitionId, boolean available, AcquireOptions options) {
             if (!available) {
                 throw new VersionNotAvailableException("Only the last version");
             }
-            return acquireLatest(partitionId);
+            return acquireLatest(partitionId, options);
         }
 
         @Override
@@ -435,6 +440,36 @@ class Space3Test {
         assertEquals(3, p.acquireExact(3).commit());
         assertThrows(VersionNotAvailableException.class, () -> p.acquireExact(2));
         assertEquals(3, node.acquired.size());
+    }
+
+    @Test
+    void acquisitionsWithoutOptionsHaveNoTimeout() {
+        MapNode node = new MapNode();
+        Partition3 p = newSpace().createPartition(node);
+        p.acquireLatest();
+        assertEquals(AcquireOptions.noTimeout(), node.lastOptions);
+        p.acquirePrevious(0);
+        assertEquals(AcquireOptions.noTimeout(), node.lastOptions);
+        p.acquireAtOrBefore(0);
+        assertEquals(AcquireOptions.noTimeout(), node.lastOptions);
+        p.acquireExact(0);
+        assertEquals(AcquireOptions.noTimeout(), node.lastOptions);
+    }
+
+    @Test
+    void acquisitionOptionsGoToTheNode() {
+        MapNode node = new MapNode();
+        Partition3 p = newSpace().createPartition(node);
+        AcquireOptions options = AcquireOptions.timeout(Duration.ofSeconds(5));
+        p.acquireLatest(options);
+        assertEquals(options, node.lastOptions);
+        AcquireOptions other = AcquireOptions.timeout(Duration.ofSeconds(6));
+        p.acquirePrevious(0, other);
+        assertEquals(other, node.lastOptions);
+        p.acquireAtOrBefore(0, options);
+        assertEquals(options, node.lastOptions);
+        p.acquireExact(0, other);
+        assertEquals(other, node.lastOptions);
     }
 
     @Test

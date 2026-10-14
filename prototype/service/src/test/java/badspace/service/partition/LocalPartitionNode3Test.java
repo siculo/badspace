@@ -1,5 +1,7 @@
 package badspace.service.partition;
 
+import static badspace.common.partition.AcquireOptions.noTimeout;
+import static badspace.common.partition.AcquireOptions.timeout;
 import static badspace.common.partition.Entity3.entity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -13,6 +15,7 @@ import badspace.common.partition.PartitionId;
 import badspace.common.partition.VersionNotAvailableException;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Sphere3;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -25,6 +28,7 @@ class LocalPartitionNode3Test {
 
     private static final PartitionId P1 = new PartitionId(1);
     private static final PartitionId P2 = new PartitionId(2);
+    private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
     private LocalPartitionNode3 node;
 
@@ -231,11 +235,11 @@ class LocalPartitionNode3Test {
     @Test
     void acquiredVersionHasOnlyTheCommittedWrites() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
-        Acquisition beforeCommit = node.acquireLatest(P1);
+        Acquisition beforeCommit = node.acquireLatest(P1, noTimeout());
         assertEquals(0, beforeCommit.commit());
         assertEquals(0, node.size(beforeCommit));
         node.commit(P1, 4);
-        Acquisition afterCommit = node.acquireLatest(P1);
+        Acquisition afterCommit = node.acquireLatest(P1, noTimeout());
         assertEquals(4, afterCommit.commit());
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(afterCommit, new long[] {1}));
     }
@@ -244,7 +248,7 @@ class LocalPartitionNode3Test {
     void acquiredVersionDoesNotSeeLaterWrites() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
         node.commit(P1, 4);
-        Acquisition acquisition = node.acquireLatest(P1);
+        Acquisition acquisition = node.acquireLatest(P1, noTimeout());
         node.removeAll(P1, new long[] {1});
         node.commit(P1, 5);
         assertEquals(new Acquisition(P1, acquisition.id(), 4), acquisition);
@@ -256,11 +260,11 @@ class LocalPartitionNode3Test {
 
     @Test
     void newPartitionHasTheEmptyVersionAtCommitZero() {
-        Acquisition acquisition = node.acquireLatest(P1);
+        Acquisition acquisition = node.acquireLatest(P1, noTimeout());
         assertEquals(0, acquisition.commit());
         assertEquals(0, node.size(acquisition));
-        assertEquals(0, node.acquireExact(P1, 0).commit());
-        assertEquals(0, node.acquireAtOrBefore(P1, 0).commit());
+        assertEquals(0, node.acquireExact(P1, 0, noTimeout()).commit());
+        assertEquals(0, node.acquireAtOrBefore(P1, 0, noTimeout()).commit());
     }
 
     @Test
@@ -269,12 +273,12 @@ class LocalPartitionNode3Test {
         node.commit(P2, 100);
         node.commit(P2, 103);
         node.commit(P2, 107);
-        assertEquals(107, node.acquireLatest(P2).commit());
-        assertEquals(107, node.acquirePrevious(P2, 0).commit());
-        assertEquals(103, node.acquirePrevious(P2, 1).commit());
-        assertEquals(100, node.acquirePrevious(P2, 2).commit());
-        assertEquals(103, node.acquireAtOrBefore(P2, 105).commit());
-        assertEquals(103, node.acquireExact(P2, 103).commit());
+        assertEquals(107, node.acquireLatest(P2, noTimeout()).commit());
+        assertEquals(107, node.acquirePrevious(P2, 0, noTimeout()).commit());
+        assertEquals(103, node.acquirePrevious(P2, 1, noTimeout()).commit());
+        assertEquals(100, node.acquirePrevious(P2, 2, noTimeout()).commit());
+        assertEquals(103, node.acquireAtOrBefore(P2, 105, noTimeout()).commit());
+        assertEquals(103, node.acquireExact(P2, 103, noTimeout()).commit());
     }
 
     @Test
@@ -283,25 +287,25 @@ class LocalPartitionNode3Test {
         node.commit(P2, 100);
         node.commit(P2, 103);
         node.commit(P2, 107);
-        assertThrows(VersionNotAvailableException.class, () -> node.acquirePrevious(P2, 3));
-        assertThrows(VersionNotAvailableException.class, () -> node.acquireAtOrBefore(P2, 99));
-        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 105));
-        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 0));
+        assertThrows(VersionNotAvailableException.class, () -> node.acquirePrevious(P2, 3, noTimeout()));
+        assertThrows(VersionNotAvailableException.class, () -> node.acquireAtOrBefore(P2, 99, noTimeout()));
+        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 105, noTimeout()));
+        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 0, noTimeout()));
     }
 
     @Test
     void negativeSelectionsAreRejected() {
-        assertThrows(IllegalArgumentException.class, () -> node.acquirePrevious(P1, -1));
-        assertThrows(IllegalArgumentException.class, () -> node.acquireAtOrBefore(P1, -1));
-        assertThrows(IllegalArgumentException.class, () -> node.acquireExact(P1, -1));
+        assertThrows(IllegalArgumentException.class, () -> node.acquirePrevious(P1, -1, noTimeout()));
+        assertThrows(IllegalArgumentException.class, () -> node.acquireAtOrBefore(P1, -1, noTimeout()));
+        assertThrows(IllegalArgumentException.class, () -> node.acquireExact(P1, -1, noTimeout()));
     }
 
     @Test
     void acquisitionsRejectUnknownPartition() {
-        assertThrows(IllegalArgumentException.class, () -> node.acquireLatest(P2));
-        assertThrows(IllegalArgumentException.class, () -> node.acquirePrevious(P2, 0));
-        assertThrows(IllegalArgumentException.class, () -> node.acquireAtOrBefore(P2, 0));
-        assertThrows(IllegalArgumentException.class, () -> node.acquireExact(P2, 0));
+        assertThrows(IllegalArgumentException.class, () -> node.acquireLatest(P2, noTimeout()));
+        assertThrows(IllegalArgumentException.class, () -> node.acquirePrevious(P2, 0, noTimeout()));
+        assertThrows(IllegalArgumentException.class, () -> node.acquireAtOrBefore(P2, 0, noTimeout()));
+        assertThrows(IllegalArgumentException.class, () -> node.acquireExact(P2, 0, noTimeout()));
     }
 
     @Test
@@ -309,12 +313,12 @@ class LocalPartitionNode3Test {
         node.createPartition(P2, IndexConfig.linearScan(), 2);
         node.insertAll(P2, List.of(entity(1, 1, 1, 1)));
         node.commit(P2, 100);
-        Acquisition acquisition = node.acquireExact(P2, 100);
+        Acquisition acquisition = node.acquireExact(P2, 100, noTimeout());
         node.removeAll(P2, new long[] {1});
         node.commit(P2, 103);
         node.commit(P2, 107);
         node.commit(P2, 110);
-        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 100));
+        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 100, noTimeout()));
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(acquisition, new long[] {1}));
         node.release(acquisition);
         assertThrows(IllegalStateException.class, () -> node.size(acquisition));
@@ -324,8 +328,8 @@ class LocalPartitionNode3Test {
     void twoReadersOfTheSameVersionAreIndependent() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
         node.commit(P1, 1);
-        Acquisition first = node.acquireLatest(P1);
-        Acquisition second = node.acquireLatest(P1);
+        Acquisition first = node.acquireLatest(P1, noTimeout());
+        Acquisition second = node.acquireLatest(P1, noTimeout());
         assertNotEquals(first.id(), second.id());
         node.release(first);
         assertThrows(IllegalStateException.class, () -> node.size(first));
@@ -334,16 +338,16 @@ class LocalPartitionNode3Test {
 
     @Test
     void failedAcquisitionMakesNoAcquisition() {
-        Acquisition before = node.acquireLatest(P1);
-        assertThrows(VersionNotAvailableException.class, () -> node.acquirePrevious(P1, 1));
-        Acquisition after = node.acquireLatest(P1);
+        Acquisition before = node.acquireLatest(P1, noTimeout());
+        assertThrows(VersionNotAvailableException.class, () -> node.acquirePrevious(P1, 1, noTimeout()));
+        Acquisition after = node.acquireLatest(P1, noTimeout());
         // No number was used by the failed acquisition.
         assertEquals(before.id() + 1, after.id());
     }
 
     @Test
     void releaseAgainDoesNothing() {
-        Acquisition acquisition = node.acquireLatest(P1);
+        Acquisition acquisition = node.acquireLatest(P1, noTimeout());
         node.release(acquisition);
         node.release(acquisition);
         assertThrows(IllegalStateException.class, () -> node.size(acquisition));
@@ -356,7 +360,7 @@ class LocalPartitionNode3Test {
     @Test
     void unknownAcquisitionIsRejectedAndTheOthersDoNotChange() {
         node.createPartition(P2);
-        Acquisition acquisition = node.acquireLatest(P1);
+        Acquisition acquisition = node.acquireLatest(P1, noTimeout());
         Acquisition neverMade = new Acquisition(P1, acquisition.id() + 1, 0);
         assertThrows(IllegalArgumentException.class, () -> node.release(neverMade));
         assertThrows(IllegalArgumentException.class, () -> node.size(neverMade));
@@ -371,7 +375,7 @@ class LocalPartitionNode3Test {
     void failedQueryKeepsTheAcquisition() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
         node.commit(P1, 1);
-        Acquisition acquisition = node.acquireLatest(P1);
+        Acquisition acquisition = node.acquireLatest(P1, noTimeout());
         assertThrows(IllegalArgumentException.class, () -> node.findNearest(acquisition, new Point3(0, 0, 0), -1));
         assertEquals(1, node.size(acquisition));
         node.release(acquisition);
@@ -381,11 +385,109 @@ class LocalPartitionNode3Test {
     @Test
     void writerStillReadsItsOwnWritesWhileAVersionIsAcquired() {
         node.commit(P1, 1);
-        Acquisition acquisition = node.acquireLatest(P1);
+        Acquisition acquisition = node.acquireLatest(P1, noTimeout());
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(P1, new long[] {1}));
         assertEquals(1, node.size(P1));
         assertEquals(0, node.size(acquisition));
+    }
+
+    @Test
+    void acquisitionsRejectNullOptions() {
+        assertThrows(NullPointerException.class, () -> node.acquireLatest(P1, null));
+        assertThrows(NullPointerException.class, () -> node.acquirePrevious(P1, 0, null));
+        assertThrows(NullPointerException.class, () -> node.acquireAtOrBefore(P1, 0, null));
+        assertThrows(NullPointerException.class, () -> node.acquireExact(P1, 0, null));
+    }
+
+    @Test
+    void acquisitionIsReadableUntilItsTimeout() {
+        FakeClock clock = new FakeClock();
+        LocalPartitionNode3 timedNode = timedNode(clock);
+        Acquisition acquisition = timedNode.acquireLatest(P1, timeout(TIMEOUT));
+        clock.advance(TIMEOUT.minusNanos(1));
+        assertEquals(1, timedNode.size(acquisition));
+        clock.advance(Duration.ofNanos(1));
+        assertThrows(IllegalStateException.class, () -> timedNode.size(acquisition));
+    }
+
+    @Test
+    void expiredAcquisitionFailsBeforeTheFirstQuery() {
+        FakeClock clock = new FakeClock();
+        LocalPartitionNode3 timedNode = timedNode(clock);
+        Acquisition acquisition = timedNode.acquirePrevious(P1, 0, timeout(TIMEOUT));
+        clock.advance(TIMEOUT);
+        assertThrows(IllegalStateException.class, () -> timedNode.size(acquisition));
+        assertThrows(IllegalStateException.class, () -> timedNode.getAll(acquisition, new long[] {1}));
+        assertThrows(IllegalStateException.class,
+                () -> timedNode.findInRegion(acquisition, new Sphere3(new Point3(0, 0, 0), 1)));
+        assertThrows(IllegalStateException.class, () -> timedNode.findNearest(acquisition, new Point3(0, 0, 0), 1));
+    }
+
+    @Test
+    void eachSelectionTakesTheTimeout() {
+        FakeClock clock = new FakeClock();
+        LocalPartitionNode3 timedNode = timedNode(clock);
+        List<Acquisition> acquisitions = List.of(
+                timedNode.acquireLatest(P1, timeout(TIMEOUT)),
+                timedNode.acquirePrevious(P1, 0, timeout(TIMEOUT)),
+                timedNode.acquireAtOrBefore(P1, 1, timeout(TIMEOUT)),
+                timedNode.acquireExact(P1, 1, timeout(TIMEOUT)));
+        clock.advance(TIMEOUT);
+        for (Acquisition acquisition : acquisitions) {
+            assertThrows(IllegalStateException.class, () -> timedNode.size(acquisition));
+        }
+    }
+
+    @Test
+    void acquisitionWithoutTimeoutNeverExpires() {
+        FakeClock clock = new FakeClock();
+        LocalPartitionNode3 timedNode = timedNode(clock);
+        Acquisition noTimeout = timedNode.acquireLatest(P1, noTimeout());
+        // Too large for the clock: the same as no timeout.
+        Acquisition tooLarge = timedNode.acquireLatest(P1, timeout(Duration.ofSeconds(Long.MAX_VALUE)));
+        clock.advance(Duration.ofDays(100 * 365));
+        timedNode.commit(P1, 2);
+        assertEquals(1, timedNode.size(noTimeout));
+        assertEquals(1, timedNode.size(tooLarge));
+    }
+
+    @Test
+    void releaseAfterTheTimeoutDoesNothing() {
+        FakeClock clock = new FakeClock();
+        LocalPartitionNode3 timedNode = timedNode(clock);
+        Acquisition acquisition = timedNode.acquireLatest(P1, timeout(TIMEOUT));
+        clock.advance(TIMEOUT);
+        timedNode.release(acquisition);
+        // The release removed the expired acquisition: releasing it again does nothing too.
+        timedNode.release(acquisition);
+        assertThrows(IllegalStateException.class, () -> timedNode.size(acquisition));
+    }
+
+    @Test
+    void newAcquisitionAfterTheTimeoutIsDistinct() {
+        FakeClock clock = new FakeClock();
+        LocalPartitionNode3 timedNode = timedNode(clock);
+        Acquisition expired = timedNode.acquireLatest(P1, timeout(TIMEOUT));
+        clock.advance(TIMEOUT);
+        Acquisition renewed = timedNode.acquireLatest(P1, timeout(TIMEOUT));
+        assertNotEquals(expired.id(), renewed.id());
+        assertEquals(expired.commit(), renewed.commit());
+        assertEquals(1, timedNode.size(renewed));
+        assertThrows(IllegalStateException.class, () -> timedNode.size(expired));
+    }
+
+    @Test
+    void timeoutDoesNotChangeTheOtherAcquisitions() {
+        FakeClock clock = new FakeClock();
+        LocalPartitionNode3 timedNode = timedNode(clock);
+        Acquisition shortTimeout = timedNode.acquireLatest(P1, timeout(TIMEOUT));
+        Acquisition longTimeout = timedNode.acquireLatest(P1, timeout(TIMEOUT.multipliedBy(2)));
+        Acquisition noTimeout = timedNode.acquireLatest(P1, noTimeout());
+        clock.advance(TIMEOUT);
+        assertThrows(IllegalStateException.class, () -> timedNode.size(shortTimeout));
+        assertEquals(1, timedNode.size(longTimeout));
+        assertEquals(1, timedNode.size(noTimeout));
     }
 
     @Test
@@ -438,5 +540,14 @@ class LocalPartitionNode3Test {
     @Test
     void rejectsUnknownPartition() {
         assertThrows(IllegalArgumentException.class, () -> node.insertAll(P2, List.of(entity(1, 0, 0, 10))));
+    }
+
+    /** A node with the given clock and partition P1 with one entity, committed at commit 1. */
+    private static LocalPartitionNode3 timedNode(FakeClock clock) {
+        LocalPartitionNode3 timedNode = new LocalPartitionNode3(clock);
+        timedNode.createPartition(P1);
+        timedNode.insertAll(P1, List.of(entity(1, 1, 1, 1)));
+        timedNode.commit(P1, 1);
+        return timedNode;
     }
 }

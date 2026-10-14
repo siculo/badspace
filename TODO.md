@@ -106,7 +106,7 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
   - [x] Acquisizione e rilascio nel contratto del nodo (identificatore serializzabile, `acquireLatest`, `acquirePrevious`, `acquireAtOrBefore`, `acquireExact`, `release` idempotente, eccezione dedicata per la versione non disponibile) e view `AutoCloseable` nell'API; ammissione atomica delle query, con il riferimento rilasciato anche quando la query fallisce. Test: offset fuori dalla finestra, due reader sulla stessa versione, versione fuori dalla finestra leggibile finché acquisita e poi non più acquisibile, acquisizione fallita senza pin, doppio `close()`, identificatore non valido che non libera altre acquisizioni, read-your-writes del writer invariato. I test del catalogo si riscrivono con gli offset e `versions()` del catalogo, usato solo dai test, si toglie
   - [x] `lastVersion()` fuori dal proxy e dal contratto del nodo, sostituita dall'acquisizione nei test; resta solo come metodo interno del service
   - [x] Test di concorrenza con latch o barriere, senza sleep: commit durante una query, acquisizione concorrente alla rotazione della finestra, rilascio concorrente a una query; slot e indice sempre dello stesso commit, writer mai bloccato da una query lenta
-  - [ ] Scadenza opzionale delle acquisizioni: `noTimeout()` di default, durata positiva con clock monotono sostituibile nei test, durata zero o negativa rifiutata, durata troppo grande come nessuna scadenza, acquisizioni scadute eliminate a ogni evento della partizione. Test con clock finto: scadenza prima della prima query, durante una query ammessa, rilascio dopo la scadenza, nuova acquisizione distinta
+  - [x] Scadenza opzionale delle acquisizioni: `noTimeout()` di default, durata positiva con clock monotono sostituibile nei test, durata zero o negativa rifiutata, durata troppo grande come nessuna scadenza, acquisizioni scadute eliminate a ogni evento della partizione. Test con clock finto: scadenza prima della prima query, durante una query ammessa, rilascio dopo la scadenza, nuova acquisizione distinta
   - [ ] Rimozione della partizione: niente nuove acquisizioni né scritture, acquisizioni già fatte leggibili fino al rilascio o alla scadenza, catalogo che sopravvive alla rimozione dal nodo, acquisizioni vecchie che non vedono una nuova partizione con lo stesso ID. Test per `removePartition` e `dropPartition`. Oggi i numeri delle acquisizioni ripartono da 1 nella nuova partizione e `close()` della view fallisce dopo la rimozione
   - [ ] Test del salvataggio lento: una versione acquisita senza scadenza resta leggibile dopo molti commit, finché non si rilascia
 - [ ] Writer su thread diversi per partizioni diverse, con pool dei buffer degli snapshot
@@ -178,6 +178,7 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 ### Nodo gRPC [↑](#blocchi)
 
 - [ ] Nodo remoto via gRPC
+- [ ] Durata della scadenza nel record `Acquisition` e controllo anticipato della scadenza nella view dell'API, se serve a risparmiare chiamate remote destinate a fallire (oggi controlla solo il nodo)
 
 <a id="fare-client"></a>
 ### Client di test (tema trasversale) [↑](#blocchi)

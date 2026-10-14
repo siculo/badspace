@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-14
+* **Edit**: Riportata la scadenza delle acquisizioni fatta nel prototipo. [API da esporre](/decisions/api-surface.md#acquisizione-delle-versioni): record `AcquireOptions` (`noTimeout()`, `timeout(Duration)`, durata in nanosecondi, da circa 292 anni in su come nessuna scadenza), opzioni sempre presenti nelle selezioni del contratto del nodo e forma senza opzioni nell'API; stesso messaggio per acquisizione rilasciata o scaduta; scadenza controllata solo dal nodo, non nel record `Acquisition` né nella view. [Conservazione delle versioni](/architecture/version-retention.md#nel-prototipo): ogni acquisizione decide da sola se è scaduta, lo storage toglie le scadute a ogni acquisizione, rilascio e commit, clock monotono sostituibile nei test.
 * **Edit**: [API da esporre](/decisions/api-surface.md#coordinate-come-record): metodi statici `point` su `Point2`/`Point3` ed `entity` su `Entity2`/`Entity3`, da usare con `import static` in test e client.
 
 ## 2026-10-13

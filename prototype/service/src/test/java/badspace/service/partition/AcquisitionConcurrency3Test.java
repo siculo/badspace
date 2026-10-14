@@ -1,7 +1,9 @@
 package badspace.service.partition;
 
+import static badspace.common.partition.AcquireOptions.noTimeout;
 import static badspace.common.geometry.Point3.point;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import badspace.common.geometry.Box3;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
+import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
@@ -113,6 +116,40 @@ class AcquisitionConcurrency3Test {
     }
 
     /**
+     * The acquisition of reader A expires during its query, and the acquisition of
+     * reader B removes it. The query of A ends with the version it admitted; the next
+     * read of A fails.
+     */
+    @Test
+    void expiryDuringAQueryLetsTheQueryEnd() throws Exception {
+        for (IndexConfig config : CONFIGS) {
+            FakeClock clock = new FakeClock();
+            GatedIndex[] index = new GatedIndex[1];
+            PartitionStorage3 storage = new PartitionStorage3(config.limits(),
+                    slots -> index[0] = new GatedIndex(SpatialIndexes.create(config, slots)), 0, clock);
+            storage.insertAll(List.of(new Entity3(10, A)));
+            StorageVersion3 version = storage.commit(1);
+            long acquisitionA = storage.acquire(version, AcquireOptions.timeout(TIMEOUT));
+            Gate gate = new Gate();
+            index[0].gate = gate;
+            QueryThread query = new QueryThread(storage, acquisitionA);
+            query.start();
+            gate.awaitEntered();
+
+            clock.advance(TIMEOUT);
+            long acquisitionB = storage.acquire(version, AcquireOptions.timeout(TIMEOUT));
+            assertEquals(1, storage.acquisitionCount(), config + ": the expired acquisition was not removed");
+            assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA));
+
+            gate.open();
+            query.join();
+            query.check(List.of(new Entity3(10, A)), config.toString());
+            assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA));
+            assertSame(version, storage.admit(acquisitionB));
+        }
+    }
+
+    /**
      * A writer commits while the readers acquire the version before the last one,
      * so each acquisition races with the move of the window. Each version read must
      * be a whole commit, in the slots and in the index; the versions kept by the
@@ -148,7 +185,7 @@ class AcquisitionConcurrency3Test {
                         while (!done.get()) {
                             Acquisition acquisition;
                             try {
-                                acquisition = previous ? node.acquirePrevious(P1, 1) : node.acquireLatest(P1);
+                                acquisition = previous ? node.acquirePrevious(P1, 1, noTimeout()) : node.acquireLatest(P1, noTimeout());
                             } catch (VersionNotAvailableException e) {
                                 // At commit 0 the window has no version before the last one.
                                 continue;

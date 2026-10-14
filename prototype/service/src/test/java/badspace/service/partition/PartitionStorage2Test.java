@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.common.geometry.Box2;
+import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
@@ -17,6 +18,7 @@ import badspace.common.geometry.Region2;
 import badspace.service.index.IndexVersion2;
 import badspace.service.index.SlotView2;
 import badspace.service.index.SpatialIndex2;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -30,6 +32,7 @@ import org.junit.jupiter.api.Test;
 /** Checks the calls that the storage makes to its index. */
 class PartitionStorage2Test {
 
+    private static final Duration TIMEOUT = Duration.ofSeconds(10);
     private static final Point2 A = new Point2(1, 2);
     private static final Point2 B = new Point2(3, 4);
     private static final Point2 C = new Point2(5, 6);
@@ -258,6 +261,46 @@ class PartitionStorage2Test {
         assertThrows(IllegalArgumentException.class, () -> storage.admit(acquisitionId + 1));
         assertThrows(IllegalArgumentException.class, () -> storage.release(0));
         assertEquals(1, storage.acquisitionCount());
+    }
+
+    @Test
+    void expiredAcquisitionsAreRemovedAtEachEventOfThePartition() {
+        FakeClock clock = new FakeClock();
+        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 0, clock);
+        AcquireOptions options = AcquireOptions.timeout(TIMEOUT);
+
+        // The commit removes them.
+        timed.acquire(timed.lastVersion(), options);
+        clock.advance(TIMEOUT);
+        assertEquals(1, timed.acquisitionCount());
+        timed.commit(1);
+        assertEquals(0, timed.acquisitionCount());
+
+        // An acquisition removes them, and keeps the new one.
+        timed.acquire(timed.lastVersion(), options);
+        clock.advance(TIMEOUT);
+        long fresh = timed.acquire(timed.lastVersion(), options);
+        assertEquals(1, timed.acquisitionCount());
+
+        // The release of another acquisition removes them.
+        long kept = timed.acquire(timed.lastVersion());
+        clock.advance(TIMEOUT);
+        long released = timed.acquire(timed.lastVersion());
+        timed.release(released);
+        assertEquals(1, timed.acquisitionCount());
+        assertThrows(IllegalStateException.class, () -> timed.admit(fresh));
+        assertSame(timed.lastVersion(), timed.admit(kept));
+    }
+
+    @Test
+    void readOfAnExpiredAcquisitionDoesNotRemoveIt() {
+        FakeClock clock = new FakeClock();
+        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 0, clock);
+        long acquisitionId = timed.acquire(timed.lastVersion(), AcquireOptions.timeout(TIMEOUT));
+        clock.advance(TIMEOUT);
+        assertThrows(IllegalStateException.class, () -> timed.admit(acquisitionId));
+        // Only the events of the partition remove it: a read is not one of them.
+        assertEquals(1, timed.acquisitionCount());
     }
 
     @Test

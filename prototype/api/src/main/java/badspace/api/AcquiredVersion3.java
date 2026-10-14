@@ -14,9 +14,10 @@ import java.util.Optional;
  * while the writer goes on, also after the version leaves the retention window.
  * Use it with try-with-resources: {@link #close()} releases the acquisition.
  * <p>
- * Each read checks the acquisition when it starts. After the release, a new read
- * fails with IllegalStateException; a read that started before ends normally, and
- * the entities already read stay valid. Any thread can use the view.
+ * Each read checks the acquisition when it starts. After the release, or after the
+ * timeout of the acquisition if it has one, a new read fails with IllegalStateException;
+ * a read that started before ends normally, and the entities already read stay valid.
+ * Any thread can use the view.
  */
 public final class AcquiredVersion3 implements AutoCloseable {
 
@@ -70,7 +71,7 @@ public final class AcquiredVersion3 implements AutoCloseable {
         return node.findNearest(acquisition, point, count);
     }
 
-    /** Releases the acquisition. Calling it again does nothing. */
+    /** Releases the acquisition. Calling it again, or after the timeout, does nothing. */
     @Override
     public void close() {
         node.release(acquisition);

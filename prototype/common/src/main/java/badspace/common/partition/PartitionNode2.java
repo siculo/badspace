@@ -18,8 +18,10 @@ import java.util.List;
  * {@link Acquisition} and then {@linkplain #release release} it. The partition
  * keeps the last version and k versions before it acquirable (the retention
  * window); a version that leaves the window stays readable through the
- * acquisitions made before, until they are released. The acquisitions, the
- * reads through them and the release are thread-safe.
+ * acquisitions made before, until they are released. An acquisition can have
+ * a timeout ({@link AcquireOptions}): after it, the acquisition behaves like a
+ * released one, and the node removes it without waiting for the reader. The
+ * acquisitions, the reads through them and the release are thread-safe.
  */
 public interface PartitionNode2 {
 
@@ -106,43 +108,46 @@ public interface PartitionNode2 {
     /**
      * Acquires the version of the last commit of a partition: the empty version at
      * commit 0 if the partition has no commit yet. Choosing the version and acquiring
-     * it is a single step, so a commit at the same time cannot make it go away.
+     * it is a single step, so a commit at the same time cannot make it go away. The
+     * options give the timeout of the acquisition.
      */
-    Acquisition acquireLatest(PartitionId partitionId);
+    Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options);
 
     /**
      * Acquires a version in the retention window of a partition: offset 0 is the last
      * version, offset i the i-th published commit before it. Fails with
      * IllegalArgumentException if offset is negative, and with
      * VersionNotAvailableException if the window has no version at that offset.
+     * The options give the timeout of the acquisition.
      */
-    Acquisition acquirePrevious(PartitionId partitionId, int offset);
+    Acquisition acquirePrevious(PartitionId partitionId, int offset, AcquireOptions options);
 
     /**
      * Acquires the version in the retention window of a partition with the greatest
      * commit that is not greater than tick. Fails with IllegalArgumentException if
      * tick is negative, and with VersionNotAvailableException if no version in the
-     * window has such a commit.
+     * window has such a commit. The options give the timeout of the acquisition.
      */
-    Acquisition acquireAtOrBefore(PartitionId partitionId, long tick);
+    Acquisition acquireAtOrBefore(PartitionId partitionId, long tick, AcquireOptions options);
 
     /**
      * Acquires the version of the given commit of a partition. Fails with
      * IllegalArgumentException if commit is negative, and with
      * VersionNotAvailableException if that version is not in the retention window.
+     * The options give the timeout of the acquisition.
      */
-    Acquisition acquireExact(PartitionId partitionId, long commit);
+    Acquisition acquireExact(PartitionId partitionId, long commit, AcquireOptions options);
 
     /**
-     * Releases an acquisition: after this, its reads fail. Releasing it again does
-     * nothing. Fails with IllegalArgumentException if the partition never made the
+     * Releases an acquisition: after this, its reads fail. Releasing it again, or
+     * after its timeout, does nothing. Fails with IllegalArgumentException if the partition never made the
      * acquisition; the other acquisitions do not change.
      */
     void release(Acquisition acquisition);
 
     /**
      * Returns the number of entities in the acquired version. Fails with
-     * IllegalStateException if the acquisition was released, and with
+     * IllegalStateException if the acquisition was released or is expired, and with
      * IllegalArgumentException if the partition never made it.
      */
     int size(Acquisition acquisition);

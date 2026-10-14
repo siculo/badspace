@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
@@ -11,6 +12,7 @@ import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** A node that hosts 2D partitions in the same process as the API. */
@@ -18,13 +20,25 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     // Each partition has its own writer, possibly on a different thread.
     private final Map<PartitionId, PartitionStorage2> partitions = new ConcurrentHashMap<>();
+    // Measures the timeouts of the acquisitions in all the partitions.
+    private final MonotonicClock clock;
+
+    /** Creates a node that measures the timeouts of the acquisitions with the clock of the system. */
+    public LocalPartitionNode2() {
+        this(MonotonicClock.SYSTEM);
+    }
+
+    /** Creates a node that measures the timeouts of the acquisitions with the given clock. */
+    LocalPartitionNode2(MonotonicClock clock) {
+        this.clock = clock;
+    }
 
     @Override
     public void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastVersions) {
         if (retainedPastVersions < 0) {
             throw new IllegalArgumentException("Negative number of retained past versions: " + retainedPastVersions);
         }
-        if (partitions.putIfAbsent(partitionId, new PartitionStorage2(index, retainedPastVersions)) != null) {
+        if (partitions.putIfAbsent(partitionId, new PartitionStorage2(index, retainedPastVersions, clock)) != null) {
             throw new IllegalArgumentException("Partition already exists: " + partitionId);
         }
     }
@@ -81,13 +95,15 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
-    public Acquisition acquireLatest(PartitionId partitionId) {
+    public Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options) {
+        Objects.requireNonNull(options);
         PartitionStorage2 storage = find(partitionId);
-        return acquire(partitionId, storage, storage.catalog().lastVersion());
+        return acquire(partitionId, storage, storage.catalog().lastVersion(), options);
     }
 
     @Override
-    public Acquisition acquirePrevious(PartitionId partitionId, int offset) {
+    public Acquisition acquirePrevious(PartitionId partitionId, int offset, AcquireOptions options) {
+        Objects.requireNonNull(options);
         if (offset < 0) {
             throw new IllegalArgumentException("Negative offset: " + offset);
         }
@@ -97,11 +113,12 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             throw new VersionNotAvailableException(
                     "No version at offset " + offset + " in partition " + partitionId);
         }
-        return acquire(partitionId, storage, version);
+        return acquire(partitionId, storage, version, options);
     }
 
     @Override
-    public Acquisition acquireAtOrBefore(PartitionId partitionId, long tick) {
+    public Acquisition acquireAtOrBefore(PartitionId partitionId, long tick, AcquireOptions options) {
+        Objects.requireNonNull(options);
         if (tick < 0) {
             throw new IllegalArgumentException("Negative tick: " + tick);
         }
@@ -111,11 +128,12 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             throw new VersionNotAvailableException(
                     "No version at tick " + tick + " or before in partition " + partitionId);
         }
-        return acquire(partitionId, storage, version);
+        return acquire(partitionId, storage, version, options);
     }
 
     @Override
-    public Acquisition acquireExact(PartitionId partitionId, long commit) {
+    public Acquisition acquireExact(PartitionId partitionId, long commit, AcquireOptions options) {
+        Objects.requireNonNull(options);
         if (commit < 0) {
             throw new IllegalArgumentException("Negative commit: " + commit);
         }
@@ -125,7 +143,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             throw new VersionNotAvailableException(
                     "No version of commit " + commit + " in partition " + partitionId);
         }
-        return acquire(partitionId, storage, version);
+        return acquire(partitionId, storage, version, options);
     }
 
     @Override
@@ -168,8 +186,9 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         return find(partitionId).limits();
     }
 
-    private static Acquisition acquire(PartitionId partitionId, PartitionStorage2 storage, StorageVersion2 version) {
-        return new Acquisition(partitionId, storage.acquire(version), version.commit());
+    private static Acquisition acquire(PartitionId partitionId, PartitionStorage2 storage, StorageVersion2 version,
+            AcquireOptions options) {
+        return new Acquisition(partitionId, storage.acquire(version, options), version.commit());
     }
 
     /**

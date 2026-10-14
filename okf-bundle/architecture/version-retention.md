@@ -4,7 +4,7 @@ title: Conservazione delle versioni
 description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza opzionale, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T18:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T12:00:00Z }
 ---
 
 # Primitiva
@@ -199,8 +199,22 @@ versione o quella prima mentre il writer fa commit, ogni versione letta
 ha slot e indice dello stesso commit, e quelle tenute restano leggibili
 dopo l'uscita dalla finestra.
 
-Mancano la scadenza e la semantica della rimozione della partizione:
-oggi dopo la rimozione le letture attraverso un'acquisizione falliscono
+Ogni voce della mappa è un'acquisizione con la sua versione, il momento
+dell'acquisizione e la durata della scadenza, ed è lei a dire se è
+scaduta, con la differenza tra due letture del clock, che non va in
+overflow. L'ammissione legge la voce una sola volta e rifiuta anche una
+voce scaduta ma non ancora eliminata. A ogni acquisizione, rilascio e
+commit lo storage scorre la mappa e toglie le voci scadute; una lettura
+non è un evento della partizione e non toglie niente. Il clock
+monotono è un'interfaccia del service, `System.nanoTime()` di default,
+che i test sostituiscono con un clock che avanza solo quando lo dicono:
+scadenza prima della prima query, scadenza durante una query ammessa
+(che finisce con un risultato valido anche se un'altra acquisizione
+toglie la voce nel frattempo), rilascio dopo la scadenza, nuova
+acquisizione distinta, durata troppo grande come nessuna scadenza.
+
+Manca la semantica della rimozione della partizione: oggi dopo la
+rimozione le letture attraverso un'acquisizione falliscono
 perché il nodo non trova più la partizione, e i numeri delle
 acquisizioni di una nuova partizione con lo stesso ID ripartono da 1. I reader
 non hanno altro modo di leggere una versione: `lastVersion()` è solo un

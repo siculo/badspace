@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
@@ -50,7 +51,10 @@ import java.util.function.Function;
  * <p>
  * The storage also keeps the acquisitions of the versions: each one has a number
  * and holds its version, also after the version leaves the window, until it is
- * released.
+ * released or expires. The timeouts are measured with the {@link MonotonicClock}
+ * of the node. At each acquisition, release and commit the storage removes the
+ * expired acquisitions, so a reader that never releases does not keep its
+ * version in memory after the timeout.
  */
 final class PartitionStorage3 implements SlotView3 {
 
@@ -67,16 +71,17 @@ final class PartitionStorage3 implements SlotView3 {
     // The writer replaces the catalog at each commit and any thread reads it. The
     // volatile write publishes the new version and the new window together.
     private volatile VersionCatalog3 catalog;
-    // Acquisition number -> acquired version. Any thread acquires, reads and releases:
-    // the map makes each of these steps atomic, and a query keeps its own reference
-    // to the version, so a release during the query does not stop it.
-    private final ConcurrentHashMap<Long, StorageVersion3> acquisitions = new ConcurrentHashMap<>();
+    // Acquisition number -> acquired version with its timeout. Any thread acquires, reads
+    // and releases: the map makes each of these steps atomic, and a query keeps its own
+    // reference to the version, so a release or an expiry during the query does not stop it.
+    private final ConcurrentHashMap<Long, AcquisitionEntry3> acquisitions = new ConcurrentHashMap<>();
     // The number of the last acquisition. Numbers start from 1 and are never used again.
     private final AtomicLong lastAcquisitionId = new AtomicLong();
     /** True after an insertion or a removal not yet in a snapshot. */
     private boolean idsChanged;
     private final CoordinateLimits limits;
     private final SpatialIndex3 index;
+    private final MonotonicClock clock;
 
     /** Creates a storage that uses the linear scan as index. */
     PartitionStorage3() {
@@ -90,7 +95,15 @@ final class PartitionStorage3 implements SlotView3 {
 
     /** Creates a storage with the given index, and with its limits, that keeps retainedPastVersions past versions. */
     PartitionStorage3(IndexConfig index, int retainedPastVersions) {
-        this(index.limits(), slots -> SpatialIndexes.create(index, slots), retainedPastVersions);
+        this(index, retainedPastVersions, MonotonicClock.SYSTEM);
+    }
+
+    /**
+     * Creates a storage with the given index, and with its limits, that keeps
+     * retainedPastVersions past versions and measures the timeouts with the clock.
+     */
+    PartitionStorage3(IndexConfig index, int retainedPastVersions, MonotonicClock clock) {
+        this(index.limits(), slots -> SpatialIndexes.create(index, slots), retainedPastVersions, clock);
     }
 
     /**
@@ -109,6 +122,17 @@ final class PartitionStorage3 implements SlotView3 {
      */
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
             int retainedPastVersions) {
+        this(limits, indexFactory, retainedPastVersions, MonotonicClock.SYSTEM);
+    }
+
+    /**
+     * Creates a storage with the given limits, the index made by the factory,
+     * retainedPastVersions past versions and the clock of the timeouts. The factory
+     * gets this storage, so the index can read it during the queries.
+     */
+    PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
+            int retainedPastVersions, MonotonicClock clock) {
+        this.clock = clock;
         this.limits = limits;
         this.index = indexFactory.apply(this);
         this.catalog = VersionCatalog3.empty(retainedPastVersions);
@@ -198,7 +222,10 @@ final class PartitionStorage3 implements SlotView3 {
         return catalog.retainedPastVersions();
     }
 
-    /** Closes the commit, publishes the version of the partition at the commit and returns it. */
+    /**
+     * Closes the commit, publishes the version of the partition at the commit and returns it.
+     * It also removes the expired acquisitions.
+     */
     StorageVersion3 commit(long commit) {
         long lastCommit = lastCommit();
         if (commit <= lastCommit) {
@@ -209,6 +236,7 @@ final class PartitionStorage3 implements SlotView3 {
         idsChanged = false;
         // The publication: the last write of the commit.
         catalog = catalog.withVersion(version);
+        removeExpired();
         return version;
     }
 
@@ -233,42 +261,58 @@ final class PartitionStorage3 implements SlotView3 {
         return catalog.lastVersion().commit();
     }
 
-    /**
-     * Acquires the version and returns the number of the acquisition. The caller chooses
-     * the version from a {@linkplain #catalog() catalog}. Any thread can call it.
-     */
+    /** Acquires the version without timeout and returns the number of the acquisition. */
     long acquire(StorageVersion3 version) {
+        return acquire(version, AcquireOptions.noTimeout());
+    }
+
+    /**
+     * Acquires the version with the given options and returns the number of the
+     * acquisition. The caller chooses the version from a {@linkplain #catalog() catalog}.
+     * It also removes the expired acquisitions. Any thread can call it.
+     */
+    long acquire(StorageVersion3 version, AcquireOptions options) {
         long acquisitionId = lastAcquisitionId.incrementAndGet();
-        acquisitions.put(acquisitionId, version);
+        acquisitions.put(acquisitionId, AcquisitionEntry3.of(version, options, clock.nanoTime()));
+        removeExpired();
         return acquisitionId;
     }
 
     /**
      * Returns the acquired version, which a query then reads. Checking the acquisition
      * and taking the version is a single step: the query can end also if the acquisition
-     * is released in the meantime. Fails with IllegalStateException if the acquisition
-     * was released, and with IllegalArgumentException if this storage never made it.
-     * Any thread can call it.
+     * is released or expires in the meantime. Fails with IllegalStateException if the
+     * acquisition was released or is expired, and with IllegalArgumentException if this
+     * storage never made it. Any thread can call it.
      */
     StorageVersion3 admit(long acquisitionId) {
-        StorageVersion3 version = acquisitions.get(acquisitionId);
-        if (version == null) {
+        // A single read of the entry: a removal at the same time cannot make the
+        // check and the version disagree.
+        AcquisitionEntry3 entry = acquisitions.get(acquisitionId);
+        if (entry == null || entry.isExpired(clock.nanoTime())) {
             checkMade(acquisitionId);
-            throw new IllegalStateException("Acquisition was released: " + acquisitionId);
+            // After the removal of an expired entry the storage cannot tell why it is missing.
+            throw new IllegalStateException("Acquisition was released or is expired: " + acquisitionId);
         }
-        return version;
+        return entry.version();
     }
 
     /**
-     * Releases an acquisition. Releasing it again does nothing. Fails with
-     * IllegalArgumentException if this storage never made it. Any thread can call it.
+     * Releases an acquisition. Releasing it again, or after its timeout, does nothing.
+     * It also removes the expired acquisitions. Fails with IllegalArgumentException if
+     * this storage never made it. Any thread can call it.
      */
     void release(long acquisitionId) {
         checkMade(acquisitionId);
         acquisitions.remove(acquisitionId);
+        removeExpired();
     }
 
-    /** Returns the number of acquisitions not yet released. Any thread can call it. */
+    /**
+     * Returns the number of acquisitions not yet released or removed after the timeout:
+     * an expired acquisition counts until the next acquisition, release or commit.
+     * Any thread can call it.
+     */
     int acquisitionCount() {
         return acquisitions.size();
     }
@@ -291,6 +335,16 @@ final class PartitionStorage3 implements SlotView3 {
             return new SlotSnapshot3(last.slotEntityIds, coordsCopy, last.slotById);
         }
         return new SlotSnapshot3(Arrays.copyOf(slotEntityIds, size), coordsCopy, slotById.copy());
+    }
+
+    /**
+     * Removes the expired acquisitions, so their versions can go away. The reader of an
+     * expired acquisition may never come back, so the storage does not wait for it.
+     * It scans all the acquisitions; the map does not block the other threads.
+     */
+    private void removeExpired() {
+        long now = clock.nanoTime();
+        acquisitions.values().removeIf(entry -> entry.isExpired(now));
     }
 
     private void checkMade(long acquisitionId) {

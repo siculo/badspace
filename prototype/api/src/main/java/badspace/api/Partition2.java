@@ -1,5 +1,6 @@
 package badspace.api;
 
+import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.PartitionId;
@@ -152,45 +153,68 @@ public final class Partition2 implements Partition {
         node.commit(partitionId, n);
     }
 
+    /** Acquires the version of the last commit without timeout, like {@link #acquireLatest(AcquireOptions)}. */
+    public AcquiredVersion2 acquireLatest() {
+        return acquireLatest(AcquireOptions.noTimeout());
+    }
+
     /**
      * Acquires the version of the last commit: the empty version at commit 0 if the
      * partition has no commit yet. Choosing the version and acquiring it is a single
-     * step, so a commit at the same time cannot make it go away. Any thread can call it.
+     * step, so a commit at the same time cannot make it go away. The options give the
+     * timeout of the acquisition. Any thread can call it.
      */
-    public AcquiredVersion2 acquireLatest() {
+    public AcquiredVersion2 acquireLatest(AcquireOptions options) {
         checkNotRemoved();
-        return new AcquiredVersion2(node, node.acquireLatest(partitionId));
+        return new AcquiredVersion2(node, node.acquireLatest(partitionId, options));
+    }
+
+    /** Acquires a version in the retention window without timeout, like {@link #acquirePrevious(int, AcquireOptions)}. */
+    public AcquiredVersion2 acquirePrevious(int offset) {
+        return acquirePrevious(offset, AcquireOptions.noTimeout());
     }
 
     /**
      * Acquires a version in the retention window: offset 0 is the last version, offset i
      * the i-th published commit before it. Fails with IllegalArgumentException if offset
      * is negative, and with VersionNotAvailableException if the window has no version at
-     * that offset. Any thread can call it.
+     * that offset. The options give the timeout of the acquisition. Any thread can call it.
      */
-    public AcquiredVersion2 acquirePrevious(int offset) {
+    public AcquiredVersion2 acquirePrevious(int offset, AcquireOptions options) {
         checkNotRemoved();
-        return new AcquiredVersion2(node, node.acquirePrevious(partitionId, offset));
+        return new AcquiredVersion2(node, node.acquirePrevious(partitionId, offset, options));
+    }
+
+    /** Acquires a version at a tick or before without timeout, like {@link #acquireAtOrBefore(long, AcquireOptions)}. */
+    public AcquiredVersion2 acquireAtOrBefore(long tick) {
+        return acquireAtOrBefore(tick, AcquireOptions.noTimeout());
     }
 
     /**
      * Acquires the version in the retention window with the greatest commit that is not
      * greater than tick. Fails with IllegalArgumentException if tick is negative, and with
-     * VersionNotAvailableException if there is no such version. Any thread can call it.
+     * VersionNotAvailableException if there is no such version. The options give the
+     * timeout of the acquisition. Any thread can call it.
      */
-    public AcquiredVersion2 acquireAtOrBefore(long tick) {
+    public AcquiredVersion2 acquireAtOrBefore(long tick, AcquireOptions options) {
         checkNotRemoved();
-        return new AcquiredVersion2(node, node.acquireAtOrBefore(partitionId, tick));
+        return new AcquiredVersion2(node, node.acquireAtOrBefore(partitionId, tick, options));
+    }
+
+    /** Acquires the version of a commit without timeout, like {@link #acquireExact(long, AcquireOptions)}. */
+    public AcquiredVersion2 acquireExact(long commit) {
+        return acquireExact(commit, AcquireOptions.noTimeout());
     }
 
     /**
      * Acquires the version of the given commit. Fails with IllegalArgumentException if
      * commit is negative, and with VersionNotAvailableException if that version is not in
-     * the retention window. Any thread can call it.
+     * the retention window. The options give the timeout of the acquisition. Any thread
+     * can call it.
      */
-    public AcquiredVersion2 acquireExact(long commit) {
+    public AcquiredVersion2 acquireExact(long commit, AcquireOptions options) {
         checkNotRemoved();
-        return new AcquiredVersion2(node, node.acquireExact(partitionId, commit));
+        return new AcquiredVersion2(node, node.acquireExact(partitionId, commit, options));
     }
 
     @Override
