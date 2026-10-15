@@ -17,7 +17,7 @@ import badspace.common.geometry.Region3;
  * and calls {@link #relocated}. Indices are created by {@link SpatialIndexes}.
  * <p>
  * Writes are grouped in commits. At each commit the index gives a
- * {@link IndexVersion3}: a version that does not change when the writer goes on.
+ * {@link IndexSnapshot3}: a snapshot that does not change when the writer goes on.
  */
 public interface SpatialIndex3 {
 
@@ -38,10 +38,10 @@ public interface SpatialIndex3 {
 
     /**
      * Closes the current commit with the number of the partition commit. The
-     * storage checks that n is greater than the last commit. Returns the version
+     * storage checks that n is greater than the last commit. Returns the snapshot
      * of the index at this commit, which the next writes do not change.
      */
-    IndexVersion3 commit(long n);
+    IndexSnapshot3 commit(long n);
 
     /**
      * Returns the slots of the entities inside the region, border included, in any order.

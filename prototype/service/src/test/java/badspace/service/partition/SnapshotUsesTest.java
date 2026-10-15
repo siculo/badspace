@@ -6,27 +6,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
-class VersionUsesTest {
+class SnapshotUsesTest {
 
     @Test
-    void versionWithoutUsesEndsWhenItLeavesTheWindow() {
-        VersionUses uses = new VersionUses();
+    void snapshotWithoutUsesEndsWhenItLeavesTheWindow() {
+        SnapshotUses uses = new SnapshotUses();
         assertFalse(uses.isEnded());
         assertTrue(uses.leaveWindow());
         assertTrue(uses.isEnded());
     }
 
     @Test
-    void versionInTheWindowDoesNotEndAtTheLastUse() {
-        VersionUses uses = new VersionUses();
+    void snapshotInTheWindowDoesNotEndAtTheLastUse() {
+        SnapshotUses uses = new SnapshotUses();
         assertTrue(uses.addUseIfInWindow());
         assertFalse(uses.removeUse());
         assertFalse(uses.isEnded());
     }
 
     @Test
-    void versionOutOfTheWindowEndsAtTheLastUse() {
-        VersionUses uses = new VersionUses();
+    void snapshotOutOfTheWindowEndsAtTheLastUse() {
+        SnapshotUses uses = new SnapshotUses();
         assertTrue(uses.addUseIfInWindow());
         assertTrue(uses.addUseIfNotEnded());
         assertFalse(uses.leaveWindow());
@@ -37,8 +37,8 @@ class VersionUsesTest {
     }
 
     @Test
-    void versionOutOfTheWindowCannotBeAcquiredButCanBeQueried() {
-        VersionUses uses = new VersionUses();
+    void snapshotOutOfTheWindowCannotBeAcquiredButCanBeQueried() {
+        SnapshotUses uses = new SnapshotUses();
         assertTrue(uses.addUseIfInWindow());
         uses.leaveWindow();
         assertFalse(uses.addUseIfInWindow());
@@ -46,8 +46,8 @@ class VersionUsesTest {
     }
 
     @Test
-    void endedVersionGetsNoNewUse() {
-        VersionUses uses = new VersionUses();
+    void endedSnapshotGetsNoNewUse() {
+        SnapshotUses uses = new SnapshotUses();
         uses.leaveWindow();
         assertFalse(uses.addUseIfInWindow());
         assertFalse(uses.addUseIfNotEnded());
@@ -56,7 +56,7 @@ class VersionUsesTest {
 
     @Test
     void wrongCallsAreRejected() {
-        VersionUses uses = new VersionUses();
+        SnapshotUses uses = new SnapshotUses();
         assertThrows(IllegalStateException.class, uses::removeUse);
         uses.addUseIfInWindow();
         uses.leaveWindow();

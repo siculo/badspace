@@ -34,9 +34,9 @@ migrazione devono vedere più partizioni, quindi stanno sopra.
 
 | Livello | Responsabilità |
 |---|---|
-| Software | strategia di partizionamento, nodo su cui creare ogni partizione, mappa ID → partizione, quando migrare un'entità, quali partizioni interrogare, tick e barriera tra partizioni, rilascio e scadenza delle versioni che acquisisce |
+| Software | strategia di partizionamento, nodo su cui creare ogni partizione, mappa ID → partizione, quando migrare un'entità, quali partizioni interrogare, tick e barriera tra partizioni, rilascio e scadenza degli snapshot che acquisisce |
 | API comune | generazione degli [ID](/decisions/entity-ids.md) di entità e partizioni, [aggregazione](/mechanisms/query-aggregation.md), creazione e configurazione delle partizioni (incluso l'indice), meccanismi come la [migrazione](/mechanisms/entity-migration.md) e le [letture coerenti](/mechanisms/consistent-reads.md) |
-| Layer delle partizioni | le primitive dell'[architettura minima](/architecture/minimal-core.md), offerte dai nodi, comprese la conservazione e l'acquisizione delle versioni |
+| Layer delle partizioni | le primitive dell'[architettura minima](/architecture/minimal-core.md), offerte dai nodi, comprese la conservazione e l'acquisizione degli snapshot |
 
 Le decisioni sul ciclo di vita delle istanze (quali e quante
 partizioni, nodi e istanze dell'API) stanno sopra i meccanismi che le
@@ -57,7 +57,7 @@ ogni partizione.
   riferimenti a oggetti: il contratto dei nodi usa l'ID della partizione
   e gli ID delle entità. È la forma del futuro servizio gRPC; oggi
   l'implementazione è una chiamata nello stesso processo. Anche le
-  [acquisizioni delle versioni](/architecture/version-retention.md#acquisizione-e-rilascio)
+  [acquisizioni degli snapshot](/architecture/snapshot-retention.md#acquisizione-e-rilascio)
   passano come identificatori, e le tiene il nodo.
 - **Proxy nell'API.** L'oggetto partizione visto dal software è un
   proxy che conosce il proprio nodo e l'ID della propria partizione.

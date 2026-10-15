@@ -1,7 +1,7 @@
 ---
 type: Protocol
 title: Letture coerenti su più partizioni
-description: Letture su più partizioni riferite allo stesso tick N tramite tick globale e conservazione delle versioni; la rimozione differita è un'alternativa più economica che garantisce solo che ogni entità si veda almeno una volta.
+description: Letture su più partizioni riferite allo stesso tick N tramite tick globale e conservazione degli snapshot; la rimozione differita è un'alternativa più economica che garantisce solo che ogni entità si veda almeno una volta.
 tags: [badspace, partitioning, consistency, protocol]
 status: stable
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
@@ -22,7 +22,7 @@ l'entità da nessuna parte.
   contatore dei [commit](/architecture/partition-commit.md).
 - Il lettore sceglie N non superiore all'ultimo commit di ciascuna
   partizione e non inferiore al più vecchio acquisibile in ciascuna
-  (vedi [conservazione delle versioni](/architecture/version-retention.md)).
+  (vedi [conservazione degli snapshot](/architecture/snapshot-retention.md)).
 - k e l'eventuale barriera vanno dimensionati in modo che il ritardo
   massimo tra le partizioni coinvolte non superi k tick.
 - In ogni partizione il lettore **acquisisce lo snapshot del commit
@@ -51,7 +51,7 @@ T2, dopo la rimozione (Tr). Succede quando
     T2 − T1 > Tr − Ti
 
 cioè quando la lettura su più partizioni dura più dell'intervallo tra
-inserimento e rimozione. Invece delle versioni conservate si può
+inserimento e rimozione. Invece degli snapshot conservati si può
 quindi:
 
 - **differire la rimozione**: A rimuove E almeno D dopo l'inserimento
@@ -62,7 +62,7 @@ quindi:
   Se la scadenza viene superata, i risultati si scartano e la lettura
   si ripete, oppure si segnalano come possibilmente incompleti. Questa
   scadenza riguarda la lettura su più partizioni ed è diversa dalla
-  [scadenza di un'acquisizione](/architecture/version-retention.md#scadenza).
+  [scadenza di un'acquisizione](/architecture/snapshot-retention.md#scadenza).
 
 Con la scadenza la garanzia è certa, non probabilistica: una lettura
 lenta non diventa mai una lettura silenziosamente incompleta. È lo
@@ -76,7 +76,7 @@ prima.
 |---|---|---|
 | Entità che sparisce | risolto, se le letture durano meno di D | risolto |
 | Duplicati | più frequenti, già gestiti dalla deduplica per ID ed epoca | come nel caso base |
-| Costo | quasi nullo: un ritardo in A e una scadenza sulle letture | versioni conservate e coordinamento sul tick N |
+| Costo | quasi nullo: un ritardo in A e una scadenza sulle letture | snapshot conservati e coordinamento sul tick N |
 | Vista coerente nel tempo tra partizioni | **no** | **sì** |
 
 La rimozione differita garantisce solo che **ogni entità si veda almeno

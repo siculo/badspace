@@ -14,7 +14,7 @@ della partizione (`IndexConfig.UniformGrid`). La cella di un punto si
 ricava con `floor(coordinata / cellSize)` su ogni asse.
 
 - Le celle stanno in una **mappa persistente** (cella → slot delle
-  entità, vedi [Versioni al commit](#versioni-al-commit)): solo le celle
+  entità, vedi [Snapshot al commit](#snapshot-al-commit)): solo le celle
   con entità usano memoria, quindi lo spazio **non ha limiti**.
 - Per ogni slot l'indice tiene la **posizione nella lista della sua
   cella**: rimozione e `relocated` costano O(1).
@@ -34,10 +34,10 @@ ricava con `floor(coordinata / cellSize)` su ogni asse.
 | Range query | celle coperte + entità lette |
 | K-nearest | anelli letti fino a trovare k entità |
 
-# Versioni al commit
+# Snapshot al commit
 
 Per l'[isolamento delle letture](/decisions/read-isolation.md#gli-indici)
-l'indice dà a ogni commit una versione che le scritture successive non
+l'indice dà a ogni commit uno snapshot che le scritture successive non
 cambiano.
 
 - **Mappa delle celle:** è una `HashTrie`, una HAMT con transient scritta
@@ -50,8 +50,8 @@ cambiano.
   slot nelle stesse posizioni.
 - **Posizione nella cella:** la mappa slot → posizione nella lista della
   cella serve solo alle scritture, quindi è privata del writer e non
-  entra nelle versioni.
-- **Query:** lo stesso codice serve il writer e le versioni; una versione
+  entra negli snapshot.
+- **Query:** lo stesso codice serve il writer e gli snapshot; uno snapshot
   legge le posizioni negli slot dello stesso commit.
 
 **Misure** (profilo rapido, 2026-10-08, celle da 100, senza commit nei

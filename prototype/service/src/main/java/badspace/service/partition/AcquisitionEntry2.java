@@ -3,19 +3,19 @@ package badspace.service.partition;
 import badspace.common.partition.AcquireOptions;
 
 /**
- * An acquisition as the storage keeps it: the acquired version and its timeout.
+ * An acquisition as the storage keeps it: the acquired snapshot and its timeout.
  * The entry decides if the acquisition is expired; the storage only removes the
  * expired entries. It never changes, so any thread can read it.
  *
- * @param version the acquired version
+ * @param snapshot the acquired snapshot
  * @param acquiredAtNanos the time of the acquisition on the clock of the node
  * @param timeoutNanos the timeout
  */
-record AcquisitionEntry2(StorageVersion2 version, long acquiredAtNanos, long timeoutNanos) {
+record AcquisitionEntry2(StorageSnapshot2 snapshot, long acquiredAtNanos, long timeoutNanos) {
 
     /** Returns the entry of an acquisition made now with the given options. */
-    static AcquisitionEntry2 of(StorageVersion2 version, AcquireOptions options, long nowNanos) {
-        return new AcquisitionEntry2(version, nowNanos, options.timeoutNanos());
+    static AcquisitionEntry2 of(StorageSnapshot2 snapshot, AcquireOptions options, long nowNanos) {
+        return new AcquisitionEntry2(snapshot, nowNanos, options.timeoutNanos());
     }
 
     /** Returns true if the timeout has passed at the given time. */

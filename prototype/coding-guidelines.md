@@ -43,7 +43,7 @@ sviluppo incrementale sono in `CLAUDE.md` e non si ripetono qui.
 ## 2. Naming
 
 1. **I nomi vengono dal glossario del bundle.** Un concetto ha un solo nome, uguale in codice e
-   documentazione (partition, commit, version, slot, entity). Un concetto nuovo entra prima nel
+   documentazione (partition, commit, snapshot, slot, entity). Un concetto nuovo entra prima nel
    glossario, poi nel codice.
 2. **Dimensione nel suffisso**: `Point2`, `PartitionNode3`. Senza suffisso solo ciò che non
    dipende dalla dimensione (`PartitionId`, `SlotTable`).
@@ -51,7 +51,7 @@ sviluppo incrementale sono in `CLAUDE.md` e non si ripetono qui.
    L'implementazione si distingue con un prefisso che dice come lavora: `LocalPartitionNode2`,
    `LinearScanIndex2`.
 4. **Metodi**: verbo per le azioni (`insertAll`, `commit`); sostantivo senza `get` per le
-   proprietà (`size()`, `limits()`, `lastVersion()`); `find…` per le query spaziali; `…All`
+   proprietà (`size()`, `limits()`, `lastSnapshot()`); `find…` per le query spaziali; `…All`
    per le operazioni su più entità. Verbi diversi solo per semantiche diverse, documentate
    (`removePartition` contro `dropPartition`).
 5. **Il nome dice con precisione cosa contiene.** `partition` è un riferimento all'oggetto
@@ -64,7 +64,7 @@ sviluppo incrementale sono in `CLAUDE.md` e non si ripetono qui.
 7. **Nessun numero magico**: costanti con nome che dice il significato (`NONE`,
    `INITIAL_CAPACITY`).
 8. **Test**: il nome è una frase sul comportamento, in camelCase
-   (`versionOfACommitDoesNotSeeLaterWrites`).
+   (`snapshotOfACommitDoesNotSeeLaterWrites`).
 
 ## 3. Tipi e struttura
 

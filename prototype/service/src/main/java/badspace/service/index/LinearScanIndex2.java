@@ -11,8 +11,8 @@ import java.util.Arrays;
  */
 final class LinearScanIndex2 implements SpatialIndex2 {
 
-    /** The version at commit 0, see {@link IndexVersion2#empty()}. */
-    static final IndexVersion2 EMPTY = new Version(0);
+    /** The snapshot at commit 0, see {@link IndexSnapshot2#empty()}. */
+    static final IndexSnapshot2 EMPTY = new Snapshot(0);
 
     private final SlotView2 storage;
 
@@ -41,9 +41,9 @@ final class LinearScanIndex2 implements SpatialIndex2 {
     }
 
     @Override
-    public IndexVersion2 commit(long n) {
-        // Nothing to copy: a version reads the slots of its commit.
-        return new Version(n);
+    public IndexSnapshot2 commit(long n) {
+        // Nothing to copy: a snapshot reads the slots of its commit.
+        return new Snapshot(n);
     }
 
     @Override
@@ -75,7 +75,7 @@ final class LinearScanIndex2 implements SpatialIndex2 {
         return nearest.slots();
     }
 
-    private record Version(long commit) implements IndexVersion2 {
+    private record Snapshot(long commit) implements IndexSnapshot2 {
 
         @Override
         public int[] findInRegion(Region2 region, SlotView2 slots) {

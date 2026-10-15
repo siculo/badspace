@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione con scadenza obbligatoria, lettura e rilascio delle versioni conservate), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione con scadenza obbligatoria, lettura e rilascio degli snapshot conservati), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T14:00:00Z }
@@ -37,8 +37,8 @@ evolvere aggiungendo il supporto a ulteriori meccanismi.
 | Partizioni | Proprietà | Acquisire, rilasciare e trasferire l'esclusività di scrittura con il [fencing token](/architecture/partition-ownership.md) |
 | Commit | `commit(n)` | Chiude il [commit](/architecture/partition-commit.md) corrente con il numero n, scelto dal software; per un server a frame, alla fine del tick |
 | Commit | Ultimo commit persistito | [Durabilità osservabile](/architecture/observable-durability.md) |
-| Commit | Acquisizione e rilascio delle versioni | Ultima, precedente, al tick N o prima, esatta; con scadenza obbligatoria (vedi [acquisizione delle versioni](#acquisizione-delle-versioni)) |
-| Commit | Lettura al tick N | Acquisizione al tick N o prima su ogni partizione; k ≥ 1 se il writer può essere avanti (vedi [conservazione delle versioni](/architecture/version-retention.md)) |
+| Commit | Acquisizione e rilascio degli snapshot | Ultimo, precedente, al tick N o prima, esatto; con scadenza obbligatoria (vedi [acquisizione degli snapshot](#acquisizione-degli-snapshot)) |
+| Commit | Lettura al tick N | Acquisizione al tick N o prima su ogni partizione; k ≥ 1 se il writer può essere avanti (vedi [conservazione degli snapshot](/architecture/snapshot-retention.md)) |
 
 La mappa ID → partizione spetta al software, che decide dove creare le
 entità e quando spostarle. È una scelta naturale quando tutte le entità
@@ -153,12 +153,12 @@ alla creazione e poi non cambia; la partizione la restituisce con
   coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate);
   il default è la scansione lineare;
 - la **politica di rimozione**, con default `REQUIRE_EMPTY`;
-- **k** (`retainedPastVersions`), il numero di versioni passate
-  conservate oltre alla corrente, per l'[acquisizione delle
-  versioni](#acquisizione-delle-versioni): ≥ 0, default 0.
+- **k** (`retainedPastSnapshots`), il numero di snapshot passati
+  conservati oltre al corrente, per l'[acquisizione degli
+  snapshot](#acquisizione-degli-snapshot): ≥ 0, default 0.
 
 `PartitionConfig.defaults()` dà la configurazione di default, e
-`withIndex`, `withRemovalPolicy` e `withRetainedPastVersions` ne fanno
+`withIndex`, `withRemovalPolicy` e `withRetainedPastSnapshots` ne fanno
 una copia con un valore cambiato. Seguendo lo [sviluppo
 incrementale](/process/development-approach.md#sviluppo-incrementale),
 la configurazione si estende quando arrivano concetti nuovi.
@@ -184,14 +184,14 @@ segnata come rimossa; la rimozione ha due operazioni, una per le partizioni vuot
 una che scarta anche le entità. Le due operazioni segnano la partizione
 come rimossa: dopo il segno scritture, commit, letture del writer e
 nuove acquisizioni falliscono con `IllegalStateException`, e il nodo
-toglie la partizione quando le sue versioni non hanno più utilizzi
+toglie la partizione quando i suoi snapshot non hanno più utilizzi
 (vedi [Rimozione della
-partizione](/architecture/version-retention.md#rimozione-della-partizione));
+partizione](/architecture/snapshot-retention.md#rimozione-della-partizione));
 dopo, l'ID è sconosciuto e le operazioni falliscono con
 `IllegalArgumentException`. L'API passa al nodo l'indice e k della
-configurazione. Il nodo passa k al catalogo delle versioni della
-partizione, che tiene le ultime k + 1 versioni pubblicate (vedi
-[Conservazione delle versioni](/architecture/version-retention.md#nel-prototipo)).
+configurazione. Il nodo passa k al catalogo degli snapshot della
+partizione, che tiene gli ultimi k + 1 snapshot pubblicati (vedi
+[Conservazione degli snapshot](/architecture/snapshot-retention.md#nel-prototipo)).
 
 ## Commit
 
@@ -230,35 +230,35 @@ coerenti](/mechanisms/consistent-reads.md).
 
 ### Letture del writer e dei reader
 
-Il commit pubblica la versione della partizione (vedi [isolamento delle
+Il commit pubblica lo snapshot della partizione (vedi [isolamento delle
 letture](/decisions/read-isolation.md#il-commit)). Le letture sono di
 due tipi:
 
 | Lettura | Forma | Note |
 |---|---|---|
 | Del writer | `getAll`, `findInRegion`, `findNearest` sul proxy della partizione | Leggono lo stato del writer, scritture non committate comprese; le chiama solo il writer |
-| Dei reader | Le [acquisizioni](#acquisizione-delle-versioni) su `Partition2`/`Partition3` e nel contratto del nodo | Una versione acquisita è immutabile e leggibile da ogni thread; prima del primo commit l'ultima versione è quella vuota del commit 0 |
+| Dei reader | Le [acquisizioni](#acquisizione-degli-snapshot) su `Partition2`/`Partition3` e nel contratto del nodo | Uno snapshot acquisito è immutabile e leggibile da ogni thread; prima del primo commit l'ultimo snapshot è quello vuoto del commit 0 |
 
-Tutte le letture di una versione acquisita vedono lo stesso commit; due
-acquisizioni dell'ultima versione possono invece dare commit diversi.
-La versione interna della partizione non esce dal nodo: nel service lo
-storage ha ancora `lastVersion()`, per uso interno. `lastCommit()` si
+Tutte le letture di uno snapshot acquisito vedono lo stesso commit; due
+acquisizioni dell'ultimo snapshot possono invece dare commit diversi.
+Lo snapshot interno della partizione non esce dal nodo: nel service lo
+storage ha ancora `lastSnapshot()`, per uso interno. `lastCommit()` si
 può chiamare da ogni thread, ma è solo un metadato.
 
-### Acquisizione delle versioni
+### Acquisizione degli snapshot
 
-La semantica è nella [conservazione delle
-versioni](/architecture/version-retention.md#acquisizione-e-rilascio).
-I reader leggono una versione solo attraverso un'acquisizione. Nel
+La semantica è nella [conservazione degli
+snapshot](/architecture/snapshot-retention.md#acquisizione-e-rilascio).
+I reader leggono uno snapshot solo attraverso un'acquisizione. Nel
 prototipo ci sono le quattro selezioni con le opzioni, le letture e il
 rilascio.
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Ultima | `acquireLatest(options)` | La versione corrente, anche quella vuota del commit 0 |
-| Precedente | `acquirePrevious(int offset, options)` | `offset` = 0 è l'ultima, `offset` = i l'i-esimo commit pubblicato prima |
-| Al tick o prima | `acquireAtOrBefore(long tick, options)` | La versione acquisibile con il commit più grande ≤ tick |
-| Esatta | `acquireExact(long commit, options)` | Solo la versione di quel commit |
+| Ultimo | `acquireLatest(options)` | Lo snapshot corrente, anche quello vuoto del commit 0 |
+| Precedente | `acquirePrevious(int offset, options)` | `offset` = 0 è l'ultimo, `offset` = i l'i-esimo commit pubblicato prima |
+| Al tick o prima | `acquireAtOrBefore(long tick, options)` | Lo snapshot acquisibile con il commit più grande ≤ tick |
+| Esatto | `acquireExact(long commit, options)` | Solo lo snapshot di quel commit |
 | Lettura | `commit()`, `size()`, `get`, `getAll`, `findInRegion`, `findNearest` sulla view | Ogni lettura controlla l'acquisizione all'inizio |
 | Rilascio | `close()` sulla view; `release` nel contratto del nodo | Idempotente e thread-safe |
 
@@ -276,8 +276,8 @@ Nel contratto del nodo le quattro selezioni ricevono sempre le
 opzioni; nell'API ogni selezione ha anche la forma senza opzioni, che
 vale `defaultTimeout()`.
 
-**Locale e remoto.** Nell'API la versione acquisita è una view
-`AutoCloseable`, `AcquiredVersion2`/`AcquiredVersion3`, da usare con
+**Locale e remoto.** Nell'API lo snapshot acquisito è una view
+`AutoCloseable`, `AcquiredSnapshot2`/`AcquiredSnapshot3`, da usare con
 `try`-with-resources; il suo `commit()` viene dall'identificatore e non
 controlla l'acquisizione. Nel contratto del nodo un'acquisizione
 restituisce un identificatore serializzabile, il record `Acquisition`
@@ -290,13 +290,13 @@ e attraverso gRPC.
 
 | Errore | Eccezione |
 |---|---|
-| Versione non acquisibile: fuori dalla finestra, commit mai pubblicato, nessun commit ≤ tick | `VersionNotAvailableException`, eccezione di dominio dedicata; nessuna acquisizione creata |
+| Snapshot non acquisibile: fuori dalla finestra, commit mai pubblicato, nessun commit ≤ tick | `SnapshotNotAvailableException`, eccezione di dominio dedicata; nessuna acquisizione creata |
 | `offset`, tick o commit negativi; durata zero o negativa | `IllegalArgumentException` |
 | Lettura attraverso un'acquisizione rilasciata o scaduta | `IllegalStateException`, con lo stesso messaggio nei due casi: dopo l'eliminazione di un'acquisizione scaduta il nodo non sa più se era stata rilasciata |
 | Acquisizione su una partizione rimossa | `IllegalStateException` |
 | Rilascio o lettura con un identificatore mai emesso o di un'altra partizione, nel contratto del nodo | `IllegalArgumentException`; le altre acquisizioni non cambiano |
 | Lettura con un identificatore di una partizione che il nodo non ha, nel contratto del nodo | `IllegalStateException`, come per un'acquisizione rilasciata; il rilascio non fa niente. Gli ID delle partizioni non si riusano, quindi il nodo non distingue una partizione mai esistita da una già tolta |
-| Lettura con un identificatore il cui commit non è quello della versione acquisita, nel contratto del nodo | `IllegalArgumentException` |
+| Lettura con un identificatore il cui commit non è quello dello snapshot acquisito, nel contratto del nodo | `IllegalArgumentException` |
 
 Scelte di dettaglio:
 
@@ -312,8 +312,8 @@ Scelte di dettaglio:
 - **Query in corso**: una query iniziata prima del rilascio o della
   scadenza finisce e il suo risultato è valido; i dati già letti
   restano validi anche dopo il rilascio.
-- **`lastCommit()`** resta un metadato: non si usa per scegliere la
-  versione da acquisire, perché tra i due passi la finestra può
+- **`lastCommit()`** resta un metadato: non si usa per scegliere lo
+  snapshot da acquisire, perché tra i due passi la finestra può
   cambiare.
 - **Dopo la rimozione della partizione** le acquisizioni già fatte
   restano leggibili e il nodo le trova per ID; l'ID della partizione

@@ -14,11 +14,11 @@ import java.util.List;
  * <p>
  * The reads of a partition by ID or by position see the state of its writer,
  * with the writes not yet committed, and only the writer of the partition can
- * call them. The other threads read the versions of the commits: they
- * {@linkplain #acquireLatest acquire} a version, read it through the
+ * call them. The other threads read the snapshots of the commits: they
+ * {@linkplain #acquireLatest acquire} a snapshot, read it through the
  * {@link Acquisition} and then {@linkplain #release release} it. The partition
- * keeps the last version and k versions before it acquirable (the retention
- * window); a version that leaves the window stays readable through the
+ * keeps the last snapshot and k snapshots before it acquirable (the retention
+ * window); a snapshot that leaves the window stays readable through the
  * acquisitions made before, until they are released. An acquisition can have
  * a timeout ({@link AcquireOptions}): after it, the acquisition behaves like a
  * released one, and the node removes it without waiting for the reader. The
@@ -28,7 +28,7 @@ import java.util.List;
  * {@link #dropPartition} mark the partition as removed: after the mark, the writes, the
  * commits, the reads of the writer and the new acquisitions fail with
  * IllegalStateException, but the acquisitions made before stay readable until they are
- * released or expire. When nobody uses its versions any more, the node removes the
+ * released or expire. When nobody uses its snapshots any more, the node removes the
  * partition. Until then its ID stays in use on the node.
  * <p>
  * Partition IDs are never used again, so the node cannot tell an unknown partition from
@@ -43,24 +43,24 @@ public interface PartitionNode2 {
     }
 
     /**
-     * Creates an empty partition with the given index and the default number of past versions.
+     * Creates an empty partition with the given index and the default number of past snapshots.
      * Fails if the ID is already in use on this node.
      */
     default void createPartition(PartitionId partitionId, IndexConfig index) {
-        createPartition(partitionId, index, RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS);
+        createPartition(partitionId, index, RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS);
     }
 
     /**
-     * Creates an empty partition with the given index. The partition keeps the last version and
-     * retainedPastVersions versions before it. Fails with IllegalArgumentException if the ID is
-     * already in use on this node or if retainedPastVersions is negative; in these cases no
+     * Creates an empty partition with the given index. The partition keeps the last snapshot and
+     * retainedPastSnapshots snapshots before it. Fails with IllegalArgumentException if the ID is
+     * already in use on this node or if retainedPastSnapshots is negative; in these cases no
      * partition is created.
      */
-    void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastVersions);
+    void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastSnapshots);
 
     /**
      * Removes an empty partition: marks it as removed, and the node removes it when its
-     * versions are no longer used. Fails with IllegalArgumentException if the ID is unknown,
+     * snapshots are no longer used. Fails with IllegalArgumentException if the ID is unknown,
      * and with IllegalStateException if the partition still has entities or is already
      * marked as removed.
      */
@@ -68,7 +68,7 @@ public interface PartitionNode2 {
 
     /**
      * Removes a partition together with its entities: marks it as removed, and the node
-     * removes it when its versions are no longer used. Fails with IllegalArgumentException
+     * removes it when its snapshots are no longer used. Fails with IllegalArgumentException
      * if the ID is unknown, and with IllegalStateException if the partition is already
      * marked as removed.
      */
@@ -119,40 +119,40 @@ public interface PartitionNode2 {
      * Closes the current commit of a partition with the given number. The number must be
      * greater than the last commit of the partition, but numbers can be skipped. Fails with
      * IllegalArgumentException if it is not greater; in this case the partition does not change.
-     * A commit with no writes is valid. The commit publishes the version of the partition
+     * A commit with no writes is valid. The commit publishes the snapshot of the partition
      * at the commit, which {@link #acquireLatest} then acquires.
      */
     void commit(PartitionId partitionId, long commit);
 
     /**
-     * Acquires the version of the last commit of a partition: the empty version at
-     * commit 0 if the partition has no commit yet. Choosing the version and acquiring
+     * Acquires the snapshot of the last commit of a partition: the empty snapshot at
+     * commit 0 if the partition has no commit yet. Choosing the snapshot and acquiring
      * it is a single step, so a commit at the same time cannot make it go away. The
      * options give the timeout of the acquisition.
      */
     Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options);
 
     /**
-     * Acquires a version in the retention window of a partition: offset 0 is the last
-     * version, offset i the i-th published commit before it. Fails with
+     * Acquires a snapshot in the retention window of a partition: offset 0 is the last
+     * snapshot, offset i the i-th published commit before it. Fails with
      * IllegalArgumentException if offset is negative, and with
-     * VersionNotAvailableException if the window has no version at that offset.
+     * SnapshotNotAvailableException if the window has no snapshot at that offset.
      * The options give the timeout of the acquisition.
      */
     Acquisition acquirePrevious(PartitionId partitionId, int offset, AcquireOptions options);
 
     /**
-     * Acquires the version in the retention window of a partition with the greatest
+     * Acquires the snapshot in the retention window of a partition with the greatest
      * commit that is not greater than tick. Fails with IllegalArgumentException if
-     * tick is negative, and with VersionNotAvailableException if no version in the
+     * tick is negative, and with SnapshotNotAvailableException if no snapshot in the
      * window has such a commit. The options give the timeout of the acquisition.
      */
     Acquisition acquireAtOrBefore(PartitionId partitionId, long tick, AcquireOptions options);
 
     /**
-     * Acquires the version of the given commit of a partition. Fails with
+     * Acquires the snapshot of the given commit of a partition. Fails with
      * IllegalArgumentException if commit is negative, and with
-     * VersionNotAvailableException if that version is not in the retention window.
+     * SnapshotNotAvailableException if that snapshot is not in the retention window.
      * The options give the timeout of the acquisition.
      */
     Acquisition acquireExact(PartitionId partitionId, long commit, AcquireOptions options);
@@ -166,26 +166,26 @@ public interface PartitionNode2 {
     void release(Acquisition acquisition);
 
     /**
-     * Returns the number of entities in the acquired version. Fails with
+     * Returns the number of entities in the acquired snapshot. Fails with
      * IllegalStateException if the acquisition was released or is expired, and with
      * IllegalArgumentException if the partition never made it.
      */
     int size(Acquisition acquisition);
 
     /**
-     * Returns the entities of the acquired version with the given IDs, in the same order.
-     * IDs that are not in the version are skipped. Fails like {@link #size(Acquisition)}.
+     * Returns the entities of the acquired snapshot with the given IDs, in the same order.
+     * IDs that are not in the snapshot are skipped. Fails like {@link #size(Acquisition)}.
      */
     List<Entity2> getAll(Acquisition acquisition, long[] entityIds);
 
     /**
-     * Returns the entities of the acquired version that are inside the region or on its
+     * Returns the entities of the acquired snapshot that are inside the region or on its
      * border. The order of the result is not defined. Fails like {@link #size(Acquisition)}.
      */
     List<Entity2> findInRegion(Acquisition acquisition, Region2 region);
 
     /**
-     * Returns the entities of the acquired version nearest to a point, at most count of
+     * Returns the entities of the acquired snapshot nearest to a point, at most count of
      * them, sorted by distance from the point and then by ID. Fails like
      * {@link #size(Acquisition)}, and with IllegalArgumentException if count is negative.
      */
@@ -193,7 +193,7 @@ public interface PartitionNode2 {
 
     /**
      * Returns the number of the last commit of a partition, or 0 if it has no commit yet.
-     * Any thread can call it. It is only information: to read a version, acquire it, since
+     * Any thread can call it. It is only information: to read a snapshot, acquire it, since
      * the window can change between the two calls.
      */
     long lastCommit(PartitionId partitionId);

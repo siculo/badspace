@@ -23,14 +23,14 @@ public interface Partition {
      * the tick. n must be greater than the {@linkplain #lastCommit() last commit}, but numbers
      * can be skipped. Fails with IllegalArgumentException if n is not greater; in this case
      * the partition does not change. A commit with no writes is valid.
-     * The commit publishes the version of the partition at the commit, which the readers
+     * The commit publishes the snapshot of the partition at the commit, which the readers
      * acquire with {@code acquireLatest()} and the other acquisitions of Partition2 and Partition3.
      */
     void commit(long n);
 
     /**
      * Returns the number of the last commit, or 0 if the partition has no commit yet.
-     * Any thread can call it. It is only information: to read a version, acquire it, since
+     * Any thread can call it. It is only information: to read a snapshot, acquire it, since
      * the window can change between the two calls.
      */
     long lastCommit();

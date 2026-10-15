@@ -24,7 +24,7 @@ import java.util.function.Function;
 
 /**
  * Entities of a 3D partition. It has a single writer and is not thread-safe,
- * except {@link #catalog()}, {@link #lastVersion()}, {@link #lastCommit()} and the
+ * except {@link #catalog()}, {@link #lastSnapshot()}, {@link #lastCommit()} and the
  * methods of the acquisitions.
  * Entities are stored in primitive arrays: slotEntityIds[i] has coordinates
  * coords[3*i], coords[3*i+1], coords[3*i+2]. A {@link SlotTable} gives the slot of each ID.
@@ -37,37 +37,37 @@ import java.util.function.Function;
  * The positions of the entities must be in the limits of the index: writes
  * outside them fail, so the indices never see them.
  * Writes are grouped in commits, whose numbers always grow. Each commit makes
- * a {@link StorageVersion3}: a snapshot of the slots and the version of the
+ * a {@link StorageSnapshot3}: a snapshot of the slots and the snapshot of the
  * index of the same commit. The coordinates are copied at each commit; the
  * IDs and the table from ID to slot only after insertions or removals, else
  * the new snapshot shares them with the one before.
  * <p>
- * The commit also adds the version to the {@link VersionCatalog3}, which keeps
- * the last k + 1 versions. The catalog holds the same versions, not copies.
+ * The commit also adds the snapshot to the {@link SnapshotCatalog3}, which keeps
+ * the last k + 1 snapshots. The catalog holds the same snapshots, not copies.
  * <p>
  * The reads of the storage see the state of the writer, with the writes not
  * yet committed, and only the writer can call them. The other threads read
  * the {@linkplain #catalog() catalog}: the commit publishes it with a single
  * write of a volatile field, so a reader sees either the catalog before or the
- * whole new catalog, never a new last version with an old window.
+ * whole new catalog, never a new last snapshot with an old window.
  * <p>
- * The storage also keeps the acquisitions of the versions: each one has a number
- * and holds its version, also after the version leaves the window, until it is
+ * The storage also keeps the acquisitions of the snapshots: each one has a number
+ * and holds its snapshot, also after the snapshot leaves the window, until it is
  * released or expires. The timeouts are measured with the {@link MonotonicClock}
  * of the node. At each acquisition, release and commit the storage removes the
  * expired acquisitions, so a reader that never releases does not keep its
- * version in memory after the timeout.
+ * snapshot in memory after the timeout.
  * <p>
- * Each version ends when it is out of the window, with no valid acquisitions and
- * no admitted queries (see {@link VersionUses}). The event that removes the last of
+ * Each snapshot ends when it is out of the window, with no valid acquisitions and
+ * no admitted queries (see {@link SnapshotUses}). The event that removes the last of
  * these ends it: the commit that moves the window, the release or the removal after
  * the timeout of the last acquisition, the end of the last query. The storage counts
- * the versions that did not end yet.
+ * the snapshots that did not end yet.
  * <p>
  * The removal of the partition has two steps. {@link #markRemoved()} marks the storage
  * as removed: no more writes, commits or new acquisitions, and the window closes, so
- * every version leaves it. The acquisitions made before stay readable. When the last
- * version ends the partition is finished: the method that ends it returns true, so the
+ * every snapshot leaves it. The acquisitions made before stay readable. When the last
+ * snapshot ends the partition is finished: the method that ends it returns true, so the
  * node can remove the storage. It happens once, and only after the mark. The storage
  * has no reference to the node.
  */
@@ -75,7 +75,7 @@ final class PartitionStorage3 implements SlotView3 {
 
     private static final int DIMENSIONS = 3;
     private static final int INITIAL_CAPACITY = 16;
-    /** The value that {@code acquire} returns when the version left the window. */
+    /** The value that {@code acquire} returns when the snapshot left the window. */
     static final long NOT_ACQUIRED = 0;
 
     // Slot: entity ID and position. coords holds DIMENSIONS values per slot (x, y, z),
@@ -86,21 +86,21 @@ final class PartitionStorage3 implements SlotView3 {
     private final SlotTable slotById = new SlotTable();
     private int size;
     // The writer replaces the catalog at each commit and any thread reads it. The
-    // volatile write publishes the new version and the new window together.
-    private volatile VersionCatalog3 catalog;
-    // Acquisition number -> acquired version with its timeout. Any thread acquires, reads
+    // volatile write publishes the new snapshot and the new window together.
+    private volatile SnapshotCatalog3 catalog;
+    // Acquisition number -> acquired snapshot with its timeout. Any thread acquires, reads
     // and releases: the map makes each of these steps atomic, and a query keeps its own
-    // reference to the version, so a release or an expiry during the query does not stop it.
+    // reference to the snapshot, so a release or an expiry during the query does not stop it.
     private final ConcurrentHashMap<Long, AcquisitionEntry3> acquisitions = new ConcurrentHashMap<>();
     // The number of the last acquisition. Numbers start from 1 and are never used again.
     private final AtomicLong lastAcquisitionId = new AtomicLong();
-    // The versions that did not end yet, the empty version at commit 0 included. The
-    // commit adds one; the thread that ends a version, any thread, removes one. Before the
-    // mark of removal the window always has a version that did not end, so the count
+    // The snapshots that did not end yet, the empty snapshot at commit 0 included. The
+    // commit adds one; the thread that ends a snapshot, any thread, removes one. Before the
+    // mark of removal the window always has a snapshot that did not end, so the count
     // reaches 0 only after the mark, and only once.
-    private final AtomicInteger liveVersions = new AtomicInteger(1);
+    private final AtomicInteger liveSnapshots = new AtomicInteger(1);
     // Written once by the writer, in markRemoved(), before the window closes. Read by the
-    // threads that acquire: an acquisition that finds its version out of the window after
+    // threads that acquire: an acquisition that finds its snapshot out of the window after
     // the mark sees the mark too.
     private volatile boolean removed;
     /** True after an insertion or a removal not yet in a snapshot. */
@@ -114,54 +114,54 @@ final class PartitionStorage3 implements SlotView3 {
         this(IndexConfig.linearScan());
     }
 
-    /** Creates a storage with the given index, and with its limits, and the default number of past versions. */
+    /** Creates a storage with the given index, and with its limits, and the default number of past snapshots. */
     PartitionStorage3(IndexConfig index) {
-        this(index, RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS);
+        this(index, RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS);
     }
 
-    /** Creates a storage with the given index, and with its limits, that keeps retainedPastVersions past versions. */
-    PartitionStorage3(IndexConfig index, int retainedPastVersions) {
-        this(index, retainedPastVersions, MonotonicClock.SYSTEM);
+    /** Creates a storage with the given index, and with its limits, that keeps retainedPastSnapshots past snapshots. */
+    PartitionStorage3(IndexConfig index, int retainedPastSnapshots) {
+        this(index, retainedPastSnapshots, MonotonicClock.SYSTEM);
     }
 
     /**
      * Creates a storage with the given index, and with its limits, that keeps
-     * retainedPastVersions past versions and measures the timeouts with the clock.
+     * retainedPastSnapshots past snapshots and measures the timeouts with the clock.
      */
-    PartitionStorage3(IndexConfig index, int retainedPastVersions, MonotonicClock clock) {
-        this(index.limits(), slots -> SpatialIndexes.create(index, slots), retainedPastVersions, clock);
+    PartitionStorage3(IndexConfig index, int retainedPastSnapshots, MonotonicClock clock) {
+        this(index.limits(), slots -> SpatialIndexes.create(index, slots), retainedPastSnapshots, clock);
     }
 
     /**
      * Creates a storage with the given limits, the index made by the factory
-     * and the default number of past versions. The factory gets this storage,
+     * and the default number of past snapshots. The factory gets this storage,
      * so the index can read it during the queries.
      */
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory) {
-        this(limits, indexFactory, RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS);
+        this(limits, indexFactory, RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS);
     }
 
     /**
      * Creates a storage with the given limits, the index made by the factory and
-     * retainedPastVersions past versions. The factory gets this storage, so the index can
+     * retainedPastSnapshots past snapshots. The factory gets this storage, so the index can
      * read it during the queries.
      */
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
-            int retainedPastVersions) {
-        this(limits, indexFactory, retainedPastVersions, MonotonicClock.SYSTEM);
+            int retainedPastSnapshots) {
+        this(limits, indexFactory, retainedPastSnapshots, MonotonicClock.SYSTEM);
     }
 
     /**
      * Creates a storage with the given limits, the index made by the factory,
-     * retainedPastVersions past versions and the clock of the timeouts. The factory
+     * retainedPastSnapshots past snapshots and the clock of the timeouts. The factory
      * gets this storage, so the index can read it during the queries.
      */
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
-            int retainedPastVersions, MonotonicClock clock) {
+            int retainedPastSnapshots, MonotonicClock clock) {
         this.clock = clock;
         this.limits = limits;
         this.index = indexFactory.apply(this);
-        this.catalog = VersionCatalog3.empty(retainedPastVersions);
+        this.catalog = SnapshotCatalog3.empty(retainedPastSnapshots);
     }
 
     void insertAll(List<Entity3> entities) {
@@ -243,51 +243,51 @@ final class PartitionStorage3 implements SlotView3 {
         return limits;
     }
 
-    /** Returns k: the number of past versions kept besides the last one. */
-    int retainedPastVersions() {
-        return catalog.retainedPastVersions();
+    /** Returns k: the number of past snapshots kept besides the last one. */
+    int retainedPastSnapshots() {
+        return catalog.retainedPastSnapshots();
     }
 
     /**
-     * Closes the commit, publishes the version of the partition at the commit and returns it.
-     * If the window was full, the oldest version leaves it, and ends if it has no uses.
+     * Closes the commit, publishes the snapshot of the partition at the commit and returns it.
+     * If the window was full, the oldest snapshot leaves it, and ends if it has no uses.
      * It also removes the expired acquisitions.
      */
-    StorageVersion3 commit(long commit) {
+    StorageSnapshot3 commit(long commit) {
         long lastCommit = lastCommit();
         if (commit <= lastCommit) {
             throw new IllegalArgumentException(
                     "Commit " + commit + " is not greater than the last commit " + lastCommit);
         }
-        StorageVersion3 version = new StorageVersion3(commit, snapshot(), index.commit(commit));
+        StorageSnapshot3 snapshot = new StorageSnapshot3(commit, slotSnapshot(), index.commit(commit));
         idsChanged = false;
-        StorageVersion3 leaving = catalog.nextToLeave();
-        liveVersions.incrementAndGet();
-        // The publication of the new version and window.
-        catalog = catalog.withVersion(version);
-        // After the publication, so a new acquisition finds the version either in the
+        StorageSnapshot3 leaving = catalog.nextToLeave();
+        liveSnapshots.incrementAndGet();
+        // The publication of the new snapshot and window.
+        catalog = catalog.withSnapshot(snapshot);
+        // After the publication, so a new acquisition finds the snapshot either in the
         // window or out of it, and in that case it chooses again from the new window.
         if (leaving != null && leaving.uses().leaveWindow()) {
-            versionEnded();
+            snapshotEnded();
         }
         removeExpired();
-        return version;
+        return snapshot;
     }
 
     /**
-     * Marks the partition as removed and closes the window: every version in the window
-     * leaves it, and the versions with no uses end. After this the node allows no writes,
+     * Marks the partition as removed and closes the window: every snapshot in the window
+     * leaves it, and the snapshots with no uses end. After this the node allows no writes,
      * commits or new acquisitions; the acquisitions made before stay readable until they
-     * are released or expire. Returns true if the partition is finished: no version is
+     * are released or expire. Returns true if the partition is finished: no snapshot is
      * left. Only the writer can call it, once.
      */
     boolean markRemoved() {
         removed = true;
         boolean finished = false;
-        VersionCatalog3 closing = catalog;
+        SnapshotCatalog3 closing = catalog;
         for (int offset = 0; closing.previous(offset) != null; offset++) {
             if (closing.previous(offset).uses().leaveWindow()) {
-                finished |= versionEnded();
+                finished |= snapshotEnded();
             }
         }
         return finished;
@@ -299,88 +299,88 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     /**
-     * Returns the catalog of the last commit, with the versions in the retention
+     * Returns the catalog of the last commit, with the snapshots in the retention
      * window. Unlike the other methods, any thread can call it.
      */
-    VersionCatalog3 catalog() {
+    SnapshotCatalog3 catalog() {
         return catalog;
     }
 
-    /** Returns the version of the last commit. Unlike the other methods, any thread can call it. */
-    StorageVersion3 lastVersion() {
-        return catalog.lastVersion();
+    /** Returns the snapshot of the last commit. Unlike the other methods, any thread can call it. */
+    StorageSnapshot3 lastSnapshot() {
+        return catalog.lastSnapshot();
     }
 
     /**
-     * Returns the number of the last commit, from the published version, so any
+     * Returns the number of the last commit, from the published snapshot, so any
      * thread can call it. It is 0 before the first commit.
      */
     long lastCommit() {
-        return catalog.lastVersion().commit();
+        return catalog.lastSnapshot().commit();
     }
 
     /**
-     * Acquires the version with the default timeout and returns the number of the acquisition,
-     * or NOT_ACQUIRED if the version left the window.
+     * Acquires the snapshot with the default timeout and returns the number of the acquisition,
+     * or NOT_ACQUIRED if the snapshot left the window.
      */
-    long acquire(StorageVersion3 version) {
-        return acquire(version, AcquireOptions.defaultTimeout());
+    long acquire(StorageSnapshot3 snapshot) {
+        return acquire(snapshot, AcquireOptions.defaultTimeout());
     }
 
     /**
-     * Acquires the version with the given options and returns the number of the
-     * acquisition. The caller chooses the version from a {@linkplain #catalog() catalog}.
-     * Returns NOT_ACQUIRED, and uses no number, if a commit made the version leave the
+     * Acquires the snapshot with the given options and returns the number of the
+     * acquisition. The caller chooses the snapshot from a {@linkplain #catalog() catalog}.
+     * Returns NOT_ACQUIRED, and uses no number, if a commit made the snapshot leave the
      * window after the choice: the caller chooses again from the new catalog, or fails if
      * the partition is {@linkplain #isRemoved() removed}. It also
      * removes the expired acquisitions. Any thread can call it.
      */
-    long acquire(StorageVersion3 version, AcquireOptions options) {
-        // Checking the window and adding the use is a single step, so a version that
+    long acquire(StorageSnapshot3 snapshot, AcquireOptions options) {
+        // Checking the window and adding the use is a single step, so a snapshot that
         // left the window is never acquired again.
-        if (!version.uses().addUseIfInWindow()) {
+        if (!snapshot.uses().addUseIfInWindow()) {
             return NOT_ACQUIRED;
         }
         long acquisitionId = lastAcquisitionId.incrementAndGet();
-        acquisitions.put(acquisitionId, AcquisitionEntry3.of(version, options, clock.nanoTime()));
-        // The new acquisition keeps its version, so this cannot finish the partition.
+        acquisitions.put(acquisitionId, AcquisitionEntry3.of(snapshot, options, clock.nanoTime()));
+        // The new acquisition keeps its snapshot, so this cannot finish the partition.
         removeExpired();
         return acquisitionId;
     }
 
     /**
-     * Admits a query: returns the acquired version, which the query then reads, and adds
+     * Admits a query: returns the acquired snapshot, which the query then reads, and adds
      * a use to it. The query must call {@link #endQuery} when it ends, also if it fails.
-     * Checking the acquisition and taking the version is a single step: the query can end
+     * Checking the acquisition and taking the snapshot is a single step: the query can end
      * also if the acquisition is released or expires in the meantime. Fails with
      * IllegalStateException if the acquisition was released or is expired, and with
      * IllegalArgumentException if this storage never made it. Any thread can call it.
      */
-    StorageVersion3 admit(long acquisitionId) {
+    StorageSnapshot3 admit(long acquisitionId) {
         // A single read of the entry: a removal at the same time cannot make the
-        // check and the version disagree.
+        // check and the snapshot disagree.
         AcquisitionEntry3 entry = acquisitions.get(acquisitionId);
         if (entry == null || entry.isExpired(clock.nanoTime())) {
             throw missingAcquisition(acquisitionId);
         }
-        // A release at the same time can end the version after the read of the entry:
+        // A release at the same time can end the snapshot after the read of the entry:
         // then the query fails, as after the release.
-        if (!entry.version().uses().addUseIfNotEnded()) {
+        if (!entry.snapshot().uses().addUseIfNotEnded()) {
             throw missingAcquisition(acquisitionId);
         }
-        return entry.version();
+        return entry.snapshot();
     }
 
     /**
      * Ends a query admitted by {@link #admit}: removes its use, which can end the
-     * version. Returns true if this finishes the partition. Any thread can call it.
+     * snapshot. Returns true if this finishes the partition. Any thread can call it.
      */
-    boolean endQuery(StorageVersion3 version) {
-        return removeUse(version);
+    boolean endQuery(StorageSnapshot3 snapshot) {
+        return removeUse(snapshot);
     }
 
     /**
-     * Releases an acquisition: removes its use, which can end the version. Releasing it
+     * Releases an acquisition: removes its use, which can end the snapshot. Releasing it
      * again, or after its timeout, does nothing. It also removes the expired acquisitions.
      * Returns true if this finishes the partition. Fails with IllegalArgumentException if
      * this storage never made it. Any thread can call it.
@@ -392,7 +392,7 @@ final class PartitionStorage3 implements SlotView3 {
         // timeout finds nothing, so the use is removed once.
         AcquisitionEntry3 entry = acquisitions.remove(acquisitionId);
         if (entry != null) {
-            finished = removeUse(entry.version());
+            finished = removeUse(entry.snapshot());
         }
         return removeExpired() | finished;
     }
@@ -407,11 +407,11 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     /**
-     * Returns the number of versions that did not end yet: the versions in the window
+     * Returns the number of snapshots that did not end yet: the snapshots in the window
      * and the ones out of it that still have uses. Any thread can call it.
      */
-    int liveVersionCount() {
-        return liveVersions.get();
+    int liveSnapshotCount() {
+        return liveSnapshots.get();
     }
 
     @Override
@@ -425,17 +425,17 @@ final class PartitionStorage3 implements SlotView3 {
         return new Point3(coords[base], coords[base + 1], coords[base + 2]);
     }
 
-    private SlotSnapshot3 snapshot() {
+    private SlotSnapshot3 slotSnapshot() {
         double[] coordsCopy = Arrays.copyOf(coords, size * DIMENSIONS);
         if (!idsChanged) {
-            SlotSnapshot3 last = catalog.lastVersion().slots();
+            SlotSnapshot3 last = catalog.lastSnapshot().slots();
             return new SlotSnapshot3(last.slotEntityIds, coordsCopy, last.slotById);
         }
         return new SlotSnapshot3(Arrays.copyOf(slotEntityIds, size), coordsCopy, slotById.copy());
     }
 
     /**
-     * Removes the expired acquisitions and their uses, which can end their versions.
+     * Removes the expired acquisitions and their uses, which can end their snapshots.
      * Returns true if this finishes the partition. The reader of an expired acquisition
      * may never come back, so the storage does not wait for it. It scans all the
      * acquisitions; the map does not block the other threads. Any thread can call it:
@@ -448,24 +448,24 @@ final class PartitionStorage3 implements SlotView3 {
         for (Map.Entry<Long, AcquisitionEntry3> e : acquisitions.entrySet()) {
             // remove(key, value) succeeds for one thread only, like the release.
             if (e.getValue().isExpired(now) && acquisitions.remove(e.getKey(), e.getValue())) {
-                finished |= removeUse(e.getValue().version());
+                finished |= removeUse(e.getValue().snapshot());
             }
         }
         return finished;
     }
 
-    /** Removes a use of the version. Returns true if this finishes the partition. */
-    private boolean removeUse(StorageVersion3 version) {
-        return version.uses().removeUse() && versionEnded();
+    /** Removes a use of the snapshot. Returns true if this finishes the partition. */
+    private boolean removeUse(StorageSnapshot3 snapshot) {
+        return snapshot.uses().removeUse() && snapshotEnded();
     }
 
     /**
-     * The point where a version ends: nobody uses it and nobody can ask for it again.
-     * Called once for each version, by the thread that ends it. Returns true if it was
-     * the last version: the partition is finished.
+     * The point where a snapshot ends: nobody uses it and nobody can ask for it again.
+     * Called once for each snapshot, by the thread that ends it. Returns true if it was
+     * the last snapshot: the partition is finished.
      */
-    private boolean versionEnded() {
-        return liveVersions.decrementAndGet() == 0;
+    private boolean snapshotEnded() {
+        return liveSnapshots.decrementAndGet() == 0;
     }
 
     private void checkMade(long acquisitionId) {

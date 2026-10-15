@@ -17,8 +17,8 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
-import badspace.common.partition.VersionNotAvailableException;
-import badspace.service.index.IndexVersion3;
+import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.service.index.IndexSnapshot3;
 import badspace.service.index.SlotView3;
 import badspace.service.index.SpatialIndex3;
 import badspace.service.index.SpatialIndexes;
@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 /**
- * Readers that acquire and query versions while the writer commits. The tests
+ * Readers that acquire and query snapshots while the writer commits. The tests
  * stop a query in the middle with a gate in the index, so the commit or the
  * release happens during the query; they use latches and barriers, not sleeps.
  * A writer that waits for a query fails the test after a timeout instead of
@@ -100,8 +100,8 @@ class AcquisitionConcurrency3Test {
             GatedIndex[] index = new GatedIndex[1];
             PartitionStorage3 storage = gatedStorage(config, index, 0);
             storage.insertAll(List.of(new Entity3(10, A)));
-            StorageVersion3 version = storage.commit(1);
-            long acquisitionId = storage.acquire(version);
+            StorageSnapshot3 snapshot = storage.commit(1);
+            long acquisitionId = storage.acquire(snapshot);
             Gate gate = new Gate();
             index[0].gate = gate;
             QueryThread query = new QueryThread(storage, acquisitionId);
@@ -110,23 +110,23 @@ class AcquisitionConcurrency3Test {
 
             storage.release(acquisitionId);
             assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId));
-            // The version leaves the window too: only the query still holds it.
+            // The snapshot leaves the window too: only the query still holds it.
             storage.removeAll(new long[] {10});
             storage.commit(2);
             assertEquals(0, storage.acquisitionCount());
-            assertFalse(version.uses().isEnded(), config + ": the version ended during the query");
+            assertFalse(snapshot.uses().isEnded(), config + ": the snapshot ended during the query");
 
             gate.open();
             query.join();
             query.check(List.of(new Entity3(10, A)), config.toString());
-            assertTrue(version.uses().isEnded(), config + ": the version did not end with the query");
-            assertEquals(1, storage.liveVersionCount());
+            assertTrue(snapshot.uses().isEnded(), config + ": the snapshot did not end with the query");
+            assertEquals(1, storage.liveSnapshotCount());
         }
     }
 
     /**
      * The acquisition of reader A expires during its query, and the acquisition of
-     * reader B removes it. The query of A ends with the version it admitted; the next
+     * reader B removes it. The query of A ends with the snapshot it admitted; the next
      * read of A fails.
      */
     @Test
@@ -137,8 +137,8 @@ class AcquisitionConcurrency3Test {
             PartitionStorage3 storage = new PartitionStorage3(config.limits(),
                     slots -> index[0] = new GatedIndex(SpatialIndexes.create(config, slots)), 0, clock);
             storage.insertAll(List.of(new Entity3(10, A)));
-            StorageVersion3 version = storage.commit(1);
-            long acquisitionA = storage.acquire(version, AcquireOptions.timeout(TIMEOUT));
+            StorageSnapshot3 snapshot = storage.commit(1);
+            long acquisitionA = storage.acquire(snapshot, AcquireOptions.timeout(TIMEOUT));
             Gate gate = new Gate();
             index[0].gate = gate;
             QueryThread query = new QueryThread(storage, acquisitionA);
@@ -146,7 +146,7 @@ class AcquisitionConcurrency3Test {
             gate.awaitEntered();
 
             clock.advance(TIMEOUT);
-            long acquisitionB = storage.acquire(version, AcquireOptions.timeout(TIMEOUT));
+            long acquisitionB = storage.acquire(snapshot, AcquireOptions.timeout(TIMEOUT));
             assertEquals(1, storage.acquisitionCount(), config + ": the expired acquisition was not removed");
             assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA));
 
@@ -154,14 +154,14 @@ class AcquisitionConcurrency3Test {
             query.join();
             query.check(List.of(new Entity3(10, A)), config.toString());
             assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA));
-            assertSame(version, storage.admit(acquisitionB));
+            assertSame(snapshot, storage.admit(acquisitionB));
         }
     }
 
     /**
-     * A writer commits while the readers acquire the version before the last one,
-     * so each acquisition races with the move of the window. Each version read must
-     * be a whole commit, in the slots and in the index; the versions kept by the
+     * A writer commits while the readers acquire the snapshot before the last one,
+     * so each acquisition races with the move of the window. Each snapshot read must
+     * be a whole commit, in the slots and in the index; the snapshots kept by the
      * readers must stay readable after they leave the window.
      */
     @Test
@@ -195,8 +195,8 @@ class AcquisitionConcurrency3Test {
                             Acquisition acquisition;
                             try {
                                 acquisition = previous ? node.acquirePrevious(P1, 1, defaultTimeout()) : node.acquireLatest(P1, defaultTimeout());
-                            } catch (VersionNotAvailableException e) {
-                                // At commit 0 the window has no version before the last one.
+                            } catch (SnapshotNotAvailableException e) {
+                                // At commit 0 the window has no snapshot before the last one.
                                 continue;
                             }
                             if (previous) {
@@ -236,9 +236,9 @@ class AcquisitionConcurrency3Test {
             if (failure.get() != null) {
                 throw new AssertionError(config + ": a reader failed", failure.get());
             }
-            assertTrue(previousAcquired.get() > 0, config + ": no version before the last one was acquired");
+            assertTrue(previousAcquired.get() > 0, config + ": no snapshot before the last one was acquired");
 
-            // The kept versions left the window long ago, but they are still acquired.
+            // The kept snapshots left the window long ago, but they are still acquired.
             for (List<Acquisition> readerKept : kept) {
                 for (Acquisition acquisition : readerKept) {
                     checkWholeCommit(node, acquisition, entityIds);
@@ -247,18 +247,18 @@ class AcquisitionConcurrency3Test {
                 }
             }
             // The queries of the node gave back their uses: only the window stays (k = 1).
-            assertEquals(2, node.find(P1).liveVersionCount(), config.toString());
+            assertEquals(2, node.find(P1).liveSnapshotCount(), config.toString());
         }
     }
 
     /**
-     * The writer commits while each reader acquires a version and a querier reads the
+     * The writer commits while each reader acquires a snapshot and a querier reads the
      * same acquisition until the reader releases it. Acquisitions race with the commits
      * that move the window, and admissions race with the releases. At the end every
-     * version out of the window must have ended once: only the window stays.
+     * snapshot out of the window must have ended once: only the window stays.
      */
     @Test
-    void racingAcquisitionsQueriesAndReleasesEndEachVersionOnce() throws Exception {
+    void racingAcquisitionsQueriesAndReleasesEndEachSnapshotOnce() throws Exception {
         for (IndexConfig config : CONFIGS) {
             PartitionStorage3 storage = new PartitionStorage3(config, 1);
             storage.insertAll(List.of(new Entity3(10, A), new Entity3(20, B)));
@@ -274,11 +274,11 @@ class AcquisitionConcurrency3Test {
                     try {
                         start.await();
                         while (!done.get()) {
-                            StorageVersion3 version = storage.catalog().previous(offset);
-                            if (version == null) {
+                            StorageSnapshot3 snapshot = storage.catalog().previous(offset);
+                            if (snapshot == null) {
                                 continue;
                             }
-                            long acquisitionId = storage.acquire(version);
+                            long acquisitionId = storage.acquire(snapshot);
                             if (acquisitionId == PartitionStorage3.NOT_ACQUIRED) {
                                 continue;
                             }
@@ -302,17 +302,17 @@ class AcquisitionConcurrency3Test {
                             if (acquisitionId == NONE) {
                                 continue;
                             }
-                            StorageVersion3 version;
+                            StorageSnapshot3 snapshot;
                             try {
-                                version = storage.admit(acquisitionId);
+                                snapshot = storage.admit(acquisitionId);
                             } catch (IllegalStateException e) {
                                 // The reader released it first.
                                 continue;
                             }
                             try {
-                                version.size();
+                                snapshot.size();
                             } finally {
-                                storage.endQuery(version);
+                                storage.endQuery(snapshot);
                             }
                         }
                     } catch (Throwable e) {
@@ -339,13 +339,13 @@ class AcquisitionConcurrency3Test {
                 throw new AssertionError(config + ": a thread failed", failure.get());
             }
             assertEquals(0, storage.acquisitionCount(), config.toString());
-            // k = 1: the last version and the one before it.
-            assertEquals(2, storage.liveVersionCount(), config + ": a version did not end, or ended twice");
+            // k = 1: the last snapshot and the one before it.
+            assertEquals(2, storage.liveSnapshotCount(), config + ": a snapshot did not end, or ended twice");
         }
     }
 
     /**
-     * Readers acquire, read and release the last version while the writer commits and
+     * Readers acquire, read and release the last snapshot while the writer commits and
      * then drops the partition. An acquisition made before the mark stays readable until
      * its release; after the mark the acquisitions fail. When
      * the last acquisition is released, the node no longer has the partition.
@@ -413,8 +413,8 @@ class AcquisitionConcurrency3Test {
     }
 
     /**
-     * Checks that the acquired version has all the entities at the positions of its commit,
-     * in the slots and in the index. The empty version at commit 0 has no entities, because
+     * Checks that the acquired snapshot has all the entities at the positions of its commit,
+     * in the slots and in the index. The empty snapshot at commit 0 has no entities, because
      * the insertions are committed with commit 1.
      */
     private static void checkWholeCommit(LocalPartitionNode3 node, Acquisition acquisition, long[] entityIds) {
@@ -431,12 +431,12 @@ class AcquisitionConcurrency3Test {
         assertEquals(expectedSize, node.size(acquisition), where);
     }
 
-    private static PartitionStorage3 gatedStorage(IndexConfig config, GatedIndex[] index, int retainedPastVersions) {
+    private static PartitionStorage3 gatedStorage(IndexConfig config, GatedIndex[] index, int retainedPastSnapshots) {
         return new PartitionStorage3(config.limits(),
-                slots -> index[0] = new GatedIndex(SpatialIndexes.create(config, slots)), retainedPastVersions);
+                slots -> index[0] = new GatedIndex(SpatialIndexes.create(config, slots)), retainedPastSnapshots);
     }
 
-    /** A reader on another thread: admits the acquisition, then queries the version by region and by ID. */
+    /** A reader on another thread: admits the acquisition, then queries the snapshot by region and by ID. */
     private static final class QueryThread extends Thread {
 
         private final PartitionStorage3 storage;
@@ -453,12 +453,12 @@ class AcquisitionConcurrency3Test {
         @Override
         public void run() {
             try {
-                StorageVersion3 version = storage.admit(acquisitionId);
+                StorageSnapshot3 snapshot = storage.admit(acquisitionId);
                 try {
-                    inRegion = version.findInRegion(new Box3(point(-100, -100, -100), point(100, 100, 100)));
-                    byId = version.getAll(ALL_IDS);
+                    inRegion = snapshot.findInRegion(new Box3(point(-100, -100, -100), point(100, 100, 100)));
+                    byId = snapshot.getAll(ALL_IDS);
                 } finally {
-                    storage.endQuery(version);
+                    storage.endQuery(snapshot);
                 }
             } catch (Throwable e) {
                 failure = e;
@@ -497,7 +497,7 @@ class AcquisitionConcurrency3Test {
     }
 
     /**
-     * A real index whose versions stop findInRegion at the gate, if there is one,
+     * A real index whose snapshots stop findInRegion at the gate, if there is one,
      * before they read the index.
      */
     private static final class GatedIndex implements SpatialIndex3 {
@@ -531,12 +531,12 @@ class AcquisitionConcurrency3Test {
         }
 
         @Override
-        public IndexVersion3 commit(long n) {
-            IndexVersion3 version = index.commit(n);
-            return new IndexVersion3() {
+        public IndexSnapshot3 commit(long n) {
+            IndexSnapshot3 snapshot = index.commit(n);
+            return new IndexSnapshot3() {
                 @Override
                 public long commit() {
-                    return version.commit();
+                    return snapshot.commit();
                 }
 
                 @Override
@@ -549,12 +549,12 @@ class AcquisitionConcurrency3Test {
                             throw new IllegalStateException(e);
                         }
                     }
-                    return version.findInRegion(region, slots);
+                    return snapshot.findInRegion(region, slots);
                 }
 
                 @Override
                 public int[] findNearest(Point3 point, int count, SlotView3 slots) {
-                    return version.findNearest(point, count, slots);
+                    return snapshot.findNearest(point, count, slots);
                 }
             };
         }

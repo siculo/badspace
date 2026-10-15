@@ -4,23 +4,23 @@ import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 
 /**
- * Version of a 3D index at a commit. It never changes after the commit, so it
+ * Snapshot of a 3D index at a commit. It never changes after the commit, so it
  * can be read while the writer goes on changing the index. The index speaks of
  * the slots of the same commit, so each query gets the slots of that commit.
  */
-public interface IndexVersion3 {
+public interface IndexSnapshot3 {
 
     /**
-     * Returns the version of an index with no entities, at commit 0: the
-     * version of a partition before its first commit. It reads all the slots
+     * Returns the snapshot of an index with no entities, at commit 0: the
+     * snapshot of a partition before its first commit. It reads all the slots
      * it gets, so it works with the empty slots of commit 0 for every kind
      * of index.
      */
-    static IndexVersion3 empty() {
+    static IndexSnapshot3 empty() {
         return LinearScanIndex3.EMPTY;
     }
 
-    /** Returns the number of the commit of this version. */
+    /** Returns the number of the commit of this snapshot. */
     long commit();
 
     /** Returns the slots of the entities inside the region, border included, in any order. */

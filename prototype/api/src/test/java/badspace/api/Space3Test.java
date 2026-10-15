@@ -14,7 +14,7 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
 import badspace.common.partition.RetentionWindow;
-import badspace.common.partition.VersionNotAvailableException;
+import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.geometry.Sphere3;
@@ -32,8 +32,8 @@ import org.junit.jupiter.api.Test;
 
 class Space3Test {
 
-    /** A version of {@link MapNode}: only the commit and the size, the reads are not needed. */
-    private record MapVersion(long commit, int size) {
+    /** A snapshot of {@link MapNode}: only the commit and the size, the reads are not needed. */
+    private record MapSnapshot(long commit, int size) {
     }
 
     /**
@@ -43,21 +43,21 @@ class Space3Test {
     private static final class MapNode implements PartitionNode3 {
         final Map<PartitionId, Map<Long, Point3>> partitions = new HashMap<>();
         final Map<PartitionId, IndexConfig> indices = new HashMap<>();
-        final Map<PartitionId, Integer> retainedPastVersions = new HashMap<>();
+        final Map<PartitionId, Integer> retainedPastSnapshots = new HashMap<>();
         final Map<PartitionId, Long> commits = new HashMap<>();
-        final Map<PartitionId, MapVersion> versions = new HashMap<>();
+        final Map<PartitionId, MapSnapshot> snapshots = new HashMap<>();
         /** The acquisitions not yet released, by number. */
-        final Map<Long, MapVersion> acquired = new HashMap<>();
+        final Map<Long, MapSnapshot> acquired = new HashMap<>();
         // The options of the last acquisition.
         AcquireOptions lastOptions;
         long lastAcquisitionId;
         int calls;
 
         @Override
-        public void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastVersions) {
+        public void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastSnapshots) {
             partitions.put(partitionId, new HashMap<>());
             indices.put(partitionId, index);
-            this.retainedPastVersions.put(partitionId, retainedPastVersions);
+            this.retainedPastSnapshots.put(partitionId, retainedPastSnapshots);
         }
 
         @Override
@@ -134,17 +134,17 @@ class Space3Test {
         public void commit(PartitionId partitionId, long commit) {
             calls++;
             commits.put(partitionId, commit);
-            versions.put(partitionId, new MapVersion(commit, partitions.get(partitionId).size()));
+            snapshots.put(partitionId, new MapSnapshot(commit, partitions.get(partitionId).size()));
         }
 
-        /** Acquires the last version: the map node keeps only that one. */
+        /** Acquires the last snapshot: the map node keeps only that one. */
         @Override
         public Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options) {
             calls++;
             lastOptions = options;
-            MapVersion version = versions.computeIfAbsent(partitionId, p -> new MapVersion(0, 0));
-            acquired.put(++lastAcquisitionId, version);
-            return new Acquisition(partitionId, lastAcquisitionId, version.commit());
+            MapSnapshot snapshot = snapshots.computeIfAbsent(partitionId, p -> new MapSnapshot(0, 0));
+            acquired.put(++lastAcquisitionId, snapshot);
+            return new Acquisition(partitionId, lastAcquisitionId, snapshot.commit());
         }
 
         @Override
@@ -164,7 +164,7 @@ class Space3Test {
 
         private Acquisition acquireLatestIf(PartitionId partitionId, boolean available, AcquireOptions options) {
             if (!available) {
-                throw new VersionNotAvailableException("Only the last version");
+                throw new SnapshotNotAvailableException("Only the last snapshot");
             }
             return acquireLatest(partitionId, options);
         }
@@ -196,12 +196,12 @@ class Space3Test {
             throw new UnsupportedOperationException();
         }
 
-        private MapVersion admit(Acquisition acquisition) {
-            MapVersion version = acquired.get(acquisition.id());
-            if (version == null) {
+        private MapSnapshot admit(Acquisition acquisition) {
+            MapSnapshot snapshot = acquired.get(acquisition.id());
+            if (snapshot == null) {
                 throw new IllegalStateException("Acquisition was released");
             }
-            return version;
+            return snapshot;
         }
 
         @Override
@@ -341,23 +341,23 @@ class Space3Test {
         MapNode node = new MapNode();
         Partition3 p = newSpace().createPartition(node);
         assertEquals(new PartitionConfig(IndexConfig.linearScan(), RemovalPolicy.REQUIRE_EMPTY,
-                RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS), p.config());
+                RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS), p.config());
         assertEquals(IndexConfig.linearScan(), node.indices.values().iterator().next());
-        assertEquals(RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS, node.retainedPastVersions.values().iterator().next());
+        assertEquals(RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS, node.retainedPastSnapshots.values().iterator().next());
     }
 
     @Test
-    void chosenRetainedPastVersionsGoToTheNode() {
+    void chosenRetainedPastSnapshotsGoToTheNode() {
         MapNode node = new MapNode();
-        Partition3 p = newSpace().createPartition(node, PartitionConfig.defaults().withRetainedPastVersions(2));
-        assertEquals(2, p.config().retainedPastVersions());
+        Partition3 p = newSpace().createPartition(node, PartitionConfig.defaults().withRetainedPastSnapshots(2));
+        assertEquals(2, p.config().retainedPastSnapshots());
         assertEquals(IndexConfig.linearScan(), p.config().index());
-        assertEquals(2, node.retainedPastVersions.values().iterator().next());
+        assertEquals(2, node.retainedPastSnapshots.values().iterator().next());
     }
 
     @Test
-    void configRejectsNegativeRetainedPastVersions() {
-        assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedPastVersions(-1));
+    void configRejectsNegativeRetainedPastSnapshots() {
+        assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedPastSnapshots(-1));
     }
 
     @Test
@@ -435,14 +435,14 @@ class Space3Test {
     }
 
     @Test
-    void acquiredVersionReadsThroughTheNode() {
+    void acquiredSnapshotReadsThroughTheNode() {
         MapNode node = new MapNode();
         Partition3 p = newSpace().createPartition(node);
         p.insert(1, 1, 1);
         p.commit(3);
-        AcquiredVersion3 version = p.acquireLatest();
-        assertEquals(3, version.commit());
-        assertEquals(1, version.size());
+        AcquiredSnapshot3 snapshot = p.acquireLatest();
+        assertEquals(3, snapshot.commit());
+        assertEquals(1, snapshot.size());
         assertEquals(1, node.acquired.size());
     }
 
@@ -450,15 +450,15 @@ class Space3Test {
     void closeReleasesTheAcquisitionAndCanBeCalledAgain() {
         MapNode node = new MapNode();
         Partition3 p = newSpace().createPartition(node);
-        AcquiredVersion3 version;
-        try (AcquiredVersion3 v = p.acquireLatest()) {
-            version = v;
-            assertEquals(0, version.size());
+        AcquiredSnapshot3 snapshot;
+        try (AcquiredSnapshot3 v = p.acquireLatest()) {
+            snapshot = v;
+            assertEquals(0, snapshot.size());
         }
         assertEquals(0, node.acquired.size());
-        version.close();
-        assertThrows(IllegalStateException.class, version::size);
-        assertEquals(0, version.commit());
+        snapshot.close();
+        assertThrows(IllegalStateException.class, snapshot::size);
+        assertEquals(0, snapshot.commit());
     }
 
     @Test
@@ -469,7 +469,7 @@ class Space3Test {
         assertEquals(3, p.acquirePrevious(0).commit());
         assertEquals(3, p.acquireAtOrBefore(5).commit());
         assertEquals(3, p.acquireExact(3).commit());
-        assertThrows(VersionNotAvailableException.class, () -> p.acquireExact(2));
+        assertThrows(SnapshotNotAvailableException.class, () -> p.acquireExact(2));
         assertEquals(3, node.acquired.size());
     }
 

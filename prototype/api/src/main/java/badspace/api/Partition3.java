@@ -14,7 +14,7 @@ import java.util.Optional;
 /**
  * Proxy of a 3D partition that lives on a node. It has a single writer and is not thread-safe,
  * except {@link #lastCommit()} and the acquisitions. The reads of the proxy see the writes
- * not yet committed; the other threads {@linkplain #acquireLatest() acquire} the version of
+ * not yet committed; the other threads {@linkplain #acquireLatest() acquire} the snapshot of
  * a commit and read it.
  * Single-entity operations are batches of one entity: to write many entities,
  * the batch operations make fewer calls to the node.
@@ -153,68 +153,68 @@ public final class Partition3 implements Partition {
         node.commit(partitionId, n);
     }
 
-    /** Acquires the version of the last commit with the default timeout, like {@link #acquireLatest(AcquireOptions)}. */
-    public AcquiredVersion3 acquireLatest() {
+    /** Acquires the snapshot of the last commit with the default timeout, like {@link #acquireLatest(AcquireOptions)}. */
+    public AcquiredSnapshot3 acquireLatest() {
         return acquireLatest(AcquireOptions.defaultTimeout());
     }
 
     /**
-     * Acquires the version of the last commit: the empty version at commit 0 if the
-     * partition has no commit yet. Choosing the version and acquiring it is a single
+     * Acquires the snapshot of the last commit: the empty snapshot at commit 0 if the
+     * partition has no commit yet. Choosing the snapshot and acquiring it is a single
      * step, so a commit at the same time cannot make it go away. The options give the
      * timeout of the acquisition. Any thread can call it.
      */
-    public AcquiredVersion3 acquireLatest(AcquireOptions options) {
+    public AcquiredSnapshot3 acquireLatest(AcquireOptions options) {
         checkNotRemoved();
-        return new AcquiredVersion3(node, node.acquireLatest(partitionId, options));
+        return new AcquiredSnapshot3(node, node.acquireLatest(partitionId, options));
     }
 
-    /** Acquires a version in the retention window with the default timeout, like {@link #acquirePrevious(int, AcquireOptions)}. */
-    public AcquiredVersion3 acquirePrevious(int offset) {
+    /** Acquires a snapshot in the retention window with the default timeout, like {@link #acquirePrevious(int, AcquireOptions)}. */
+    public AcquiredSnapshot3 acquirePrevious(int offset) {
         return acquirePrevious(offset, AcquireOptions.defaultTimeout());
     }
 
     /**
-     * Acquires a version in the retention window: offset 0 is the last version, offset i
+     * Acquires a snapshot in the retention window: offset 0 is the last snapshot, offset i
      * the i-th published commit before it. Fails with IllegalArgumentException if offset
-     * is negative, and with VersionNotAvailableException if the window has no version at
+     * is negative, and with SnapshotNotAvailableException if the window has no snapshot at
      * that offset. The options give the timeout of the acquisition. Any thread can call it.
      */
-    public AcquiredVersion3 acquirePrevious(int offset, AcquireOptions options) {
+    public AcquiredSnapshot3 acquirePrevious(int offset, AcquireOptions options) {
         checkNotRemoved();
-        return new AcquiredVersion3(node, node.acquirePrevious(partitionId, offset, options));
+        return new AcquiredSnapshot3(node, node.acquirePrevious(partitionId, offset, options));
     }
 
-    /** Acquires a version at a tick or before with the default timeout, like {@link #acquireAtOrBefore(long, AcquireOptions)}. */
-    public AcquiredVersion3 acquireAtOrBefore(long tick) {
+    /** Acquires a snapshot at a tick or before with the default timeout, like {@link #acquireAtOrBefore(long, AcquireOptions)}. */
+    public AcquiredSnapshot3 acquireAtOrBefore(long tick) {
         return acquireAtOrBefore(tick, AcquireOptions.defaultTimeout());
     }
 
     /**
-     * Acquires the version in the retention window with the greatest commit that is not
+     * Acquires the snapshot in the retention window with the greatest commit that is not
      * greater than tick. Fails with IllegalArgumentException if tick is negative, and with
-     * VersionNotAvailableException if there is no such version. The options give the
+     * SnapshotNotAvailableException if there is no such snapshot. The options give the
      * timeout of the acquisition. Any thread can call it.
      */
-    public AcquiredVersion3 acquireAtOrBefore(long tick, AcquireOptions options) {
+    public AcquiredSnapshot3 acquireAtOrBefore(long tick, AcquireOptions options) {
         checkNotRemoved();
-        return new AcquiredVersion3(node, node.acquireAtOrBefore(partitionId, tick, options));
+        return new AcquiredSnapshot3(node, node.acquireAtOrBefore(partitionId, tick, options));
     }
 
-    /** Acquires the version of a commit with the default timeout, like {@link #acquireExact(long, AcquireOptions)}. */
-    public AcquiredVersion3 acquireExact(long commit) {
+    /** Acquires the snapshot of a commit with the default timeout, like {@link #acquireExact(long, AcquireOptions)}. */
+    public AcquiredSnapshot3 acquireExact(long commit) {
         return acquireExact(commit, AcquireOptions.defaultTimeout());
     }
 
     /**
-     * Acquires the version of the given commit. Fails with IllegalArgumentException if
-     * commit is negative, and with VersionNotAvailableException if that version is not in
+     * Acquires the snapshot of the given commit. Fails with IllegalArgumentException if
+     * commit is negative, and with SnapshotNotAvailableException if that snapshot is not in
      * the retention window. The options give the timeout of the acquisition. Any thread
      * can call it.
      */
-    public AcquiredVersion3 acquireExact(long commit, AcquireOptions options) {
+    public AcquiredSnapshot3 acquireExact(long commit, AcquireOptions options) {
         checkNotRemoved();
-        return new AcquiredVersion3(node, node.acquireExact(partitionId, commit, options));
+        return new AcquiredSnapshot3(node, node.acquireExact(partitionId, commit, options));
     }
 
     @Override

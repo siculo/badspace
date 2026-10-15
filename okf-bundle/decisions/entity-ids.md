@@ -169,9 +169,9 @@ di partizioni: che un ID di partizione non torni mai è una precondizione
 del contratto del nodo.
 
 Il mai riuso serve alla [rimozione della
-partizione](/architecture/version-retention.md#rimozione-della-partizione)
+partizione](/architecture/snapshot-retention.md#rimozione-della-partizione)
 in due fasi: una partizione segnata come rimossa resta sul nodo con il
-suo ID finché ha versioni non finite, e le acquisizioni già fatte la
+suo ID finché ha snapshot non finiti, e le acquisizioni già fatte la
 trovano per ID. Il nodo rifiuta la creazione di una partizione con un
 ID ancora presente, anche se la partizione è segnata come rimossa.
 

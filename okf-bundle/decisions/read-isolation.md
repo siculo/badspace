@@ -30,15 +30,15 @@ leggono senza lock. Lo snapshot ha due parti, trattate in modo diverso:
 
 - **Slot delle entità** (ID e coordinate): **copia completa** al commit.
 - **Indici**: **strutture persistenti copy-on-write**; ogni commit copia
-  solo i nodi che ha cambiato e condivide gli altri con le versioni
+  solo i nodi che ha cambiato e condivide gli altri con gli snapshot
   precedenti.
 
 Al commit il writer pubblica **una sola radice** `(slot_N, indice_N)`
 con una scrittura atomica. Slot e indice vanno sempre insieme: l'indice
-parla di slot, e uno slot ha senso solo nella sua versione.
+parla di slot, e uno slot ha senso solo nel suo snapshot.
 
 Il risultato: i reader non si bloccano mai, non bloccano mai il writer,
-e una versione resta leggibile finché ha acquisizioni valide o query in
+e uno snapshot resta leggibile finché ha acquisizioni valide o query in
 corso (vedi [Accesso dei reader](#accesso-dei-reader)).
 
 # Perché due soluzioni diverse
@@ -68,59 +68,59 @@ Slot e indici cambiano con frequenze molto diverse.
 2. Al commit gli array degli slot si copiano in un buffer per lo
    snapshot, e i nodi copiati nel commit diventano immutabili.
 3. La nuova radice si pubblica con una scrittura atomica.
-4. Le versioni fuori dalla finestra di [conservazione delle
-   versioni](/architecture/version-retention.md), senza acquisizioni
+4. Gli snapshot fuori dalla finestra di [conservazione degli
+   snapshot](/architecture/snapshot-retention.md), senza acquisizioni
    valide né query in corso, si liberano: i loro buffer tornano disponibili, e i nodi dell'indice
-   non più usati da nessuna versione tornano liberi.
+   non più usati da nessuno snapshot tornano liberi.
 
-Per sapere quando una versione non è più usata serve un contatore dei
-reader per versione o l'epoch-based reclamation: è lo stesso principio
+Per sapere quando uno snapshot non è più usato serve un contatore dei
+reader per snapshot o l'epoch-based reclamation: è lo stesso principio
 della *grace period* di RCU descritto nelle [letture
 coerenti](/mechanisms/consistent-reads.md).
 
-**Nel prototipo** la versione della partizione (snapshot degli slot e
-versione dell'indice) entra nel catalogo delle versioni, un oggetto
-immutabile con le ultime k + 1 versioni, e il catalogo nuovo si
+**Nel prototipo** lo snapshot della partizione (snapshot degli slot e
+snapshot dell'indice) entra nel catalogo degli snapshot, un oggetto
+immutabile con gli ultimi k + 1 snapshot, e il catalogo nuovo si
 pubblica con la scrittura di un campo `volatile`, l'ultima operazione
 del commit: chi legge il campo vede anche tutto quello che il commit ha
 scritto prima, quindi il catalogo precedente o tutto quello nuovo, mai
-una versione nuova con la finestra vecchia. Anche l'ultimo commit si
-legge dalla versione pubblicata, quindi da ogni thread. Prima del primo commit c'è una
-versione vuota al commit 0, con l'indice vuoto della scansione lineare,
+uno snapshot nuovo con la finestra vecchia. Anche l'ultimo commit si
+legge dallo snapshot pubblicato, quindi da ogni thread. Prima del primo commit c'è uno
+snapshot vuoto al commit 0, con l'indice vuoto della scansione lineare,
 che con slot vuoti vale per ogni indice. Il writer legge il proprio
-stato, i reader le versioni pubblicate attraverso le acquisizioni, con
+stato, i reader gli snapshot pubblicati attraverso le acquisizioni, con
 una view controllata (vedi [API da
 esporre](/decisions/api-surface.md#letture-del-writer-e-dei-reader) e
-[Accesso dei reader](#accesso-dei-reader)): la versione interna non
-esce dal nodo. La partizione rileva quando una versione finisce (vedi
-[Vita di una versione](/architecture/version-retention.md#vita-di-una-versione));
+[Accesso dei reader](#accesso-dei-reader)): lo snapshot interno non
+esce dal nodo. La partizione rileva quando uno snapshot finisce (vedi
+[Vita di uno snapshot](/architecture/snapshot-retention.md#vita-di-uno-snapshot));
 la liberazione della memoria la fa per ora il GC.
 
 # Accesso dei reader
 
-Le versioni pubblicate hanno due usi distinti:
+Gli snapshot pubblicati hanno due usi distinti:
 
 - **uso interno** del nodo: lo storage, il catalogo della
-  [conservazione delle versioni](/architecture/version-retention.md)
+  [conservazione degli snapshot](/architecture/snapshot-retention.md)
   e, in futuro, la [persistenza](/decisions/persistence.md) tengono
-  riferimenti alle versioni senza passare dalle acquisizioni;
-- **accesso dei reader**: un reader legge una versione solo attraverso
-  un'[acquisizione](/architecture/version-retention.md#acquisizione-e-rilascio).
-  La versione interna non esce mai dal nodo: il reader riceve una view
+  riferimenti agli snapshot senza passare dalle acquisizioni;
+- **accesso dei reader**: un reader legge uno snapshot solo attraverso
+  un'[acquisizione](/architecture/snapshot-retention.md#acquisizione-e-rilascio).
+  Lo snapshot interno non esce mai dal nodo: il reader riceve una view
   che controlla l'acquisizione all'inizio di ogni lettura, quindi dopo
   il rilascio o la scadenza non c'è modo di interrogarla.
 
-La verifica dell'acquisizione e la presa di un riferimento stabile alla
-versione sono un'unica operazione atomica (l'ammissione della query).
-Dopo l'ammissione la query non tiene lock: legge la versione immutabile
+La verifica dell'acquisizione e la presa di un riferimento stabile allo
+snapshot sono un'unica operazione atomica (l'ammissione della query).
+Dopo l'ammissione la query non tiene lock: legge lo snapshot immutabile
 come prima, e se il rilascio o la scadenza arrivano nel frattempo la
 query finisce e il suo risultato è valido.
 
 Restano invariati la pubblicazione atomica, il copy-on-write e la
 lettura delle proprie scritture da parte del writer. Dopo la rimozione
 della partizione le acquisizioni già fatte restano leggibili (vedi
-[conservazione delle
-versioni](/architecture/version-retention.md#rimozione-della-partizione)).
+[conservazione degli
+snapshot](/architecture/snapshot-retention.md#rimozione-della-partizione)).
 
 # Tutti i dati delle entità
 
@@ -129,8 +129,8 @@ un'entità entra nello snapshot**. Non solo ID e coordinate, ma anche i
 [metadati](/architecture/entity-metadata.md) di sistema e applicativi,
 le [tombstone](/architecture/tombstones.md) e qualunque dato si
 aggiungerà in futuro. Un dato fuori dallo snapshot sarebbe visibile ai
-reader prima del commit, o cambierebbe sotto un reader che legge una
-versione vecchia.
+reader prima del commit, o cambierebbe sotto un reader che legge uno
+snapshot vecchio.
 
 Per ogni dato si sceglie come copiarlo, in base a quanto spesso cambia:
 **copia completa** se cambia spesso ed è sparso, come le coordinate,
@@ -146,7 +146,7 @@ saranno, seguono la stessa regola):
 | Struttura | Cambia con | Nello snapshot |
 |---|---|---|
 | coordinate | ogni movimento | copia completa |
-| ID | solo inserimenti e rimozioni | copia solo se il commit ha inserimenti o rimozioni, altrimenti condivisa con la versione precedente |
+| ID | solo inserimenti e rimozioni | copia solo se il commit ha inserimenti o rimozioni, altrimenti condivisa con lo snapshot precedente |
 | mappa ID → slot | solo inserimenti e rimozioni | come gli ID: una tabella hash ad indirizzamento aperto su array primitivi si copia come gli slot; in alternativa una mappa hash persistente (HAMT) |
 
 **Nel prototipo** la mappa ID → slot è una tabella ad indirizzamento
@@ -160,24 +160,24 @@ ogni valore può essere un ID. La copia sono due array.
   sempre; ID e tabella si copiano solo se il commit ha avuto
   inserimenti o rimozioni, altrimenti lo snapshot li condivide con
   quello precedente.
-- Snapshot e versione dell'indice formano la versione della partizione
-  (`StorageVersion`, interna al service: commit, slot e indice), con le
+- Lo snapshot degli slot e quello dell'indice formano lo snapshot della
+  partizione (`StorageSnapshot`, interna al service: commit, slot e indice), con le
   letture `getAll`, `findInRegion` e `findNearest`.
 - Per ora ogni commit alloca array nuovi: il pool dei buffer e la copia
   delle sole pagine cambiate arrivano con i writer su thread diversi.
 
 **Riuso dei buffer.** I buffer degli snapshot stanno in un pool. Un
-buffer che si riusa contiene una versione vecchia, quindi basta copiare
+buffer che si riusa contiene uno snapshot vecchio, quindi basta copiare
 le pagine cambiate da allora: per ogni pagina si tiene il commit
-dell'ultima modifica, e si copiano le pagine modificate dopo la
-versione del buffer. Non è mai peggio della copia completa, e con poche
+dell'ultima modifica, e si copiano le pagine modificate dopo lo
+snapshot del buffer. Non è mai peggio della copia completa, e con poche
 entità in movimento è molto meglio. Nelle partizioni di entità statiche
 (vedi [entità statiche e
 dinamiche](/decisions/static-vs-dynamic-entities.md)) gli slot non
 cambiano mai e lo snapshot non copia niente.
 
 **Reader lento.** Se un reader tiene a lungo un'acquisizione, il buffer
-della versione resta occupato e il writer ne prende un altro dal pool, o ne alloca uno
+dello snapshot resta occupato e il writer ne prende un altro dal pool, o ne alloca uno
 nuovo: il writer non aspetta mai, cresce solo la memoria.
 
 # Gli indici
@@ -194,38 +194,38 @@ nuovo: il writer non aspetta mai, cresce solo la memoria.
   slot → (foglia, posizione), restano mutabili e private del writer.
 - I nodi pubblicati non si modificano più: la memoria dei nodi (arena)
   non può spostarsi mentre i reader la leggono, e un nodo liberato
-  torna disponibile solo quando nessuna versione lo usa.
+  torna disponibile solo quando nessuno snapshot lo usa.
 
 I requisiti per gli alberi sono nel [modulo degli
-alberi](/indices/tree-module.md#versioni-copy-on-write).
+alberi](/indices/tree-module.md#snapshot-copy-on-write).
 
 **Nel prototipo** ogni indice ha `commit(n)`, chiamato dallo storage
-quando la partizione chiude il commit n, che restituisce una versione
-dell'indice (`IndexVersion`). Le query della versione ricevono gli slot
-dello stesso commit, quindi la versione non dipende dallo storage del
+quando la partizione chiude il commit n, che restituisce uno snapshot
+dell'indice (`IndexSnapshot`). Le query dello snapshot ricevono gli slot
+dello stesso commit, quindi lo snapshot non dipende dallo storage del
 writer.
 
 - La [scansione lineare](/indices/linear-scan.md) non ha strutture: la
-  sua versione legge solo gli slot.
-- La [grid uniforme](/indices/uniform-grid.md#versioni-al-commit) e la
+  suo snapshot legge solo gli slot.
+- La [grid uniforme](/indices/uniform-grid.md#snapshot-al-commit) e la
   [griglia di quadtree e di
   octree](/indices/grid-quadtree.md#implementazione-nel-prototipo)
   tengono le celle in una HAMT con transient (`HashTrie`) e copiano
   celle e nodi alla prima modifica dopo un commit.
 
-Lo storage combina la versione dell'indice con lo snapshot degli slot
-(vedi [Gli slot](#gli-slot)) e pubblica la versione della partizione
+Lo storage combina lo snapshot dell'indice con quello degli slot
+(vedi [Gli slot](#gli-slot)) e pubblica lo snapshot della partizione
 (vedi [Il commit](#il-commit)).
 
-# Versioni passate
+# Snapshot passati
 
-Ogni snapshot è già una versione completa della partizione: la
-[conservazione delle versioni](/architecture/version-retention.md)
+Ogni snapshot è già uno stato completo della partizione: la
+[conservazione degli snapshot](/architecture/snapshot-retention.md)
 significa tenere vive le ultime k + 1 radici: la corrente e le k
 precedenti. Gli indici condividono
-i nodi non cambiati; gli slot costano una copia per versione
-conservata. Per le [letture coerenti](/mechanisms/consistent-reads.md)
-il lettore acquisisce la versione del commit N, o la più recente prima
+i nodi non cambiati; gli slot costano una copia per snapshot
+conservato. Per le [letture coerenti](/mechanisms/consistent-reads.md)
+il lettore acquisisce lo snapshot del commit N, o il più recente prima
 di N.
 
 # Costi
@@ -233,9 +233,9 @@ di N.
 - **Tempo del writer per commit:** la copia degli slot cambiati (al
   massimo tutti) più la copia dei nodi dell'indice toccati, una sola
   volta per nodo nel commit.
-- **Memoria:** una copia degli slot per ogni versione viva (l'ultima
-  pubblicata, le k precedenti conservate e quelle uscite dalla finestra
-  ma ancora acquisite), più i nodi dell'indice non condivisi.
+- **Memoria:** una copia degli slot per ogni snapshot vivo (l'ultimo
+  pubblicato, i k precedenti conservati e quelli usciti dalla finestra
+  ma ancora acquisiti), più i nodi dell'indice non condivisi.
 
 Per 1 000 000 di entità gli slot sono circa 24 MB in 2D e 32 MB in 3D;
 la copia completa costa qualche ms, da misurare, su un tick di circa
@@ -257,7 +257,7 @@ dei buffer evita comunque le allocazioni a ogni tick.
 - Mappa ID → slot: nel prototipo tabella copiata; da rivedere con le
   misure se la copia pesa con molte entità e inserimenti o rimozioni a
   ogni commit (alternativa HAMT).
-- Contatori dei reader per versione o epoch-based reclamation nel
+- Contatori dei reader per snapshot o epoch-based reclamation nel
   [linguaggio finale](/decisions/language.md), senza GC.
 
 # Correlati
@@ -266,10 +266,10 @@ dei buffer evita comunque le allocazioni a ogni tick.
   partizione, più reader.
 - [Commit della partizione](/architecture/partition-commit.md) — i
   reader vedono solo commit completi.
-- [Conservazione delle versioni](/architecture/version-retention.md) e
+- [Conservazione degli snapshot](/architecture/snapshot-retention.md) e
   [letture coerenti](/mechanisms/consistent-reads.md) — letture al tick
   N su più partizioni.
 - [Modulo degli alberi](/indices/tree-module.md) — alberi degli indici
-  con versioni copy-on-write.
+  con snapshot copy-on-write.
 - [Persistenza](/decisions/persistence.md) — uno snapshot pubblicato è
   immutabile e si può salvare senza fermare il writer.

@@ -65,7 +65,7 @@ public class Main {
         Space3 space3 = new Space3(spaceConfig);
         Partition3 p3 = space3.createPartition(new LocalPartitionNode3(),
                 new PartitionConfig(IndexConfig.uniformGrid(10), RemovalPolicy.DISCARD_ENTITIES,
-                        RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS));
+                        RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS));
         long c = p3.insert(1.0, 2.0, 3.0);
         p3.update(c, point(4.0, 5.0, 6.0));
         System.out.printf("3D: entity %d is at %s%n", c, p3.get(c).orElseThrow());

@@ -15,7 +15,7 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
-import badspace.common.partition.VersionNotAvailableException;
+import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Sphere3;
 import java.time.Duration;
@@ -236,7 +236,7 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void acquiredVersionHasOnlyTheCommittedWrites() {
+    void acquiredSnapshotHasOnlyTheCommittedWrites() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
         Acquisition beforeCommit = node.acquireLatest(P1, defaultTimeout());
         assertEquals(0, beforeCommit.commit());
@@ -248,7 +248,7 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void acquiredVersionDoesNotSeeLaterWrites() {
+    void acquiredSnapshotDoesNotSeeLaterWrites() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
         node.commit(P1, 4);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
@@ -262,7 +262,7 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void newPartitionHasTheEmptyVersionAtCommitZero() {
+    void newPartitionHasTheEmptySnapshotAtCommitZero() {
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         assertEquals(0, acquisition.commit());
         assertEquals(0, node.size(acquisition));
@@ -271,7 +271,7 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void selectionsChooseTheVersionInTheWindow() {
+    void selectionsChooseTheSnapshotInTheWindow() {
         node.createPartition(P2, IndexConfig.linearScan(), 2);
         node.commit(P2, 100);
         node.commit(P2, 103);
@@ -285,15 +285,15 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void versionsOutsideTheWindowAreNotAvailable() {
+    void snapshotsOutsideTheWindowAreNotAvailable() {
         node.createPartition(P2, IndexConfig.linearScan(), 2);
         node.commit(P2, 100);
         node.commit(P2, 103);
         node.commit(P2, 107);
-        assertThrows(VersionNotAvailableException.class, () -> node.acquirePrevious(P2, 3, defaultTimeout()));
-        assertThrows(VersionNotAvailableException.class, () -> node.acquireAtOrBefore(P2, 99, defaultTimeout()));
-        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 105, defaultTimeout()));
-        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 0, defaultTimeout()));
+        assertThrows(SnapshotNotAvailableException.class, () -> node.acquirePrevious(P2, 3, defaultTimeout()));
+        assertThrows(SnapshotNotAvailableException.class, () -> node.acquireAtOrBefore(P2, 99, defaultTimeout()));
+        assertThrows(SnapshotNotAvailableException.class, () -> node.acquireExact(P2, 105, defaultTimeout()));
+        assertThrows(SnapshotNotAvailableException.class, () -> node.acquireExact(P2, 0, defaultTimeout()));
     }
 
     @Test
@@ -312,7 +312,7 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void versionOutsideTheWindowStaysReadableWhileAcquired() {
+    void snapshotOutsideTheWindowStaysReadableWhileAcquired() {
         node.createPartition(P2, IndexConfig.linearScan(), 2);
         node.insertAll(P2, List.of(entity(1, 1, 1, 1)));
         node.commit(P2, 100);
@@ -321,14 +321,14 @@ class LocalPartitionNode3Test {
         node.commit(P2, 103);
         node.commit(P2, 107);
         node.commit(P2, 110);
-        assertThrows(VersionNotAvailableException.class, () -> node.acquireExact(P2, 100, defaultTimeout()));
+        assertThrows(SnapshotNotAvailableException.class, () -> node.acquireExact(P2, 100, defaultTimeout()));
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(acquisition, new long[] {1}));
         node.release(acquisition);
         assertThrows(IllegalStateException.class, () -> node.size(acquisition));
     }
 
     @Test
-    void twoReadersOfTheSameVersionAreIndependent() {
+    void twoReadersOfTheSameSnapshotAreIndependent() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
         node.commit(P1, 1);
         Acquisition first = node.acquireLatest(P1, defaultTimeout());
@@ -342,7 +342,7 @@ class LocalPartitionNode3Test {
     @Test
     void failedAcquisitionMakesNoAcquisition() {
         Acquisition before = node.acquireLatest(P1, defaultTimeout());
-        assertThrows(VersionNotAvailableException.class, () -> node.acquirePrevious(P1, 1, defaultTimeout()));
+        assertThrows(SnapshotNotAvailableException.class, () -> node.acquirePrevious(P1, 1, defaultTimeout()));
         Acquisition after = node.acquireLatest(P1, defaultTimeout());
         // No number was used by the failed acquisition.
         assertEquals(before.id() + 1, after.id());
@@ -386,7 +386,7 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void writerStillReadsItsOwnWritesWhileAVersionIsAcquired() {
+    void writerStillReadsItsOwnWritesWhileASnapshotIsAcquired() {
         node.commit(P1, 1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
@@ -396,7 +396,7 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void queriesGiveBackTheVersionAlsoWhenTheyFail() {
+    void queriesGiveBackTheSnapshotAlsoWhenTheyFail() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
         node.commit(P1, 1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
@@ -407,9 +407,9 @@ class LocalPartitionNode3Test {
         Acquisition wrongCommit = new Acquisition(P1, acquisition.id(), 7);
         assertThrows(IllegalArgumentException.class, () -> node.size(wrongCommit));
         node.release(acquisition);
-        // With no queries left, the version ends when it leaves the window.
+        // With no queries left, the snapshot ends when it leaves the window.
         node.commit(P1, 2);
-        assertEquals(1, node.find(P1).liveVersionCount());
+        assertEquals(1, node.find(P1).liveSnapshotCount());
     }
 
     @Test
@@ -617,7 +617,7 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void rejectsNegativeRetainedPastVersions() {
+    void rejectsNegativeRetainedPastSnapshots() {
         assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, IndexConfig.linearScan(), -1));
         assertThrows(IllegalArgumentException.class, () -> node.size(P2));
     }

@@ -5,7 +5,7 @@ import java.util.Objects;
 
 /**
  * The options of an acquisition: its timeout. Every acquisition has a timeout, so a
- * reader that dies without releasing cannot keep a version in memory for ever. The
+ * reader that dies without releasing cannot keep a snapshot in memory for ever. The
  * timeout is measured from the moment of the acquisition with the monotonic clock of
  * the node. After the timeout the acquisition is expired: it behaves like a released
  * one, and it is never renewed.
@@ -18,7 +18,7 @@ public record AcquireOptions(long timeoutNanos) {
     /** The timeout of an acquisition without explicit options. */
     public static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(1);
     /**
-     * The greatest timeout. For now it is a constant; a reader that needs a version for
+     * The greatest timeout. For now it is a constant; a reader that needs a snapshot for
      * a longer time must make a copy of it.
      */
     public static final Duration MAX_TIMEOUT = Duration.ofHours(1);

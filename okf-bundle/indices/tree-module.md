@@ -1,7 +1,7 @@
 ---
 type: Design Proposal
 title: Modulo degli alberi
-description: Proposta per l'implementazione finale di un modulo specifico per gli alberi degli indici (quadtree/octree): arena con handle, topologia, liste di slot delle foglie e mappa inversa dentro il modulo, geometria fuori; versioni copy-on-write per l'isolamento delle letture; handle generazionali in debug e regole per non usare handle scaduti nelle scritture.
+description: Proposta per l'implementazione finale di un modulo specifico per gli alberi degli indici (quadtree/octree): arena con handle, topologia, liste di slot delle foglie e mappa inversa dentro il modulo, geometria fuori; snapshot copy-on-write per l'isolamento delle letture; handle generazionali in debug e regole per non usare handle scaduti nelle scritture.
 tags: [badspace, spatial-indexing, quadtree, octree, implementation, rust, c]
 status: draft
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T07:46:40Z }
@@ -21,16 +21,16 @@ di una libreria generica: i requisiti sono troppo particolari per una
 libreria di alberi qualunque, ma abbastanza chiusi per un modulo piccolo
 e separato dal resto dell'indice. Riguarda l'implementazione finale, in
 qualunque [linguaggio](/decisions/language.md). Il prototipo Java ha
-già le versioni copy-on-write, con i nodi come oggetti e senza il
+già gli snapshot copy-on-write, con i nodi come oggetti e senza il
 modulo (vedi [griglia di
 quadtree](/indices/grid-quadtree.md#implementazione-nel-prototipo)). Non
 è una decisione.
 
 Per l'[isolamento delle letture](/decisions/read-isolation.md) gli
 alberi sono **strutture persistenti copy-on-write**: i reader leggono
-una versione pubblicata, che non cambia più, mentre il writer prepara
-la successiva. Questo vincolo tocca quasi tutti i requisiti (vedi
-[Versioni copy-on-write](#versioni-copy-on-write)).
+uno snapshot pubblicato, che non cambia più, mentre il writer prepara
+il successivo. Questo vincolo tocca quasi tutti i requisiti (vedi
+[Snapshot copy-on-write](#snapshot-copy-on-write)).
 
 # Requisiti
 
@@ -51,13 +51,13 @@ la successiva. Questo vincolo tocca quasi tutti i requisiti (vedi
 - **Commit di creazione** nel nodo, per sapere se il writer può
   modificarlo sul posto o deve copiarlo.
 - **Nessun riferimento al genitore nel nodo:** un nodo non cambiato è
-  condiviso tra più versioni, e in ognuna può avere un genitore
+  condiviso tra più snapshot, e in ognuno può avere un genitore
   diverso.
 
 ## Identità e riferimenti
 
 - **Handle stabili:** validi finché il nodo esiste, senza compattazioni
-  nascoste. Un nodo esiste finché lo usa almeno una versione viva; la
+  nascoste. Un nodo esiste finché lo usa almeno uno snapshot vivo; la
   copia di un nodo ha un handle nuovo.
 - **Handle piccoli e copiabili**, idealmente 32 bit: l'indice ne tiene
   uno per slot (oggi `leafOf[]` con `placeOf[]`), quindi pesano sulla
@@ -83,11 +83,11 @@ la successiva. Questo vincolo tocca quasi tutti i requisiti (vedi
 - Visita in profondità con potatura e "tutti gli slot di un
   sottoalbero" per le query di range.
 - Handle copiabili in una coda di priorità per il k-nearest best-first.
-- Letture sicure da più thread su una versione pubblicata, con il
+- Letture sicure da più thread su uno snapshot pubblicato, con il
   modello [un writer e più reader](/decisions/concurrency.md), mentre
-  il writer prepara la versione successiva.
+  il writer prepara lo snapshot successivo.
 
-## Versioni copy-on-write
+## Snapshot copy-on-write
 
 - **Nodi pubblicati immutabili.** Il writer modifica sul posto solo i
   nodi del commit corrente; per gli altri il modulo crea una copia alla
@@ -95,20 +95,20 @@ la successiva. Questo vincolo tocca quasi tutti i requisiti (vedi
   ogni antenato deve puntare al figlio nuovo. Un nodo si copia al più
   una volta per commit.
 - **Mappa delle celle persistente:** la mappa cella → radice fa parte
-  della versione e si copia solo dove cambia.
-- **Commit:** chiude la versione transient (i nodi copiati diventano
-  immutabili) e restituisce la nuova versione, cioè la mappa delle celle
+  dello snapshot e si copia solo dove cambia.
+- **Commit:** chiude lo stato transient (i nodi copiati diventano
+  immutabili) e restituisce il nuovo snapshot, cioè la mappa delle celle
   da mettere nella radice della partizione.
 - **Arena che non si sposta:** i reader leggono i nodi mentre il writer
   ne aggiunge, quindi l'arena cresce a blocchi fissi e non si rialloca
   mai.
 - **Liberazione differita:** un nodo sostituito da una copia, o tolto
   con una riunione o con la rimozione di un albero, torna nella lista
-  dei nodi liberi solo quando nessuna versione viva lo usa (contatori
+  dei nodi liberi solo quando nessuno snapshot vivo lo usa (contatori
   dei reader o epoch-based reclamation).
-- **Nella versione solo quello che leggono le query:** la mappa inversa
+- **Nello snapshot solo quello che leggono le query:** la mappa inversa
   e un'eventuale tabella dei genitori servono solo al writer, restano
-  mutabili e fuori dalle versioni, e il modulo le aggiorna quando copia
+  mutabili e fuori dagli snapshot, e il modulo le aggiorna quando copia
   un nodo.
 
 Una scrittura che cambia foglia costa in più la copia del percorso, che
@@ -133,7 +133,7 @@ uguale per tutti i nodi.
 - **Dentro:** la **topologia** e il **contenuto delle foglie**: arena,
   handle, lista dei nodi liberi, figli, tipi di nodo, liste di slot,
   **mappa inversa** slot → (foglia, posizione), contatori, mappa delle
-  celle → radici, e le **versioni**: copia dei nodi, commit e
+  celle → radici, e gli **snapshot**: copia dei nodi, commit e
   liberazione differita.
 - **Fuori, nell'indice:** la **geometria e le decisioni**: in quale
   quadrante va un punto, quando dividere, le regole di arresto, le query.
@@ -158,7 +158,7 @@ pub struct NodeId(u32);
 
 pub struct Forest<const N: usize, T> { /* nodes, free list, leaf slots, slot -> (leaf, place) */ }
 
-pub struct Version { /* commit, cell -> root */ }
+pub struct Snapshot { /* commit, cell -> root */ }
 
 impl<const N: usize, T> Forest<N, T> {
     // trees
@@ -182,15 +182,15 @@ impl<const N: usize, T> Forest<N, T> {
                  quadrant_of: impl FnMut(u32) -> usize);
     pub fn merge(&mut self, n: NodeId);
 
-    // versions
-    pub fn commit(&mut self) -> Version;           // freezes the nodes of this commit
-    pub fn release(&mut self, v: Version);         // frees the nodes no live version uses
+    // snapshots
+    pub fn commit(&mut self) -> Snapshot;          // freezes the nodes of this commit
+    pub fn release(&mut self, s: Snapshot);        // frees the nodes no live snapshot uses
 
     // tests
     pub fn check(&self);                           // all invariants
 }
 
-impl Version {
+impl Snapshot {
     // read only, safe from many threads
     pub fn root(&self, cell: CellKey) -> Option<NodeId>;
     pub fn child(&self, n: NodeId, quadrant: usize) -> NodeId;
@@ -208,7 +208,7 @@ impl Version {
   `1 << D` dei [const generics](/decisions/c-vs-rust.md#astrazione-sulla-dimensione-2d3d).
 - Lo stesso modulo serve la griglia di quadtree, il quadtree con una
   sola radice e la variante loose, che cambiano solo la geometria.
-- I reader usano solo `Version`, che non ha metodi di scrittura.
+- I reader usano solo `Snapshot`, che non ha metodi di scrittura.
 - `check()` controlla tutte le invarianti (coerenza dei figli,
   contatori, mappa inversa, nessun nodo pubblicato modificato) e si presta a test con sequenze casuali di
   operazioni (in Rust `proptest`), con la [scansione
@@ -288,8 +288,8 @@ casi concreti:
    radice letta prima, o rimasta nella mappa delle celle, viene usata
    dopo.
 5. **Handle di un nodo pubblicato:** un handle letto prima di una
-   modifica punta al nodo della versione pubblicata, che il modulo ha
-   poi copiato; una scrittura con quell'handle finirebbe sulla versione
+   modifica punta al nodo dello snapshot pubblicato, che il modulo ha
+   poi copiato; una scrittura con quell'handle finirebbe sullo snapshot
    che i reader stanno leggendo. Il modulo rifiuta le scritture su nodi
    che non sono del commit corrente, almeno in debug.
 6. **Divisione, che le generazioni non vedono:** dopo `split(leaf)` la
@@ -335,7 +335,7 @@ in fretta gli errori a queste regole.
   commit), o tenere nella mappa solo la posizione nella foglia e
   trovare la foglia con la discesa. Il prototipo tiene solo la
   posizione.
-- **Liberazione dei nodi:** contatori dei reader per versione o
+- **Liberazione dei nodi:** contatori dei reader per snapshot o
   epoch-based reclamation, come per i buffer degli slot.
 - **Contatori:** aggiornati dal modulo a ogni `add`/`remove`/`move_to`
   o lasciati all'indice.

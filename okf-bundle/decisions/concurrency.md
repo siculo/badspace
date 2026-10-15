@@ -29,10 +29,10 @@ Le scritture sono raggruppate in [commit](/architecture/partition-commit.md)
 che, con un solo writer, non richiedono lock né gestione dei conflitti.
 
 I reader non bloccano mai il writer: il writer non aspetta query,
-acquisizioni o persistenza. Le acquisizioni delle versioni appartengono
-al nodo, e un reader lento allunga solo la vita delle versioni in
-memoria (vedi [conservazione delle
-versioni](/architecture/version-retention.md#vita-di-una-versione)).
+acquisizioni o persistenza. Le acquisizioni degli snapshot appartengono
+al nodo, e un reader lento allunga solo la vita degli snapshot in
+memoria (vedi [conservazione degli
+snapshot](/architecture/snapshot-retention.md#vita-di-uno-snapshot)).
 
 # Correlati
 

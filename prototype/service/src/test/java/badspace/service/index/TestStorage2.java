@@ -68,9 +68,9 @@ final class TestStorage2 implements SlotView2 {
         }
     }
 
-    /** Closes a commit and returns the version of the index with a copy of the slots of the commit. */
-    Version commit(long n) {
-        return new Version(index.commit(n), List.copyOf(entities));
+    /** Closes a commit and returns the snapshot of the index with a copy of the slots of the commit. */
+    Snapshot commit(long n) {
+        return new Snapshot(index.commit(n), List.copyOf(entities));
     }
 
     List<Entity2> findInRegion(Region2 region) {
@@ -108,8 +108,8 @@ final class TestStorage2 implements SlotView2 {
         return result;
     }
 
-    /** A version of the index with the slots of its commit, which never change. */
-    record Version(IndexVersion2 index, List<Entity2> entities) implements SlotView2 {
+    /** A snapshot of the index with the slots of its commit, which never change. */
+    record Snapshot(IndexSnapshot2 index, List<Entity2> entities) implements SlotView2 {
 
         List<Entity2> findInRegion(Region2 region) {
             return entitiesAt(entities, index.findInRegion(region, this));

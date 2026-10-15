@@ -7,7 +7,7 @@ import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
-import badspace.common.partition.VersionNotAvailableException;
+import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import java.util.List;
@@ -21,7 +21,7 @@ import java.util.function.Function;
  * <p>
  * The removal of a partition has two steps. The mark of removal stops the writes, the
  * commits and the new acquisitions, but the acquisitions made before stay readable. The
- * node keeps the storage, under the same ID, until its last version ends: then the
+ * node keeps the storage, under the same ID, until its last snapshot ends: then the
  * storage says that the partition is finished, and the node removes it. A partition
  * marked as removed has no events of its own, so at each event of the node (creation,
  * removal, commit, acquisition, release) the node looks for its expired acquisitions.
@@ -48,14 +48,14 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
-    public void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastVersions) {
-        if (retainedPastVersions < 0) {
-            throw new IllegalArgumentException("Negative number of retained past versions: " + retainedPastVersions);
+    public void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastSnapshots) {
+        if (retainedPastSnapshots < 0) {
+            throw new IllegalArgumentException("Negative number of retained past snapshots: " + retainedPastSnapshots);
         }
         removeExpiredOfRemovedPartitions();
         // A partition marked as removed keeps its ID until it is finished, so this
         // also rejects its ID.
-        if (partitions.putIfAbsent(partitionId, new PartitionStorage3(index, retainedPastVersions, clock)) != null) {
+        if (partitions.putIfAbsent(partitionId, new PartitionStorage3(index, retainedPastSnapshots, clock)) != null) {
             throw new IllegalArgumentException("Partition already exists: " + partitionId);
         }
     }
@@ -117,8 +117,8 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     @Override
     public Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options) {
         Objects.requireNonNull(options);
-        return acquire(partitionId, options, VersionCatalog3::lastVersion,
-                "No last version in partition " + partitionId);
+        return acquire(partitionId, options, SnapshotCatalog3::lastSnapshot,
+                "No last snapshot in partition " + partitionId);
     }
 
     @Override
@@ -128,7 +128,7 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
             throw new IllegalArgumentException("Negative offset: " + offset);
         }
         return acquire(partitionId, options, catalog -> catalog.previous(offset),
-                "No version at offset " + offset + " in partition " + partitionId);
+                "No snapshot at offset " + offset + " in partition " + partitionId);
     }
 
     @Override
@@ -138,7 +138,7 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
             throw new IllegalArgumentException("Negative tick: " + tick);
         }
         return acquire(partitionId, options, catalog -> catalog.atOrBefore(tick),
-                "No version at tick " + tick + " or before in partition " + partitionId);
+                "No snapshot at tick " + tick + " or before in partition " + partitionId);
     }
 
     @Override
@@ -148,7 +148,7 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
             throw new IllegalArgumentException("Negative commit: " + commit);
         }
         return acquire(partitionId, options, catalog -> catalog.exact(commit),
-                "No version of commit " + commit + " in partition " + partitionId);
+                "No snapshot of commit " + commit + " in partition " + partitionId);
     }
 
     @Override
@@ -163,22 +163,22 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
 
     @Override
     public int size(Acquisition acquisition) {
-        return query(acquisition, StorageVersion3::size);
+        return query(acquisition, StorageSnapshot3::size);
     }
 
     @Override
     public List<Entity3> getAll(Acquisition acquisition, long[] entityIds) {
-        return query(acquisition, version -> version.getAll(entityIds));
+        return query(acquisition, snapshot -> snapshot.getAll(entityIds));
     }
 
     @Override
     public List<Entity3> findInRegion(Acquisition acquisition, Region3 region) {
-        return query(acquisition, version -> version.findInRegion(region));
+        return query(acquisition, snapshot -> snapshot.findInRegion(region));
     }
 
     @Override
     public List<Entity3> findNearest(Acquisition acquisition, Point3 point, int count) {
-        return query(acquisition, version -> version.findNearest(point, count));
+        return query(acquisition, snapshot -> snapshot.findNearest(point, count));
     }
 
     @Override
@@ -197,26 +197,26 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     /**
-     * Acquires the version that the selection chooses from the catalog. If a commit makes
-     * the version leave the window before the acquisition, it chooses again from the new
-     * catalog. Fails with VersionNotAvailableException if the selection finds no version,
+     * Acquires the snapshot that the selection chooses from the catalog. If a commit makes
+     * the snapshot leave the window before the acquisition, it chooses again from the new
+     * catalog. Fails with SnapshotNotAvailableException if the selection finds no snapshot,
      * and with IllegalStateException if the partition is marked as removed, also during
      * the acquisition.
      */
     private Acquisition acquire(PartitionId partitionId, AcquireOptions options,
-            Function<VersionCatalog3, StorageVersion3> selection, String notAvailable) {
+            Function<SnapshotCatalog3, StorageSnapshot3> selection, String notAvailable) {
         removeExpiredOfRemovedPartitions();
         PartitionStorage3 storage = find(partitionId);
         while (true) {
-            StorageVersion3 version = selection.apply(storage.catalog());
-            if (version == null) {
-                throw new VersionNotAvailableException(notAvailable);
+            StorageSnapshot3 snapshot = selection.apply(storage.catalog());
+            if (snapshot == null) {
+                throw new SnapshotNotAvailableException(notAvailable);
             }
-            long acquisitionId = storage.acquire(version, options);
+            long acquisitionId = storage.acquire(snapshot, options);
             if (acquisitionId != PartitionStorage3.NOT_ACQUIRED) {
-                return new Acquisition(partitionId, acquisitionId, version.commit());
+                return new Acquisition(partitionId, acquisitionId, snapshot.commit());
             }
-            // The mark closes the window: the version left it, and no other version
+            // The mark closes the window: the snapshot left it, and no other snapshot
             // can be acquired.
             if (storage.isRemoved()) {
                 throw removedPartition(partitionId);
@@ -225,25 +225,25 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     /**
-     * Runs a query on the version of the acquisition. The query keeps the version until
+     * Runs a query on the snapshot of the acquisition. The query keeps the snapshot until
      * it ends, and then gives it back, also if it fails. The commit in the acquisition
-     * must be the one of the version. The partition can be marked as removed.
+     * must be the one of the snapshot. The partition can be marked as removed.
      */
-    private <T> T query(Acquisition acquisition, Function<StorageVersion3, T> query) {
+    private <T> T query(Acquisition acquisition, Function<StorageSnapshot3, T> query) {
         PartitionStorage3 storage = partitions.get(acquisition.partitionId());
         if (storage == null) {
             // A finished partition has no valid acquisitions. Partition IDs are never used
             // again, so the node cannot tell an unknown partition from a finished one.
             throw new IllegalStateException("Acquisition was released or is expired: " + acquisition);
         }
-        StorageVersion3 version = storage.admit(acquisition.id());
+        StorageSnapshot3 snapshot = storage.admit(acquisition.id());
         try {
-            if (version.commit() != acquisition.commit()) {
+            if (snapshot.commit() != acquisition.commit()) {
                 throw new IllegalArgumentException("Wrong commit in acquisition: " + acquisition);
             }
-            return query.apply(version);
+            return query.apply(snapshot);
         } finally {
-            if (storage.endQuery(version)) {
+            if (storage.endQuery(snapshot)) {
                 finish(acquisition.partitionId(), storage);
             }
         }
@@ -260,7 +260,7 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     /**
-     * Removes a finished partition from the node: its last version ended. The storage
+     * Removes a finished partition from the node: its last snapshot ended. The storage
      * says it once, so only one thread calls this for a partition.
      */
     private void finish(PartitionId partitionId, PartitionStorage3 storage) {

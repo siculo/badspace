@@ -38,7 +38,7 @@ Nel caso tipico si fa esattamente un commit per tick, e il contatore è:
 
 Un uso non legato al gioco potrebbe invece fare commit a batch.
 
-La versione di un commit diventa visibile ai lettori quando il commit
+Lo snapshot di un commit diventa visibile ai lettori quando il commit
 finisce, non a un istante preciso del tick: regole come "leggere non
 prima del tick globale − 1" e la barriera tra partizioni spettano ai
 livelli superiori. Ogni partizione ha il suo ciclo di commit e pubblica
@@ -49,11 +49,11 @@ per conto suo: non c'è atomicità tra partizioni.
 Il commit si chiude con `commit(n)`, con il numero n scelto dal
 software e maggiore dell'ultimo commit (vedi [API da
 esporre](/decisions/api-surface.md#commit)). Al commit lo storage
-produce la versione della partizione, con lo snapshot degli slot e la
-versione dell'indice, che le scritture successive non cambiano, e la
+produce lo snapshot della partizione, con lo snapshot degli slot e
+quello dell'indice, che le scritture successive non cambiano, e la
 pubblica (vedi [isolamento delle
 letture](/decisions/read-isolation.md#il-commit)). I lettori la leggono
-attraverso un'[acquisizione](/architecture/version-retention.md#acquisizione-e-rilascio),
+attraverso un'[acquisizione](/architecture/snapshot-retention.md#acquisizione-e-rilascio),
 e vedono solo commit completi; il writer vede le
 proprie scritture anche prima del commit (vedi [letture del writer e dei
 reader](/decisions/api-surface.md#letture-del-writer-e-dei-reader)).

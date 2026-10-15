@@ -194,7 +194,7 @@ possono aggiornare in un tick, dati i tick al secondo, è nella
 - **Movimento verso una foglia vicina (presa e implementata):** cambia
   solo i nodi sotto il primo nodo che contiene sia la vecchia sia la
   nuova posizione; uno spostamento in un'altra cella passa dalla mappa
-  delle celle. Con le [versioni copy-on-write](#implementazione-nel-prototipo)
+  delle celle. Con gli [snapshot copy-on-write](#implementazione-nel-prototipo)
   il nodo comune si trova scendendo dalla radice della cella invece che
   risalendo dalla foglia, e uno spostamento dentro la stessa foglia non
   copia niente. Sulla macchina dei benchmark non ha dato un guadagno
@@ -239,17 +239,17 @@ possono aggiornare in un tick, dati i tick al secondo, è nella
 - **K-nearest:** ricerca best-first su una coda di nodi, a cui si
   aggiungono le celle ad anelli intorno al punto quando possono essere
   abbastanza vicine.
-- **Versioni copy-on-write:** a ogni commit l'indice dà una versione
+- **Snapshot copy-on-write:** a ogni commit l'indice dà uno snapshot
   che le scritture successive non cambiano (vedi [isolamento delle
   letture](/decisions/read-isolation.md#gli-indici)).
   - **Mappa delle celle:** la stessa `HashTrie` della [grid
-    uniforme](/indices/uniform-grid.md#versioni-al-commit).
+    uniforme](/indices/uniform-grid.md#snapshot-al-commit).
   - **Nodi:** ogni nodo tiene il commit in cui è stato creato; il writer
     lo modifica sul posto solo se è del commit corrente, altrimenti lo
     copia con il percorso dalla radice della cella. La copia condivide
     i figli e tiene gli slot nelle stesse posizioni.
   - **Niente link al padre né `leafOf`:** un nodo condiviso tra più
-    versioni può avere padri diversi, e un riferimento a una foglia
+    snapshot può avere padri diversi, e un riferimento a una foglia
     diventa vecchio quando la foglia si copia. Ogni scrittura scende
     quindi dalla radice della cella seguendo la posizione; la posizione
     nella foglia (`placeOf`) resta privata del writer.
@@ -336,7 +336,7 @@ possono aggiornare in un tick, dati i tick al secondo, è nella
   su `FAR_CLUSTER` 19,5 µs contro 18,9. Il costo non viene dalla
   lunghezza del percorso (vedi [Costo delle
   scritture](#problematiche-aperte)).
-- **Versioni copy-on-write:** misure rapide del 2026-10-09 con celle da
+- **Snapshot copy-on-write:** misure rapide del 2026-10-09 con celle da
   128, senza commit nei benchmark (quindi senza copie), rispetto alla
   versione con `leafOf` e il link al padre: update 1,65–1,9 volte (fino
   a 3,1), remove 1,7–1,9, insert 1,1–1,2, query 1,1–1,5, memoria

@@ -30,13 +30,13 @@ import java.util.PriorityQueue;
  * k-nearest query reads the nodes from the nearest to the farthest, and adds
  * the cells in shells around the point when they can be near enough.
  * <p>
- * At each commit the index gives a version that shares the nodes with the
+ * At each commit the index gives a snapshot that shares the nodes with the
  * writer. The map of the cells is a {@link HashTrie}, and each node keeps the
  * last commit at the time it was made: the writer copies a node, with the
  * path from the root of its cell, the first time it changes the node after a
  * commit. So the nodes have no link to their parent, and each write goes down
  * from the root of the cell, following the position. The map from slot to
- * place in the leaf is used only by the writer, so it is not in the versions;
+ * place in the leaf is used only by the writer, so it is not in the snapshots;
  * a copy keeps the slots in the same places.
  * <p>
  * The storage keeps the entities in the limits of the index, at most
@@ -131,9 +131,9 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     }
 
     @Override
-    public IndexVersion3 commit(long n) {
+    public IndexSnapshot3 commit(long n) {
         lastCommit = n;
-        return new Version(n, cells.commit(n), cellSize);
+        return new Snapshot(n, cells.commit(n), cellSize);
     }
 
     @Override
@@ -243,7 +243,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
         }
     }
 
-    /** Returns the root of the cell, copied first and put in the map if an older version can see it. */
+    /** Returns the root of the cell, copied first and put in the map if an older snapshot can see it. */
     private Node writable(CellKey key, Node root) {
         if (root.commit != lastCommit) {
             root = root.copy(lastCommit);
@@ -253,7 +253,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     }
 
     /**
-     * Returns child i of the node, copied first if an older version can see
+     * Returns child i of the node, copied first if an older snapshot can see
      * it. The node must be writable, so that the copy can take the place of
      * the child.
      */
@@ -370,7 +370,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
             count = 0;
             for (Node child : node.children) {
                 // A node of the current commit under an older one could change
-                // what an older version sees.
+                // what an older snapshot sees.
                 if (child.commit > node.commit) {
                     throw new IllegalStateException("Node of commit " + child.commit + " under a node of commit "
                             + node.commit);
@@ -499,7 +499,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
         return value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE;
     }
 
-    /** The queries on the cells of a version, which read the positions in the slots of the same version. */
+    /** The queries on the cells of a snapshot, which read the positions in the slots of the same snapshot. */
     private static final class Search {
 
         private final HashTrie.View<CellKey, Node> cells;
@@ -668,8 +668,8 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
         }
     }
 
-    /** A version of the index at a commit. */
-    private record Version(long commit, HashTrie.View<CellKey, Node> cells, double cellSize) implements IndexVersion3 {
+    /** A snapshot of the index at a commit. */
+    private record Snapshot(long commit, HashTrie.View<CellKey, Node> cells, double cellSize) implements IndexSnapshot3 {
 
         @Override
         public int[] findInRegion(Region3 region, SlotView3 slots) {

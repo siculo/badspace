@@ -9,30 +9,30 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * A version of a 3D partition that a reader acquired: the partition as it was
- * at a commit. The version never changes, so all its reads see the same commit
- * while the writer goes on, also after the version leaves the retention window.
+ * A snapshot of a 3D partition that a reader acquired: the partition as it was
+ * at a commit. The snapshot never changes, so all its reads see the same commit
+ * while the writer goes on, also after the snapshot leaves the retention window.
  * Use it with try-with-resources: {@link #close()} releases the acquisition.
  * <p>
  * Each read checks the acquisition when it starts. After the release, or after the
  * timeout of the acquisition if it has one, a new read fails with IllegalStateException;
  * a read that started before ends normally, and the entities already read stay valid.
  * The view stays readable also after the removal of the partition, until the release
- * or the timeout: the node keeps the partition until its versions are no longer used.
+ * or the timeout: the node keeps the partition until its snapshots are no longer used.
  * Any thread can use the view.
  */
-public final class AcquiredVersion3 implements AutoCloseable {
+public final class AcquiredSnapshot3 implements AutoCloseable {
 
     private final PartitionNode3 node;
     private final Acquisition acquisition;
 
-    AcquiredVersion3(PartitionNode3 node, Acquisition acquisition) {
+    AcquiredSnapshot3(PartitionNode3 node, Acquisition acquisition) {
         this.node = node;
         this.acquisition = acquisition;
     }
 
     /**
-     * Returns the number of the commit, or 0 for the empty version before the first commit.
+     * Returns the number of the commit, or 0 for the empty snapshot before the first commit.
      * It does not check the acquisition: the number is part of it.
      */
     public long commit() {
@@ -44,14 +44,14 @@ public final class AcquiredVersion3 implements AutoCloseable {
         return node.size(acquisition);
     }
 
-    /** Returns the position of an entity, or empty if the ID is not in the version. */
+    /** Returns the position of an entity, or empty if the ID is not in the snapshot. */
     public Optional<Point3> get(long entityId) {
         return getAll(new long[] {entityId}).stream().findFirst().map(Entity3::position);
     }
 
     /**
      * Returns the entities with the given IDs, in the same order.
-     * IDs that are not in the version are skipped.
+     * IDs that are not in the snapshot are skipped.
      */
     public List<Entity3> getAll(long[] entityIds) {
         return node.getAll(acquisition, entityIds);

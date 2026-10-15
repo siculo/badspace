@@ -19,12 +19,12 @@ import java.util.List;
  * the cells in shells around the point, from the nearest to the farthest, and
  * stops when the next shell cannot have nearer entities.
  * <p>
- * At each commit the index gives a version that shares the cells with the
+ * At each commit the index gives a snapshot that shares the cells with the
  * writer. The map of the cells is a {@link HashTrie}, and a cell keeps the
  * last commit at the time it was made: the writer copies a cell, and the
  * path of the map to it, the first time it changes the cell after a commit.
  * The map from slot to place in the cell is used only by the writer, so it
- * is not in the versions; a copy keeps the slots in the same places.
+ * is not in the snapshots; a copy keeps the slots in the same places.
  * <p>
  * The storage keeps the entities in the limits of the index, at most
  * {@code IndexConfig.CELLS_PER_SIDE} cells from the origin on each axis, so
@@ -82,9 +82,9 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     }
 
     @Override
-    public IndexVersion3 commit(long n) {
+    public IndexSnapshot3 commit(long n) {
         lastCommit = n;
-        return new Version(n, cells.commit(n), cellSize);
+        return new Snapshot(n, cells.commit(n), cellSize);
     }
 
     @Override
@@ -139,7 +139,7 @@ final class UniformGridIndex3 implements SpatialIndex3 {
         }
     }
 
-    /** Returns the cell, or a copy of it put in the map if an older version can see the cell. */
+    /** Returns the cell, or a copy of it put in the map if an older snapshot can see the cell. */
     private Cell writable(Cell cell) {
         if (cell.commit != lastCommit) {
             cell = cell.copy(lastCommit);
@@ -160,7 +160,7 @@ final class UniformGridIndex3 implements SpatialIndex3 {
         return value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE;
     }
 
-    /** The queries on the cells of a version, which read the positions in the slots of the same version. */
+    /** The queries on the cells of a snapshot, which read the positions in the slots of the same snapshot. */
     private static final class Search {
 
         private final HashTrie.View<CellKey, Cell> cells;
@@ -302,8 +302,8 @@ final class UniformGridIndex3 implements SpatialIndex3 {
         }
     }
 
-    /** A version of the index at a commit. */
-    private record Version(long commit, HashTrie.View<CellKey, Cell> cells, double cellSize) implements IndexVersion3 {
+    /** A snapshot of the index at a commit. */
+    private record Snapshot(long commit, HashTrie.View<CellKey, Cell> cells, double cellSize) implements IndexSnapshot3 {
 
         @Override
         public int[] findInRegion(Region3 region, SlotView3 slots) {

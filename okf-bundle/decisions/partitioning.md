@@ -33,7 +33,7 @@ processi. La struttura a livelli è descritta in
 
 - Il DB **non prevede partizioni predefinite**: il software crea tutte
   quelle che gli servono e configura ciascuna in modo diverso (tipo di
-  indice, numero k di [versioni passate conservate](/architecture/version-retention.md)).
+  indice, numero k di [snapshot passati conservati](/architecture/snapshot-retention.md)).
 - Le partizioni si **creano e si rimuovono dinamicamente**, mentre il
   sistema è in funzione.
 - È questo che rende il DB **scalabile**: il carico si ridistribuisce

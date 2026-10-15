@@ -37,7 +37,7 @@ Quattro principi reggono l'insieme:
   commit dentro una singola partizione; le operazioni su più partizioni
   sono protocolli a messaggi.
 - **Paga solo chi usa.** I meccanismi costosi, come la
-  [conservazione delle versioni](/architecture/version-retention.md), si
+  [conservazione degli snapshot](/architecture/snapshot-retention.md), si
   attivano partizione per partizione.
 - **Istanze dentro un sistema.** Partizioni, nodi e istanze dell'API
   non sono entità autonome: nascono e muoiono perché un livello più
@@ -59,8 +59,8 @@ Quattro principi reggono l'insieme:
    [tombstone](/architecture/tombstones.md).
 4. [Durabilità osservabile](/architecture/observable-durability.md) —
    ultimo commit persistito.
-5. [Conservazione delle versioni](/architecture/version-retention.md) —
-   versione corrente e k commit precedenti, k configurabile per
+5. [Conservazione degli snapshot](/architecture/snapshot-retention.md) —
+   snapshot corrente e k commit precedenti, k configurabile per
    partizione.
 
 # Meccanismi sopra il livello base
@@ -78,10 +78,10 @@ Quattro principi reggono l'insieme:
 - **Aree non contigue** (per esempio sistemi solari separati da
   distanze enormi, dove ciò che sta al confine è irrilevante). Ogni
   partizione ha il suo tick; non servono tick globale, conservazione
-  delle versioni (k = 0) né aggregazione. Il viaggio di una nave tra
+  degli snapshot (k = 0) né aggregazione. Il viaggio di una nave tra
   due sistemi usa solo la migrazione.
 - **Zone contigue con confini.** Si aggiungono il tick globale, la
-  conservazione delle versioni (k ≥ 1) sulle partizioni di confine e le
+  conservazione degli snapshot (k ≥ 1) sulle partizioni di confine e le
   letture coerenti con aggregazione.
 
 # Punti aperti

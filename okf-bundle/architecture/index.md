@@ -10,4 +10,4 @@
 * [Metadati delle entità](./entity-metadata.md) - metadati di sistema e applicativi, scritture condizionate, API dei metadati.
 * [Tombstone](./tombstones.md) - metadati che sopravvivono alla rimozione e impediscono le resurrezioni.
 * [Durabilità osservabile](./observable-durability.md) - ultimo commit persistito esposto dalla partizione.
-* [Conservazione delle versioni](./version-retention.md) - versione corrente e k commit precedenti acquisibili, acquisizione e rilascio con scadenza, base delle letture coerenti.
+* [Conservazione degli snapshot](./snapshot-retention.md) - snapshot corrente e k commit precedenti acquisibili, acquisizione e rilascio con scadenza, base delle letture coerenti.

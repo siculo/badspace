@@ -3,34 +3,34 @@ package badspace.service.partition;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import badspace.common.partition.Entity2;
-import badspace.service.index.IndexVersion2;
+import badspace.service.index.IndexSnapshot2;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * A 2D partition at a commit: the slots and the index of the same commit. The
- * storage makes a version at each commit and publishes it to the readers.
+ * storage makes a snapshot at each commit and publishes it to the readers.
  * Its data never change, so many threads can read it at the same time while the
  * writer goes on. The readers outside the node reach it only through an
- * acquisition. Its {@linkplain #uses() uses} tell when the version ends.
+ * acquisition. Its {@linkplain #uses() uses} tell when the snapshot ends.
  */
-final class StorageVersion2 {
+final class StorageSnapshot2 {
 
     private final long commit;
     private final SlotSnapshot2 slots;
-    private final IndexVersion2 index;
-    private final VersionUses uses = new VersionUses();
+    private final IndexSnapshot2 index;
+    private final SnapshotUses uses = new SnapshotUses();
 
-    StorageVersion2(long commit, SlotSnapshot2 slots, IndexVersion2 index) {
+    StorageSnapshot2(long commit, SlotSnapshot2 slots, IndexSnapshot2 index) {
         this.commit = commit;
         this.slots = slots;
         this.index = index;
     }
 
-    /** Returns the empty version at commit 0, before the first commit. */
-    static StorageVersion2 empty() {
+    /** Returns the empty snapshot at commit 0, before the first commit. */
+    static StorageSnapshot2 empty() {
         SlotSnapshot2 slots = new SlotSnapshot2(new long[0], new double[0], new SlotTable());
-        return new StorageVersion2(0, slots, IndexVersion2.empty());
+        return new StorageSnapshot2(0, slots, IndexSnapshot2.empty());
     }
 
     long commit() {
@@ -41,12 +41,12 @@ final class StorageVersion2 {
         return slots;
     }
 
-    IndexVersion2 index() {
+    IndexSnapshot2 index() {
         return index;
     }
 
-    /** Returns the uses of the version and its place in the retention window. */
-    VersionUses uses() {
+    /** Returns the uses of the snapshot and its place in the retention window. */
+    SnapshotUses uses() {
         return uses;
     }
 

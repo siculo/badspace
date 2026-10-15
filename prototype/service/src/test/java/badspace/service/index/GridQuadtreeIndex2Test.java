@@ -111,7 +111,7 @@ class GridQuadtreeIndex2Test {
      * also across the cells and to the same position, so the move changes
      * only the nodes below the first node that contains both positions. A
      * commit in each round checks that the moves copy the nodes that an
-     * older version can see.
+     * older snapshot can see.
      */
     @Test
     void shortStepsInADenseClusterKeepTheStructure() {
@@ -125,7 +125,7 @@ class GridQuadtreeIndex2Test {
         Map<Long, Entity2> current = new HashMap<>();
         entities.forEach(e -> current.put(e.id(), e));
         for (int round = 0; round < 100; round++) {
-            Comparison.Versions committed = c.commit(round + 1);
+            Comparison.Snapshots committed = c.commit(round + 1);
             for (int i = 0; i < 50; i++) {
                 long id = 1 + random.nextInt(entities.size());
                 Entity2 e = current.get(id);
@@ -142,7 +142,7 @@ class GridQuadtreeIndex2Test {
                 c.check(new Point2(300, 300), 20);
                 c.check(new Point2(301.5, 299), 5);
                 c.check(new Box2(new Point2(295, 295), new Point2(302, 304)));
-                // The moves of this round do not change the version of its commit.
+                // The moves of this round do not change the snapshot of its commit.
                 committed.check(new Point2(300, 300), 20);
                 committed.check(new Point2(301.5, 299), 5);
                 committed.check(new Box2(new Point2(295, 295), new Point2(302, 304)));
@@ -193,8 +193,8 @@ class GridQuadtreeIndex2Test {
             index.checkStructure();
         }
 
-        Versions commit(long n) {
-            return new Versions(tested.commit(n), reference.commit(n));
+        Snapshots commit(long n) {
+            return new Snapshots(tested.commit(n), reference.commit(n));
         }
 
         int maxDepth() {
@@ -206,17 +206,17 @@ class GridQuadtreeIndex2Test {
             reference.removeAll(entityIds);
         }
 
-        /** The versions of the two storages at the same commit. */
-        record Versions(TestStorage2.Version tested, TestStorage2.Version reference) {
+        /** The snapshots of the two storages at the same commit. */
+        record Snapshots(TestStorage2.Snapshot tested, TestStorage2.Snapshot reference) {
 
             void check(Point2 point, int count) {
                 assertEquals(reference.findNearest(point, count), tested.findNearest(point, count),
-                        "version findNearest " + point + " " + count);
+                        "snapshot findNearest " + point + " " + count);
             }
 
             void check(Region2 region) {
                 assertEquals(sortedById(reference.findInRegion(region)), sortedById(tested.findInRegion(region)),
-                        "version findInRegion " + region);
+                        "snapshot findInRegion " + region);
             }
         }
 
