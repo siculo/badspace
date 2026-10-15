@@ -104,10 +104,36 @@ La scelta è ribaltata per quattro motivi:
 
 # Nel prototipo
 
-Il tick non c'è ancora: il codice usa `commit(n)` con il numero scelto
-dal software (vedi [commit della
-partizione](/architecture/partition-commit.md#nel-prototipo)). Arriva con
-i passi del TODO del prototipo.
+Il tick c'è, ma il resto della partizione non lo usa ancora: commit,
+pubblicazione e acquisizioni seguono la semantica precedente, con
+`commit(n)` e il numero scelto dal software (vedi [commit della
+partizione](/architecture/partition-commit.md#nel-prototipo)), fino ai
+passi successivi del TODO del prototipo.
+
+- **Contratto del nodo** (`PartitionNode2`/`PartitionNode3`):
+  `setTick(long)`, `tick()`, `tick(PartitionId)` e
+  `creationTick(PartitionId)`; la creazione avviene al tick corrente del
+  nodo.
+- **Nodo locale**: il tick del nodo è un campo `volatile`, scritto da
+  `setTick` e letto da ogni thread. Un `ReentrantLock` ordina `setTick` e
+  `createPartition`: una partizione creata durante un avanzamento nasce
+  prima, e allora avanza anche lei, o dopo, al tick nuovo. `setTick`
+  avanza anche le partizioni segnate come rimosse, ed è un evento del
+  nodo: dopo cerca le acquisizioni scadute delle partizioni segnate.
+- **Storage**: `creationTick` fisso e `tick` `volatile`, avanzato solo
+  dal thread che fa avanzare il nodo; un tick minore è rifiutato.
+- **API**: `Space.setTick(long)` e `tick()`; lo spazio tiene in un
+  insieme per identità i nodi su cui ha creato partizioni, e su un nodo
+  nuovo chiama `setTick` con il suo tick prima della creazione. Un
+  `ReentrantLock` ordina `setTick` e `createPartition` dello spazio.
+  `Partition` ha `tick()` e `creationTick()`.
+
+I test verificano tick iniziale 0, avanzamento con salti, `setTick` con
+lo stesso tick, rifiuto all'indietro senza cambiamenti, creazione al tick
+del nodo, nodo nuovo portato al tick dello spazio, un solo `setTick` per
+nodo anche con più partizioni, e la creazione di partizioni concorrente a
+una serie di avanzamenti: alla fine nessuna partizione è rimasta
+indietro. Senza il lock quest'ultimo test fallisce.
 
 # Correlati
 

@@ -35,6 +35,15 @@ public interface Partition {
      */
     long lastCommit();
 
+    /**
+     * Returns the tick of the partition. While the space moves to a new tick, it can be less
+     * than the {@linkplain Space#tick() tick of the space}. Any thread can call it.
+     */
+    long tick();
+
+    /** Returns the tick at which the partition was created: the tick of the space at that moment. */
+    long creationTick();
+
     /** Returns the configuration chosen when the partition was created. */
     PartitionConfig config();
 

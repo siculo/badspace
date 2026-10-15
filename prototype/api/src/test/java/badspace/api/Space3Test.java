@@ -48,6 +48,10 @@ class Space3Test {
         final Map<PartitionId, MapSnapshot> snapshots = new HashMap<>();
         /** The acquisitions not yet released, by number. */
         final Map<Long, MapSnapshot> acquired = new HashMap<>();
+        final Map<PartitionId, Long> creationTicks = new HashMap<>();
+        /** The ticks of the calls to setTick, in order. */
+        final List<Long> setTicks = new ArrayList<>();
+        long tick;
         // The options of the last acquisition.
         AcquireOptions lastOptions;
         long lastAcquisitionId;
@@ -58,6 +62,30 @@ class Space3Test {
             partitions.put(partitionId, new HashMap<>());
             indices.put(partitionId, index);
             this.retainedPastSnapshots.put(partitionId, retainedPastSnapshots);
+            creationTicks.put(partitionId, tick);
+        }
+
+        @Override
+        public void setTick(long tick) {
+            setTicks.add(tick);
+            this.tick = tick;
+        }
+
+        @Override
+        public long tick() {
+            return tick;
+        }
+
+        @Override
+        public long tick(PartitionId partitionId) {
+            calls++;
+            return tick;
+        }
+
+        @Override
+        public long creationTick(PartitionId partitionId) {
+            calls++;
+            return creationTicks.get(partitionId);
         }
 
         @Override
@@ -415,6 +443,8 @@ class Space3Test {
         assertThrows(IllegalStateException.class, p::size);
         assertThrows(IllegalStateException.class, () -> p.commit(1));
         assertThrows(IllegalStateException.class, p::lastCommit);
+        assertThrows(IllegalStateException.class, p::tick);
+        assertThrows(IllegalStateException.class, p::creationTick);
         assertThrows(IllegalStateException.class, p::acquireLatest);
         assertThrows(IllegalStateException.class, () -> p.acquirePrevious(0));
         assertThrows(IllegalStateException.class, () -> p.acquireAtOrBefore(0));
@@ -511,6 +541,63 @@ class Space3Test {
         p.commit(3);
         assertEquals(3, p.lastCommit());
         assertEquals(List.of(3L), List.copyOf(node.commits.values()));
+    }
+
+    @Test
+    void newSpaceIsAtTickZero() {
+        Space3 space = newSpace();
+        assertEquals(0, space.tick());
+        Partition3 p = space.createPartition(new MapNode());
+        assertEquals(0, p.creationTick());
+        assertEquals(0, p.tick());
+    }
+
+    @Test
+    void setTickGoesOnceToEachNodeOfTheSpace() {
+        Space3 space = newSpace();
+        MapNode a = new MapNode();
+        MapNode b = new MapNode();
+        space.createPartition(a);
+        space.createPartition(a);
+        space.createPartition(b);
+        space.setTick(3);
+        space.setTick(8);
+        assertEquals(8, space.tick());
+        assertEquals(List.of(0L, 3L, 8L), a.setTicks);
+        assertEquals(List.of(0L, 3L, 8L), b.setTicks);
+    }
+
+    @Test
+    void newNodeGetsTheTickOfTheSpaceBeforeTheCreation() {
+        Space3 space = newSpace();
+        MapNode old = new MapNode();
+        space.createPartition(old);
+        space.setTick(5);
+        MapNode node = new MapNode();
+        Partition3 p = space.createPartition(node);
+        assertEquals(List.of(5L), node.setTicks);
+        assertEquals(5, p.creationTick());
+        assertEquals(5, p.tick());
+        assertEquals(List.of(0L, 5L), old.setTicks);
+    }
+
+    @Test
+    void setTickWithTheSameTickKeepsTheTick() {
+        Space3 space = newSpace();
+        space.setTick(4);
+        space.setTick(4);
+        assertEquals(4, space.tick());
+    }
+
+    @Test
+    void setTickRejectsAnEarlierTickAndChangesNothing() {
+        Space3 space = newSpace();
+        MapNode node = new MapNode();
+        space.createPartition(node);
+        space.setTick(3);
+        assertThrows(IllegalArgumentException.class, () -> space.setTick(2));
+        assertEquals(3, space.tick());
+        assertEquals(List.of(0L, 3L), node.setTicks);
     }
 
     @Test

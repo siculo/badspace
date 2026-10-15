@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
 /**
@@ -24,7 +25,11 @@ import java.util.function.Function;
  * node keeps the storage, under the same ID, until its last snapshot ends: then the
  * storage says that the partition is finished, and the node removes it. A partition
  * marked as removed has no events of its own, so at each event of the node (creation,
- * removal, commit, acquisition, release) the node looks for its expired acquisitions.
+ * removal, commit, acquisition, release, new tick) the node looks for its expired acquisitions.
+ * <p>
+ * A lock orders the moves to a new tick and the creation of partitions: a partition created
+ * while the node moves to a new tick is created either before the move, and then moves too,
+ * or after it, at the new tick. So no partition stays behind the node.
  */
 public final class LocalPartitionNode2 implements PartitionNode2 {
 
@@ -36,6 +41,10 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     private final Map<PartitionId, PartitionStorage2> removedPartitions = new ConcurrentHashMap<>();
     // Measures the timeouts of the acquisitions in all the partitions.
     private final MonotonicClock clock;
+    // Orders setTick and createPartition: both run while holding it.
+    private final ReentrantLock tickLock = new ReentrantLock();
+    // The tick of the node. Written by setTick while holding tickLock, read by any thread.
+    private volatile long tick;
 
     /** Creates a node that measures the timeouts of the acquisitions with the clock of the system. */
     public LocalPartitionNode2() {
@@ -53,11 +62,50 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             throw new IllegalArgumentException("Negative number of retained past snapshots: " + retainedPastSnapshots);
         }
         removeExpiredOfRemovedPartitions();
-        // A partition marked as removed keeps its ID until it is finished, so this
-        // also rejects its ID.
-        if (partitions.putIfAbsent(partitionId, new PartitionStorage2(index, retainedPastSnapshots, clock)) != null) {
-            throw new IllegalArgumentException("Partition already exists: " + partitionId);
+        tickLock.lock();
+        try {
+            // A partition marked as removed keeps its ID until it is finished, so this
+            // also rejects its ID.
+            PartitionStorage2 storage = new PartitionStorage2(index, retainedPastSnapshots, clock, tick);
+            if (partitions.putIfAbsent(partitionId, storage) != null) {
+                throw new IllegalArgumentException("Partition already exists: " + partitionId);
+            }
+        } finally {
+            tickLock.unlock();
         }
+    }
+
+    @Override
+    public void setTick(long tick) {
+        tickLock.lock();
+        try {
+            if (tick < this.tick) {
+                throw new IllegalArgumentException("Tick " + tick + " is less than the tick of the node " + this.tick);
+            }
+            this.tick = tick;
+            // The partitions marked as removed are in the map too.
+            for (PartitionStorage2 storage : partitions.values()) {
+                storage.setTick(tick);
+            }
+        } finally {
+            tickLock.unlock();
+        }
+        removeExpiredOfRemovedPartitions();
+    }
+
+    @Override
+    public long tick() {
+        return tick;
+    }
+
+    @Override
+    public long tick(PartitionId partitionId) {
+        return find(partitionId).tick();
+    }
+
+    @Override
+    public long creationTick(PartitionId partitionId) {
+        return find(partitionId).creationTick();
     }
 
     @Override

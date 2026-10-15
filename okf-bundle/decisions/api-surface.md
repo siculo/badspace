@@ -350,7 +350,8 @@ Scelte di dettaglio:
 La forma descritta sopra è decisa, ma il codice segue ancora quella
 precedente; si allinea con i passi del TODO del prototipo. Oggi:
 
-- non c'è il tick: niente `setTick`, `tick()` né `creationTick()`;
+- il tick c'è (`setTick`, `tick()`, `creationTick()`), ma commit e
+  acquisizioni non lo usano ancora;
 - il commit è `commit(long n)`, con n scelto dal software e maggiore
   dell'ultimo commit, e `lastCommit()` dà il numero dell'ultimo commit
   (0 per una partizione appena creata); lo snapshot è acquisibile alla

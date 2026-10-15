@@ -70,6 +70,10 @@ import java.util.function.Function;
  * snapshot ends the partition is finished: the method that ends it returns true, so the
  * node can remove the storage. It happens once, and only after the mark. The storage
  * has no reference to the node.
+ * <p>
+ * The storage has a tick: the logical time of the partition, which the node moves
+ * forward, and the tick at which the partition was created. The other parts of the
+ * storage do not use the tick yet.
  */
 final class PartitionStorage3 implements SlotView3 {
 
@@ -103,6 +107,10 @@ final class PartitionStorage3 implements SlotView3 {
     // threads that acquire: an acquisition that finds its snapshot out of the window after
     // the mark sees the mark too.
     private volatile boolean removed;
+    // The tick at which the partition was created.
+    private final long creationTick;
+    // Written by the thread that moves the tick of the node, read by any thread.
+    private volatile long tick;
     /** True after an insertion or a removal not yet in a snapshot. */
     private boolean idsChanged;
     private final CoordinateLimits limits;
@@ -125,11 +133,20 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     /**
-     * Creates a storage with the given index, and with its limits, that keeps
+     * Creates a storage at tick 0 with the given index, and with its limits, that keeps
      * retainedPastSnapshots past snapshots and measures the timeouts with the clock.
      */
     PartitionStorage3(IndexConfig index, int retainedPastSnapshots, MonotonicClock clock) {
-        this(index.limits(), slots -> SpatialIndexes.create(index, slots), retainedPastSnapshots, clock);
+        this(index, retainedPastSnapshots, clock, 0);
+    }
+
+    /**
+     * Creates a storage at the given tick with the given index, and with its limits, that keeps
+     * retainedPastSnapshots past snapshots and measures the timeouts with the clock.
+     */
+    PartitionStorage3(IndexConfig index, int retainedPastSnapshots, MonotonicClock clock, long creationTick) {
+        this(index.limits(), slots -> SpatialIndexes.create(index, slots), retainedPastSnapshots, clock,
+                creationTick);
     }
 
     /**
@@ -158,6 +175,18 @@ final class PartitionStorage3 implements SlotView3 {
      */
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
             int retainedPastSnapshots, MonotonicClock clock) {
+        this(limits, indexFactory, retainedPastSnapshots, clock, 0);
+    }
+
+    /**
+     * Creates a storage at the given tick with the given limits, the index made by the factory,
+     * retainedPastSnapshots past snapshots and the clock of the timeouts. The factory gets this
+     * storage, so the index can read it during the queries.
+     */
+    PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
+            int retainedPastSnapshots, MonotonicClock clock, long creationTick) {
+        this.creationTick = creationTick;
+        this.tick = creationTick;
         this.clock = clock;
         this.limits = limits;
         this.index = indexFactory.apply(this);
@@ -246,6 +275,28 @@ final class PartitionStorage3 implements SlotView3 {
     /** Returns k: the number of past snapshots kept besides the last one. */
     int retainedPastSnapshots() {
         return catalog.retainedPastSnapshots();
+    }
+
+    /** Returns the tick at which the partition was created. Any thread can call it. */
+    long creationTick() {
+        return creationTick;
+    }
+
+    /** Returns the tick of the partition. Any thread can call it. */
+    long tick() {
+        return tick;
+    }
+
+    /**
+     * Moves the tick of the partition forward to the given tick. The same tick again does
+     * nothing. Fails with IllegalArgumentException if the tick is less than the tick of the
+     * partition. Only the thread that moves the tick of the node calls it.
+     */
+    void setTick(long tick) {
+        if (tick < this.tick) {
+            throw new IllegalArgumentException("Tick " + tick + " is less than the tick " + this.tick);
+        }
+        this.tick = tick;
     }
 
     /**

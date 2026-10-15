@@ -6,7 +6,9 @@ import static badspace.common.partition.Entity2.entity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.common.geometry.Box2;
@@ -24,6 +26,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -233,6 +237,85 @@ class LocalPartitionNode2Test {
         assertEquals(0, node.lastCommit(P2));
         node.commit(P2, 1);
         assertEquals(7, node.lastCommit(P1));
+    }
+
+    @Test
+    void newNodeAndItsPartitionsAreAtTickZero() {
+        assertEquals(0, node.tick());
+        assertEquals(0, node.tick(P1));
+        assertEquals(0, node.creationTick(P1));
+    }
+
+    @Test
+    void setTickMovesTheNodeAndItsPartitionsAndAllowsGaps() {
+        node.createPartition(P2);
+        node.setTick(1);
+        node.setTick(5);
+        assertEquals(5, node.tick());
+        assertEquals(5, node.tick(P1));
+        assertEquals(5, node.tick(P2));
+    }
+
+    @Test
+    void setTickWithTheSameTickDoesNothing() {
+        node.setTick(3);
+        node.setTick(3);
+        assertEquals(3, node.tick());
+        assertEquals(3, node.tick(P1));
+    }
+
+    @Test
+    void setTickRejectsAnEarlierTickAndChangesNothing() {
+        node.setTick(3);
+        assertThrows(IllegalArgumentException.class, () -> node.setTick(2));
+        assertThrows(IllegalArgumentException.class, () -> node.setTick(-1));
+        assertEquals(3, node.tick());
+        assertEquals(3, node.tick(P1));
+    }
+
+    @Test
+    void partitionIsCreatedAtTheTickOfTheNode() {
+        node.setTick(7);
+        node.createPartition(P2);
+        assertEquals(7, node.creationTick(P2));
+        assertEquals(7, node.tick(P2));
+        assertEquals(0, node.creationTick(P1));
+    }
+
+    @Test
+    void ticksRejectUnknownPartition() {
+        assertThrows(IllegalArgumentException.class, () -> node.tick(P2));
+        assertThrows(IllegalArgumentException.class, () -> node.creationTick(P2));
+    }
+
+    @Test
+    void partitionCreatedWhileTheNodeMovesDoesNotStayBehind() throws InterruptedException {
+        int ticks = 2000;
+        int created = 200;
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread mover = new Thread(() -> {
+            try {
+                start.await();
+                for (int t = 1; t <= ticks; t++) {
+                    node.setTick(t);
+                }
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        mover.start();
+        start.countDown();
+        for (int i = 0; i < created; i++) {
+            node.createPartition(new PartitionId(100 + i));
+        }
+        assertTimeoutPreemptively(TIMEOUT, () -> mover.join());
+        assertNull(failure.get());
+        for (int i = 0; i < created; i++) {
+            PartitionId partitionId = new PartitionId(100 + i);
+            assertEquals(ticks, node.tick(partitionId));
+            assertTrue(node.creationTick(partitionId) <= ticks);
+        }
     }
 
     @Test

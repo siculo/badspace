@@ -13,7 +13,7 @@ import java.util.Optional;
 
 /**
  * Proxy of a 2D partition that lives on a node. It has a single writer and is not thread-safe,
- * except {@link #lastCommit()} and the acquisitions. The reads of the proxy see the writes
+ * except {@link #lastCommit()}, {@link #tick()} and the acquisitions. The reads of the proxy see the writes
  * not yet committed; the other threads {@linkplain #acquireLatest() acquire} the snapshot of
  * a commit and read it.
  * Single-entity operations are batches of one entity: to write many entities,
@@ -221,6 +221,18 @@ public final class Partition2 implements Partition {
     public long lastCommit() {
         checkNotRemoved();
         return node.lastCommit(partitionId);
+    }
+
+    @Override
+    public long tick() {
+        checkNotRemoved();
+        return node.tick(partitionId);
+    }
+
+    @Override
+    public long creationTick() {
+        checkNotRemoved();
+        return node.creationTick(partitionId);
     }
 
     @Override

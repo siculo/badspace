@@ -34,29 +34,60 @@ import java.util.List;
  * Partition IDs are never used again, so the node cannot tell an unknown partition from
  * a removed one in an acquisition: the release does nothing and the reads fail with
  * IllegalStateException, like for a released acquisition.
+ * <p>
+ * The node has a logical time, the tick: a counter that only grows, which the software
+ * moves forward with {@link #setTick}. A new node is at tick 0. Each partition has its
+ * own tick too: the node moves its partitions to a new tick one after the other, so for
+ * a short time the partitions of a node can be at different ticks. A partition is created
+ * at the tick of the node.
  */
 public interface PartitionNode3 {
 
-    /** Creates an empty partition that uses the linear scan as index. Fails if the ID is already in use on this node. */
+    /**
+     * Creates an empty partition that uses the linear scan as index, at the tick of the node.
+     * Fails if the ID is already in use on this node.
+     */
     default void createPartition(PartitionId partitionId) {
         createPartition(partitionId, IndexConfig.linearScan());
     }
 
     /**
-     * Creates an empty partition with the given index and the default number of past snapshots.
-     * Fails if the ID is already in use on this node.
+     * Creates an empty partition with the given index and the default number of past snapshots,
+     * at the tick of the node. Fails if the ID is already in use on this node.
      */
     default void createPartition(PartitionId partitionId, IndexConfig index) {
         createPartition(partitionId, index, RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS);
     }
 
     /**
-     * Creates an empty partition with the given index. The partition keeps the last snapshot and
+     * Creates an empty partition with the given index, at the tick of the node: this is its
+     * {@linkplain #creationTick creation tick}. The partition keeps the last snapshot and
      * retainedPastSnapshots snapshots before it. Fails with IllegalArgumentException if the ID is
      * already in use on this node or if retainedPastSnapshots is negative; in these cases no
      * partition is created.
      */
     void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastSnapshots);
+
+    /**
+     * Moves the tick of the node forward to the given tick, and then the tick of each of its
+     * partitions, also of the ones marked as removed. The partitions move one after the other,
+     * not all at the same moment. The same tick again does nothing, and ticks can be skipped.
+     * Fails with IllegalArgumentException if the tick is less than the tick of the node; in
+     * this case nothing changes.
+     */
+    void setTick(long tick);
+
+    /** Returns the tick of the node: 0 for a new node. Any thread can call it. */
+    long tick();
+
+    /**
+     * Returns the tick of a partition. While the node moves its partitions to a new tick, it can
+     * be less than the {@linkplain #tick() tick of the node}. Any thread can call it.
+     */
+    long tick(PartitionId partitionId);
+
+    /** Returns the tick at which the partition was created: the tick of the node at that moment. */
+    long creationTick(PartitionId partitionId);
 
     /**
      * Removes an empty partition: marks it as removed, and the node removes it when its
