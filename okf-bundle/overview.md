@@ -4,7 +4,7 @@ title: Panoramica di BADSPACE
 description: Panoramica di progettazione di BADSPACE, un database real-time per entità in uno spazio 2D o 3D, base per software di simulazione, monitoraggio o gaming, e delle sue decisioni architetturali principali.
 tags: [badspace, design]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T20:26:50Z }
 ---
 
 # Cos'è BADSPACE
@@ -103,5 +103,6 @@ delle prestazioni.
 # Processo
 
 Lo sviluppo procede per [prototipi minimali](/process/development-approach.md):
-ogni prototipo è accompagnato da uno o più client di test per validare
-le decisioni sul campo, invece di progettare tutto a priori.
+ogni prototipo è verificato da test di integrazione e accompagnato da
+client d'esempio, per validare le decisioni sul campo invece di
+progettare tutto a priori.

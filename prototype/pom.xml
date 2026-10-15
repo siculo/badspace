@@ -15,7 +15,8 @@
         <module>common</module>
         <module>service</module>
         <module>api</module>
-        <module>client</module>
+        <module>integration-tests</module>
+        <module>samples</module>
         <module>benchmark</module>
     </modules>
 
@@ -73,6 +74,15 @@
     </dependencies>
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>exec-maven-plugin</artifactId>
+                    <version>3.5.1</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

@@ -1,19 +1,19 @@
 ---
 type: Playbook
 title: Approccio di sviluppo
-description: BADSPACE viene sviluppato per prototipi minimali, verificati da client di test costruiti man mano, per validare le decisioni di progettazione sul campo; lo sviluppo è incrementale, ogni concetto nuovo porta con sé le estensioni che richiede e i meccanismi si implementano una volta e si estendono quando servono nuovi dati; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
+description: BADSPACE viene sviluppato per prototipi minimali, verificati da test di integrazione e accompagnati da client d'esempio costruiti man mano, per validare le decisioni di progettazione sul campo; lo sviluppo è incrementale, ogni concetto nuovo porta con sé le estensioni che richiede e i meccanismi si implementano una volta e si estendono quando servono nuovi dati; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
 tags: [badspace, methodology, prototyping]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:06:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T20:26:50Z }
 ---
 
 # Approccio
 
 Procedere per **prototipi minimali** su cui ragionare e rivalutare le
 scelte fatte, invece di progettare tutto a priori. Ogni prototipo è
-accompagnato da **uno o più client di test** che ne verificano le
-funzionalità, per validare le decisioni sul campo. I client non devono
-essere necessariamente un gioco.
+verificato da **test di integrazione** e accompagnato da **client
+d'esempio** che ne mostrano l'uso, per validare le decisioni sul campo.
+I client non devono essere necessariamente un gioco.
 
 Ogni decisione resta rivalutabile quando un prototipo porta
 informazioni nuove.
@@ -46,13 +46,27 @@ arrivano.
 L'ordine dei prototipi tiene conto solo dei prerequisiti veri, cioè di
 ciò che senza un altro pezzo non può funzionare.
 
-# Client di test
+# Test di integrazione e client d'esempio
 
-I client di test sono un tema trasversale: non è deciso quanti e quali
-servano. Si costruiscono man mano, accanto ai prototipi che li
-richiedono, per esempio uno scenario con aree non contigue per la
-[migrazione](/mechanisms/entity-migration.md) e uno con zone contigue
-per le [letture coerenti](/mechanisms/consistent-reads.md).
+Le due cose hanno ruoli diversi e stanno in moduli separati del
+prototipo:
+
+- **Test di integrazione.** Verificano l'API insieme ai nodi del
+  servizio, dal punto di vista del software che usa BADSPACE. Stanno in
+  un modulo che contiene solo test e dipende da common, service e api,
+  così l'API non dipende dal servizio nemmeno nei suoi test. La
+  semantica in dettaglio resta nei test unitari di ogni modulo.
+- **Client d'esempio.** Mostrano come si usa BADSPACE. Ogni esempio è
+  un modulo a sé, con un solo programma, invece di più programmi nello
+  stesso modulo: per esempio un giro dell'API (spazi, partizioni,
+  operazioni batch, query, tick e rimozione) e un writer che muove le
+  entità a ogni tick mentre un reader mostra l'ultimo snapshot.
+
+Quanti e quali client servano non è deciso: si costruiscono man mano,
+accanto ai prototipi che li richiedono, per esempio uno scenario con
+aree non contigue per la [migrazione](/mechanisms/entity-migration.md)
+e uno con zone contigue per le [letture
+coerenti](/mechanisms/consistent-reads.md).
 
 # Benchmark
 

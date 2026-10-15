@@ -1,8 +1,14 @@
-package badspace.api;
+package badspace.integration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import badspace.api.AcquiredSnapshot3;
+import badspace.api.Partition3;
+import badspace.api.PartitionConfig;
+import badspace.api.RemovalPolicy;
+import badspace.api.Space3;
+import badspace.api.SpaceConfig;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Box3;
 import badspace.common.geometry.Point3;
@@ -18,7 +24,7 @@ import org.junit.jupiter.api.function.Executable;
 /**
  * The API together with the local nodes of the service: spaces, partitions, ticks, commits,
  * acquisitions and removal from the point of view of the software. The semantics in detail is
- * tested in the service; {@link Space3Test} checks the calls of the API with a simple node.
+ * tested in the service; Space3Test in the api module checks the calls of the API with a simple node.
  */
 class Space3EndToEndTest {
 

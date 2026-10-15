@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>badspace</groupId>
+        <artifactId>badspace-prototype</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>badspace-integration-tests</artifactId>
+    <name>BADSPACE prototype - integration tests</name>
+    <description>Tests of the API together with the partition nodes of the service.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>badspace</groupId>
+            <artifactId>badspace-common</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>badspace</groupId>
+            <artifactId>badspace-service</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>badspace</groupId>
+            <artifactId>badspace-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

@@ -10,9 +10,19 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>badspace-client</artifactId>
-    <name>BADSPACE prototype - client</name>
-    <description>Test client.</description>
+    <artifactId>badspace-samples</artifactId>
+    <packaging>pom</packaging>
+    <name>BADSPACE prototype - samples</name>
+    <description>Sample clients that show how to use BADSPACE, one for each module.</description>
+
+    <!-- To run a sample, from the prototype directory:
+         mvn install -DskipTests
+         mvn -pl samples/<name> exec:java -->
+
+    <modules>
+        <module>api-tour</module>
+        <module>random-updater</module>
+    </modules>
 
     <dependencies>
         <dependency>
@@ -24,4 +34,13 @@
             <artifactId>badspace-service</artifactId>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 </project>

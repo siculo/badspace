@@ -76,6 +76,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 - [x] Test unitari di spazi e nodi locali
 - [x] Client di test di base
 - [x] Run configuration di IntelliJ
+- [x] Modulo `integration-tests` con i test dell'API insieme ai nodi locali e moduli dei client d'esempio in `samples` (`api-tour`, `random-updater`), al posto del modulo client
 
 <a id="fare-basi"></a>
 ### Basi [↑](#blocchi)

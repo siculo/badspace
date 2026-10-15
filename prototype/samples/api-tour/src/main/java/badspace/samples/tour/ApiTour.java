@@ -1,4 +1,4 @@
-package badspace.client;
+package badspace.samples.tour;
 
 import static badspace.common.geometry.Point2.point;
 import static badspace.common.geometry.Point3.point;
@@ -24,11 +24,11 @@ import badspace.service.partition.LocalPartitionNode3;
 import java.util.List;
 
 /**
- * Test client: creates a 2D and a 3D space with partitions on local nodes,
+ * Sample client: creates a 2D and a 3D space with partitions on local nodes,
  * sharing the generators of entity IDs and of partition IDs,
  * then inserts, reads, updates, queries, commits and removes entities, and at last removes partitions.
  */
-public class Main {
+public class ApiTour {
 
     public static void main(String[] args) {
         // One generator for each kind of ID for the whole process. The generator ID comes from

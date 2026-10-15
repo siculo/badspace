@@ -4,7 +4,7 @@ title: Conservazione degli snapshot
 description: Ogni partizione ha uno snapshot logico S(n) per ogni tick completato dalla creazione alla rimozione, con contenuto condiviso tra tick senza commit, e conserva acquisibili quelli degli ultimi k tick (max(T − k, C) ≤ n ≤ T − 1, k ≥ 1, default 1); i reader acquisiscono uno snapshot, lo leggono e lo rilasciano, con una scadenza obbligatoria, e uno snapshot uscito dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni snapshot.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T20:26:50Z }
 ---
 
 # Primitiva
@@ -380,7 +380,7 @@ partizioni li crea il generatore di ID delle partizioni che lo spazio
 riceve in `SpaceConfig`. I reader non hanno altro modo di leggere uno
 snapshot: `lastSnapshot()` è solo un metodo interno dello storage.
 
-Il client `SampleRandomUpdater` fa un commit e un avanzamento del tick a
+Il client d'esempio `RandomUpdater` fa un commit e un avanzamento del tick a
 ogni tick, e il reader mostra l'ultimo snapshot. Nell'API, due spazi con
 gli stessi generatori danno ID di partizione diversi.
 
