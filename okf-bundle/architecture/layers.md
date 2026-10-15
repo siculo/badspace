@@ -4,7 +4,7 @@ title: Architettura a livelli
 description: I tre livelli di BADSPACE partizionato — software, API comune di supporto, layer delle partizioni ospitato dai nodi — chi decide cosa e dove passa il futuro confine di rete.
 tags: [badspace, architecture, partitioning, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T10:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Livelli
@@ -34,9 +34,9 @@ migrazione devono vedere più partizioni, quindi stanno sopra.
 
 | Livello | Responsabilità |
 |---|---|
-| Software | strategia di partizionamento, nodo su cui creare ogni partizione, mappa ID → partizione, quando migrare un'entità, quali partizioni interrogare, tick e barriera tra partizioni, rilascio e scadenza degli snapshot che acquisisce |
+| Software | strategia di partizionamento, nodo su cui creare ogni partizione, mappa ID → partizione, quando migrare un'entità, quali partizioni interrogare, quando far avanzare il tick (gTick) e la barriera tra partizioni, rilascio e scadenza degli snapshot che acquisisce |
 | API comune | generazione degli [ID](/decisions/entity-ids.md) di entità e partizioni, [aggregazione](/mechanisms/query-aggregation.md), creazione e configurazione delle partizioni (incluso l'indice), meccanismi come la [migrazione](/mechanisms/entity-migration.md) e le [letture coerenti](/mechanisms/consistent-reads.md) |
-| Layer delle partizioni | le primitive dell'[architettura minima](/architecture/minimal-core.md), offerte dai nodi, comprese la conservazione e l'acquisizione degli snapshot |
+| Layer delle partizioni | le primitive dell'[architettura minima](/architecture/minimal-core.md), offerte dai nodi, compresi il [tick logico](/architecture/logical-time.md) e la conservazione e l'acquisizione degli snapshot |
 
 Le decisioni sul ciclo di vita delle istanze (quali e quante
 partizioni, nodi e istanze dell'API) stanno sopra i meccanismi che le

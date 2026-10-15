@@ -4,7 +4,7 @@ title: Panoramica di BADSPACE
 description: Panoramica di progettazione di BADSPACE, un database real-time per entità in uno spazio 2D o 3D, base per software di simulazione, monitoraggio o gaming, e delle sue decisioni architetturali principali.
 tags: [badspace, design]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T20:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Cos'è BADSPACE
@@ -69,8 +69,8 @@ partizione: quasi tutte le altre decisioni ne discendono.
 - [Concorrenza](/decisions/concurrency.md) — un solo writer per
   partizione.
 - [Isolamento delle letture](/decisions/read-isolation.md) — il writer
-  prepara un nuovo snapshot della partizione, che al commit diventa
-  visibile ai reader.
+  prepara un nuovo snapshot della partizione a ogni commit, che diventa
+  visibile ai reader all'avanzamento del tick.
 - [API da esporre](/decisions/api-surface.md) — operazioni di base
   individuate, forma da definire.
 - [Persistenza](/decisions/persistence.md) — snapshot per partizione;

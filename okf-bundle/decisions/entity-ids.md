@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: ID delle entità
-description: Gli ID delle entità sono univoci su tutte le partizioni, mai riusati e senza indicazione della partizione; anche gli ID delle partizioni sono univoci tra spazi e mai riusati. Li crea, uno per tipo di ID, un generatore dell'API comune dietro un contratto proprio, senza garanzie di ordine né di segno. Lo schema scelto, sostituibile, è Snowflake a 64 bit: un generatore per processo API, con generatorId assegnato a ogni avvio.
+description: "Gli ID delle entità sono univoci su tutte le partizioni, mai riusati e senza indicazione della partizione; anche gli ID delle partizioni sono univoci tra spazi e mai riusati. Li crea, uno per tipo di ID, un generatore dell'API comune dietro un contratto proprio, senza garanzie di ordine né di segno. Lo schema scelto, sostituibile, è Snowflake a 64 bit: un generatore per processo API, con generatorId assegnato a ogni avvio."
 tags: [badspace, design, partitioning, ids]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T10:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Decisione
@@ -169,11 +169,11 @@ di partizioni: che un ID di partizione non torni mai è una precondizione
 del contratto del nodo.
 
 Il mai riuso serve alla [rimozione della
-partizione](/architecture/snapshot-retention.md#rimozione-della-partizione)
-in due fasi: una partizione segnata come rimossa resta sul nodo con il
-suo ID finché ha snapshot non finiti, e le acquisizioni già fatte la
-trovano per ID. Il nodo rifiuta la creazione di una partizione con un
-ID ancora presente, anche se la partizione è segnata come rimossa.
+partizione](/architecture/partition-removal.md): una partizione rimossa
+resta sul nodo con il suo ID, in rimozione e poi ritirata, fino alla
+distruzione, e acquisizioni e letture la trovano per ID. Il nodo
+rifiuta la creazione di una partizione con un ID ancora presente, anche
+se la partizione è ritirata.
 
 # Punti aperti
 

@@ -4,7 +4,7 @@ title: Casi d'uso
 description: I casi d'uso che BADSPACE vuole supportare, ciascuno con la sua configurazione delle partizioni e i soli meccanismi che gli servono.
 tags: [badspace, use-cases, partitioning]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T16:41:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Principio
@@ -19,15 +19,15 @@ indicati con "Gioco".
 
 | Caso d'uso | Come si configura | Meccanismi attivi |
 |---|---|---|
-| Gioco: aree non contigue, per esempio sistemi solari separati da distanze enormi | Una partizione per area, ognuna col proprio tick; k = 0; il viaggio di una nave tra sistemi è una migrazione | Solo [migrazione](/mechanisms/entity-migration.md) |
-| Gioco: mondo a zone contigue con confini | Partizioni per zona, tick globale, k ≥ 1 sulle partizioni di confine; le query vicino al confine interrogano più zone | Migrazione, [letture coerenti al tick N](/mechanisms/consistent-reads.md), [aggregazione](/mechanisms/query-aggregation.md) |
+| Gioco: aree non contigue, per esempio sistemi solari separati da distanze enormi | Una partizione per area, tutte con il tick comune dello spazio; k = 1; il viaggio di una nave tra sistemi è una migrazione | Solo [migrazione](/mechanisms/entity-migration.md) |
+| Gioco: mondo a zone contigue con confini | Partizioni per zona, gTick, k > 1 sulle partizioni di confine; le query vicino al confine interrogano più zone | Migrazione, [letture coerenti al tick N](/mechanisms/consistent-reads.md), [aggregazione](/mechanisms/query-aggregation.md) |
 | Gioco: strategia mista per tipo di entità | Geometria statica divisa per zone con indice build-once; proiettili (molte scritture, poche query, densità regolare) in un'unica partizione globale con una grid uniforme a celle grandi, l'indice più economico nelle scritture; giocatori (molte query, spesso raccolti in gruppi densi) con una griglia di quadtree, che non crolla nelle query con i dati a cluster ma costa di più nelle scritture | Aggregazione tra partizioni con indici diversi |
 | Gioco: interazioni tra giocatori | Metadati applicativi come riserve: un processo prenota un'entità per un'operazione a due | Scritture condizionate |
 | Gioco: entità effimere, come i proiettili | Metadato di scadenza: l'entità scade dopo un certo tick | [Metadati applicativi](/architecture/entity-metadata.md) |
 | Modifiche da processi che non sono il writer | Versione applicativa per entità: "applica se la versione è ancora v", il writer accetta o rifiuta senza lock | Concorrenza ottimistica sui metadati |
 | Carico sbilanciato tra zone | Si cede un'intera partizione calda a un altro writer, o la si divide | [Ribilanciamento e split](/mechanisms/rebalancing-and-split.md) |
-| Server distribuito o cluster | Partizioni su [nodi](/architecture/layers.md#nodi) separati (processi o macchine), contratto dei nodi esposto via gRPC; l'API resta nel processo del software | Tutti, con coordinamento esterno del tick |
-| Uso non legato al gioco | Commit a batch invece che a tick, per esempio per dati di posizione aggiornati a intervalli | A scelta |
+| Server distribuito o cluster | Partizioni su [nodi](/architecture/layers.md#nodi) separati (processi o macchine), contratto dei nodi esposto via gRPC; l'API resta nel processo del software | Tutti, con coordinamento esterno del gTick |
+| Uso non legato al gioco | Commit a batch, per esempio per dati di posizione aggiornati a intervalli: il writer distribuisce le scritture del batch su più tick e chiama `commit()` alla fine (vedi [commit della partizione](/architecture/partition-commit.md#commit-e-tick)) | A scelta |
 
 # Ricerche di base
 

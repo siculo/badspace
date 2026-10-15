@@ -1,7 +1,7 @@
 ---
 type: Design Proposal
 title: Modulo degli alberi
-description: Proposta per l'implementazione finale di un modulo specifico per gli alberi degli indici (quadtree/octree): arena con handle, topologia, liste di slot delle foglie e mappa inversa dentro il modulo, geometria fuori; snapshot copy-on-write per l'isolamento delle letture; handle generazionali in debug e regole per non usare handle scaduti nelle scritture.
+description: "Proposta per l'implementazione finale di un modulo specifico per gli alberi degli indici (quadtree/octree): arena con handle, topologia, liste di slot delle foglie e mappa inversa dentro il modulo, geometria fuori; snapshot copy-on-write per l'isolamento delle letture; handle generazionali in debug e regole per non usare handle scaduti nelle scritture."
 tags: [badspace, spatial-indexing, quadtree, octree, implementation, rust, c]
 status: draft
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T07:46:40Z }

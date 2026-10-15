@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione con scadenza obbligatoria, lettura e rilascio degli snapshot conservati), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` senza numero, nel tick corrente) e delle letture dei reader (acquisizione al tick con scadenza obbligatoria, lettura e rilascio degli snapshot conservati), con il codice ancora nella forma precedente, mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Stato
@@ -14,8 +14,8 @@ posizione, query di range, k-nearest, raycasting e le operazioni su
 metadati, partizioni e commit). Il prototipo definisce la forma delle
 operazioni di scrittura e lettura per ID sulle entità, delle query di
 range e k-nearest su una partizione, della creazione e rimozione delle
-partizioni, del commit e delle letture dei reader sull'ultimo commit
-(vedi [Forma delle chiamate nel
+partizioni, del tick, del commit e delle letture dei reader sugli
+snapshot conservati (vedi [Forma delle chiamate nel
 prototipo](#forma-delle-chiamate-nel-prototipo)), che resta
 rivalutabile; la forma delle altre operazioni, raycast compreso, è
 ancora da definire.
@@ -33,12 +33,13 @@ evolvere aggiungendo il supporto a ulteriori meccanismi.
 | Entità | Ricerche per posizione | Range, k-nearest, raycast, su una o più partizioni (vedi [aggregazione](/mechanisms/query-aggregation.md)) |
 | Metadati | Lettura e modifica | [Metadati](/architecture/entity-metadata.md) applicativi; quelli di sistema sono in sola lettura |
 | Metadati | Scritture condizionate | Compare-and-set; sostituiscono le transazioni tra partizioni |
-| Partizioni | Creazione e rimozione dinamica | Con scelta dell'indice e di k; è la base della scalabilità |
+| Partizioni | Creazione e rimozione dinamica | Con scelta dell'indice e di k; è la base della scalabilità; la rimozione diventa effettiva al tick successivo (vedi [rimozione della partizione](/architecture/partition-removal.md)) |
 | Partizioni | Proprietà | Acquisire, rilasciare e trasferire l'esclusività di scrittura con il [fencing token](/architecture/partition-ownership.md) |
-| Commit | `commit(n)` | Chiude il [commit](/architecture/partition-commit.md) corrente con il numero n, scelto dal software; per un server a frame, alla fine del tick |
-| Commit | Ultimo commit persistito | [Durabilità osservabile](/architecture/observable-durability.md) |
-| Commit | Acquisizione e rilascio degli snapshot | Ultimo, precedente, al tick N o prima, esatto; con scadenza obbligatoria (vedi [acquisizione degli snapshot](#acquisizione-degli-snapshot)) |
-| Commit | Lettura al tick N | Acquisizione al tick N o prima su ogni partizione; k ≥ 1 se il writer può essere avanti (vedi [conservazione degli snapshot](/architecture/snapshot-retention.md)) |
+| Tick | `setTick(t)` | Fa avanzare il [tick logico](/architecture/logical-time.md) dello spazio, dei suoi nodi e delle loro partizioni; pubblica gli snapshot dei tick completati |
+| Commit | `commit()` | Conferma le scritture nel tick corrente della partizione (vedi [commit](/architecture/partition-commit.md)); per un server a frame, alla fine del lavoro del tick |
+| Commit | Ultimo tick persistito | [Durabilità osservabile](/architecture/observable-durability.md) |
+| Commit | Acquisizione e rilascio degli snapshot | Al tick n, ultimo (`S(T − 1)`); con scadenza obbligatoria (vedi [acquisizione degli snapshot](#acquisizione-degli-snapshot)) |
+| Commit | Lettura al tick N | Acquisizione al tick N su ogni partizione, con k abbastanza grande per il ritardo tra le partizioni (vedi [letture coerenti](/mechanisms/consistent-reads.md)) |
 
 La mappa ID → partizione spetta al software, che decide dove creare le
 entità e quando spostarle. È una scelta naturale quando tutte le entità
@@ -125,6 +126,26 @@ quello atteso nei test degli altri indici, e le prestazioni degli altri
 indici si misurano rispetto alla sua. Il raycast non c'è ancora: per
 entità puntiformi la sua forma dipende dagli usi e va decisa a parte.
 
+## Tick dello spazio
+
+Il [tick logico](/architecture/logical-time.md) avanza con
+`setTick(long t)`, che il software chiama sullo spazio, di solito con il
+gTick. Lo spazio tiene il suo tick e i nodi su cui ha creato
+partizioni, e lo propaga a ognuno; su un nodo nuovo chiama `setTick`
+prima di creare la partizione.
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Avanzamento | `setTick(long t)` sullo spazio (`Space`) | Con `t` uguale al tick corrente non fa niente; sono ammessi i salti |
+| Tick corrente | `tick()` sullo spazio e sulla partizione | Il tick della partizione può restare indietro durante la propagazione; è solo un metadato |
+
+| Errore | Eccezione |
+|---|---|
+| `t` minore del tick corrente | `IllegalArgumentException` |
+
+Nel contratto del nodo `setTick(long)` fa avanzare il tick del nodo e
+lo propaga alle partizioni; il tick iniziale di un nodo è 0.
+
 ## Creazione e rimozione delle partizioni
 
 Le partizioni si creano e si rimuovono attraverso uno **spazio**
@@ -142,146 +163,151 @@ altre impostazioni dello spazio.
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Creazione | `createPartition(node)`, `createPartition(node, PartitionConfig)` | Crea una partizione vuota sul [nodo](/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio; senza configurazione vale quella di default |
-| Rimozione | `removePartition(partition)` | La chiama il writer della partizione; dopo la rimozione la partizione non si può più usare |
+| Creazione | `createPartition(node)`, `createPartition(node, PartitionConfig)` | Crea una partizione vuota sul [nodo](/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio, al tick corrente: `creationTick()` della partizione; senza configurazione vale quella di default |
+| Rimozione | `removePartition(partition)` | La chiama il writer della partizione, come ultima operazione (vedi [Rimozione della partizione](/architecture/partition-removal.md)) |
 
 La **configurazione della partizione** (`PartitionConfig`) si sceglie
 alla creazione e poi non cambia; la partizione la restituisce con
-`config()`. Oggi contiene:
+`config()`. Contiene:
 
 - l'**indice** (`IndexConfig`), che fissa anche i [limiti delle
   coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate);
   il default è la scansione lineare;
 - la **politica di rimozione**, con default `REQUIRE_EMPTY`;
-- **k** (`retainedPastSnapshots`), il numero di snapshot passati
-  conservati oltre al corrente, per l'[acquisizione degli
-  snapshot](#acquisizione-degli-snapshot): ≥ 0, default 0.
+- **k** (`retainedTicks`), il numero di tick consultabili per
+  l'[acquisizione degli snapshot](#acquisizione-degli-snapshot): ≥ 1,
+  default 1.
 
 `PartitionConfig.defaults()` dà la configurazione di default, e
-`withIndex`, `withRemovalPolicy` e `withRetainedPastSnapshots` ne fanno
-una copia con un valore cambiato. Seguendo lo [sviluppo
+`withIndex`, `withRemovalPolicy` e `withRetainedTicks` ne fanno una
+copia con un valore cambiato. Seguendo lo [sviluppo
 incrementale](/process/development-approach.md#sviluppo-incrementale),
 la configurazione si estende quando arrivano concetti nuovi.
 
 La politica di rimozione dice cosa succede alle entità quando la
 partizione viene rimossa:
 
-- `REQUIRE_EMPTY`: la partizione si rimuove solo se è vuota; le sue
-  entità vanno prima rimosse o spostate;
+- `REQUIRE_EMPTY`: la partizione si rimuove solo se è vuoto lo stato
+  confermato del tick corrente; le sue entità vanno prima rimosse o
+  spostate, e la rimozione confermata con `commit()`;
 - `DISCARD_ENTITIES`: la partizione si rimuove insieme alle sue entità.
+
+La rimozione porta la partizione nello stato **in rimozione**: dopo, il
+writer non può più fare scritture né commit, e le scritture non
+confermate si scartano. Al primo avanzamento del tick la partizione
+diventa **ritirata**, con `removalTick`: gli snapshot dei tick
+precedenti restano acquisibili finché sono nella finestra. Poi la
+partizione si distrugge (vedi [Rimozione della
+partizione](/architecture/partition-removal.md)). Il proxy non sa quando
+avvengono il ritiro e la distruzione: lo stato lo conosce il nodo, e il
+proxy gli passa le chiamate.
 
 | Errore | Eccezione |
 |---|---|
-| Partizione non vuota con `REQUIRE_EMPTY` (la partizione non cambia), o già rimossa | `IllegalStateException` |
+| Stato confermato non vuoto con `REQUIRE_EMPTY` (la partizione non cambia), o rimozione già chiesta | `IllegalStateException` |
+| Scrittura o commit dopo la rimozione | `IllegalStateException` |
 | Partizione di un altro spazio | `IllegalArgumentException` |
-| k negativo nella configurazione | `IllegalArgumentException` |
+| k minore di 1 nella configurazione | `IllegalArgumentException` |
 
 Nel contratto del nodo la creazione riceve l'ID della partizione, la
 configurazione dell'indice (`IndexConfig`, scansione lineare se manca)
-e k (0 se manca), e fallisce con `IllegalArgumentException` se k è
-negativo o se l'ID è ancora presente sul nodo, anche con la partizione
-segnata come rimossa; la rimozione ha due operazioni, una per le partizioni vuote e
-una che scarta anche le entità. Le due operazioni segnano la partizione
-come rimossa: dopo il segno scritture, commit, letture del writer e
-nuove acquisizioni falliscono con `IllegalStateException`, e il nodo
-toglie la partizione quando i suoi snapshot non hanno più utilizzi
-(vedi [Rimozione della
-partizione](/architecture/snapshot-retention.md#rimozione-della-partizione));
-dopo, l'ID è sconosciuto e le operazioni falliscono con
-`IllegalArgumentException`. L'API passa al nodo l'indice e k della
-configurazione. Il nodo passa k al catalogo degli snapshot della
-partizione, che tiene gli ultimi k + 1 snapshot pubblicati (vedi
-[Conservazione degli snapshot](/architecture/snapshot-retention.md#nel-prototipo)).
+e k (1 se manca), e crea la partizione al tick corrente del nodo;
+fallisce con `IllegalArgumentException` se k è minore di 1 o se l'ID è
+ancora presente sul nodo, anche con la partizione ritirata. La
+rimozione ha due operazioni, una per le partizioni con lo stato
+confermato vuoto e una che scarta anche le entità. Dopo la distruzione
+l'ID è sconosciuto, e le operazioni falliscono con un errore generico,
+senza distinguere una partizione mai esistita da una distrutta.
+L'API passa al nodo l'indice e k della configurazione.
 
 ## Commit
 
 Il [commit](/architecture/partition-commit.md) si chiude con
-`commit(long n)`, nell'interfaccia comune `Partition`. Il numero n lo
-sceglie il software, perché il significato del contatore lo stabiliscono
-i livelli superiori: il tick locale, il tick globale o un numero di
-batch. n deve essere **maggiore dell'ultimo commit**; sono ammessi i
-salti, per esempio quando un commit copre più tick.
+`commit()`, nell'interfaccia comune `Partition`, senza numero: conferma
+le scritture fatte fino a quel momento nel tick corrente della
+partizione. Più commit nello stesso tick sono ammessi, e l'ultimo
+definisce lo snapshot del tick; le scritture non confermate passano al
+tick successivo.
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Commit | `commit(long n)` | Chiude il commit corrente con il numero n; un commit senza scritture è valido |
-| Ultimo commit | `lastCommit()` | Il numero dell'ultimo commit; una partizione appena creata è al commit 0 |
+| Commit | `commit()` | Conferma lo stato del writer nel tick corrente; un commit senza scritture è valido |
+| Tick corrente | `tick()` | Il tick della partizione; sostituisce `lastCommit()` |
+| Tick di creazione | `creationTick()` | Il tick in cui la partizione è stata creata: il primo snapshot è `S(creationTick)` |
 
 | Errore | Eccezione |
 |---|---|
-| n non maggiore dell'ultimo commit (la partizione non cambia) | `IllegalArgumentException` |
-| Partizione già rimossa | `IllegalStateException` |
+| Commit dopo la rimozione | `IllegalStateException` |
 
 Scelte di dettaglio:
 
 - **Scritture fallite**: le scritture sono tutto-o-niente, quindi una
-  scrittura fallita non cambia nemmeno il commit corrente.
-- **Rimozione con scritture non committate**: è permessa; la politica
-  di rimozione guarda lo stato del writer, non l'ultimo commit.
-- **Contratto del nodo**: `commit(PartitionId, long)` e
-  `lastCommit(PartitionId)`. Il commit di più partizioni in una sola
+  scrittura fallita non cambia nemmeno lo stato del writer.
+- **Rimozione con scritture non confermate**: è permessa, e le scritture
+  si scartano; la politica di rimozione guarda lo stato confermato del
+  tick corrente.
+- **Contratto del nodo**: `commit(PartitionId)`, `tick(PartitionId)` e
+  `creationTick(PartitionId)`. Il commit di più partizioni in una sola
   chiamata, per ridurre le chiamate remote, è rimandato ai gruppi di
   partizioni o al nodo gRPC.
 
 Il [fencing token](/architecture/partition-ownership.md), quando
-arriva, si aggiunge al commit come alle altre scritture. La forma è
-provvisoria e si rivede con il tick globale e le [letture
-coerenti](/mechanisms/consistent-reads.md).
+arriva, si aggiunge al commit come alle altre scritture.
 
 ### Letture del writer e dei reader
 
-Il commit pubblica lo snapshot della partizione (vedi [isolamento delle
+Il commit prepara lo snapshot del tick, e l'avanzamento del tick lo
+pubblica (vedi [isolamento delle
 letture](/decisions/read-isolation.md#il-commit)). Le letture sono di
 due tipi:
 
 | Lettura | Forma | Note |
 |---|---|---|
-| Del writer | `getAll`, `findInRegion`, `findNearest` sul proxy della partizione | Leggono lo stato del writer, scritture non committate comprese; le chiama solo il writer |
-| Dei reader | Le [acquisizioni](#acquisizione-degli-snapshot) su `Partition2`/`Partition3` e nel contratto del nodo | Uno snapshot acquisito è immutabile e leggibile da ogni thread; prima del primo commit l'ultimo snapshot è quello vuoto del commit 0 |
+| Del writer | `getAll`, `findInRegion`, `findNearest` sul proxy della partizione | Leggono lo stato del writer, scritture non confermate comprese; le chiama solo il writer |
+| Dei reader | Le [acquisizioni](#acquisizione-degli-snapshot) su `Partition2`/`Partition3` e nel contratto del nodo | Uno snapshot acquisito è immutabile e leggibile da ogni thread; prima del primo avanzamento dopo la creazione non c'è niente da acquisire |
 
-Tutte le letture di uno snapshot acquisito vedono lo stesso commit; due
-acquisizioni dell'ultimo snapshot possono invece dare commit diversi.
-Lo snapshot interno della partizione non esce dal nodo: nel service lo
-storage ha ancora `lastSnapshot()`, per uso interno. `lastCommit()` si
-può chiamare da ogni thread, ma è solo un metadato.
+Tutte le letture di uno snapshot acquisito vedono lo stesso tick; due
+acquisizioni dell'ultimo snapshot possono invece dare tick diversi.
+Lo snapshot interno della partizione non esce dal nodo. `tick()` si può
+chiamare da ogni thread, ma è solo un metadato.
 
 ### Acquisizione degli snapshot
 
 La semantica è nella [conservazione degli
 snapshot](/architecture/snapshot-retention.md#acquisizione-e-rilascio).
-I reader leggono uno snapshot solo attraverso un'acquisizione. Nel
-prototipo ci sono le quattro selezioni con le opzioni, le letture e il
-rilascio.
+I reader leggono uno snapshot solo attraverso un'acquisizione.
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Ultimo | `acquireLatest(options)` | Lo snapshot corrente, anche quello vuoto del commit 0 |
-| Precedente | `acquirePrevious(int offset, options)` | `offset` = 0 è l'ultimo, `offset` = i l'i-esimo commit pubblicato prima |
-| Al tick o prima | `acquireAtOrBefore(long tick, options)` | Lo snapshot acquisibile con il commit più grande ≤ tick |
-| Esatto | `acquireExact(long commit, options)` | Solo lo snapshot di quel commit |
-| Lettura | `commit()`, `size()`, `get`, `getAll`, `findInRegion`, `findNearest` sulla view | Ogni lettura controlla l'acquisizione all'inizio |
+| Al tick | `acquire(long tick, options)` | `S(tick)`, se `max(T − k, C) ≤ tick ≤ T − 1` e la partizione esisteva a quel tick |
+| Ultimo | `acquireLatest(options)` | `S(T − 1)` |
+| Lettura | `tick()`, `size()`, `get`, `getAll`, `findInRegion`, `findNearest` sulla view | Ogni lettura controlla l'acquisizione all'inizio |
 | Rilascio | `close()` sulla view; `release` nel contratto del nodo | Idempotente e thread-safe |
+
+Le selezioni `acquirePrevious`, `acquireAtOrBefore` e `acquireExact`
+della prima forma non servono più: con uno snapshot per ogni tick,
+"al tick o prima" ed "esatto" coincidono con `acquire(tick)`.
 
 Le opzioni dicono la scadenza, che c'è sempre: la scadenza di default
 oppure una durata positiva, non maggiore della scadenza massima,
 misurata dal momento dell'acquisizione con il clock monotono del nodo.
 
-Nel prototipo le opzioni sono il record `AcquireOptions` in `common`,
-con la durata in nanosecondi: `AcquireOptions.defaultTimeout()` e
+Le opzioni sono il record `AcquireOptions` in `common`, con la durata
+in nanosecondi: `AcquireOptions.defaultTimeout()` e
 `AcquireOptions.timeout(Duration)`. Le costanti `DEFAULT_TIMEOUT`
 (1 minuto) e `MAX_TIMEOUT` (1 ora) sono nel record, che rifiuta una
 durata maggiore con `IllegalArgumentException` anche quando lo crea
 il nodo; la scadenza massima diventerà una configurazione del nodo.
-Nel contratto del nodo le quattro selezioni ricevono sempre le
-opzioni; nell'API ogni selezione ha anche la forma senza opzioni, che
-vale `defaultTimeout()`.
+Nel contratto del nodo le selezioni ricevono sempre le opzioni;
+nell'API ogni selezione ha anche la forma senza opzioni, che vale
+`defaultTimeout()`.
 
 **Locale e remoto.** Nell'API lo snapshot acquisito è una view
 `AutoCloseable`, `AcquiredSnapshot2`/`AcquiredSnapshot3`, da usare con
-`try`-with-resources; il suo `commit()` viene dall'identificatore e non
+`try`-with-resources; il suo `tick()` viene dall'identificatore e non
 controlla l'acquisizione. Nel contratto del nodo un'acquisizione
 restituisce un identificatore serializzabile, il record `Acquisition`
-con l'ID della partizione, il numero dell'acquisizione e il commit
+con l'ID della partizione, il numero dell'acquisizione e il tick
 acquisito; le letture (`size`, `getAll`, `findInRegion`, `findNearest`)
 ricevono l'identificatore e `release` lo chiude. Il numero lo sceglie
 la partizione, parte da 1 e non si riusa. Le acquisizioni le tiene il
@@ -290,19 +316,19 @@ e attraverso gRPC.
 
 | Errore | Eccezione |
 |---|---|
-| Snapshot non acquisibile: fuori dalla finestra, commit mai pubblicato, nessun commit ≤ tick | `SnapshotNotAvailableException`, eccezione di dominio dedicata; nessuna acquisizione creata |
-| `offset`, tick o commit negativi; durata zero o negativa | `IllegalArgumentException` |
+| Snapshot non acquisibile: tick non ancora pubblicato (≥ T), fuori dalla finestra, prima della creazione, dalla rimozione in poi | `SnapshotNotAvailableException`, eccezione di dominio dedicata, con il motivo (vedi [punti aperti](/architecture/snapshot-retention.md#punti-aperti)); nessuna acquisizione creata |
+| Tick negativo; durata zero o negativa | `IllegalArgumentException` |
 | Lettura attraverso un'acquisizione rilasciata o scaduta | `IllegalStateException`, con lo stesso messaggio nei due casi: dopo l'eliminazione di un'acquisizione scaduta il nodo non sa più se era stata rilasciata |
-| Acquisizione su una partizione rimossa | `IllegalStateException` |
+| Acquisizione su una partizione distrutta o mai esistita | Errore generico: il nodo non distingue i due casi |
 | Rilascio o lettura con un identificatore mai emesso o di un'altra partizione, nel contratto del nodo | `IllegalArgumentException`; le altre acquisizioni non cambiano |
-| Lettura con un identificatore di una partizione che il nodo non ha, nel contratto del nodo | `IllegalStateException`, come per un'acquisizione rilasciata; il rilascio non fa niente. Gli ID delle partizioni non si riusano, quindi il nodo non distingue una partizione mai esistita da una già tolta |
-| Lettura con un identificatore il cui commit non è quello dello snapshot acquisito, nel contratto del nodo | `IllegalArgumentException` |
+| Lettura con un identificatore di una partizione che il nodo non ha, nel contratto del nodo | `IllegalStateException`, come per un'acquisizione rilasciata; il rilascio non fa niente. Gli ID delle partizioni non si riusano, quindi il nodo non distingue una partizione mai esistita da una già distrutta |
+| Lettura con un identificatore il cui tick non è quello acquisito, nel contratto del nodo | `IllegalArgumentException` |
 
 Scelte di dettaglio:
 
 - **Rilascio ripetuto**: il secondo rilascio della stessa acquisizione,
-  il rilascio dopo la scadenza o dopo la rimozione della partizione non
-  fa niente, quindi `close()` della view non fallisce mai.
+  il rilascio dopo la scadenza o dopo la distruzione della partizione
+  non fa niente, quindi `close()` della view non fallisce mai.
 - **Scadenza controllata dal nodo**: il record `Acquisition` non porta
   la scadenza e la view dell'API non la controlla. La scadenza è
   misurata con il clock del nodo, che in un altro processo non vale, e
@@ -312,12 +338,36 @@ Scelte di dettaglio:
 - **Query in corso**: una query iniziata prima del rilascio o della
   scadenza finisce e il suo risultato è valido; i dati già letti
   restano validi anche dopo il rilascio.
-- **`lastCommit()`** resta un metadato: non si usa per scegliere lo
-  snapshot da acquisire, perché tra i due passi la finestra può
-  cambiare.
-- **Dopo la rimozione della partizione** le acquisizioni già fatte
-  restano leggibili e il nodo le trova per ID; l'ID della partizione
-  rimossa non torna mai.
+- **`tick()`** resta un metadato: non si usa per scegliere lo snapshot
+  da acquisire, perché tra i due passi la finestra può cambiare.
+- **Dopo la rimozione della partizione** si acquisiscono ancora gli
+  snapshot dei tick precedenti a `removalTick` che sono nella finestra,
+  e le acquisizioni già fatte restano leggibili; il nodo trova la
+  partizione per ID fino alla distruzione, e l'ID non torna mai.
+
+## Differenze nel codice attuale
+
+La forma descritta sopra è decisa, ma il codice segue ancora quella
+precedente; si allinea con i passi del TODO del prototipo. Oggi:
+
+- non c'è il tick: niente `setTick`, `tick()` né `creationTick()`;
+- il commit è `commit(long n)`, con n scelto dal software e maggiore
+  dell'ultimo commit, e `lastCommit()` dà il numero dell'ultimo commit
+  (0 per una partizione appena creata); lo snapshot è acquisibile alla
+  fine del commit, compreso lo snapshot vuoto del commit 0;
+- k è `retainedPastSnapshots` (≥ 0, default 0, con
+  `withRetainedPastSnapshots`): il catalogo tiene gli ultimi k + 1
+  snapshot pubblicati;
+- le selezioni sono quattro: `acquireLatest` (lo snapshot corrente),
+  `acquirePrevious(int offset)`, `acquireAtOrBefore(long tick)` e
+  `acquireExact(long commit)`; `Acquisition` e la view portano il
+  `commit`;
+- la rimozione segna subito la partizione: scritture, commit, letture
+  del writer e nuove acquisizioni falliscono con
+  `IllegalStateException`, la finestra si chiude, e il nodo toglie la
+  partizione quando i suoi snapshot non hanno più utilizzi; dopo, l'ID è
+  sconosciuto e le operazioni falliscono con `IllegalArgumentException`;
+  il proxy blocca tutte le operazioni dopo la rimozione.
 
 ## Contratto del nodo
 

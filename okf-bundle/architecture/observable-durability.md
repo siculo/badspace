@@ -1,16 +1,19 @@
 ---
 type: Architecture Primitive
 title: Durabilità osservabile
-description: Ogni partizione espone l'ultimo commit persistito, così le conferme verso altre partizioni si danno solo per scritture durevoli.
+description: Ogni partizione espone l'ultimo tick persistito, così le conferme verso altre partizioni si danno solo per scritture durevoli.
 tags: [badspace, architecture, partitioning, persistence]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Primitiva
 
-La partizione espone l'**ultimo [commit](/architecture/partition-commit.md)
-persistito**. Chi deve confermare qualcosa ad altri può farlo solo
+La partizione espone l'**ultimo tick persistito**: il tick n del più
+recente snapshot `S(n)` salvato, cioè dell'ultimo stato confermato da
+[commit](/architecture/partition-commit.md) che è durevole. Il commit
+non ha un numero visibile, quindi lo stato persistito si indica con il
+[tick](/architecture/logical-time.md). Chi deve confermare qualcosa ad altri può farlo solo
 quando la scrittura è durevole.
 
 # Uso

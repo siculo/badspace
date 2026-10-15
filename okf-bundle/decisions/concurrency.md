@@ -4,7 +4,7 @@ title: Concorrenza
 description: Concorrenza di BADSPACE risolta con un solo writer per partizione e più reader; il sistema nel suo insieme ha più writer senza lock granulari.
 tags: [badspace, design, concurrency, partitioning]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Opzioni considerate
@@ -29,7 +29,11 @@ Le scritture sono raggruppate in [commit](/architecture/partition-commit.md)
 che, con un solo writer, non richiedono lock né gestione dei conflitti.
 
 I reader non bloccano mai il writer: il writer non aspetta query,
-acquisizioni o persistenza. Le acquisizioni degli snapshot appartengono
+acquisizioni o persistenza. L'avanzamento del
+[tick](/architecture/logical-time.md) arriva invece da un altro thread,
+e si serializza con le operazioni del writer della stessa partizione
+con un lock per partizione: il writer può aspettare un avanzamento, che
+è breve, ma mai un reader. Le acquisizioni degli snapshot appartengono
 al nodo, e un reader lento allunga solo la vita degli snapshot in
 memoria (vedi [conservazione degli
 snapshot](/architecture/snapshot-retention.md#vita-di-uno-snapshot)).
@@ -40,7 +44,7 @@ snapshot](/architecture/snapshot-retention.md#vita-di-uno-snapshot)).
   libreria embedded in-process mantiene questa decisione locale per ora.
 - Come i reader vedono solo commit completi mentre il writer scrive:
   [isolamento delle letture](/decisions/read-isolation.md), con snapshot
-  pubblicati a ogni commit.
+  preparati a ogni commit e pubblicati all'avanzamento del tick.
 - Le operazioni che coinvolgono più partizioni si costruiscono sopra
   senza transazioni: [migrazione](/mechanisms/entity-migration.md) e
   [letture coerenti](/mechanisms/consistent-reads.md).

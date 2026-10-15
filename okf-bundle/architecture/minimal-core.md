@@ -1,10 +1,10 @@
 ---
 type: Reference
 title: Architettura minima del layer delle partizioni
-description: Le cinque primitive minime del layer delle partizioni, i principi che le reggono e come i meccanismi (migrazione, letture coerenti, aggregazione, ribilanciamento) si costruiscono sopra di esse.
+description: Le sei primitive minime del layer delle partizioni, i principi che le reggono e come i meccanismi (migrazione, letture coerenti, aggregazione, ribilanciamento) si costruiscono sopra di esse.
 tags: [badspace, architecture, partitioning]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T07:57:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Obiettivo
@@ -53,36 +53,40 @@ Quattro principi reggono l'insieme:
 1. [Proprietà della partizione](/architecture/partition-ownership.md) —
    single-writer con token di proprietà (fencing).
 2. [Commit della partizione](/architecture/partition-commit.md) —
-   commit atomico con contatore monotono.
+   commit atomico nel tick corrente, senza numero visibile.
 3. [Metadati delle entità](/architecture/entity-metadata.md) — metadati
    di sistema e applicativi, scritture condizionate, con le
    [tombstone](/architecture/tombstones.md).
 4. [Durabilità osservabile](/architecture/observable-durability.md) —
-   ultimo commit persistito.
+   ultimo tick persistito.
 5. [Conservazione degli snapshot](/architecture/snapshot-retention.md) —
-   snapshot corrente e k commit precedenti, k configurabile per
-   partizione.
+   snapshot degli ultimi k tick, k configurabile per partizione, con la
+   [rimozione della partizione](/architecture/partition-removal.md) che
+   lascia acquisibili i tick in cui esisteva.
+6. [Tick logico](/architecture/logical-time.md) — contatore monotono
+   dello spazio, del nodo e della partizione, che il software fa
+   avanzare con `setTick`.
 
 # Meccanismi sopra il livello base
 
 | Meccanismo | Primitive usate |
 |---|---|
 | [Migrazione](/mechanisms/entity-migration.md) | 2, 3, 4 + un trasporto qualsiasi con reinvio |
-| [Letture coerenti al tick N](/mechanisms/consistent-reads.md) | 2, 5 + tick globale o barriera |
+| [Letture coerenti al tick N](/mechanisms/consistent-reads.md) | 2, 5, 6 + gTick ed eventuale barriera |
 | [Aggregazione](/mechanisms/query-aggregation.md) | nessuna primitiva speciale: fan-out e unione |
 | [Ribilanciamento e split](/mechanisms/rebalancing-and-split.md) | 1 |
-| Tick globale e barriera | servizio di coordinamento esterno, opzionale |
+| gTick e barriera | decisi dal software o da un servizio di coordinamento esterno, opzionale; il tick di spazio, nodi e partizioni è nel livello base |
 
 # Verifica sui casi d'uso
 
 - **Aree non contigue** (per esempio sistemi solari separati da
-  distanze enormi, dove ciò che sta al confine è irrilevante). Ogni
-  partizione ha il suo tick; non servono tick globale, conservazione
-  degli snapshot (k = 0) né aggregazione. Il viaggio di una nave tra
+  distanze enormi, dove ciò che sta al confine è irrilevante). Le
+  partizioni condividono il tick dello spazio, che non costa niente;
+  bastano la finestra minima (k = 1) e nessuna aggregazione. Il viaggio di una nave tra
   due sistemi usa solo la migrazione.
-- **Zone contigue con confini.** Si aggiungono il tick globale, la
-  conservazione degli snapshot (k ≥ 1) sulle partizioni di confine e le
-  letture coerenti con aggregazione.
+- **Zone contigue con confini.** Si aggiungono la barriera tra writer
+  se serve, una finestra più ampia (k > 1) sulle partizioni di confine
+  e le letture coerenti con aggregazione.
 
 # Punti aperti
 
@@ -90,7 +94,7 @@ Quattro principi reggono l'insieme:
   API dei metadati e gestione delle tombstone.
 - Trasporto dei messaggi di migrazione: fornito dall'API o lasciato al
   software.
-- Servizio del tick globale e della barriera nella forma a cluster.
+- Servizio del gTick e della barriera nella forma a cluster.
 
 # Correlati
 

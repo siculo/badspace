@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: Isolamento delle letture
-description: I reader di una partizione vedono solo commit completi grazie a snapshot pubblicati con una scrittura atomica e letti attraverso un'acquisizione controllata; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
+description: I reader di una partizione vedono solo commit completi grazie a snapshot preparati a ogni commit, pubblicati con una scrittura atomica all'avanzamento del tick e letti attraverso un'acquisizione controllata; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Problema
@@ -67,7 +67,10 @@ Slot e indici cambiano con frequenze molto diverse.
    copia. Il writer vede così le proprie scritture.
 2. Al commit gli array degli slot si copiano in un buffer per lo
    snapshot, e i nodi copiati nel commit diventano immutabili.
-3. La nuova radice si pubblica con una scrittura atomica.
+3. La nuova radice si pubblica con una scrittura atomica
+   all'avanzamento del [tick](/architecture/logical-time.md): il commit
+   prepara lo snapshot del tick, che diventa visibile solo quando il
+   tick avanza. Con più commit nello stesso tick si pubblica l'ultimo.
 4. Gli snapshot fuori dalla finestra di [conservazione degli
    snapshot](/architecture/snapshot-retention.md), senza acquisizioni
    valide né query in corso, si liberano: i loro buffer tornano disponibili, e i nodi dell'indice
@@ -78,8 +81,11 @@ reader per snapshot o l'epoch-based reclamation: è lo stesso principio
 della *grace period* di RCU descritto nelle [letture
 coerenti](/mechanisms/consistent-reads.md).
 
-**Nel prototipo** lo snapshot della partizione (snapshot degli slot e
-snapshot dell'indice) entra nel catalogo degli snapshot, un oggetto
+**Nel prototipo**, che segue ancora la semantica precedente
+(pubblicazione alla fine del commit, vedi [conservazione degli
+snapshot](/architecture/snapshot-retention.md#nel-prototipo)), lo
+snapshot della partizione (snapshot degli slot e snapshot dell'indice)
+entra nel catalogo degli snapshot, un oggetto
 immutabile con gli ultimi k + 1 snapshot, e il catalogo nuovo si
 pubblica con la scrittura di un campo `volatile`, l'ultima operazione
 del commit: chi legge il campo vede anche tutto quello che il commit ha
@@ -203,7 +209,9 @@ alberi](/indices/tree-module.md#snapshot-copy-on-write).
 quando la partizione chiude il commit n, che restituisce uno snapshot
 dell'indice (`IndexSnapshot`). Le query dello snapshot ricevono gli slot
 dello stesso commit, quindi lo snapshot non dipende dallo storage del
-writer.
+writer. Con il commit senza numero, n diventa la **sequenza dei
+commit**: un contatore interno del nodo che cresce a ogni commit, anche
+nello stesso tick, e non esce dal nodo. Gli indici non cambiano.
 
 - La [scansione lineare](/indices/linear-scan.md) non ha strutture: la
   suo snapshot legge solo gli slot.
@@ -221,21 +229,21 @@ Lo storage combina lo snapshot dell'indice con quello degli slot
 
 Ogni snapshot è già uno stato completo della partizione: la
 [conservazione degli snapshot](/architecture/snapshot-retention.md)
-significa tenere vive le ultime k + 1 radici: la corrente e le k
-precedenti. Gli indici condividono
-i nodi non cambiati; gli slot costano una copia per snapshot
-conservato. Per le [letture coerenti](/mechanisms/consistent-reads.md)
-il lettore acquisisce lo snapshot del commit N, o il più recente prima
-di N.
+significa tenere vive le radici degli snapshot dei tick nella
+finestra, gli ultimi k tick: tick consecutivi senza commit condividono
+la stessa radice. Gli indici condividono i nodi non cambiati; gli slot
+costano una copia per commit conservato. Per le [letture
+coerenti](/mechanisms/consistent-reads.md) il lettore acquisisce
+esattamente lo snapshot del tick N.
 
 # Costi
 
 - **Tempo del writer per commit:** la copia degli slot cambiati (al
   massimo tutti) più la copia dei nodi dell'indice toccati, una sola
   volta per nodo nel commit.
-- **Memoria:** una copia degli slot per ogni snapshot vivo (l'ultimo
-  pubblicato, i k precedenti conservati e quelli usciti dalla finestra
-  ma ancora acquisiti), più i nodi dell'indice non condivisi.
+- **Memoria:** una copia degli slot per ogni snapshot vivo (quelli dei
+  tick nella finestra, uno per commit, quello preparato nel tick
+  corrente e quelli usciti dalla finestra ma ancora acquisiti), più i nodi dell'indice non condivisi.
 
 Per 1 000 000 di entità gli slot sono circa 24 MB in 2D e 32 MB in 3D;
 la copia completa costa qualche ms, da misurare, su un tick di circa

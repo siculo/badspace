@@ -1,10 +1,10 @@
 ---
 type: Protocol
 title: Letture coerenti su più partizioni
-description: Letture su più partizioni riferite allo stesso tick N tramite tick globale e conservazione degli snapshot; la rimozione differita è un'alternativa più economica che garantisce solo che ogni entità si veda almeno una volta.
+description: Letture su più partizioni riferite allo stesso tick N tramite gTick e snapshot di ogni tick, acquisito esattamente in ogni partizione; la rimozione differita è un'alternativa più economica che garantisce solo che ogni entità si veda almeno una volta.
 tags: [badspace, partitioning, consistency, protocol]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T09:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Problema
@@ -18,30 +18,46 @@ l'entità da nessuna parte.
 
 # Soluzione: lettura al tick N
 
-- Tutte le partizioni coinvolte usano il **tick globale** come
-  contatore dei [commit](/architecture/partition-commit.md).
-- Il lettore sceglie N non superiore all'ultimo commit di ciascuna
-  partizione e non inferiore al più vecchio acquisibile in ciascuna
-  (vedi [conservazione degli snapshot](/architecture/snapshot-retention.md)).
-- k e l'eventuale barriera vanno dimensionati in modo che il ritardo
-  massimo tra le partizioni coinvolte non superi k tick.
-- In ogni partizione il lettore **acquisisce lo snapshot del commit
-  N**, o il più recente prima di N se la partizione non ha un commit a
-  ogni tick: ogni commit pubblica uno snapshot completo della partizione
-  (vedi [isolamento delle letture](/decisions/read-isolation.md)), e con
-  k la partizione tiene vivi gli ultimi k + 1 snapshot: il corrente e i
-  k precedenti. L'acquisizione è atomica: se nel frattempo N esce dalla
-  finestra, fallisce e il lettore riprova con un N più recente. Il
-  lettore rilascia le acquisizioni alla fine della lettura.
+- Il software fa avanzare tutte le partizioni coinvolte con lo stesso
+  tick, il **gTick**, passato a `setTick` dello spazio (vedi [tick
+  logico](/architecture/logical-time.md)).
+- Ogni tick completato ha il suo snapshot in ogni partizione, quindi il
+  lettore acquisisce **esattamente `S(N)`** in ogni partizione, senza
+  cercare il commit più recente prima di N: un tick senza commit ha lo
+  stesso stato del precedente (vedi [conservazione degli
+  snapshot](/architecture/snapshot-retention.md)).
+- Il lettore sceglie N non superiore a `T − 1` di ciascuna partizione e
+  non inferiore a `T − k`. La propagazione del tick non è atomica tra
+  partizioni: durante un avanzamento alcune partizioni sono già al tick
+  nuovo e altre no, e N deve stare nella finestra di tutte.
+- k e l'eventuale barriera vanno dimensionati in tick, in modo che il
+  ritardo massimo tra le partizioni coinvolte, più la durata
+  dell'acquisizione su tutte, resti entro la finestra.
+- L'acquisizione è atomica: se nel frattempo N esce dalla finestra,
+  fallisce e il lettore riprova con un N più recente. Il lettore
+  rilascia le acquisizioni alla fine della lettura. Una partizione
+  ritirata dà ancora gli snapshot dei tick prima della sua rimozione;
+  per i tick dalla rimozione in poi non esiste più (vedi [rimozione della
+  partizione](/architecture/partition-removal.md)).
 - Ogni partizione pubblica per conto suo: la vista coerente nasce dalla
-  scelta dello stesso N, non da un commit atomico tra partizioni. Il
-  tick globale e la barriera stanno sopra il livello base.
+  scelta dello stesso N, non da una pubblicazione atomica tra
+  partizioni. La barriera sta sopra il livello base.
+
+Un'operazione che verifica e acquisisce in un solo passo, dicendo perché
+uno snapshot non è disponibile, è un punto aperto da decidere qui (vedi
+[conservazione degli
+snapshot](/architecture/snapshot-retention.md#punti-aperti)).
 
 Poiché nella migrazione A rimuove in un tick strettamente successivo a
-quello dell'inserimento in B, in ogni commit N l'entità è presente in
+quello dell'inserimento in B, in ogni snapshot del tick N l'entità è presente in
 almeno una delle due partizioni.
 
 # Alternativa: rimozione differita
+
+Qui "rimozione differita" è la rimozione di un'**entità** dalla
+partizione di origine, ritardata durante la migrazione. Non va confusa
+con la [rimozione della partizione](/architecture/partition-removal.md),
+che diventa effettiva al tick successivo.
 
 Il buco non dipende dall'ordine delle scritture, che l'ACK già
 garantisce, ma dalla **durata della lettura**: il lettore non vede E se

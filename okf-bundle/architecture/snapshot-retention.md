@@ -1,29 +1,72 @@
 ---
 type: Architecture Primitive
 title: Conservazione degli snapshot
-description: Ogni partizione conserva acquisibili lo snapshot corrente e quelli dei k commit precedenti (k + 1 snapshot, k configurabile, default 0); i reader acquisiscono uno snapshot, lo leggono e lo rilasciano, con una scadenza obbligatoria, e uno snapshot uscito dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni snapshot, e la rimozione della partizione diventa effettiva quando sono finiti tutti.
+description: Ogni partizione ha uno snapshot logico S(n) per ogni tick completato dalla creazione alla rimozione, con contenuto condiviso tra tick senza commit, e conserva acquisibili quelli degli ultimi k tick (max(T − k, C) ≤ n ≤ T − 1, k ≥ 1, default 1); i reader acquisiscono uno snapshot, lo leggono e lo rilasciano, con una scadenza obbligatoria, e uno snapshot uscito dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni snapshot.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 ---
 
 # Primitiva
 
-Ogni partizione può conservare, oltre allo snapshot corrente, gli
-stati dei **k [commit](/architecture/partition-commit.md) precedenti**,
-con k configurabile per partizione e **zero come default**: gli snapshot
-conservati sono quindi k + 1, e con k = 0 resta solo lo snapshot
-corrente. Contano solo i commit effettivamente pubblicati: i numeri di
-commit saltati non creano snapshot. Ogni commit pubblica già uno
-snapshot per l'[isolamento delle letture](/decisions/read-isolation.md),
-e conservare gli snapshot significa tenere vive le ultime k + 1 radici. Gli
-indici condividono i nodi non cambiati (copy-on-write); gli slot
-costano una copia per snapshot.
+Lo snapshot logico **`S(n)`** è lo stato confermato da
+[commit](/architecture/partition-commit.md) alla fine del
+[tick](/architecture/logical-time.md) n. Ogni tick completato, dalla
+creazione della partizione fino alla sua
+[rimozione](/architecture/partition-removal.md), ha il suo snapshot:
 
-I k + 1 snapshot conservati formano la **finestra di conservazione**:
-sono i soli che ammettono **nuove acquisizioni**. Un reader legge uno
-snapshot solo attraverso un'acquisizione (vedi [Acquisizione e
+- se durante il tick n c'è stato almeno un `commit()`, `S(n)` è lo stato
+  dell'ultimo commit del tick;
+- altrimenti `S(n)` è lo stesso stato dello snapshot precedente;
+- non esistono snapshot per i tick prima di `creationTick`: il primo è
+  `S(creationTick)`, e senza commit nel tick di creazione è lo stato
+  iniziale vuoto. Vale anche per una partizione creata al tick 0: `S(0)`
+  si acquisisce dopo `setTick(1)`, e non serve uno snapshot con tick
+  negativo.
+
+Snapshot logici consecutivi uguali **condividono il contenuto**: non si
+duplicano i dati. Ogni commit prepara già uno snapshot per
+l'[isolamento delle letture](/decisions/read-isolation.md); gli indici
+condividono i nodi non cambiati (copy-on-write) e gli slot costano una
+copia per commit.
+
+Uno snapshot diventa acquisibile solo quando il tick della partizione è
+**maggiore** del suo: con tick corrente `T`, lo snapshot del tick
+corrente non si acquisisce mai, e lo stato di un commit si vede solo
+dopo l'avanzamento del tick.
+
+## Finestra di conservazione
+
+Alla creazione si sceglie **k**, il numero di tick consultabili: k ≥ 1,
+default 1. Con tick corrente `T` e creazione `C`, la **finestra di
+conservazione** è:
+
+    max(T − k, C) ≤ n ≤ T − 1
+
+Sono i soli snapshot che ammettono **nuove acquisizioni**; con k = 1 si
+acquisisce solo `S(T − 1)`. Una richiesta per `n < T − k` è fuori dalla
+finestra, una per `n ≥ T` non è ammessa. Un reader legge uno snapshot
+solo attraverso un'acquisizione (vedi [Acquisizione e
 rilascio](#acquisizione-e-rilascio)).
+
+**Esempio.** Con `T = 110` e k = 5 si acquisiscono `S(105)`, `S(106)`,
+`S(107)`, `S(108)` e `S(109)`.
+
+## Salti di tick
+
+Se la partizione passa direttamente dal tick a al tick b, con
+b > a + 1, completa tutti i tick da a a b − 1:
+
+- `S(a)` contiene lo stato confermato durante a, o quello precedente se
+  in a non c'è stato commit;
+- da `S(a + 1)` a `S(b − 1)` gli snapshot hanno lo stesso stato di
+  `S(a)`, senza copie: basta che le acquisizioni ne rispettino la
+  semantica;
+- la finestra si calcola rispetto al nuovo tick b.
+
+**Esempio.** Dopo `setTick(102)`, scritture e `commit()`, una chiamata
+diretta a `setTick(105)` rende acquisibili `S(102)`, `S(103)` e `S(104)`,
+con lo stesso contenuto.
 
 # Perché sta nel livello base
 
@@ -36,6 +79,16 @@ tra i writer con una barriera: non esiste una terza via.
 Essendo configurabile per partizione, la pagano solo le partizioni che
 ne hanno bisogno (per esempio quelle di confine tra zone contigue).
 
+## Perché in tick
+
+La prima forma misurava la finestra in commit pubblicati: k snapshot
+passati oltre al corrente, con lo snapshot corrente subito acquisibile,
+e un'acquisizione al tick N che cercava il commit più recente prima di
+N. Misurare in tick rende l'acquisizione esatta, lega la memoria
+conservata al tempo e non alla frequenza dei commit, e dà alla
+pubblicazione un momento preciso (vedi [perché il tick sta nel livello
+base](/architecture/logical-time.md#perché-il-tick-sta-nel-livello-base)).
+
 # Acquisizione e rilascio
 
 Un'**acquisizione** è il diritto di interrogare uno snapshot: un
@@ -45,29 +98,20 @@ stesso snapshot, anche di reader diversi, sono indipendenti. Il
 rilascio ogni nuova lettura attraverso quell'acquisizione fallisce. Il
 rilascio non elimina per forza lo snapshot.
 
-Uno snapshot si sceglie in quattro modi, tutti **atomici rispetto al
-commit**: la scelta e l'acquisizione sono una sola operazione, quindi
-un commit concorrente non può far sparire lo snapshot tra le due.
+Ogni tick completato ha uno snapshot, quindi l'acquisizione chiede
+direttamente un tick. Le selezioni sono due, entrambe **atomiche
+rispetto all'avanzamento del tick**: la verifica e l'acquisizione sono
+una sola operazione, quindi un `setTick` concorrente non può far
+sparire lo snapshot tra le due.
 
 | Selezione | Snapshot acquisito |
 |---|---|
-| Ultimo | Lo snapshot corrente, anche quello vuoto del commit 0 |
-| Precedente di `offset` | Con `offset` = 0 il corrente; con `offset` = i l'i-esimo commit pubblicato prima del corrente. Fallisce se lo snapshot non è nella finestra |
-| Al tick, o prima | Lo snapshot acquisibile con il commit più grande ≤ tick; fallisce se non c'è |
-| Esatto | Lo snapshot del commit indicato; fallisce se quel commit non è acquisibile |
+| Al tick n | `S(n)`, se `max(T − k, C) ≤ n ≤ T − 1` e la partizione esisteva a n (`n < removalTick`, se è ritirata) |
+| Ultimo | `S(T − 1)`: fallisce prima del primo avanzamento dopo la creazione |
 
-L'ultimo commit della partizione resta leggibile come metadato, ma non
-sostituisce l'acquisizione: leggere il commit e poi acquisirlo sono due
+Il tick corrente della partizione resta leggibile come metadato, ma non
+sostituisce l'acquisizione: leggere il tick e poi acquisire sono due
 passi, e tra i due la finestra può cambiare.
-
-**Esempio.** Commit pubblicati 100, 103 e 107, con k = 2: l'ultimo è
-107, il precedente di 1 è 103, il precedente di 2 è 100, al tick 105 o
-prima dà 103, l'esatto 105 fallisce. Dopo il commit 110 lo snapshot 100
-esce dalla finestra: non si può più acquisire, ma le acquisizioni già
-fatte su 100 restano valide.
-
-Con k = 0 si acquisisce solo lo snapshot corrente, ma uno snapshot
-acquisito resta leggibile anche dopo i commit successivi.
 
 ## Perché acquisizione e rilascio
 
@@ -75,11 +119,11 @@ Una prima direzione era leggere al commit N senza tenere lo snapshot,
 con errore fuori dalla finestra e senza rilascio esplicito. Non basta
 per i reader che leggono a lungo lo stesso snapshot, come il
 salvataggio di uno snapshot su disco per la
-[persistenza](/decisions/persistence.md): con molti commit nel
+[persistenza](/decisions/persistence.md): con molti tick nel
 frattempo, lo snapshot uscirebbe dalla finestra a metà del lavoro, e
 una finestra abbastanza ampia per il caso più lento costerebbe memoria
-a tutti i commit. Con l'acquisizione solo lo snapshot che serve resta
-in memoria, e la finestra resta piccola. Il costo del rilascio
+a tutte le partizioni. Con l'acquisizione solo lo snapshot che serve
+resta in memoria, e la finestra resta piccola. Il costo del rilascio
 esplicito è che un reader che non rilascia trattiene memoria: per
 questo ogni acquisizione ha una [scadenza](#scadenza). Un reader che
 deve tenere uno snapshot più a lungo della scadenza massima ne fa una
@@ -87,7 +131,8 @@ copia, con una funzione ancora da progettare.
 
 # Vita di uno snapshot
 
-1. **Acquisibile**: è nella finestra degli ultimi k + 1 snapshot.
+1. **Acquisibile**: i suoi tick sono nella finestra, o lo saranno
+   all'avanzamento del tick.
 2. **Pinnato**: è uscito dalla finestra, ma ha ancora acquisizioni
    valide o query già ammesse. Si legge attraverso quelle acquisizioni,
    ma non si può più acquisire: uno snapshot uscito dalla finestra non
@@ -100,6 +145,9 @@ copia, con una funzione ancora da progettare.
    finale](/decisions/language.md); eliminabile non vuol dire liberata
    subito.
 
+Uno snapshot fisico può valere per più tick consecutivi: esce dalla
+finestra quando ne esce l'ultimo dei suoi tick.
+
 **Fine di uno snapshot.** Il passaggio a eliminabile è un momento
 preciso, che la partizione rileva: succede una sola volta, nel primo
 istante in cui lo snapshot è fuori dalla finestra e senza utilizzi.
@@ -108,23 +156,21 @@ query in corso usa lo snapshot, quindi lo snapshot finisce alla fine
 dell'ultima query, non al rilascio. Il passaggio lo fa l'evento che
 toglie l'ultima delle due condizioni:
 
-- il **commit** che fa uscire lo snapshot dalla finestra, se non ha
-  utilizzi;
+- l'**avanzamento del tick** che fa uscire lo snapshot dalla finestra,
+  se non ha utilizzi;
 - il **rilascio** o la **scadenza** dell'ultima acquisizione, con lo
   snapshot già fuori dalla finestra;
 - la **fine dell'ultima query** ammessa, con lo snapshot fuori dalla
-  finestra e senza acquisizioni valide;
-- la **rimozione della partizione**, che chiude la finestra per tutte
-  gli snapshot.
+  finestra e senza acquisizioni valide.
 
 Uno snapshot eliminabile non torna mai in uso. Per questo l'ammissione
 di una query e l'acquisizione aggiungono un utilizzo solo se lo
 snapshot non è già finito, in un'unica operazione atomica: altrimenti
-un rilascio concorrente, o un commit che fa uscire lo snapshot dalla
-finestra, potrebbe farlo finire mentre lo si prende. Una query che
-trova lo snapshot finito fallisce come per un'acquisizione rilasciata;
-un'acquisizione che lo trova finito sceglie di nuovo dalla finestra
-pubblicata, e fallisce se lo snapshot chiesto non c'è più.
+un rilascio concorrente, o un avanzamento che fa uscire lo snapshot
+dalla finestra, potrebbe farlo finire mentre lo si prende. Una query
+che trova lo snapshot finito fallisce come per un'acquisizione
+rilasciata; un'acquisizione che lo trova finito verifica di nuovo sulla
+finestra pubblicata, e fallisce se il tick chiesto non c'è più.
 
 **Ammissione delle query.** Una query verifica l'acquisizione e prende
 un riferimento interno stabile allo snapshot in un'unica operazione
@@ -144,11 +190,12 @@ attraverso gRPC.
 
 # Scadenza
 
-Ogni acquisizione ha una **scadenza** obbligatoria: una durata
-misurata dal momento dell'acquisizione con il clock monotono locale del
-nodo, non con l'ora di sistema né con il tick. Così un reader che muore
-senza rilasciare non può trattenere uno snapshot per sempre, e la
-[rimozione della partizione](#rimozione-della-partizione) finisce
+Ogni acquisizione ha una **scadenza** obbligatoria: una durata di tempo
+reale misurata dal momento dell'acquisizione con il clock monotono
+locale del nodo, non con l'ora di sistema né con il tick. Così un reader
+che muore senza rilasciare non può trattenere uno snapshot per sempre, e
+la [distruzione della
+partizione](/architecture/partition-removal.md#distruzione) arriva
 sempre.
 
 - Se il reader non indica la durata, vale una **scadenza di default**.
@@ -156,23 +203,23 @@ sempre.
   maggiore della **scadenza massima**. Chi deve tenere uno snapshot
   più a lungo, per esempio per un salvataggio molto lento, ne fa una
   copia invece di acquisirla.
-- La scadenza è **definitiva**: non si rinnova. Un'acquisizione nuova
-  è possibile solo se lo snapshot è ancora nella finestra, e non
-  riattiva quella scaduta.
+- La scadenza è **definitiva**: non si rinnova, nemmeno con l'uso.
+  Un'acquisizione nuova è possibile solo se lo snapshot è ancora nella
+  finestra, e non riattiva quella scaduta.
+- Né l'uscita dalla finestra né la rimozione della partizione anticipano
+  la scadenza di un'acquisizione già fatta.
 - Un'acquisizione scaduta si comporta come una rilasciata: le nuove
   letture falliscono, le query già ammesse finiscono e il loro
   risultato è valido, e un rilascio dopo la scadenza non fa niente.
 - Il nodo elimina le acquisizioni scadute **da solo**, senza aspettare
-  il reader che magari ha perso il collegamento: nella prima forma le
-  cerca a ogni evento della partizione (acquisizione, rilascio,
-  commit). Una partizione segnata come rimossa non ha più eventi suoi:
-  le sue acquisizioni scadute il nodo le cerca a ogni evento del nodo,
-  cioè a ogni evento di una qualunque delle sue partizioni, compresa la
-  creazione e la rimozione. Il limite è che una partizione senza
-  eventi, e un nodo senza eventi per le partizioni rimosse, tiene in
-  memoria gli snapshot con acquisizioni scadute fino all'evento successivo; un
-  tempo di recupero garantito richiederebbe una pulizia periodica, oggi
-  non prevista.
+  il reader che magari ha perso il collegamento: le cerca a ogni evento
+  della partizione (acquisizione, rilascio, commit) e a ogni
+  avanzamento del tick, che arriva a tutte le partizioni, anche a quelle
+  ritirate. Il limite è che, se il software smette di far avanzare il
+  tick, una partizione senza altri eventi tiene in memoria gli snapshot
+  con acquisizioni scadute fino all'evento successivo; un tempo di
+  recupero garantito richiederebbe una pulizia periodica, oggi non
+  prevista.
 
 La scadenza dell'acquisizione è diversa dalla scadenza di una chiamata
 remota, che è fuori da questa primitiva, e dalla scadenza delle letture
@@ -180,46 +227,37 @@ nella [rimozione differita](/mechanisms/consistent-reads.md#alternativa-rimozion
 
 # Rimozione della partizione
 
-Dopo la rimozione della partizione non si possono più fare scritture
-né nuove acquisizioni, ma **le acquisizioni già fatte restano
-leggibili** fino al rilascio o alla scadenza, e le query già ammesse
-finiscono. Uno snapshot letto dopo la rimozione non è sbagliato: mostra
-la partizione al suo commit, dati vecchi ma coerenti.
-
-La rimozione avviene quindi in **due fasi**:
-
-1. **Segno di rimozione.** `removePartition` e `dropPartition` segnano
-   la partizione come rimossa: da quel momento niente scritture,
-   commit né nuove acquisizioni. Il segno chiude la finestra, quindi
-   gli snapshot senza utilizzi finiscono subito.
-2. **Rimozione effettiva.** Il catalogo degli snapshot sopravvive al
-   segno finché la partizione ha snapshot non ancora finiti. Quando
-   finisce l'ultimo, il nodo toglie la partizione per davvero; senza
-   acquisizioni né query in corso succede già nella prima fase.
-
-Il momento giusto per controllare se una partizione segnata non ha più
-snapshot è la [fine di uno snapshot](#vita-di-uno-snapshot): il nodo non
-deve cercarlo altrove. Gli [ID delle
-partizioni](/decisions/entity-ids.md#id-delle-partizioni) **non si
-riusano mai**: la partizione segnata resta sul nodo con il suo ID fino
-alla rimozione effettiva, letture e rilascio la trovano per ID, e il
-nodo rifiuta una nuova partizione con quell'ID. Così un'acquisizione
-vecchia non finisce mai su un'altra partizione.
-
-Una fase intermedia più semplice è **rifiutare la rimozione** finché la
-partizione ha acquisizioni attive; non è però la semantica decisa, solo
-un passo verso di essa.
+La rimozione della partizione ha un concetto proprio: [Rimozione della
+partizione](/architecture/partition-removal.md). In breve: `remove()` è
+l'ultima operazione del writer; la rimozione diventa effettiva al primo
+avanzamento del tick, che fissa `removalTick`; gli snapshot dei tick
+`n < removalTick` restano acquisibili finché sono nella finestra, e le
+acquisizioni già fatte fino al rilascio o alla scadenza; la partizione
+si distrugge quando `T − k ≥ removalTick` e i suoi snapshot non hanno
+più utilizzi.
 
 # Commit e tick
 
-Lo snapshot di un commit diventa acquisibile quando `commit(n)`
-finisce, non a un istante preciso del tick: il nodo non promette che
-sia visibile proprio all'inizio del tick successivo. Regole come
-"leggere non prima di gTick − 1" e la barriera tra partizioni spettano
-ai livelli superiori. Ogni partizione pubblica per conto suo, con il
-suo ciclo di commit: non c'è atomicità tra partizioni.
+Il commit prepara lo snapshot del tick corrente, ma non lo pubblica:
+lo pubblica l'**avanzamento del tick**, `setTick`, che chiude il tick
+precedente, definisce gli snapshot dei tick intermedi, fa scorrere la
+finestra e comincia il tick nuovo, in un'unica transizione atomica per
+la partizione (vedi [tick logico](/architecture/logical-time.md)). Ogni
+partizione completa la transizione per conto suo: non c'è atomicità tra
+partizioni, nemmeno dello stesso nodo, e un reader distribuito deve
+tollerare per un momento tick diversi.
 
 # Nel prototipo
+
+**Il codice segue ancora la semantica precedente**, descritta in questa
+sezione: commit numerati dal software con `commit(n)`, snapshot
+acquisibile alla fine del commit, finestra degli ultimi k + 1 snapshot
+pubblicati (k ≥ 0, default 0, `retainedPastSnapshots`), quattro
+selezioni (ultimo, precedente, al tick o prima, esatto) e rimozione in
+due fasi con un segno immediato che chiude la finestra. La semantica in
+tick arriva con i passi del TODO del prototipo; allora questa sezione
+si riscrive. Le parti su acquisizioni, scadenza, utilizzi e fine degli
+snapshot restano valide.
 
 Ogni partizione ha un **catalogo degli snapshot** nel service: un
 oggetto immutabile con gli snapshot della finestra, dal più vecchio
@@ -334,19 +372,39 @@ ID di partizione diversi.
 
 # Punti aperti
 
-- Costo in memoria degli slot con k alto: una copia per snapshot, da
-  misurare.
+- Costo in memoria degli slot con k alto: una copia per commit nella
+  finestra, da misurare.
 - Scadenza massima: oggi è una costante; diventerà una configurazione
   del nodo.
 - Copia di uno snapshot per chi deve tenerlo oltre la scadenza
   massima, da progettare.
 - Pochi metadati diagnostici (acquisizioni attive, snapshot pinnati,
-  commit pinnato più vecchio) solo se servono alla verifica.
+  tick pinnato più vecchio) solo se servono alla verifica.
 - Pulizia periodica delle acquisizioni scadute, se servirà un tempo di
   recupero garantito.
+- **Verifica e handle in un'unica operazione.** L'acquisizione al tick n
+  verifica già tutte le condizioni e restituisce l'handle in un solo
+  passo; manca il motivo del fallimento. Proposta: subito
+  `SnapshotNotAvailableException` con un `reason()` (`NOT_YET_PUBLISHED`
+  per n ≥ T, `OUT_OF_RETENTION` per n < T − k, `BEFORE_CREATION`,
+  `AFTER_REMOVAL`); da valutare nelle [letture
+  coerenti](/mechanisms/consistent-reads.md) una forma senza eccezione,
+  per esempio `tryAcquire` con un risultato sealed (acquisito / non
+  disponibile con il motivo), dove "fuori dalla finestra, riprova" è un
+  caso normale.
+- **`partitionExistsAt` e `canAcquireSnapshot`**: rimandate alle letture
+  coerenti, e forse sostituite dalla forma sopra. `canAcquireSnapshot`
+  sarebbe solo indicativa, perché tra la verifica e l'acquisizione il
+  tick può avanzare. Senza tombstone delle partizioni, per un ID che il
+  nodo non conosce più la risposta è "sconosciuto": non si distingue una
+  partizione mai esistita da una distrutta.
 
 # Correlati
 
 - [Architettura minima](/architecture/minimal-core.md) — primitiva 5.
+- [Tick logico](/architecture/logical-time.md) — il tick della
+  partizione, che pubblica gli snapshot e fa scorrere la finestra.
+- [Rimozione della partizione](/architecture/partition-removal.md) —
+  letture storiche dopo la rimozione e distruzione.
 - [Isolamento delle letture](/decisions/read-isolation.md#accesso-dei-reader)
   — pubblicazione degli snapshot e accesso controllato dei reader.
