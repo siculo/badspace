@@ -22,12 +22,14 @@ import java.util.function.Function;
 /**
  * A node that hosts 2D partitions in the same process as the API.
  * <p>
- * The removal of a partition has two steps. The mark of removal stops the writes, the
- * commits and the new acquisitions, but the acquisitions made before stay readable. The
- * node keeps the storage, under the same ID, until its last snapshot ends: then the
- * storage says that the partition is finished, and the node removes it. A partition
- * marked as removed has no events of its own, so at each event of the node (creation,
- * removal, commit, acquisition, release, new tick) the node looks for its expired acquisitions.
+ * The removal of a partition goes through the {@linkplain PartitionState states}. The
+ * request of removal stops the writes and the commits; the next move of the tick makes
+ * the removal effective, and the snapshots of the ticks before it stay acquirable while
+ * they are in the window. The node keeps the storage, under the same ID, until its last
+ * snapshot ends: then the storage says that the partition is destroyed, and the node
+ * removes it. Every move of the tick reaches all the partitions, also the removed ones,
+ * and looks for their expired acquisitions, so a reader that never releases cannot keep
+ * a removed partition for ever.
  * <p>
  * A lock orders the moves to a new tick and the creation of partitions: a partition created
  * while the node moves to a new tick is created either before the move, and then moves too,
@@ -35,12 +37,10 @@ import java.util.function.Function;
  */
 public final class LocalPartitionNode2 implements PartitionNode2 {
 
-    // Each partition has its own writer, possibly on a different thread. A partition
-    // marked as removed stays here until it is finished.
+    // Each partition has its own writer, possibly on a different thread. A removed
+    // partition stays here until it is destroyed; the thread that destroys it, any
+    // thread, removes it.
     private final Map<PartitionId, PartitionStorage2> partitions = new ConcurrentHashMap<>();
-    // The partitions marked as removed and not yet finished. The writer adds a partition
-    // when it marks it; the thread that finishes it, any thread, removes it.
-    private final Map<PartitionId, PartitionStorage2> removedPartitions = new ConcurrentHashMap<>();
     // Measures the timeouts of the acquisitions in all the partitions.
     private final MonotonicClock clock;
     // Orders setTick and createPartition: both run while holding it.
@@ -64,11 +64,10 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             throw new IllegalArgumentException("Number of retained ticks is less than "
                     + RetentionWindow.MIN_RETAINED_TICKS + ": " + retainedTicks);
         }
-        removeExpiredOfRemovedPartitions();
         tickLock.lock();
         try {
-            // A partition marked as removed keeps its ID until it is finished, so this
-            // also rejects its ID.
+            // A removed partition keeps its ID until it is destroyed, so this also rejects
+            // its ID.
             PartitionStorage2 storage = new PartitionStorage2(index, retainedTicks, clock, tick);
             if (partitions.putIfAbsent(partitionId, storage) != null) {
                 throw new IllegalArgumentException("Partition already exists: " + partitionId);
@@ -86,7 +85,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
                 throw new IllegalArgumentException("Tick " + tick + " is less than the tick of the node " + this.tick);
             }
             this.tick = tick;
-            // The partitions marked as removed are in the map too.
+            // The removed partitions are in the map too.
             for (Map.Entry<PartitionId, PartitionStorage2> e : partitions.entrySet()) {
                 if (e.getValue().setTick(tick)) {
                     finish(e.getKey(), e.getValue());
@@ -95,7 +94,6 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         } finally {
             tickLock.unlock();
         }
-        removeExpiredOfRemovedPartitions();
     }
 
     @Override
@@ -105,30 +103,22 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     @Override
     public long tick(PartitionId partitionId) {
-        return find(partitionId).tick();
+        return findAny(partitionId).tick();
     }
 
     @Override
     public long creationTick(PartitionId partitionId) {
-        return find(partitionId).creationTick();
+        return findAny(partitionId).creationTick();
     }
 
     @Override
     public void removePartition(PartitionId partitionId) {
-        removeExpiredOfRemovedPartitions();
-        // find() fails if the partition is unknown. Check and mark are two steps,
-        // but only the writer of the partition changes it.
-        PartitionStorage2 storage = find(partitionId);
-        if (storage.size() > 0) {
-            throw new IllegalStateException("Partition is not empty: " + partitionId);
-        }
-        markRemoved(partitionId, storage);
+        find(partitionId).requestRemoval(true);
     }
 
     @Override
     public void dropPartition(PartitionId partitionId) {
-        removeExpiredOfRemovedPartitions();
-        markRemoved(partitionId, find(partitionId));
+        find(partitionId).requestRemoval(false);
     }
 
     @Override
@@ -163,7 +153,6 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     @Override
     public void commit(PartitionId partitionId) {
-        removeExpiredOfRemovedPartitions();
         find(partitionId).commit();
     }
 
@@ -184,9 +173,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     @Override
     public void release(Acquisition acquisition) {
-        removeExpiredOfRemovedPartitions();
         PartitionStorage2 storage = partitions.get(acquisition.partitionId());
-        // A finished partition has no valid acquisitions: the release does nothing.
+        // A destroyed partition has no valid acquisitions: the release does nothing.
         if (storage != null && storage.release(acquisition.id())) {
             finish(acquisition.partitionId(), storage);
         }
@@ -227,22 +215,17 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
      * otherwise the given tick. The tick and the snapshot come from the same catalog. If a move
      * of the tick makes the snapshot leave the window before the acquisition, it chooses again
      * from the new catalog. Fails with SnapshotNotAvailableException if the tick is not in the
-     * window, and with IllegalStateException if the partition is marked as removed, also
-     * during the acquisition.
+     * window, also because the partition was removed. A removed partition gives the snapshots
+     * of the ticks before its removal while they are in the window.
      */
     private Acquisition acquire(PartitionId partitionId, AcquireOptions options, boolean latest, long tick) {
-        removeExpiredOfRemovedPartitions();
-        PartitionStorage2 storage = find(partitionId);
+        PartitionStorage2 storage = findAny(partitionId);
         while (true) {
             SnapshotCatalog2 catalog = storage.catalog();
             long chosen = latest ? catalog.tick() - 1 : tick;
             StorageSnapshot2 snapshot = catalog.at(chosen);
             if (snapshot == null) {
-                // The mark closes the window: no snapshot can be acquired.
-                if (storage.isRemoved()) {
-                    throw removedPartition(partitionId);
-                }
-                if (latest) {
+                if (latest && catalog.tick() == catalog.creationTick()) {
                     throw new SnapshotNotAvailableException(Reason.NOT_YET_PUBLISHED,
                             "No snapshot published yet in partition " + partitionId);
                 }
@@ -253,24 +236,19 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             if (acquisitionId != PartitionStorage2.NOT_ACQUIRED) {
                 return new Acquisition(partitionId, acquisitionId, chosen);
             }
-            // The mark closes the window: the snapshot left it, and no other snapshot
-            // can be acquired.
-            if (storage.isRemoved()) {
-                throw removedPartition(partitionId);
-            }
         }
     }
 
     /**
      * Runs a query on the snapshot of the acquisition. The query keeps the snapshot until
      * it ends, and then gives it back, also if it fails. The tick in the acquisition
-     * must be the acquired one. The partition can be marked as removed.
+     * must be the acquired one. The partition can be removed.
      */
     private <T> T query(Acquisition acquisition, Function<StorageSnapshot2, T> query) {
         PartitionStorage2 storage = partitions.get(acquisition.partitionId());
         if (storage == null) {
-            // A finished partition has no valid acquisitions. Partition IDs are never used
-            // again, so the node cannot tell an unknown partition from a finished one.
+            // A destroyed partition has no valid acquisitions. Partition IDs are never used
+            // again, so the node cannot tell an unknown partition from a destroyed one.
             throw new IllegalStateException("Acquisition was released or is expired: " + acquisition);
         }
         StorageSnapshot2 snapshot = storage.admit(acquisition.id(), acquisition.tick());
@@ -283,63 +261,45 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         }
     }
 
-    /** Marks a partition as removed, and removes it at once if it is already finished. */
-    private void markRemoved(PartitionId partitionId, PartitionStorage2 storage) {
-        // Added before the mark, so a thread that finishes the partition after the
-        // mark always finds it here.
-        removedPartitions.put(partitionId, storage);
-        if (storage.markRemoved()) {
-            finish(partitionId, storage);
-        }
-    }
-
     /**
-     * Removes a finished partition from the node: its last snapshot ended. The storage
+     * Removes a destroyed partition from the node: its last snapshot ended. The storage
      * says it once, so only one thread calls this for a partition.
      */
     private void finish(PartitionId partitionId, PartitionStorage2 storage) {
         partitions.remove(partitionId, storage);
-        removedPartitions.remove(partitionId, storage);
     }
 
     /**
-     * Removes the expired acquisitions of the partitions marked as removed, which can
-     * finish them. Those partitions have no events of their own, so the node calls this
-     * at each of its events.
-     */
-    private void removeExpiredOfRemovedPartitions() {
-        for (Map.Entry<PartitionId, PartitionStorage2> e : removedPartitions.entrySet()) {
-            if (e.getValue().removeExpired()) {
-                finish(e.getKey(), e.getValue());
-            }
-        }
-    }
-
-    /**
-     * Returns the storage of a partition for its writer or for a new acquisition. Fails
-     * with IllegalArgumentException if the partition is unknown, and with
-     * IllegalStateException if it is marked as removed. Package-private for the tests.
+     * Returns the storage of a partition for its writer. Fails with IllegalArgumentException
+     * if the partition is unknown, and with IllegalStateException if its removal was requested.
+     * Package-private for the tests.
      */
     PartitionStorage2 find(PartitionId partitionId) {
-        PartitionStorage2 storage = partitions.get(partitionId);
-        if (storage == null) {
-            throw new IllegalArgumentException("Unknown partition: " + partitionId);
-        }
-        if (storage.isRemoved()) {
-            throw removedPartition(partitionId);
+        PartitionStorage2 storage = findAny(partitionId);
+        if (storage.state() != PartitionState.ACTIVE) {
+            throw new IllegalStateException("Partition was removed: " + partitionId);
         }
         return storage;
     }
 
     /**
-     * Returns true if the node still has the partition, also if it is marked as removed
-     * and not yet finished. For the tests.
+     * Returns the storage of a partition, also if it is removed, for the readers and the
+     * ticks. Fails with IllegalArgumentException if the partition is unknown: never created
+     * on this node, or already destroyed. Package-private for the tests.
+     */
+    PartitionStorage2 findAny(PartitionId partitionId) {
+        PartitionStorage2 storage = partitions.get(partitionId);
+        if (storage == null) {
+            throw new IllegalArgumentException("Unknown partition: " + partitionId);
+        }
+        return storage;
+    }
+
+    /**
+     * Returns true if the node still has the partition, also if it is removed and not yet
+     * destroyed. For the tests.
      */
     boolean hasPartition(PartitionId partitionId) {
         return partitions.containsKey(partitionId);
-    }
-
-    private static IllegalStateException removedPartition(PartitionId partitionId) {
-        return new IllegalStateException("Partition was removed: " + partitionId);
     }
 }

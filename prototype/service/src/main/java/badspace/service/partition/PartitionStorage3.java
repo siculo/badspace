@@ -62,7 +62,7 @@ import java.util.function.Function;
  * <p>
  * The thread that moves the tick is not the writer. A lock orders the moves of the
  * tick and the operations of the writer that change the partition (writes, commit,
- * mark of removal): a commit is either before a move, and then it is in the snapshot
+ * request of removal): a commit is either before a move, and then it is in the snapshot
  * of the tick that ends, or after it. The readers never take the lock, and the writer
  * waits only for a move of the tick, which is short, never for a reader.
  * <p>
@@ -79,12 +79,13 @@ import java.util.function.Function;
  * after the timeout of the last acquisition, the end of the last query. The storage counts
  * the published snapshots that did not end yet.
  * <p>
- * The removal of the partition has two steps. {@link #markRemoved()} marks the storage
- * as removed: no more writes, commits or new acquisitions, and the window closes, so
- * every snapshot leaves it. The acquisitions made before stay readable. When the last
- * snapshot ends the partition is finished: the method that ends it returns true, so the
- * node can remove the storage. It happens once, and only after the mark. The storage
- * has no reference to the node.
+ * The removal of the partition goes through the {@linkplain PartitionState states}.
+ * {@link #requestRemoval} is the last operation of the writer: no more writes or
+ * commits. The next move of the tick makes the removal effective at the new tick, the
+ * removal tick: the snapshots of the ticks before it stay acquirable while they are in
+ * the window. When the last snapshot ends the partition is destroyed: the method that
+ * ends it returns true, so the node can remove the storage. It happens once, and only
+ * after the removal is effective. The storage has no reference to the node.
  */
 final class PartitionStorage3 implements SlotView3 {
 
@@ -103,7 +104,7 @@ final class PartitionStorage3 implements SlotView3 {
     // Orders the moves of the tick and the operations of the writer that change the
     // partition: each of them runs while holding it. The readers never take it.
     private final ReentrantLock writerLock = new ReentrantLock();
-    // Replaced by the move of the tick and by the mark of removal, while holding writerLock;
+    // Replaced by the move of the tick while holding writerLock;
     // any thread reads it. The volatile write publishes the new tick and the new window together.
     private volatile SnapshotCatalog3 catalog;
     // The snapshot of the last commit, the empty snapshot before the first commit. Only the
@@ -124,13 +125,13 @@ final class PartitionStorage3 implements SlotView3 {
     // The published snapshots that did not end yet. The move of the tick that publishes a
     // snapshot adds one; the thread that ends a snapshot, any thread, removes one. Only a
     // published snapshot can end, and after the first move of the tick the last snapshot is
-    // always in the window until the mark of removal, so the count reaches 0 only after the
-    // mark, and only once.
+    // always in the window until the removal is effective, so the count reaches 0 only
+    // after that, and only once.
     private final AtomicInteger liveSnapshots = new AtomicInteger();
-    // Written once by the writer, in markRemoved(), before the window closes. Read by the
-    // threads that acquire: an acquisition that finds its snapshot out of the window after
-    // the mark sees the mark too.
-    private volatile boolean removed;
+    // The state of the removal. Written while holding writerLock: by the request of removal,
+    // by the move of the tick that makes it effective, and by the end of the last snapshot
+    // (which needs no lock: nothing else changes the state after RETIRED). Read by any thread.
+    private volatile PartitionState state = PartitionState.ACTIVE;
     /** True after an insertion or a removal not yet in a snapshot. */
     private boolean idsChanged;
     private final CoordinateLimits limits;
@@ -350,8 +351,10 @@ final class PartitionStorage3 implements SlotView3 {
      * of the last commit of the current tick, if there is one, as the snapshot of the current
      * tick; the ticks without a commit keep the snapshot before. The snapshots whose ticks are
      * all before the new window leave it, and the ones with no uses end. It also removes the
-     * expired acquisitions. The same tick again does nothing. Returns true if this finishes a
-     * partition marked as removed. Fails with IllegalArgumentException if the tick is less than
+     * expired acquisitions. If the removal was requested, the move makes it effective at the
+     * new tick. The same tick again does nothing, and does not make the removal effective.
+     * Returns true if this destroys a removed partition. Fails with IllegalArgumentException if
+     * the tick is less than
      * the tick of the partition. The thread that moves the tick of the node calls it, also
      * while the writer works: it waits for a write or a commit that is running.
      */
@@ -370,7 +373,11 @@ final class PartitionStorage3 implements SlotView3 {
             }
             published = pending;
             pending = null;
-            next = current.advance(tick, published);
+            boolean retire = state == PartitionState.REMOVAL_PENDING;
+            next = current.advance(tick, published, retire);
+            if (retire) {
+                state = PartitionState.RETIRED;
+            }
             if (published != null) {
                 liveSnapshots.incrementAndGet();
             }
@@ -392,36 +399,31 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     /**
-     * Marks the partition as removed and closes the window: every snapshot in the window
-     * leaves it, and the snapshots with no uses end. After this the node allows no writes,
-     * commits or new acquisitions; the acquisitions made before stay readable until they
-     * are released or expire. Returns true if the partition is finished: no snapshot is
-     * left. Only the writer can call it, once.
+     * Requests the removal of the partition: the last operation of the writer. After this the
+     * node allows no writes or commits, and the writes not committed are discarded: the last
+     * snapshot is the state of the last commit. The next move of the tick makes the removal
+     * effective. Fails with IllegalStateException if the removal was already requested, or if
+     * requireEmpty is true and the state of the last commit has entities; in these cases
+     * nothing changes. Only the writer can call it.
      */
-    boolean markRemoved() {
-        SnapshotCatalog3 closing;
+    void requestRemoval(boolean requireEmpty) {
         writerLock.lock();
         try {
-            removed = true;
-            pending = null;
-            closing = catalog;
-            catalog = closing.closed();
+            if (state != PartitionState.ACTIVE) {
+                throw new IllegalStateException("Removal was already requested");
+            }
+            if (requireEmpty && lastCommitted.size() > 0) {
+                throw new IllegalStateException("Committed state is not empty: " + lastCommitted.size() + " entities");
+            }
+            state = PartitionState.REMOVAL_PENDING;
         } finally {
             writerLock.unlock();
         }
-        // With no published snapshot there are no acquisitions either: the partition is finished.
-        boolean finished = closing.size() == 0;
-        for (int i = 0; i < closing.size(); i++) {
-            if (closing.snapshotAt(i).uses().leaveWindow()) {
-                finished |= snapshotEnded();
-            }
-        }
-        return finished;
     }
 
-    /** Returns true if the partition is marked as removed. Any thread can call it. */
-    boolean isRemoved() {
-        return removed;
+    /** Returns the state of the partition. Any thread can call it. */
+    PartitionState state() {
+        return state;
     }
 
     /**
@@ -451,9 +453,8 @@ final class PartitionStorage3 implements SlotView3 {
     /**
      * Acquires the snapshot of the tick with the given options and returns the number of the
      * acquisition. The caller chooses the snapshot of the tick from a {@linkplain #catalog() catalog}.
-     * Returns NOT_ACQUIRED, and uses no number, if a commit made the snapshot leave the
-     * window after the choice: the caller chooses again from the new catalog, or fails if
-     * the partition is {@linkplain #isRemoved() removed}. It also
+     * Returns NOT_ACQUIRED, and uses no number, if a move of the tick made the snapshot leave
+     * the window after the choice: the caller chooses again from the new catalog. It also
      * removes the expired acquisitions. Any thread can call it.
      */
     long acquire(StorageSnapshot3 snapshot, long tick, AcquireOptions options) {
@@ -499,7 +500,7 @@ final class PartitionStorage3 implements SlotView3 {
 
     /**
      * Ends a query admitted by {@link #admit}: removes its use, which can end the
-     * snapshot. Returns true if this finishes the partition. Any thread can call it.
+     * snapshot. Returns true if this destroys the removed partition. Any thread can call it.
      */
     boolean endQuery(StorageSnapshot3 snapshot) {
         return removeUse(snapshot);
@@ -508,7 +509,7 @@ final class PartitionStorage3 implements SlotView3 {
     /**
      * Releases an acquisition: removes its use, which can end the snapshot. Releasing it
      * again, or after its timeout, does nothing. It also removes the expired acquisitions.
-     * Returns true if this finishes the partition. Fails with IllegalArgumentException if
+     * Returns true if this destroys the removed partition. Fails with IllegalArgumentException if
      * this storage never made it. Any thread can call it.
      */
     boolean release(long acquisitionId) {
@@ -562,11 +563,9 @@ final class PartitionStorage3 implements SlotView3 {
 
     /**
      * Removes the expired acquisitions and their uses, which can end their snapshots.
-     * Returns true if this finishes the partition. The reader of an expired acquisition
+     * Returns true if this destroys the removed partition. The reader of an expired acquisition
      * may never come back, so the storage does not wait for it. It scans all the
-     * acquisitions; the map does not block the other threads. Any thread can call it:
-     * the node calls it for the partitions marked as removed, which have no events of
-     * their own.
+     * acquisitions; the map does not block the other threads. Any thread can call it.
      */
     boolean removeExpired() {
         boolean finished = false;
@@ -580,7 +579,7 @@ final class PartitionStorage3 implements SlotView3 {
         return finished;
     }
 
-    /** Removes a use of the snapshot. Returns true if this finishes the partition. */
+    /** Removes a use of the snapshot. Returns true if this destroys the removed partition. */
     private boolean removeUse(StorageSnapshot3 snapshot) {
         return snapshot.uses().removeUse() && snapshotEnded();
     }
@@ -588,10 +587,14 @@ final class PartitionStorage3 implements SlotView3 {
     /**
      * The point where a snapshot ends: nobody uses it and nobody can ask for it again.
      * Called once for each snapshot, by the thread that ends it. Returns true if it was
-     * the last snapshot: the partition is finished.
+     * the last snapshot: the removed partition is destroyed.
      */
     private boolean snapshotEnded() {
-        return liveSnapshots.decrementAndGet() == 0;
+        if (liveSnapshots.decrementAndGet() > 0) {
+            return false;
+        }
+        state = PartitionState.DESTROYED;
+        return true;
     }
 
     private void checkMade(long acquisitionId) {

@@ -426,7 +426,7 @@ class Space3Test {
     }
 
     @Test
-    void removedPartitionCannotBeUsed() {
+    void removedPartitionRejectsTheWriterWithoutCallingTheNode() {
         Space3 space = newSpace();
         MapNode node = new MapNode();
         Partition3 p = space.createPartition(node);
@@ -439,14 +439,26 @@ class Space3Test {
         assertThrows(IllegalStateException.class, () -> p.remove(1));
         assertThrows(IllegalStateException.class, p::size);
         assertThrows(IllegalStateException.class, p::commit);
-        assertThrows(IllegalStateException.class, p::tick);
-        assertThrows(IllegalStateException.class, p::creationTick);
-        assertThrows(IllegalStateException.class, p::acquireLatest);
-        assertThrows(IllegalStateException.class, () -> p.acquire(0));
         assertThrows(IllegalStateException.class, () -> p.findInRegion(new Sphere3(new Point3(0, 0, 0), 1)));
         assertThrows(IllegalStateException.class, () -> p.findNearest(new Point3(0, 0, 0), 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(p));
         assertEquals(0, node.calls);
+    }
+
+    @Test
+    void removedPartitionStillGivesItsSnapshotsAndTicksThroughTheNode() {
+        Space3 space = newSpace();
+        MapNode node = new MapNode();
+        Partition3 p = space.createPartition(node);
+        p.commit();
+        space.setTick(1);
+        space.removePartition(p);
+        node.calls = 0;
+        assertEquals(0, p.acquireLatest().tick());
+        assertEquals(0, p.acquire(0).tick());
+        assertEquals(1, p.tick());
+        assertEquals(0, p.creationTick());
+        assertEquals(4, node.calls);
     }
 
     @Test

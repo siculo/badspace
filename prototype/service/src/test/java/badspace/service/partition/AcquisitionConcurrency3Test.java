@@ -18,6 +18,7 @@ import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.service.index.IndexSnapshot3;
 import badspace.service.index.SlotView3;
 import badspace.service.index.SpatialIndex3;
@@ -357,9 +358,10 @@ class AcquisitionConcurrency3Test {
 
     /**
      * Readers acquire, read and release the latest snapshot while the writer commits and
-     * moves the tick, and then drops the partition. An acquisition made before the mark stays readable until
-     * its release; after the mark the acquisitions fail. When
-     * the last acquisition is released, the node no longer has the partition.
+     * moves the tick, and then drops the partition and moves the tick until no tick of the
+     * partition is in the window. The acquisitions made before stay readable until their
+     * release; the new ones fail when the latest tick is after the removal. When the last
+     * acquisition is released, the node no longer has the partition.
      */
     @Test
     void removalDuringAcquisitionsEndsWithTheLastRelease() throws Exception {
@@ -379,11 +381,14 @@ class AcquisitionConcurrency3Test {
                             try {
                                 acquisition = node.acquireLatest(P1, defaultTimeout());
                             } catch (SnapshotNotAvailableException e) {
-                                // Nothing is published before the first move of the tick.
-                                continue;
-                            } catch (IllegalStateException | IllegalArgumentException e) {
-                                // The partition is marked as removed, or already removed
-                                // by the release of the last acquisition: then it is unknown.
+                                if (e.reason() == Reason.NOT_YET_PUBLISHED) {
+                                    // Nothing is published before the first move of the tick.
+                                    continue;
+                                }
+                                // The latest tick is after the removal.
+                                return;
+                            } catch (IllegalArgumentException e) {
+                                // The partition is already destroyed: then it is unknown.
                                 return;
                             }
                             // Gives the writer some time to commit or to remove the partition.
@@ -411,6 +416,10 @@ class AcquisitionConcurrency3Test {
                     node.commit(P1);
                 }
                 node.dropPartition(P1);
+                // The removal tick, and then the first tick with no tick of the partition in
+                // the window (k = 1).
+                node.setTick(TICKS + 1);
+                node.setTick(TICKS + 2);
             } finally {
                 for (Thread reader : readers) {
                     reader.join(TIMEOUT.toMillis());

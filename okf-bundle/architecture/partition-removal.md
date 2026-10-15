@@ -125,12 +125,47 @@ non fa niente.
 
 # Nel prototipo
 
-Il codice segue ancora la semantica precedente: la rimozione in **due
-fasi**, con un segno immediato che blocca scritture, commit e nuove
-acquisizioni e chiude subito la finestra, e la rimozione effettiva alla
-fine dell'ultimo snapshot. È descritta in [conservazione degli
-snapshot](/architecture/snapshot-retention.md#nel-prototipo). La
-semantica nuova arriva con i passi del TODO del prototipo.
+Gli stati sono l'enum `PartitionState` del service; lo storage tiene lo
+stato in un campo `volatile`.
+
+- **Richiesta di rimozione.** `removePartition` e `dropPartition` del
+  nodo chiamano `requestRemoval` dello storage, che sotto il lock della
+  partizione rifiuta una seconda richiesta e, per `REQUIRE_EMPTY`,
+  controlla che l'ultimo commit non abbia entità; poi lo stato diventa
+  `REMOVAL_PENDING`. Le scritture non confermate restano nello stato
+  del writer, che nessuno legge più: l'ultimo snapshot è quello
+  dell'ultimo commit. Il nodo rifiuta le operazioni del writer su una
+  partizione non attiva, con `IllegalStateException`.
+- **Ritiro.** Il primo `setTick` che fa avanzare il tick, con lo stato
+  `REMOVAL_PENDING`, pubblica come sempre lo snapshot in attesa e passa
+  al catalogo il tick di rimozione; lo stato diventa `RETIRED`. Il
+  catalogo non dà nessun tick dalla rimozione in poi, con il motivo
+  `AFTER_REMOVAL`, e il suo ultimo snapshot vale al più fino al tick
+  prima della rimozione, quindi esce dalla finestra quando `T − k`
+  raggiunge il tick di rimozione.
+- **Distruzione.** Quando finisce l'ultimo snapshot lo stato diventa
+  `DESTROYED`, e il thread che lo fa finire toglie la partizione dal
+  nodo. Il nodo non ha più la mappa delle partizioni segnate: ogni
+  `setTick` arriva a tutte le partizioni, anche a quelle ritirate, e
+  cerca le loro acquisizioni scadute.
+- **API.** Il proxy della partizione blocca da solo le operazioni del
+  writer dopo la rimozione; acquisizioni, `tick()` e `creationTick()`
+  vanno sempre al nodo, che risponde finché la partizione non è
+  distrutta e poi fallisce con `IllegalArgumentException`.
+
+I test verificano gli esempi di questa pagina (rimozione chiesta al
+tick 102 e primo avanzamento a 105; con k = 5 al tick 109 resta
+`S(104)` e al tick 110 la partizione è distrutta), il `setTick` con lo
+stesso tick che non applica la rimozione, le scritture non confermate
+scartate, `REQUIRE_EMPTY` sull'ultimo commit, la seconda richiesta
+rifiutata, la partizione creata e rimossa prima del primo avanzamento
+(esiste al suo tick di creazione), la distruzione all'avanzamento, al
+rilascio, alla fine dell'ultima query e alla scadenza trovata da un
+avanzamento del tick, l'ID della partizione ritirata rifiutato da
+`createPartition` fino alla distruzione. Un test di concorrenza fa
+correre acquisizioni e letture con i commit, la rimozione e gli
+avanzamenti successivi: ogni lettura vede un commit intero, e al
+rilascio dell'ultima acquisizione il nodo non ha più la partizione.
 
 # Correlati
 

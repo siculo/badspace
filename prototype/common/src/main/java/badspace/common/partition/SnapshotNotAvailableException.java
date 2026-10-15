@@ -15,7 +15,9 @@ public final class SnapshotNotAvailableException extends RuntimeException {
         /** The tick is older than the retention window. */
         OUT_OF_RETENTION,
         /** The partition did not exist yet at the tick. */
-        BEFORE_CREATION
+        BEFORE_CREATION,
+        /** The partition was removed at the tick or before it. */
+        AFTER_REMOVAL
     }
 
     private final Reason reason;

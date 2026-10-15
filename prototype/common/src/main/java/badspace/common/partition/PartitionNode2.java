@@ -29,15 +29,19 @@ import java.util.List;
  * and the node removes it without waiting for the reader. The acquisitions, the reads
  * through them and the release are thread-safe.
  * <p>
- * The removal of a partition has two steps. {@link #removePartition} and
- * {@link #dropPartition} mark the partition as removed: after the mark, the writes, the
- * commits, the reads of the writer and the new acquisitions fail with
- * IllegalStateException, but the acquisitions made before stay readable until they are
- * released or expire. When nobody uses its snapshots any more, the node removes the
- * partition. Until then its ID stays in use on the node.
+ * {@link #removePartition} and {@link #dropPartition} are the last operation of the
+ * writer: after them the writes, the commits and the reads of the writer fail with
+ * IllegalStateException, and the writes not committed are discarded. The next move of
+ * the tick makes the removal effective at the new tick, the removal tick R: the partition
+ * exists for the ticks before R. Readers can still acquire the snapshots of the ticks
+ * before R while they are in the retention window, and the acquisitions made before stay
+ * readable until they are released or expire. When no tick of the partition is in the
+ * window and nobody uses its snapshots, the node destroys the partition. Until then its
+ * ID stays in use on the node.
  * <p>
  * Partition IDs are never used again, so the node cannot tell an unknown partition from
- * a removed one in an acquisition: the release does nothing and the reads fail with
+ * a destroyed one: the operations of the partition fail with IllegalArgumentException,
+ * and in an acquisition the release does nothing and the reads fail with
  * IllegalStateException, like for a released acquisition.
  * <p>
  * The node has a logical time, the tick: a counter that only grows, which the software
@@ -88,7 +92,8 @@ public interface PartitionNode2 {
 
     /**
      * Returns the tick of a partition. While the node moves its partitions to a new tick, it can
-     * be less than the {@linkplain #tick() tick of the node}. Any thread can call it.
+     * be less than the {@linkplain #tick() tick of the node}. Any thread can call it, also after
+     * the removal of the partition, until it is destroyed.
      */
     long tick(PartitionId partitionId);
 
@@ -96,18 +101,19 @@ public interface PartitionNode2 {
     long creationTick(PartitionId partitionId);
 
     /**
-     * Removes an empty partition: marks it as removed, and the node removes it when its
-     * snapshots are no longer used. Fails with IllegalArgumentException if the ID is unknown,
-     * and with IllegalStateException if the partition still has entities or is already
-     * marked as removed.
+     * Removes a partition whose last commit has no entities: the removal becomes effective at
+     * the next move of the tick, and the writes not committed are discarded. Fails with
+     * IllegalArgumentException if the ID is unknown, and with IllegalStateException if the
+     * last commit has entities or the removal was already requested; in these cases the
+     * partition does not change.
      */
     void removePartition(PartitionId partitionId);
 
     /**
-     * Removes a partition together with its entities: marks it as removed, and the node
-     * removes it when its snapshots are no longer used. Fails with IllegalArgumentException
-     * if the ID is unknown, and with IllegalStateException if the partition is already
-     * marked as removed.
+     * Removes a partition together with its entities: the removal becomes effective at the
+     * next move of the tick, and the writes not committed are discarded. Fails with
+     * IllegalArgumentException if the ID is unknown, and with IllegalStateException if the
+     * removal was already requested.
      */
     void dropPartition(PartitionId partitionId);
 
@@ -165,15 +171,17 @@ public interface PartitionNode2 {
      * window. Checking the window and acquiring the snapshot is a single step, so a move of
      * the tick at the same time cannot make it go away. Fails with IllegalArgumentException
      * if tick is negative, and with SnapshotNotAvailableException, with the reason, if the
-     * snapshot is not published yet, is older than the window, or is before the creation of
-     * the partition. The options give the timeout of the acquisition.
+     * snapshot is not published yet, is older than the window, is before the creation of the
+     * partition or is at its removal tick or after it. The options give the timeout of the
+     * acquisition.
      */
     Acquisition acquire(PartitionId partitionId, long tick, AcquireOptions options);
 
     /**
      * Acquires the snapshot of the tick before the current tick of a partition, like
      * {@link #acquire}. Fails with SnapshotNotAvailableException if the tick of the partition
-     * has not moved since its creation, so no snapshot is published yet.
+     * has not moved since its creation, so no snapshot is published yet, or if the partition
+     * did not exist at that tick any more.
      */
     Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options);
 

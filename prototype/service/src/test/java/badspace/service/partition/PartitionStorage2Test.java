@@ -489,56 +489,110 @@ class PartitionStorage2Test {
     }
 
     @Test
-    void markOfRemovalEndsTheSnapshotsWithoutUses() {
+    void removalBecomesEffectiveAtTheNextMoveOfTheTick() {
         PartitionStorage2 kept = new PartitionStorage2(IndexConfig.linearScan(), 2);
         publish(kept);
-        publish(kept);
-        assertTrue(kept.markRemoved());
-        assertTrue(kept.isRemoved());
+        StorageSnapshot2 last = publish(kept);
+        kept.requestRemoval(false);
+        assertEquals(PartitionState.REMOVAL_PENDING, kept.state());
+        // The same tick again does not make the removal effective.
+        assertFalse(kept.setTick(2));
+        assertEquals(PartitionState.REMOVAL_PENDING, kept.state());
+        assertFalse(kept.setTick(3));
+        assertEquals(PartitionState.RETIRED, kept.state());
+        assertEquals(3, kept.catalog().removalTick());
+        // The tick of the removal request has the state of the last commit.
+        assertSame(last, kept.catalog().at(2));
+        assertSame(last, kept.catalog().at(1));
+        // At tick 5 the window starts at the removal tick: the partition is destroyed.
+        assertTrue(kept.setTick(5));
+        assertEquals(PartitionState.DESTROYED, kept.state());
         assertEquals(0, kept.liveSnapshotCount());
     }
 
     @Test
-    void markOfAPartitionThatPublishedNothingFinishesIt() {
-        storage.commit();
-        assertTrue(storage.markRemoved());
-        // The tick still moves, but nothing is published.
+    void partitionRemovedBeforeItsFirstMoveExistsAtItsCreationTick() {
+        storage.requestRemoval(true);
         assertFalse(storage.setTick(1));
-        assertNull(storage.lastSnapshot());
+        assertEquals(0, storage.lastSnapshot().size());
+        assertSame(storage.lastSnapshot(), storage.catalog().at(0));
+        // k = 1: at tick 2 the window starts at the removal tick.
+        assertTrue(storage.setTick(2));
     }
 
     @Test
-    void acquisitionMadeBeforeTheMarkKeepsThePartitionUntilItsRelease() {
+    void removalWithRequireEmptyChecksTheStateOfTheLastCommit() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        storage.commit();
+        assertThrows(IllegalStateException.class, () -> storage.requestRemoval(true));
+        assertEquals(PartitionState.ACTIVE, storage.state());
+        // A removal not committed does not count.
+        storage.removeAll(new long[] {10});
+        assertThrows(IllegalStateException.class, () -> storage.requestRemoval(true));
+        storage.commit();
+        storage.requestRemoval(true);
+        assertEquals(PartitionState.REMOVAL_PENDING, storage.state());
+    }
+
+    @Test
+    void removalDiscardsTheWritesNotCommitted() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        storage.commit();
+        storage.insertAll(List.of(new Entity2(20, B)));
+        storage.requestRemoval(false);
+        storage.setTick(1);
+        assertEquals(List.of(new Entity2(10, A)), storage.lastSnapshot().getAll(ALL_IDS));
+    }
+
+    @Test
+    void secondRemovalIsRejected() {
+        storage.requestRemoval(false);
+        assertThrows(IllegalStateException.class, () -> storage.requestRemoval(false));
+        storage.setTick(1);
+        assertThrows(IllegalStateException.class, () -> storage.requestRemoval(false));
+    }
+
+    @Test
+    void acquisitionKeepsARemovedPartitionAfterItsWindowUntilTheRelease() {
         StorageSnapshot2 snapshot = publish(storage);
         long acquisitionId = storage.acquire(snapshot, 0);
-        assertFalse(storage.markRemoved());
-        // The mark closes the window.
+        storage.requestRemoval(false);
+        // Removal tick 2: the window has only tick 1, then nothing.
+        assertFalse(storage.setTick(2));
+        assertFalse(storage.setTick(3));
+        assertEquals(PartitionState.RETIRED, storage.state());
         assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(snapshot, 0));
-        assertNull(storage.catalog().at(0));
+        assertNull(storage.catalog().at(1));
         assertFalse(storage.endQuery(storage.admit(acquisitionId, 0)));
         assertEquals(1, storage.liveSnapshotCount());
         assertTrue(storage.release(acquisitionId));
         assertEquals(0, storage.liveSnapshotCount());
-        // A release again does not finish it twice.
+        assertEquals(PartitionState.DESTROYED, storage.state());
+        // A release again does not destroy it twice.
         assertFalse(storage.release(acquisitionId));
     }
 
     @Test
-    void endOfTheLastQueryFinishesAMarkedPartition() {
+    void endOfTheLastQueryDestroysARemovedPartition() {
         long acquisitionId = storage.acquire(publish(storage), 0);
         StorageSnapshot2 queried = storage.admit(acquisitionId, 0);
-        assertFalse(storage.markRemoved());
+        storage.requestRemoval(false);
+        // Removal tick 2; at tick 3 the snapshot is out of the window.
+        assertFalse(storage.setTick(2));
+        assertFalse(storage.setTick(3));
         assertFalse(storage.release(acquisitionId));
         assertTrue(storage.endQuery(queried));
         assertEquals(0, storage.liveSnapshotCount());
     }
 
     @Test
-    void expiryFoundAfterTheMarkFinishesThePartition() {
+    void expiryFoundAfterTheWindowDestroysTheRemovedPartition() {
         FakeClock clock = new FakeClock();
         PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 1, clock);
         long acquisitionId = timed.acquire(publish(timed), 0, AcquireOptions.timeout(TIMEOUT));
-        assertFalse(timed.markRemoved());
+        timed.requestRemoval(false);
+        assertFalse(timed.setTick(2));
+        assertFalse(timed.setTick(3));
         assertFalse(timed.removeExpired());
         clock.advance(TIMEOUT);
         assertTrue(timed.removeExpired());
@@ -547,19 +601,21 @@ class PartitionStorage2Test {
     }
 
     @Test
-    void moveOfTheTickAfterTheMarkFindsTheExpiryAndFinishesThePartition() {
+    void moveOfTheTickFindsTheExpiryAndDestroysTheRemovedPartition() {
         FakeClock clock = new FakeClock();
         PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 1, clock);
         timed.acquire(publish(timed), 0, AcquireOptions.timeout(TIMEOUT));
-        assertFalse(timed.markRemoved());
+        timed.requestRemoval(false);
         assertFalse(timed.setTick(2));
+        // Out of the window, but still acquired.
+        assertFalse(timed.setTick(3));
         clock.advance(TIMEOUT);
-        assertTrue(timed.setTick(3));
+        assertTrue(timed.setTick(4));
         assertEquals(0, timed.liveSnapshotCount());
     }
 
     @Test
-    void eventsBeforeTheMarkDoNotFinishThePartition() {
+    void eventsBeforeTheRemovalDoNotDestroyThePartition() {
         StorageSnapshot2 snapshot = publish(storage);
         long acquisitionId = storage.acquire(snapshot, 0);
         publish(storage);

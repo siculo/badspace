@@ -24,11 +24,14 @@ public interface Space<N, P extends Partition> {
     P createPartition(N node, PartitionConfig config);
 
     /**
-     * Removes a partition from its node, following its removal policy. After this call the partition
-     * can no longer be used. The writer of the partition must call it. Fails with IllegalStateException
-     * if the policy is REQUIRE_EMPTY and the partition still has entities (in this case the partition
-     * does not change), or if the partition was already removed. Fails with IllegalArgumentException
-     * if the partition belongs to another space.
+     * Removes a partition from its node, following its removal policy: the last operation of the
+     * writer, which must call it. After this call the writer can no longer use the partition, and
+     * the writes not committed are discarded. The removal becomes effective at the next move of
+     * the tick; readers can still acquire the snapshots of the ticks before it while they are in
+     * the retention window. Fails with IllegalStateException if the policy is REQUIRE_EMPTY and
+     * the last commit has entities (in this case the partition does not change), or if the
+     * partition was already removed. Fails with IllegalArgumentException if the partition belongs
+     * to another space.
      */
     void removePartition(P partition);
 

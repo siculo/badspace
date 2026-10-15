@@ -425,7 +425,7 @@ class Space2Test {
     }
 
     @Test
-    void removedPartitionCannotBeUsed() {
+    void removedPartitionRejectsTheWriterWithoutCallingTheNode() {
         Space2 space = newSpace();
         MapNode node = new MapNode();
         Partition2 p = space.createPartition(node);
@@ -438,14 +438,26 @@ class Space2Test {
         assertThrows(IllegalStateException.class, () -> p.remove(1));
         assertThrows(IllegalStateException.class, p::size);
         assertThrows(IllegalStateException.class, p::commit);
-        assertThrows(IllegalStateException.class, p::tick);
-        assertThrows(IllegalStateException.class, p::creationTick);
-        assertThrows(IllegalStateException.class, p::acquireLatest);
-        assertThrows(IllegalStateException.class, () -> p.acquire(0));
         assertThrows(IllegalStateException.class, () -> p.findInRegion(new Circle2(new Point2(0, 0), 1)));
         assertThrows(IllegalStateException.class, () -> p.findNearest(new Point2(0, 0), 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(p));
         assertEquals(0, node.calls);
+    }
+
+    @Test
+    void removedPartitionStillGivesItsSnapshotsAndTicksThroughTheNode() {
+        Space2 space = newSpace();
+        MapNode node = new MapNode();
+        Partition2 p = space.createPartition(node);
+        p.commit();
+        space.setTick(1);
+        space.removePartition(p);
+        node.calls = 0;
+        assertEquals(0, p.acquireLatest().tick());
+        assertEquals(0, p.acquire(0).tick());
+        assertEquals(1, p.tick());
+        assertEquals(0, p.creationTick());
+        assertEquals(4, node.calls);
     }
 
     @Test

@@ -347,19 +347,8 @@ Scelte di dettaglio:
 
 ## Differenze nel codice attuale
 
-La forma descritta sopra è decisa; il codice la segue per tick, commit e
-acquisizioni, e si allinea per il resto con i passi del TODO del
-prototipo. Oggi:
-
-- la rimozione segna subito la partizione: scritture, commit, letture
-  del writer e nuove acquisizioni falliscono con
-  `IllegalStateException`, la finestra si chiude, e il nodo toglie la
-  partizione quando i suoi snapshot non hanno più utilizzi; dopo, l'ID è
-  sconosciuto e le operazioni falliscono con `IllegalArgumentException`;
-  il proxy blocca tutte le operazioni dopo la rimozione;
-- `SnapshotNotAvailableException` ha i motivi `NOT_YET_PUBLISHED`,
-  `OUT_OF_RETENTION` e `BEFORE_CREATION`; quello per i tick dalla
-  rimozione in poi arriva con la rimozione con gli stati.
+Nessuna: il codice segue la forma descritta sopra per tick, commit,
+acquisizioni e rimozione delle partizioni.
 
 ## Contratto del nodo
 

@@ -18,7 +18,10 @@ import java.util.Optional;
  * a commit and read it.
  * Single-entity operations are batches of one entity: to write many entities,
  * the batch operations make fewer calls to the node.
- * After the space removes the partition, every operation fails with IllegalStateException.
+ * After the space removes the partition, the operations of the writer fail with
+ * IllegalStateException; the acquisitions, {@link #tick()} and {@link #creationTick()} still
+ * go to the node, which gives the snapshots of the ticks before the removal while they are
+ * in the retention window.
  */
 public final class Partition2 implements Partition {
 
@@ -26,9 +29,9 @@ public final class Partition2 implements Partition {
     private final PartitionNode2 node;
     private final PartitionId partitionId;
     private final PartitionConfig config;
-    // Written only by the writer, when the space removes the partition. Volatile
-    // because tick() and the acquisitions can be called by any thread.
-    private volatile boolean removed;
+    // Written only by the writer, when the space removes the partition, and read only by
+    // the writer: it stops the operations of the writer without a call to the node.
+    private boolean removed;
 
     Partition2(Space2 space, PartitionNode2 node, PartitionId partitionId, PartitionConfig config) {
         this.space = space;
@@ -168,7 +171,6 @@ public final class Partition2 implements Partition {
      * timeout of the acquisition. Any thread can call it.
      */
     public AcquiredSnapshot2 acquire(long tick, AcquireOptions options) {
-        checkNotRemoved();
         return new AcquiredSnapshot2(node, node.acquire(partitionId, tick, options));
     }
 
@@ -183,19 +185,16 @@ public final class Partition2 implements Partition {
      * tick has not moved since the creation of the partition. Any thread can call it.
      */
     public AcquiredSnapshot2 acquireLatest(AcquireOptions options) {
-        checkNotRemoved();
         return new AcquiredSnapshot2(node, node.acquireLatest(partitionId, options));
     }
 
     @Override
     public long tick() {
-        checkNotRemoved();
         return node.tick(partitionId);
     }
 
     @Override
     public long creationTick() {
-        checkNotRemoved();
         return node.creationTick(partitionId);
     }
 

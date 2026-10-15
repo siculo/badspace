@@ -249,15 +249,12 @@ tollerare per un momento tick diversi.
 
 # Nel prototipo
 
-Commit, finestra in tick e acquisizioni seguono la semantica di questa
-pagina. La rimozione della partizione segue ancora la semantica
-precedente, in **due fasi** con un segno immediato che chiude la
-finestra (descritta sotto); quella con gli stati arriva con il passo
-del TODO del prototipo.
+Il codice segue la semantica di questa pagina e quella della
+[rimozione della partizione](/architecture/partition-removal.md).
 
 Il writer e il thread che fa avanzare il tick lavorano insieme: un
 `ReentrantLock` per partizione, nello storage, ordina scritture,
-`commit()`, segno di rimozione e `setTick`. Dentro il lock stanno solo
+`commit()`, richiesta di rimozione e `setTick`. Dentro il lock stanno solo
 le modifiche dello stato e la pubblicazione del catalogo; la fine degli
 snapshot usciti dalla finestra e la pulizia delle acquisizioni scadute
 avvengono dopo, con le operazioni atomiche di sempre. I reader non
@@ -367,53 +364,25 @@ avanzamenti del tick, e ammissioni e rilasci della stessa acquisizione: alla fin
 restano solo gli snapshot della finestra, quindi ogni altro è finito una
 e una sola volta.
 
-La rimozione in due fasi la fanno insieme storage e nodo. Il segno è
-un campo volatile dello storage, scritto dal writer prima di chiudere
-la finestra: chiuderla pubblica un catalogo senza snapshot, con lo
-stesso tick, scarta lo snapshot in attesa e fa uscire tutti gli
-snapshot del catalogo, e quelli senza utilizzi finiscono subito.
-Un'acquisizione che trova lo snapshot fuori dalla finestra, o nessuno
-snapshot, dopo il segno vede anche il segno, e fallisce con
-`IllegalStateException`. Uno snapshot finisce solo dopo essere stato
-pubblicato, e dal primo avanzamento fino al segno l'ultimo snapshot è
-sempre nella finestra (k ≥ 1), quindi il conteggio degli snapshot non
-finiti arriva a zero solo dopo il segno, una sola volta; una partizione
-che non ha mai pubblicato niente è finita già al segno. La partizione
-segnata riceve ancora gli avanzamenti del tick, che non pubblicano
-niente ma cercano le acquisizioni scadute. Lo storage non
-conosce il nodo: segno, rilascio, fine di una query ed eliminazione
-delle scadute restituiscono vero quando la partizione è finita, e il
-thread che lo riceve la toglie dal nodo.
-
-Il nodo tiene la partizione segnata nella stessa mappa, con il suo ID,
-e in una seconda mappa delle partizioni segnate. A ogni suo evento
-(creazione, rimozione, commit, acquisizione, rilascio, avanzamento del
-tick) scorre la seconda mappa e toglie le acquisizioni scadute. Le letture e il
-rilascio trovano la partizione per ID anche dopo il segno; dopo la
-rimozione effettiva l'ID è sconosciuto, e il nodo tratta
-l'acquisizione come rilasciata: la lettura fallisce con
+La rimozione della partizione la fanno insieme storage e nodo (vedi
+[Rimozione della partizione](/architecture/partition-removal.md#nel-prototipo)).
+Uno snapshot finisce solo dopo essere stato pubblicato, e dal primo
+avanzamento fino al ritiro l'ultimo snapshot è sempre nella finestra
+(k ≥ 1), quindi il conteggio degli snapshot non finiti arriva a zero
+solo dopo il ritiro, una sola volta. Lo storage non conosce il nodo:
+avanzamento del tick, rilascio, fine di una query ed eliminazione delle
+scadute restituiscono vero quando la partizione è distrutta, e il thread
+che lo riceve la toglie dal nodo. Le letture e il rilascio trovano la
+partizione per ID fino alla distruzione; dopo l'ID è sconosciuto, e il
+nodo tratta l'acquisizione come rilasciata: la lettura fallisce con
 `IllegalStateException` e il rilascio non fa niente. Gli ID delle
 partizioni li crea il generatore di ID delle partizioni che lo spazio
 riceve in `SpaceConfig`. I reader non hanno altro modo di leggere uno
 snapshot: `lastSnapshot()` è solo un metodo interno dello storage.
 
-I test verificano lo storage (il segno fa finire gli snapshot senza
-utilizzi; la partizione finisce al rilascio, alla fine dell'ultima
-query e alla scadenza trovata dopo il segno; gli eventi prima del segno
-non la fanno mai finire) e il nodo: dopo il segno scritture, commit e
-nuove acquisizioni falliscono e le acquisizioni già fatte restano
-leggibili; la rimozione effettiva avviene subito senza acquisizioni, al
-rilascio dell'ultima e alla scadenza trovata da un evento di un'altra
-partizione o da un avanzamento del tick (un reader che muore senza
-rilasciare); l'ID della
-partizione segnata è rifiutato da `createPartition`; dopo la rimozione
-il rilascio non fa niente. Un test di concorrenza fa correre
-acquisizioni e letture con i commit e la rimozione: ogni lettura vede
-un commit intero, e al rilascio dell'ultima acquisizione il nodo non ha
-più la partizione. Il client `SampleRandomUpdater` fa un commit e un
-avanzamento del tick a ogni tick, e il reader mostra l'ultimo
-snapshot. Nell'API, due spazi con gli stessi generatori danno
-ID di partizione diversi.
+Il client `SampleRandomUpdater` fa un commit e un avanzamento del tick a
+ogni tick, e il reader mostra l'ultimo snapshot. Nell'API, due spazi con
+gli stessi generatori danno ID di partizione diversi.
 
 # Punti aperti
 

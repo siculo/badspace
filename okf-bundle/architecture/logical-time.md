@@ -106,9 +106,10 @@ La scelta è ribaltata per quattro motivi:
 
 Il tick regola commit, pubblicazione e acquisizioni (vedi [conservazione
 degli snapshot](/architecture/snapshot-retention.md#nel-prototipo)). La
-rimozione segue ancora la semantica precedente. Il lock per partizione
+rimozione segue la [semantica con gli
+stati](/architecture/partition-removal.md#nel-prototipo). Il lock per partizione
 è un `ReentrantLock` nello storage, preso da scritture, `commit()`,
-segno di rimozione e `setTick`, mai dai reader.
+richiesta di rimozione e `setTick`, mai dai reader.
 
 - **Contratto del nodo** (`PartitionNode2`/`PartitionNode3`):
   `setTick(long)`, `tick()`, `tick(PartitionId)` e
@@ -118,12 +119,12 @@ segno di rimozione e `setTick`, mai dai reader.
   `setTick` e letto da ogni thread. Un `ReentrantLock` ordina `setTick` e
   `createPartition`: una partizione creata durante un avanzamento nasce
   prima, e allora avanza anche lei, o dopo, al tick nuovo. `setTick`
-  avanza anche le partizioni segnate come rimosse, ed è un evento del
-  nodo: dopo cerca le acquisizioni scadute delle partizioni segnate.
+  avanza anche le partizioni rimosse, e in ogni partizione cerca le
+  acquisizioni scadute.
 - **Storage**: tick e tick di creazione stanno nel catalogo degli
   snapshot, pubblicato a ogni avanzamento; `setTick` dello storage
   pubblica lo snapshot in attesa e restituisce vero se finisce una
-  partizione segnata, e il nodo allora la toglie.
+  partizione rimossa, e il nodo allora la toglie.
 - **API**: `Space.setTick(long)` e `tick()`; lo spazio tiene in un
   insieme per identità i nodi su cui ha creato partizioni, e su un nodo
   nuovo chiama `setTick` con il suo tick prima della creazione. Un
