@@ -106,9 +106,9 @@ La scelta è ribaltata per quattro motivi:
 
 Il tick regola commit, pubblicazione e acquisizioni (vedi [conservazione
 degli snapshot](/architecture/snapshot-retention.md#nel-prototipo)). La
-rimozione segue ancora la semantica precedente, e manca il lock per
-partizione: per ora il writer e il thread che fa avanzare il tick non
-devono lavorare insieme sulla stessa partizione.
+rimozione segue ancora la semantica precedente. Il lock per partizione
+è un `ReentrantLock` nello storage, preso da scritture, `commit()`,
+segno di rimozione e `setTick`, mai dai reader.
 
 - **Contratto del nodo** (`PartitionNode2`/`PartitionNode3`):
   `setTick(long)`, `tick()`, `tick(PartitionId)` e

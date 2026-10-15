@@ -20,11 +20,12 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
 /**
  * Entities of a 3D partition. It has a single writer and is not thread-safe,
- * except {@link #catalog()}, {@link #lastSnapshot()}, {@link #tick()},
+ * except {@link #setTick}, {@link #catalog()}, {@link #lastSnapshot()}, {@link #tick()},
  * {@link #creationTick()} and the methods of the acquisitions.
  * Entities are stored in primitive arrays: slotEntityIds[i] has coordinates
  * coords[3*i], coords[3*i+1], coords[3*i+2]. A {@link SlotTable} gives the slot of each ID.
@@ -57,8 +58,13 @@ import java.util.function.Function;
  * yet committed, and only the writer can call them. The other threads read
  * the {@linkplain #catalog() catalog}: the move of the tick publishes it with a
  * single write of a volatile field, so a reader sees either the catalog before
- * or the whole new catalog, never a new tick with an old window. For now the
- * writer and the thread that moves the tick must not work at the same time.
+ * or the whole new catalog, never a new tick with an old window.
+ * <p>
+ * The thread that moves the tick is not the writer. A lock orders the moves of the
+ * tick and the operations of the writer that change the partition (writes, commit,
+ * mark of removal): a commit is either before a move, and then it is in the snapshot
+ * of the tick that ends, or after it. The readers never take the lock, and the writer
+ * waits only for a move of the tick, which is short, never for a reader.
  * <p>
  * The storage also keeps the acquisitions of the snapshots: each one has a number
  * and holds its snapshot, also after the snapshot leaves the window, until it is
@@ -94,15 +100,18 @@ final class PartitionStorage3 implements SlotView3 {
     private double[] coords = new double[INITIAL_CAPACITY * DIMENSIONS];
     private final SlotTable slotById = new SlotTable();
     private int size;
-    // The thread that moves the tick replaces the catalog at each move, and any thread reads
-    // it. The volatile write publishes the new tick and the new window together.
+    // Orders the moves of the tick and the operations of the writer that change the
+    // partition: each of them runs while holding it. The readers never take it.
+    private final ReentrantLock writerLock = new ReentrantLock();
+    // Replaced by the move of the tick and by the mark of removal, while holding writerLock;
+    // any thread reads it. The volatile write publishes the new tick and the new window together.
     private volatile SnapshotCatalog3 catalog;
     // The snapshot of the last commit, the empty snapshot before the first commit. Only the
     // writer uses it, as the base of the next snapshot.
     private StorageSnapshot3 lastCommitted;
     // The snapshot that the next move of the tick publishes: the one of the last commit of
-    // the current tick, or null if the tick has no commit. Written by the writer, read and
-    // cleared by the thread that moves the tick.
+    // the current tick, or null if the tick has no commit. Written by the commit, read and
+    // cleared by the move of the tick, both while holding writerLock.
     private StorageSnapshot3 pending;
     // The number of the last commit in the sequence. Only the writer uses it.
     private long commitSequence;
@@ -207,21 +216,26 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     void insertAll(List<Entity3> entities) {
-        Set<Long> seen = new HashSet<>();
-        for (Entity3 e : entities) {
-            if (slotById.contains(e.id()) || !seen.add(e.id())) {
-                throw new IllegalArgumentException("Duplicate entity ID: " + e.id());
+        writerLock.lock();
+        try {
+            Set<Long> seen = new HashSet<>();
+            for (Entity3 e : entities) {
+                if (slotById.contains(e.id()) || !seen.add(e.id())) {
+                    throw new IllegalArgumentException("Duplicate entity ID: " + e.id());
+                }
+                checkLimits(e);
             }
-            checkLimits(e);
-        }
-        ensureCapacity(size + entities.size());
-        for (Entity3 e : entities) {
-            int slot = size++;
-            slotEntityIds[slot] = e.id();
-            write(slot, e.position());
-            slotById.put(e.id(), slot);
-            idsChanged = true;
-            index.inserted(slot, e.position());
+            ensureCapacity(size + entities.size());
+            for (Entity3 e : entities) {
+                int slot = size++;
+                slotEntityIds[slot] = e.id();
+                write(slot, e.position());
+                slotById.put(e.id(), slot);
+                idsChanged = true;
+                index.inserted(slot, e.position());
+            }
+        } finally {
+            writerLock.unlock();
         }
     }
 
@@ -237,28 +251,38 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     void updateAll(List<Entity3> entities) {
-        for (Entity3 e : entities) {
-            slotOf(e.id());
-            checkLimits(e);
-        }
-        for (Entity3 e : entities) {
-            int slot = slotById.get(e.id());
-            Point3 from = positionAt(slot);
-            write(slot, e.position());
-            index.moved(slot, from, e.position());
+        writerLock.lock();
+        try {
+            for (Entity3 e : entities) {
+                slotOf(e.id());
+                checkLimits(e);
+            }
+            for (Entity3 e : entities) {
+                int slot = slotById.get(e.id());
+                Point3 from = positionAt(slot);
+                write(slot, e.position());
+                index.moved(slot, from, e.position());
+            }
+        } finally {
+            writerLock.unlock();
         }
     }
 
     void removeAll(long[] entityIds) {
-        Set<Long> seen = new HashSet<>();
-        for (long id : entityIds) {
-            slotOf(id);
-            if (!seen.add(id)) {
-                throw new IllegalArgumentException("Duplicate entity ID: " + id);
+        writerLock.lock();
+        try {
+            Set<Long> seen = new HashSet<>();
+            for (long id : entityIds) {
+                slotOf(id);
+                if (!seen.add(id)) {
+                    throw new IllegalArgumentException("Duplicate entity ID: " + id);
+                }
             }
-        }
-        for (long id : entityIds) {
-            remove(id);
+            for (long id : entityIds) {
+                remove(id);
+            }
+        } finally {
+            writerLock.unlock();
         }
     }
 
@@ -306,11 +330,17 @@ final class PartitionStorage3 implements SlotView3 {
      * also removes the expired acquisitions. Only the writer can call it.
      */
     StorageSnapshot3 commit() {
-        commitSequence++;
-        StorageSnapshot3 snapshot = new StorageSnapshot3(commitSequence, slotSnapshot(), index.commit(commitSequence));
-        idsChanged = false;
-        lastCommitted = snapshot;
-        pending = snapshot;
+        StorageSnapshot3 snapshot;
+        writerLock.lock();
+        try {
+            commitSequence++;
+            snapshot = new StorageSnapshot3(commitSequence, slotSnapshot(), index.commit(commitSequence));
+            idsChanged = false;
+            lastCommitted = snapshot;
+            pending = snapshot;
+        } finally {
+            writerLock.unlock();
+        }
         removeExpired();
         return snapshot;
     }
@@ -322,24 +352,33 @@ final class PartitionStorage3 implements SlotView3 {
      * all before the new window leave it, and the ones with no uses end. It also removes the
      * expired acquisitions. The same tick again does nothing. Returns true if this finishes a
      * partition marked as removed. Fails with IllegalArgumentException if the tick is less than
-     * the tick of the partition. Only the thread that moves the tick of the node calls it.
+     * the tick of the partition. The thread that moves the tick of the node calls it, also
+     * while the writer works: it waits for a write or a commit that is running.
      */
     boolean setTick(long tick) {
-        SnapshotCatalog3 current = catalog;
-        if (tick < current.tick()) {
-            throw new IllegalArgumentException("Tick " + tick + " is less than the tick " + current.tick());
+        SnapshotCatalog3 current;
+        SnapshotCatalog3 next;
+        StorageSnapshot3 published;
+        writerLock.lock();
+        try {
+            current = catalog;
+            if (tick < current.tick()) {
+                throw new IllegalArgumentException("Tick " + tick + " is less than the tick " + current.tick());
+            }
+            if (tick == current.tick()) {
+                return false;
+            }
+            published = pending;
+            pending = null;
+            next = current.advance(tick, published);
+            if (published != null) {
+                liveSnapshots.incrementAndGet();
+            }
+            // The publication of the new tick and window.
+            catalog = next;
+        } finally {
+            writerLock.unlock();
         }
-        if (tick == current.tick()) {
-            return false;
-        }
-        StorageSnapshot3 published = pending;
-        pending = null;
-        SnapshotCatalog3 next = current.advance(tick, published);
-        if (published != null) {
-            liveSnapshots.incrementAndGet();
-        }
-        // The publication of the new tick and window.
-        catalog = next;
         // After the publication, so a new acquisition finds the snapshot either in the
         // window or out of it, and in that case it chooses again from the new window.
         int kept = next.size() - (published != null ? 1 : 0);
@@ -360,10 +399,16 @@ final class PartitionStorage3 implements SlotView3 {
      * left. Only the writer can call it, once.
      */
     boolean markRemoved() {
-        removed = true;
-        pending = null;
-        SnapshotCatalog3 closing = catalog;
-        catalog = closing.closed();
+        SnapshotCatalog3 closing;
+        writerLock.lock();
+        try {
+            removed = true;
+            pending = null;
+            closing = catalog;
+            catalog = closing.closed();
+        } finally {
+            writerLock.unlock();
+        }
         // With no published snapshot there are no acquisitions either: the partition is finished.
         boolean finished = closing.size() == 0;
         for (int i = 0; i < closing.size(); i++) {

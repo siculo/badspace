@@ -44,8 +44,9 @@ import java.util.List;
  * moves forward with {@link #setTick}. A new node is at tick 0. Each partition has its
  * own tick too: the node moves its partitions to a new tick one after the other, so for
  * a short time the partitions of a node can be at different ticks. A partition is created
- * at the tick of the node. For now the writer and the thread that moves the tick must not
- * work on the same partition at the same time.
+ * at the tick of the node. The writer and the thread that moves the tick can work at the
+ * same time: on each partition the moves of the tick are ordered with the writes and the
+ * commits, so a commit is in the snapshot of the tick that ends or in the next one.
  */
 public interface PartitionNode2 {
 

@@ -55,6 +55,8 @@ class AcquisitionConcurrency2Test {
     private static final PartitionId P1 = new PartitionId(1);
     private static final int READERS = 3;
     private static final int TICKS = 2000;
+    /** The commits of the writer with the tick on another thread: positionAt() keeps x below 1000. */
+    private static final int VERSIONS = 999;
     private static final int ENTITIES = 4;
     /** The readers keep one acquisition in this many, to read it again at the end. */
     private static final int KEEP_EVERY = 50;
@@ -421,6 +423,187 @@ class AcquisitionConcurrency2Test {
         }
     }
 
+    /**
+     * The commit is stopped in the index, while it holds the lock of the partition. A move of
+     * the tick on another thread waits for it, so the commit is in the snapshot of the tick
+     * that ends.
+     */
+    @Test
+    void moveOfTheTickWaitsForACommitThatIsRunning() throws Exception {
+        for (IndexConfig config : CONFIGS) {
+            GatedIndex[] index = new GatedIndex[1];
+            PartitionStorage2 storage = gatedStorage(config, index, 2);
+            storage.insertAll(List.of(new Entity2(10, A)));
+            Gate gate = new Gate();
+            index[0].commitGate = gate;
+            Thread writer = new Thread(storage::commit);
+            writer.start();
+            gate.awaitEntered();
+
+            Thread mover = new Thread(() -> storage.setTick(1));
+            mover.start();
+            awaitWaiting(mover, config + ": the move of the tick did not wait for the commit");
+            assertEquals(0, storage.tick(), config + ": the tick moved during a commit");
+
+            gate.open();
+            assertTimeoutPreemptively(TIMEOUT, () -> {
+                writer.join();
+                mover.join();
+            });
+            assertEquals(1, storage.tick(), config.toString());
+            assertEquals(List.of(new Entity2(10, A)), storage.catalog().at(0).getAll(ALL_IDS), config.toString());
+        }
+    }
+
+    /**
+     * The writer commits and the tick moves on two different threads, with no order between
+     * them, while readers acquire the latest snapshot or the one of the tick before it. All
+     * the entities of the commit with number v are at x = v, so a snapshot is a whole commit
+     * if all its entities have the same x; a later tick never has an older commit. At the end
+     * the last commit is published, and only the snapshots of the window are left.
+     */
+    @Test
+    void writerAndTickOnDifferentThreadsPublishWholeCommits() throws Exception {
+        for (IndexConfig config : CONFIGS) {
+            LocalPartitionNode2 node = new LocalPartitionNode2();
+            node.createPartition(P1, config, 2);
+            long[] entityIds = new long[ENTITIES];
+            List<Entity2> entities = new ArrayList<>();
+            for (int i = 0; i < ENTITIES; i++) {
+                entityIds[i] = i + 1;
+                entities.add(new Entity2(entityIds[i], positionAt(0, entityIds[i])));
+            }
+            node.insertAll(P1, entities);
+
+            AtomicBoolean done = new AtomicBoolean();
+            AtomicBoolean writerDone = new AtomicBoolean();
+            AtomicLong lastTick = new AtomicLong();
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            CyclicBarrier start = new CyclicBarrier(READERS + 3);
+            List<Thread> threads = new ArrayList<>();
+            for (int r = 0; r < READERS; r++) {
+                long ticksBack = r % 2 + 1;
+                threads.add(new Thread(() -> {
+                    try {
+                        start.await();
+                        long lastVersion = 0;
+                        while (!done.get()) {
+                            long tick = node.tick(P1) - ticksBack;
+                            if (tick < 0) {
+                                continue;
+                            }
+                            Acquisition acquisition;
+                            try {
+                                acquisition = node.acquire(P1, tick, defaultTimeout());
+                            } catch (SnapshotNotAvailableException e) {
+                                // The tick moved after it was read.
+                                continue;
+                            }
+                            long version = versionOf(node, acquisition, entityIds);
+                            // The tick read by this reader never goes back.
+                            assertTrue(version >= lastVersion, "tick " + tick + " has an older commit");
+                            lastVersion = version;
+                            node.release(acquisition);
+                        }
+                    } catch (Throwable e) {
+                        failure.compareAndSet(null, e);
+                    }
+                }));
+            }
+            threads.add(new Thread(() -> {
+                try {
+                    start.await();
+                    for (long version = 1; version <= VERSIONS; version++) {
+                        List<Entity2> moved = new ArrayList<>();
+                        for (long id : entityIds) {
+                            moved.add(new Entity2(id, positionAt(version, id)));
+                        }
+                        // Two calls, so the state of the writer between them is mixed.
+                        node.updateAll(P1, moved.subList(0, ENTITIES / 2));
+                        node.updateAll(P1, moved.subList(ENTITIES / 2, ENTITIES));
+                        node.commit(P1);
+                    }
+                } catch (Throwable e) {
+                    failure.compareAndSet(null, e);
+                } finally {
+                    writerDone.set(true);
+                }
+            }));
+            threads.add(new Thread(() -> {
+                try {
+                    start.await();
+                    long tick = 0;
+                    while (!writerDone.get()) {
+                        node.setTick(++tick);
+                    }
+                    lastTick.set(tick);
+                } catch (Throwable e) {
+                    failure.compareAndSet(null, e);
+                }
+            }));
+            for (Thread thread : threads) {
+                thread.start();
+            }
+
+            try {
+                start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+                // The writer and the mover end by themselves; then the readers stop.
+                threads.get(READERS).join(TIMEOUT.toMillis());
+                threads.get(READERS + 1).join(TIMEOUT.toMillis());
+            } finally {
+                done.set(true);
+                for (Thread thread : threads) {
+                    thread.join(TIMEOUT.toMillis());
+                }
+            }
+            if (failure.get() != null) {
+                throw new AssertionError(config + ": a thread failed", failure.get());
+            }
+            // The next move publishes the last commit, if it is still waiting.
+            node.setTick(lastTick.get() + 1);
+            Acquisition latest = node.acquireLatest(P1, defaultTimeout());
+            assertEquals(VERSIONS, versionOf(node, latest, entityIds), config + ": the last commit was lost");
+            node.release(latest);
+            PartitionStorage2 storage = node.find(P1);
+            assertEquals(storage.catalog().size(), storage.liveSnapshotCount(), config.toString());
+        }
+    }
+
+    /**
+     * Waits until the thread waits for a lock, and fails if it ends first or if it does not
+     * wait within the timeout.
+     */
+    private static void awaitWaiting(Thread thread, String message) {
+        long deadline = System.nanoTime() + TIMEOUT.toNanos();
+        while (thread.getState() != Thread.State.WAITING && thread.getState() != Thread.State.BLOCKED) {
+            if (thread.getState() == Thread.State.TERMINATED || System.nanoTime() - deadline > 0) {
+                throw new AssertionError(message);
+            }
+            Thread.onSpinWait();
+        }
+    }
+
+    /**
+     * Returns the number of the commit in the acquired snapshot: the x of all its entities,
+     * or 0 for the empty snapshot before the first commit. Fails if the entities do not all
+     * have the same x, in the slots and in the index: then the snapshot is not a whole commit.
+     */
+    private static long versionOf(LocalPartitionNode2 node, Acquisition acquisition, long[] entityIds) {
+        List<Entity2> byId = node.getAll(acquisition, entityIds);
+        if (byId.isEmpty()) {
+            return 0;
+        }
+        String where = "tick " + acquisition.tick();
+        assertEquals(entityIds.length, byId.size(), where);
+        long version = (long) byId.getFirst().position().x();
+        for (Entity2 e : byId) {
+            assertEquals(positionAt(version, e.id()), e.position(), where);
+        }
+        Region2 all = new Box2(point(-1, -1), point(1000, entityIds.length + 1));
+        assertEquals(Set.copyOf(byId), Set.copyOf(node.findInRegion(acquisition, all)), where);
+        return version;
+    }
+
     /** The position of an entity at a tick: all the entities move at each tick. */
     private static Point2 positionAt(long tick, long entityId) {
         return point(tick % 1000, entityId);
@@ -502,7 +685,7 @@ class AcquisitionConcurrency2Test {
         }
     }
 
-    /** Stops the queries that reach it until the test opens it. */
+    /** Stops the queries, or the commit, that reach it until the test opens it. */
     private static final class Gate {
 
         private final CountDownLatch entered = new CountDownLatch(1);
@@ -524,13 +707,15 @@ class AcquisitionConcurrency2Test {
 
     /**
      * A real index whose snapshots stop findInRegion at the gate, if there is one,
-     * before they read the index.
+     * before they read the index. The commit stops at the commit gate, if there is one.
      */
     private static final class GatedIndex implements SpatialIndex2 {
 
         private final SpatialIndex2 index;
         // Set by the test thread before the query starts, read by the query thread.
         volatile Gate gate;
+        // Set by the test thread before the commit starts, read by the writer thread.
+        volatile Gate commitGate;
 
         GatedIndex(SpatialIndex2 index) {
             this.index = index;
@@ -558,6 +743,14 @@ class AcquisitionConcurrency2Test {
 
         @Override
         public IndexSnapshot2 commit(long n) {
+            Gate currentCommitGate = commitGate;
+            if (currentCommitGate != null) {
+                try {
+                    currentCommitGate.pass();
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
             IndexSnapshot2 snapshot = index.commit(n);
             return new IndexSnapshot2() {
                 @Override

@@ -359,9 +359,7 @@ prototipo. Oggi:
   il proxy blocca tutte le operazioni dopo la rimozione;
 - `SnapshotNotAvailableException` ha i motivi `NOT_YET_PUBLISHED`,
   `OUT_OF_RETENTION` e `BEFORE_CREATION`; quello per i tick dalla
-  rimozione in poi arriva con la rimozione con gli stati;
-- manca il lock per partizione: il writer e il thread che fa avanzare il
-  tick non devono lavorare insieme sulla stessa partizione.
+  rimozione in poi arriva con la rimozione con gli stati.
 
 ## Contratto del nodo
 

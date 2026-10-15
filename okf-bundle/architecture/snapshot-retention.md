@@ -253,9 +253,23 @@ Commit, finestra in tick e acquisizioni seguono la semantica di questa
 pagina. La rimozione della partizione segue ancora la semantica
 precedente, in **due fasi** con un segno immediato che chiude la
 finestra (descritta sotto); quella con gli stati arriva con il passo
-del TODO del prototipo. Il writer e il thread che fa avanzare il tick
-non devono ancora lavorare insieme sulla stessa partizione: il lock
-arriva con il passo successivo del TODO.
+del TODO del prototipo.
+
+Il writer e il thread che fa avanzare il tick lavorano insieme: un
+`ReentrantLock` per partizione, nello storage, ordina scritture,
+`commit()`, segno di rimozione e `setTick`. Dentro il lock stanno solo
+le modifiche dello stato e la pubblicazione del catalogo; la fine degli
+snapshot usciti dalla finestra e la pulizia delle acquisizioni scadute
+avvengono dopo, con le operazioni atomiche di sempre. I reader non
+prendono mai il lock, quindi il writer aspetta al più un avanzamento
+del tick, mai un reader. Un test ferma un commit nell'indice, mentre
+tiene il lock, e verifica che un `setTick` su un altro thread lo
+aspetti e che il commit finisca nello snapshot del tick che si chiude;
+senza il lock il test fallisce. Un altro test fa lavorare writer,
+avanzamento del tick e reader su thread diversi, senza ordine tra
+writer e tick: ogni snapshot letto è un commit intero, un tick più
+recente non ha mai un commit più vecchio, l'ultimo commit viene
+pubblicato e alla fine restano solo gli snapshot della finestra.
 
 Ogni partizione ha un **catalogo degli snapshot** nel service: un
 oggetto immutabile con il tick della partizione, il tick di creazione,
