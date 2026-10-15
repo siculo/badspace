@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: ID delle entità
-description: Gli ID delle entità sono univoci su tutte le partizioni, mai riusati e senza indicazione della partizione; li crea un generatore dell'API comune dietro un contratto proprio, senza garanzie di ordine né di segno. Lo schema scelto, sostituibile, è Snowflake a 64 bit: un generatore per processo API, con generatorId assegnato a ogni avvio.
+description: Gli ID delle entità sono univoci su tutte le partizioni, mai riusati e senza indicazione della partizione; anche gli ID delle partizioni sono univoci tra spazi e mai riusati. Li crea, uno per tipo di ID, un generatore dell'API comune dietro un contratto proprio, senza garanzie di ordine né di segno. Lo schema scelto, sostituibile, è Snowflake a 64 bit: un generatore per processo API, con generatorId assegnato a ogni avvio.
 tags: [badspace, design, partitioning, ids]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T20:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T10:00:00Z }
 ---
 
 # Decisione
@@ -39,14 +39,19 @@ contratto:
   (`long`).
 - Gli ID sono **univoci su tutte le partizioni e su tutti gli spazi**
   del processo, e il generatore non restituisce mai due volte lo stesso
-  ID, neanche dopo un riavvio dell'istanza.
+  ID, neanche dopo un riavvio dell'istanza. L'univocità vale per un
+  tipo di ID: ID di entità e ID di partizioni vengono da generatori
+  diversi e possono avere lo stesso valore.
 - L'ID **non indica la partizione**.
 - **Nessuna garanzia di ordine né di segno**: qualunque valore `long` è
   un ID valido, e nessuna parte del sistema deve dipendere dall'ordine,
   dalla densità o dal contenuto dei bit degli ID.
 - L'operazione è **sincrona**; può fallire solo in casi eccezionali,
   che il generatore segnala.
-- L'API usa **un solo generatore, condiviso da tutti gli spazi**.
+- L'API usa **un solo generatore per tipo di ID, condiviso da tutti gli
+  spazi**: uno per le entità e uno per le
+  [partizioni](#id-delle-partizioni). Lo spazio li riceve nella sua
+  configurazione.
 - La scelta dello schema e la sua configurazione (per Snowflake il
   `generatorId`) sono di chi crea il generatore, non degli spazi.
 
@@ -92,12 +97,15 @@ aperti](#punti-aperti)).
 Gli ID di un generatore Snowflake sono crescenti; è una proprietà
 dello schema, non del contratto.
 
-## Un generatore per processo
+## Un generatore per tipo di ID e per processo
 
-C'è **un solo generatore per processo API, condiviso da tutti gli
-spazi**. Per Snowflake è anche un vincolo: l'unicità dipende dal
-`generatorId`, e due generatori nello stesso processo con lo stesso
-`generatorId` produrrebbero ID uguali.
+C'è **un solo generatore per tipo di ID e per processo API, condiviso
+da tutti gli spazi**. Per Snowflake è anche un vincolo: l'unicità
+dipende dal `generatorId`, e due generatori dello stesso tipo di ID
+nello stesso processo con lo stesso `generatorId` produrrebbero ID
+uguali. I generatori delle entità e delle partizioni possono invece
+avere lo stesso `generatorId`: producono gli stessi numeri, ma per due
+tipi di ID diversi.
 
 ## Tempo logico
 
@@ -150,10 +158,22 @@ assegnazione:
 
 # ID delle partizioni
 
-Anche gli ID delle partizioni li genera l'API comune, univoci nello
-spazio: le partizioni possono stare su [nodi](/architecture/layers.md#nodi)
-diversi, e nessun nodo da solo può garantirne l'univocità. I nodi si
-fidano degli ID ricevuti, di entità e di partizioni.
+Anche gli ID delle partizioni li genera l'API comune, con un
+**generatore di ID proprio**, separato da quello delle entità ma con lo
+stesso [contratto](#contratto-del-generatore): partizioni ed entità
+sono oggetti di tipo diverso. Gli ID delle partizioni sono univoci tra
+spazi e processi e **mai riusati**. Le partizioni possono stare su
+[nodi](/architecture/layers.md#nodi) diversi, e nessun nodo da solo può
+garantirne l'univocità. I nodi si fidano degli ID ricevuti, di entità e
+di partizioni: che un ID di partizione non torni mai è una precondizione
+del contratto del nodo.
+
+Il mai riuso serve alla [rimozione della
+partizione](/architecture/version-retention.md#rimozione-della-partizione)
+in due fasi: una partizione segnata come rimossa resta sul nodo con il
+suo ID finché ha versioni non finite, e le acquisizioni già fatte la
+trovano per ID. Il nodo rifiuta la creazione di una partizione con un
+ID ancora presente, anche se la partizione è segnata come rimossa.
 
 # Punti aperti
 
@@ -164,9 +184,6 @@ fidano degli ID ricevuti, di entità e di partizioni.
   numero di processi API e dagli ID al secondo richiesti a ogni
   generatore; cambiarla dopo non crea collisioni (vedi [Formato
   dell'ID](#formato-dellid)).
-- Nodi condivisi tra spazi: gli ID delle partizioni, oggi univoci solo
-  nello spazio, andrebbero resi globali, per esempio con lo stesso
-  schema Snowflake.
 
 # Correlati
 

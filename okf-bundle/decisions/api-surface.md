@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione con scadenza obbligatoria, lettura e rilascio delle versioni conservate), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T10:00:00Z }
 ---
 
 # Stato
@@ -129,9 +129,16 @@ entità puntiformi la sua forma dipende dagli usi e va decisa a parte.
 
 Le partizioni si creano e si rimuovono attraverso uno **spazio**
 (`Space2`/`Space3`, con l'interfaccia comune `Space`). Uno spazio riceve
-alla costruzione il generatore degli [ID](/decisions/entity-ids.md) delle
-entità, condiviso da tutti gli spazi del processo, e genera gli ID delle
-sue partizioni.
+alla costruzione la sua **configurazione** (`SpaceConfig`), con due
+proprietà separate: il generatore degli [ID](/decisions/entity-ids.md)
+delle entità e il generatore degli [ID delle
+partizioni](/decisions/entity-ids.md#id-delle-partizioni), univoci tra
+spazi e mai riusati. Ogni generatore va condiviso da tutti gli spazi
+del processo, quindi `SpaceConfig` non ha una configurazione di
+default: si costruisce con `SpaceConfig.of(entityIds, partitionIds)`, e
+`withEntityIds` e `withPartitionIds` ne fanno una copia con un
+generatore cambiato. Come `PartitionConfig`, si estende quando arrivano
+altre impostazioni dello spazio.
 
 | Operazione | Forma | Note |
 |---|---|---|
@@ -172,7 +179,8 @@ partizione viene rimossa:
 Nel contratto del nodo la creazione riceve l'ID della partizione, la
 configurazione dell'indice (`IndexConfig`, scansione lineare se manca)
 e k (0 se manca), e fallisce con `IllegalArgumentException` se k è
-negativo; la rimozione ha due operazioni, una per le partizioni vuote e
+negativo o se l'ID è ancora presente sul nodo, anche con la partizione
+segnata come rimossa; la rimozione ha due operazioni, una per le partizioni vuote e
 una che scarta anche le entità. L'API passa al nodo l'indice e k della
 configurazione. Il nodo passa k al catalogo delle versioni della
 partizione, che tiene le ultime k + 1 versioni pubblicate (vedi
@@ -299,8 +307,8 @@ Scelte di dettaglio:
   versione da acquisire, perché tra i due passi la finestra può
   cambiare.
 - **Dopo la rimozione della partizione** le acquisizioni già fatte
-  restano leggibili; una nuova partizione con lo stesso ID non le
-  riceve.
+  restano leggibili e il nodo le trova per ID; l'ID della partizione
+  rimossa non torna mai.
 
 ## Contratto del nodo
 

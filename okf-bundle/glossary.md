@@ -1,24 +1,24 @@
 ---
 type: Glossary
 title: Glossario
-description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, gruppo di partizioni, generatore di ID, generatorId, commit, tick, gTick, snapshot, versione, finestra di conservazione, catalogo delle versioni, acquisizione, rilascio, pin, versione eliminabile, incarnazione, scadenza, slot, copy-on-write e transient, fencing token, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
+description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, gruppo di partizioni, generatore di ID, generatorId, commit, tick, gTick, snapshot, versione, finestra di conservazione, catalogo delle versioni, acquisizione, rilascio, pin, versione eliminabile, scadenza, slot, copy-on-write e transient, fencing token, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T20:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T10:00:00Z }
 ---
 
 # Termini
 
 | Termine | Significato |
 |---|---|
-| Spazio | Insieme di entità in 2D o in 3D, diviso in partizioni; il contenuto dello spazio è la somma del contenuto delle sue partizioni. Dallo spazio si creano e si rimuovono le partizioni, e l'API genera gli ID delle partizioni univoci nello spazio. Vedi [API da esporre](/decisions/api-surface.md#creazione-e-rimozione-delle-partizioni). |
+| Spazio | Insieme di entità in 2D o in 3D, diviso in partizioni; il contenuto dello spazio è la somma del contenuto delle sue partizioni. Dallo spazio si creano e si rimuovono le partizioni, e l'API genera gli ID delle partizioni con il generatore di ID delle partizioni, che lo spazio riceve nella sua configurazione insieme a quello delle entità. Vedi [API da esporre](/decisions/api-surface.md#creazione-e-rimozione-delle-partizioni). |
 | Partizione | Istanza indipendente del DB con un solo writer, più reader e indice proprio; in teoria copre tutto lo spazio. Vedi [partizionamento](/decisions/partitioning.md). |
 | Nodo | Processo, locale o remoto, che ospita una o più partizioni; per ora serve un solo spazio. Il suo contratto è il futuro servizio gRPC. Vedi [architettura a livelli](/architecture/layers.md#nodi). |
 | Software | Il software che usa BADSPACE (simulazione, monitoraggio, gaming e altro) e sceglie la strategia di partizionamento. Vedi [architettura a livelli](/architecture/layers.md). |
 | API comune | Livello di supporto sopra le partizioni: ID, aggregazione, configurazione e meccanismi. Vedi [API da esporre](/decisions/api-surface.md). |
 | Politica di rimozione | Scelta fatta alla creazione di una partizione su cosa succede alle sue entità quando la si rimuove: si rimuove solo se vuota (`REQUIRE_EMPTY`, il default) o insieme alle entità (`DISCARD_ENTITIES`). Vedi [API da esporre](/decisions/api-surface.md#creazione-e-rimozione-delle-partizioni). |
 | Gruppo di partizioni | Insieme di partizioni con una configurazione condivisa (indice, k, politica di rimozione), distinto dall'insieme di partizioni da interrogare; la sua API sta sopra quella delle singole partizioni. Punto aperto: vedi [API da esporre](/decisions/api-surface.md#gruppi-di-partizioni). |
-| Generatore di ID | Componente dell'API comune che crea gli ID delle entità secondo un contratto proprio: ID `long` univoci su tutte le partizioni e gli spazi, mai riusati, senza garanzie di ordine né di segno; uno solo, condiviso da tutti gli spazi. Lo schema scelto è Snowflake, sostituibile. Vedi [ID delle entità](/decisions/entity-ids.md#contratto-del-generatore). |
+| Generatore di ID | Componente dell'API comune che crea gli ID secondo un contratto proprio: ID `long` univoci su tutte le partizioni e gli spazi, mai riusati, senza garanzie di ordine né di segno; uno per tipo di ID (entità e partizioni), condiviso da tutti gli spazi e passato nella configurazione dello spazio (`SpaceConfig`). Lo schema scelto è Snowflake, sostituibile. Vedi [ID delle entità](/decisions/entity-ids.md#contratto-del-generatore) e [ID delle partizioni](/decisions/entity-ids.md#id-delle-partizioni). |
 | generatorId | Identificativo del generatore di ID dentro un ID Snowflake; ogni istanza dell'API ne riceve uno nuovo a ogni avvio. Vedi [ID delle entità](/decisions/entity-ids.md#schema-snowflake). |
 | Commit | Gruppo atomico di scritture di una partizione, identificato da un numero scelto dal software, positivo e strettamente crescente per partizione, con salti ammessi; è l'unica transazione del sistema e non coincide necessariamente con un tick. Il commit 0 è lo stato iniziale vuoto. Vedi [commit della partizione](/architecture/partition-commit.md). |
 | Tick | Intervallo di tempo entro cui il software esegue le sue operazioni (il frame time di un server di gioco); per partizione al più un commit per tick, tipicamente esattamente uno; locale o globale. |
@@ -39,7 +39,6 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T20:00:00Z }
 | Rilascio | Chiusura di una sola acquisizione: idempotente; dopo il rilascio le nuove letture attraverso quell'acquisizione falliscono, e la versione non viene per forza eliminata. |
 | Pin | Stato di una versione uscita dalla finestra di conservazione ma ancora tenuta da acquisizioni valide o da query già ammesse: si legge, ma non si può più acquisire. Vedi [conservazione delle versioni](/architecture/version-retention.md#vita-di-una-versione). |
 | Versione eliminabile | Versione fuori dalla finestra di conservazione, senza acquisizioni valide né query in corso: nessuno la usa e nessuno la può più richiedere, quindi per la partizione non esiste più. Il passaggio è un momento preciso che la partizione rileva (fine della versione); non è la liberazione della memoria. Vedi [conservazione delle versioni](/architecture/version-retention.md#vita-di-una-versione). |
-| Incarnazione | Una partizione dalla creazione alla rimozione effettiva; una nuova partizione con lo stesso ID è un'altra incarnazione, e le acquisizioni di quella rimossa non la vedono mai. Vedi [conservazione delle versioni](/architecture/version-retention.md#rimozione-della-partizione). |
 | Scadenza | Durata di una singola acquisizione, sempre presente (un default se il reader non la indica, al più una scadenza massima), misurata con il clock monotono del nodo; definitiva, non si rinnova, e non è una durata massima della versione. Vedi [conservazione delle versioni](/architecture/version-retention.md#scadenza). |
 | Limiti delle coordinate | Intervallo `[min, max]`, uguale su tutti gli assi, delle coordinate che le entità di una partizione possono avere; lo fissa l'indice, e le scritture fuori dai limiti falliscono. Le query non hanno limiti. Vedi [indicizzazione spaziale](/decisions/spatial-indexing.md#limiti-delle-coordinate). |
 | Cella | Quadrato (2D) o cubo (3D) di lato fisso in cui un indice a celle divide lo spazio, come la [grid uniforme](/indices/uniform-grid.md) e la [griglia di quadtree](/indices/grid-quadtree.md). |

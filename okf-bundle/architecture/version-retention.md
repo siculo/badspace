@@ -4,7 +4,7 @@ title: Conservazione delle versioni
 description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza obbligatoria, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni versione, e la rimozione della partizione diventa effettiva quando sono finite tutte.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T10:00:00Z }
 ---
 
 # Primitiva
@@ -190,9 +190,8 @@ La rimozione avviene quindi in **due fasi**:
 
 1. **Segno di rimozione.** `removePartition` e `dropPartition` segnano
    la partizione come rimossa: da quel momento niente scritture,
-   commit né nuove acquisizioni, e l'ID si può subito usare per una
-   nuova partizione. Il segno chiude la finestra, quindi le versioni
-   senza utilizzi finiscono subito.
+   commit né nuove acquisizioni. Il segno chiude la finestra, quindi
+   le versioni senza utilizzi finiscono subito.
 2. **Rimozione effettiva.** Il catalogo delle versioni sopravvive al
    segno finché la partizione ha versioni non ancora finite. Quando
    finisce l'ultima, il nodo toglie la partizione per davvero; senza
@@ -200,9 +199,12 @@ La rimozione avviene quindi in **due fasi**:
 
 Il momento giusto per controllare se una partizione segnata non ha più
 versioni è la [fine di una versione](#vita-di-una-versione): il nodo non
-deve cercarlo altrove. Una nuova partizione con lo stesso ID è un'altra
-**incarnazione**: le acquisizioni vecchie restano legate a quella
-rimossa e non vedono mai la nuova.
+deve cercarlo altrove. Gli [ID delle
+partizioni](/decisions/entity-ids.md#id-delle-partizioni) **non si
+riusano mai**: la partizione segnata resta sul nodo con il suo ID fino
+alla rimozione effettiva, letture e rilascio la trovano per ID, e il
+nodo rifiuta una nuova partizione con quell'ID. Così un'acquisizione
+vecchia non finisce mai su un'altra partizione.
 
 Una fase intermedia più semplice è **rifiutare la rimozione** finché la
 partizione ha acquisizioni attive; non è però la semantica decisa, solo
@@ -292,8 +294,9 @@ restano solo le versioni della finestra, quindi ogni altra è finita una
 e una sola volta.
 
 Manca la rimozione in due fasi. Dopo la rimozione le letture attraverso un'acquisizione falliscono
-perché il nodo non trova più la partizione, e i numeri delle
-acquisizioni di una nuova partizione con lo stesso ID ripartono da 1. I reader
+perché il nodo non trova più la partizione. Gli ID delle partizioni
+vengono ancora da un contatore di `Space2`, univoco solo nello spazio,
+e non dal generatore di ID delle partizioni. I reader
 non hanno altro modo di leggere una versione: `lastVersion()` è solo un
 metodo interno dello storage.
 
