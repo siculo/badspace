@@ -18,6 +18,7 @@ import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Sphere3;
 import java.time.Duration;
@@ -30,6 +31,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 class LocalPartitionNode3Test {
 
@@ -213,30 +215,24 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void commitMovesTheCounterAndAllowsGaps() {
-        assertEquals(0, node.lastCommit(P1));
-        node.commit(P1, 1);
-        node.commit(P1, 5);
-        assertEquals(5, node.lastCommit(P1));
-    }
-
-    @Test
-    void commitRejectsNumberNotGreaterThanTheLastAndChangesNothing() {
-        assertThrows(IllegalArgumentException.class, () -> node.commit(P1, 0));
-        assertThrows(IllegalArgumentException.class, () -> node.commit(P1, -1));
-        node.commit(P1, 5);
-        assertThrows(IllegalArgumentException.class, () -> node.commit(P1, 5));
-        assertThrows(IllegalArgumentException.class, () -> node.commit(P1, 4));
-        assertEquals(5, node.lastCommit(P1));
+    void commitIsPublishedAtTheMoveOfTheTick() {
+        node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
+        node.commit(P1);
+        assertReason(Reason.NOT_YET_PUBLISHED, () -> node.acquireLatest(P1, defaultTimeout()));
+        node.setTick(1);
+        Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
+        assertEquals(0, acquisition.tick());
+        assertEquals(1, node.size(acquisition));
     }
 
     @Test
     void eachPartitionHasItsOwnCommits() {
         node.createPartition(P2);
-        node.commit(P1, 7);
-        assertEquals(0, node.lastCommit(P2));
-        node.commit(P2, 1);
-        assertEquals(7, node.lastCommit(P1));
+        node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
+        node.commit(P1);
+        node.setTick(1);
+        assertEquals(1, node.size(node.acquireLatest(P1, defaultTimeout())));
+        assertEquals(0, node.size(node.acquireLatest(P2, defaultTimeout())));
     }
 
     @Test
@@ -321,23 +317,27 @@ class LocalPartitionNode3Test {
     @Test
     void acquiredSnapshotHasOnlyTheCommittedWrites() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
+        node.setTick(1);
         Acquisition beforeCommit = node.acquireLatest(P1, defaultTimeout());
-        assertEquals(0, beforeCommit.commit());
+        assertEquals(0, beforeCommit.tick());
         assertEquals(0, node.size(beforeCommit));
-        node.commit(P1, 4);
+        node.commit(P1);
+        node.setTick(2);
         Acquisition afterCommit = node.acquireLatest(P1, defaultTimeout());
-        assertEquals(4, afterCommit.commit());
+        assertEquals(1, afterCommit.tick());
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(afterCommit, new long[] {1}));
     }
 
     @Test
     void acquiredSnapshotDoesNotSeeLaterWrites() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
-        node.commit(P1, 4);
+        node.commit(P1);
+        node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         node.removeAll(P1, new long[] {1});
-        node.commit(P1, 5);
-        assertEquals(new Acquisition(P1, acquisition.id(), 4), acquisition);
+        node.commit(P1);
+        node.setTick(2);
+        assertEquals(new Acquisition(P1, acquisition.id(), 0), acquisition);
         assertEquals(1, node.size(acquisition));
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(acquisition, new long[] {1}));
         assertEquals(List.of(entity(1, 1, 1, 1)), node.findNearest(acquisition, new Point3(0, 0, 0), 1));
@@ -345,66 +345,86 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void newPartitionHasTheEmptySnapshotAtCommitZero() {
+    void newPartitionPublishesTheEmptySnapshotOfItsCreationTick() {
+        assertReason(Reason.NOT_YET_PUBLISHED, () -> node.acquireLatest(P1, defaultTimeout()));
+        assertReason(Reason.NOT_YET_PUBLISHED, () -> node.acquire(P1, 0, defaultTimeout()));
+        node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
-        assertEquals(0, acquisition.commit());
+        assertEquals(0, acquisition.tick());
         assertEquals(0, node.size(acquisition));
-        assertEquals(0, node.acquireExact(P1, 0, defaultTimeout()).commit());
-        assertEquals(0, node.acquireAtOrBefore(P1, 0, defaultTimeout()).commit());
+        assertEquals(0, node.acquire(P1, 0, defaultTimeout()).tick());
     }
 
     @Test
-    void selectionsChooseTheSnapshotInTheWindow() {
+    void acquisitionAtATickFindsItsSnapshotInTheWindow() {
+        node.setTick(100);
+        node.createPartition(P2, IndexConfig.linearScan(), 5);
+        for (int tick = 100; tick < 110; tick++) {
+            node.insertAll(P2, List.of(entity(tick, tick, 0, 0)));
+            node.commit(P2);
+            node.setTick(tick + 1);
+        }
+        // T = 110 and k = 5: the snapshots of the ticks from 105 to 109.
+        for (long tick = 105; tick < 110; tick++) {
+            Acquisition acquisition = node.acquire(P2, tick, defaultTimeout());
+            assertEquals(tick, acquisition.tick());
+            assertEquals(tick - 99, node.size(acquisition));
+        }
+        assertReason(Reason.OUT_OF_RETENTION, () -> node.acquire(P2, 104, defaultTimeout()));
+        assertReason(Reason.NOT_YET_PUBLISHED, () -> node.acquire(P2, 110, defaultTimeout()));
+        assertEquals(109, node.acquireLatest(P2, defaultTimeout()).tick());
+    }
+
+    @Test
+    void skippedTicksHaveTheSnapshotOfTheLastCommitBeforeThem() {
+        node.createPartition(P2, IndexConfig.linearScan(), 5);
+        node.setTick(102);
+        node.insertAll(P2, List.of(entity(1, 1, 1, 1)));
+        node.commit(P2);
+        node.setTick(105);
+        for (long tick = 102; tick < 105; tick++) {
+            assertEquals(1, node.size(node.acquire(P2, tick, defaultTimeout())));
+        }
+        // The ticks before the commit have the empty snapshot.
+        assertEquals(0, node.size(node.acquire(P2, 101, defaultTimeout())));
+    }
+
+    @Test
+    void unavailableSnapshotsSayWhy() {
+        node.setTick(10);
         node.createPartition(P2, IndexConfig.linearScan(), 2);
-        node.commit(P2, 100);
-        node.commit(P2, 103);
-        node.commit(P2, 107);
-        assertEquals(107, node.acquireLatest(P2, defaultTimeout()).commit());
-        assertEquals(107, node.acquirePrevious(P2, 0, defaultTimeout()).commit());
-        assertEquals(103, node.acquirePrevious(P2, 1, defaultTimeout()).commit());
-        assertEquals(100, node.acquirePrevious(P2, 2, defaultTimeout()).commit());
-        assertEquals(103, node.acquireAtOrBefore(P2, 105, defaultTimeout()).commit());
-        assertEquals(103, node.acquireExact(P2, 103, defaultTimeout()).commit());
+        node.setTick(20);
+        assertReason(Reason.NOT_YET_PUBLISHED, () -> node.acquire(P2, 20, defaultTimeout()));
+        assertReason(Reason.NOT_YET_PUBLISHED, () -> node.acquire(P2, 25, defaultTimeout()));
+        assertReason(Reason.OUT_OF_RETENTION, () -> node.acquire(P2, 17, defaultTimeout()));
+        assertReason(Reason.BEFORE_CREATION, () -> node.acquire(P2, 9, defaultTimeout()));
+        assertEquals(18, node.acquire(P2, 18, defaultTimeout()).tick());
     }
 
     @Test
-    void snapshotsOutsideTheWindowAreNotAvailable() {
-        node.createPartition(P2, IndexConfig.linearScan(), 2);
-        node.commit(P2, 100);
-        node.commit(P2, 103);
-        node.commit(P2, 107);
-        assertThrows(SnapshotNotAvailableException.class, () -> node.acquirePrevious(P2, 3, defaultTimeout()));
-        assertThrows(SnapshotNotAvailableException.class, () -> node.acquireAtOrBefore(P2, 99, defaultTimeout()));
-        assertThrows(SnapshotNotAvailableException.class, () -> node.acquireExact(P2, 105, defaultTimeout()));
-        assertThrows(SnapshotNotAvailableException.class, () -> node.acquireExact(P2, 0, defaultTimeout()));
-    }
-
-    @Test
-    void negativeSelectionsAreRejected() {
-        assertThrows(IllegalArgumentException.class, () -> node.acquirePrevious(P1, -1, defaultTimeout()));
-        assertThrows(IllegalArgumentException.class, () -> node.acquireAtOrBefore(P1, -1, defaultTimeout()));
-        assertThrows(IllegalArgumentException.class, () -> node.acquireExact(P1, -1, defaultTimeout()));
+    void negativeTickIsRejected() {
+        node.setTick(1);
+        assertThrows(IllegalArgumentException.class, () -> node.acquire(P1, -1, defaultTimeout()));
     }
 
     @Test
     void acquisitionsRejectUnknownPartition() {
         assertThrows(IllegalArgumentException.class, () -> node.acquireLatest(P2, defaultTimeout()));
-        assertThrows(IllegalArgumentException.class, () -> node.acquirePrevious(P2, 0, defaultTimeout()));
-        assertThrows(IllegalArgumentException.class, () -> node.acquireAtOrBefore(P2, 0, defaultTimeout()));
-        assertThrows(IllegalArgumentException.class, () -> node.acquireExact(P2, 0, defaultTimeout()));
+        assertThrows(IllegalArgumentException.class, () -> node.acquire(P2, 0, defaultTimeout()));
     }
 
     @Test
     void snapshotOutsideTheWindowStaysReadableWhileAcquired() {
         node.createPartition(P2, IndexConfig.linearScan(), 2);
         node.insertAll(P2, List.of(entity(1, 1, 1, 1)));
-        node.commit(P2, 100);
-        Acquisition acquisition = node.acquireExact(P2, 100, defaultTimeout());
+        node.commit(P2);
+        node.setTick(1);
+        Acquisition acquisition = node.acquire(P2, 0, defaultTimeout());
         node.removeAll(P2, new long[] {1});
-        node.commit(P2, 103);
-        node.commit(P2, 107);
-        node.commit(P2, 110);
-        assertThrows(SnapshotNotAvailableException.class, () -> node.acquireExact(P2, 100, defaultTimeout()));
+        node.commit(P2);
+        node.setTick(2);
+        node.setTick(3);
+        assertReason(Reason.OUT_OF_RETENTION, () -> node.acquire(P2, 0, defaultTimeout()));
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(acquisition, new long[] {1}));
         node.release(acquisition);
         assertThrows(IllegalStateException.class, () -> node.size(acquisition));
@@ -413,9 +433,10 @@ class LocalPartitionNode3Test {
     @Test
     void twoReadersOfTheSameSnapshotAreIndependent() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
-        node.commit(P1, 1);
+        node.commit(P1);
+        node.setTick(1);
         Acquisition first = node.acquireLatest(P1, defaultTimeout());
-        Acquisition second = node.acquireLatest(P1, defaultTimeout());
+        Acquisition second = node.acquire(P1, 0, defaultTimeout());
         assertNotEquals(first.id(), second.id());
         node.release(first);
         assertThrows(IllegalStateException.class, () -> node.size(first));
@@ -424,8 +445,9 @@ class LocalPartitionNode3Test {
 
     @Test
     void failedAcquisitionMakesNoAcquisition() {
+        node.setTick(1);
         Acquisition before = node.acquireLatest(P1, defaultTimeout());
-        assertThrows(SnapshotNotAvailableException.class, () -> node.acquirePrevious(P1, 1, defaultTimeout()));
+        assertThrows(SnapshotNotAvailableException.class, () -> node.acquire(P1, 1, defaultTimeout()));
         Acquisition after = node.acquireLatest(P1, defaultTimeout());
         // No number was used by the failed acquisition.
         assertEquals(before.id() + 1, after.id());
@@ -433,6 +455,7 @@ class LocalPartitionNode3Test {
 
     @Test
     void releaseAgainDoesNothing() {
+        node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         node.release(acquisition);
         node.release(acquisition);
@@ -446,21 +469,23 @@ class LocalPartitionNode3Test {
     @Test
     void unknownAcquisitionIsRejectedAndTheOthersDoNotChange() {
         node.createPartition(P2);
+        node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         Acquisition neverMade = new Acquisition(P1, acquisition.id() + 1, 0);
         assertThrows(IllegalArgumentException.class, () -> node.release(neverMade));
         assertThrows(IllegalArgumentException.class, () -> node.size(neverMade));
         Acquisition otherPartition = new Acquisition(P2, acquisition.id(), 0);
         assertThrows(IllegalArgumentException.class, () -> node.release(otherPartition));
-        Acquisition wrongCommit = new Acquisition(P1, acquisition.id(), 7);
-        assertThrows(IllegalArgumentException.class, () -> node.size(wrongCommit));
+        Acquisition wrongTick = new Acquisition(P1, acquisition.id(), 7);
+        assertThrows(IllegalArgumentException.class, () -> node.size(wrongTick));
         assertEquals(0, node.size(acquisition));
     }
 
     @Test
     void failedQueryKeepsTheAcquisition() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
-        node.commit(P1, 1);
+        node.commit(P1);
+        node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         assertThrows(IllegalArgumentException.class, () -> node.findNearest(acquisition, new Point3(0, 0, 0), -1));
         assertEquals(1, node.size(acquisition));
@@ -470,7 +495,7 @@ class LocalPartitionNode3Test {
 
     @Test
     void writerStillReadsItsOwnWritesWhileASnapshotIsAcquired() {
-        node.commit(P1, 1);
+        node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(P1, new long[] {1}));
@@ -481,26 +506,27 @@ class LocalPartitionNode3Test {
     @Test
     void queriesGiveBackTheSnapshotAlsoWhenTheyFail() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
-        node.commit(P1, 1);
+        node.commit(P1);
+        node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         assertEquals(1, node.size(acquisition));
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(acquisition, new long[] {1}));
         assertEquals(1, node.findInRegion(acquisition, new Sphere3(new Point3(0, 0, 0), 5)).size());
         assertThrows(IllegalArgumentException.class, () -> node.findNearest(acquisition, new Point3(0, 0, 0), -1));
-        Acquisition wrongCommit = new Acquisition(P1, acquisition.id(), 7);
-        assertThrows(IllegalArgumentException.class, () -> node.size(wrongCommit));
+        Acquisition wrongTick = new Acquisition(P1, acquisition.id(), 7);
+        assertThrows(IllegalArgumentException.class, () -> node.size(wrongTick));
         node.release(acquisition);
         // With no queries left, the snapshot ends when it leaves the window.
-        node.commit(P1, 2);
+        node.commit(P1);
+        node.setTick(2);
         assertEquals(1, node.find(P1).liveSnapshotCount());
     }
 
     @Test
     void acquisitionsRejectNullOptions() {
+        node.setTick(1);
         assertThrows(NullPointerException.class, () -> node.acquireLatest(P1, null));
-        assertThrows(NullPointerException.class, () -> node.acquirePrevious(P1, 0, null));
-        assertThrows(NullPointerException.class, () -> node.acquireAtOrBefore(P1, 0, null));
-        assertThrows(NullPointerException.class, () -> node.acquireExact(P1, 0, null));
+        assertThrows(NullPointerException.class, () -> node.acquire(P1, 0, null));
     }
 
     @Test
@@ -518,7 +544,7 @@ class LocalPartitionNode3Test {
     void expiredAcquisitionFailsBeforeTheFirstQuery() {
         FakeClock clock = new FakeClock();
         LocalPartitionNode3 timedNode = timedNode(clock);
-        Acquisition acquisition = timedNode.acquirePrevious(P1, 0, timeout(TIMEOUT));
+        Acquisition acquisition = timedNode.acquire(P1, 0, timeout(TIMEOUT));
         clock.advance(TIMEOUT);
         assertThrows(IllegalStateException.class, () -> timedNode.size(acquisition));
         assertThrows(IllegalStateException.class, () -> timedNode.getAll(acquisition, new long[] {1}));
@@ -533,9 +559,7 @@ class LocalPartitionNode3Test {
         LocalPartitionNode3 timedNode = timedNode(clock);
         List<Acquisition> acquisitions = List.of(
                 timedNode.acquireLatest(P1, timeout(TIMEOUT)),
-                timedNode.acquirePrevious(P1, 0, timeout(TIMEOUT)),
-                timedNode.acquireAtOrBefore(P1, 1, timeout(TIMEOUT)),
-                timedNode.acquireExact(P1, 1, timeout(TIMEOUT)));
+                timedNode.acquire(P1, 0, timeout(TIMEOUT)));
         clock.advance(TIMEOUT);
         for (Acquisition acquisition : acquisitions) {
             assertThrows(IllegalStateException.class, () -> timedNode.size(acquisition));
@@ -575,7 +599,7 @@ class LocalPartitionNode3Test {
         clock.advance(TIMEOUT);
         Acquisition renewed = timedNode.acquireLatest(P1, timeout(TIMEOUT));
         assertNotEquals(expired.id(), renewed.id());
-        assertEquals(expired.commit(), renewed.commit());
+        assertEquals(expired.tick(), renewed.tick());
         assertEquals(1, timedNode.size(renewed));
         assertThrows(IllegalStateException.class, () -> timedNode.size(expired));
     }
@@ -593,13 +617,13 @@ class LocalPartitionNode3Test {
 
     @Test
     void commitRejectsUnknownPartition() {
-        assertThrows(IllegalArgumentException.class, () -> node.commit(P2, 1));
-        assertThrows(IllegalArgumentException.class, () -> node.lastCommit(P2));
+        assertThrows(IllegalArgumentException.class, () -> node.commit(P2));
     }
 
     @Test
     void removedPartitionWithoutAcquisitionsIsGoneAtOnce() {
-        node.commit(P1, 3);
+        node.commit(P1);
+        node.setTick(1);
         node.removePartition(P1);
         assertFalse(node.hasPartition(P1));
         assertThrows(IllegalArgumentException.class, () -> node.size(P1));
@@ -607,15 +631,16 @@ class LocalPartitionNode3Test {
 
     @Test
     void markedPartitionRejectsWritesCommitsAndNewAcquisitions() {
+        node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         node.dropPartition(P1);
         assertTrue(node.hasPartition(P1));
         assertThrows(IllegalStateException.class, () -> node.insertAll(P1, List.of(entity(1, 1, 1, 1))));
-        assertThrows(IllegalStateException.class, () -> node.commit(P1, 1));
+        assertThrows(IllegalStateException.class, () -> node.commit(P1));
         assertThrows(IllegalStateException.class, () -> node.size(P1));
-        assertThrows(IllegalStateException.class, () -> node.lastCommit(P1));
+        assertThrows(IllegalStateException.class, () -> node.tick(P1));
         assertThrows(IllegalStateException.class, () -> node.acquireLatest(P1, defaultTimeout()));
-        assertThrows(IllegalStateException.class, () -> node.acquireExact(P1, 0, defaultTimeout()));
+        assertThrows(IllegalStateException.class, () -> node.acquire(P1, 0, defaultTimeout()));
         assertThrows(IllegalStateException.class, () -> node.removePartition(P1));
         assertThrows(IllegalStateException.class, () -> node.dropPartition(P1));
         assertEquals(0, node.size(acquisition));
@@ -624,10 +649,14 @@ class LocalPartitionNode3Test {
     @Test
     void acquisitionStaysReadableAfterTheRemovalUntilItsRelease() {
         node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
-        node.commit(P1, 1);
+        node.commit(P1);
+        node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         node.dropPartition(P1);
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(acquisition, new long[] {1}));
+        // The tick still moves the marked partition, and does not end the acquired snapshot.
+        node.setTick(5);
+        assertEquals(1, node.size(acquisition));
         node.release(acquisition);
         assertFalse(node.hasPartition(P1));
         assertThrows(IllegalStateException.class, () -> node.size(acquisition));
@@ -637,6 +666,7 @@ class LocalPartitionNode3Test {
 
     @Test
     void removalWaitsForTheLastAcquisition() {
+        node.setTick(1);
         Acquisition first = node.acquireLatest(P1, defaultTimeout());
         Acquisition second = node.acquireLatest(P1, defaultTimeout());
         node.removePartition(P1);
@@ -649,6 +679,7 @@ class LocalPartitionNode3Test {
 
     @Test
     void markedPartitionKeepsItsIdUntilItIsRemoved() {
+        node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         node.removePartition(P1);
         assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1));
@@ -666,10 +697,22 @@ class LocalPartitionNode3Test {
         clock.advance(TIMEOUT);
         // The expiry alone is not an event.
         assertTrue(timedNode.hasPartition(P1));
-        timedNode.commit(P2, 1);
+        timedNode.commit(P2);
         assertFalse(timedNode.hasPartition(P1));
         assertThrows(IllegalStateException.class, () -> timedNode.size(acquisition));
         timedNode.release(acquisition);
+    }
+
+    @Test
+    void expiryFoundByTheMoveOfTheTickEndsTheRemoval() {
+        FakeClock clock = new FakeClock();
+        LocalPartitionNode3 timedNode = timedNode(clock);
+        timedNode.acquireLatest(P1, timeout(TIMEOUT));
+        timedNode.dropPartition(P1);
+        clock.advance(TIMEOUT);
+        assertTrue(timedNode.hasPartition(P1));
+        timedNode.setTick(2);
+        assertFalse(timedNode.hasPartition(P1));
     }
 
     @Test
@@ -700,8 +743,8 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void rejectsNegativeRetainedPastSnapshots() {
-        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, IndexConfig.linearScan(), -1));
+    void rejectsRetainedTicksLessThanOne() {
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, IndexConfig.linearScan(), 0));
         assertThrows(IllegalArgumentException.class, () -> node.size(P2));
     }
 
@@ -712,15 +755,24 @@ class LocalPartitionNode3Test {
 
     @Test
     void rejectsUnknownPartition() {
-        assertThrows(IllegalArgumentException.class, () -> node.insertAll(P2, List.of(entity(1, 0, 0, 10))));
+        assertThrows(IllegalArgumentException.class, () -> node.insertAll(P2, List.of(entity(1, 0, 0, 0))));
     }
 
-    /** A node with the given clock and partition P1 with one entity, committed at commit 1. */
+    /**
+     * A node with the given clock and partition P1 with one entity, committed at tick 0 and
+     * published by the move to tick 1.
+     */
     private static LocalPartitionNode3 timedNode(FakeClock clock) {
         LocalPartitionNode3 timedNode = new LocalPartitionNode3(clock);
         timedNode.createPartition(P1);
         timedNode.insertAll(P1, List.of(entity(1, 1, 1, 1)));
-        timedNode.commit(P1, 1);
+        timedNode.commit(P1);
+        timedNode.setTick(1);
         return timedNode;
+    }
+
+    /** Checks that the acquisition fails as not available, for the given reason. */
+    private static void assertReason(Reason reason, Executable acquisition) {
+        assertEquals(reason, assertThrows(SnapshotNotAvailableException.class, acquisition).reason());
     }
 }

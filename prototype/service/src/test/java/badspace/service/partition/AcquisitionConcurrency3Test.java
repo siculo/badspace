@@ -35,9 +35,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 /**
- * Readers that acquire and query snapshots while the writer commits. The tests
- * stop a query in the middle with a gate in the index, so the commit or the
- * release happens during the query; they use latches and barriers, not sleeps.
+ * Readers that acquire and query snapshots while the writer commits and the tick
+ * moves. The tests stop a query in the middle with a gate in the index, so the
+ * commit, the move of the tick or the release happens during the query; they use
+ * latches and barriers, not sleeps.
  * A writer that waits for a query fails the test after a timeout instead of
  * hanging.
  */
@@ -53,39 +54,37 @@ class AcquisitionConcurrency3Test {
     private static final long[] ALL_IDS = {10, 20, 30};
     private static final PartitionId P1 = new PartitionId(1);
     private static final int READERS = 3;
-    private static final int COMMITS = 2000;
+    private static final int TICKS = 2000;
     private static final int ENTITIES = 4;
     /** The readers keep one acquisition in this many, to read it again at the end. */
     private static final int KEEP_EVERY = 50;
     /** How long a reader keeps its acquisition shared, in spins. */
     private static final int SPINS = 100;
-    /** No acquisition shared. */
-    private static final long NONE = -1;
 
     @Test
-    void commitDuringAQueryDoesNotChangeItsResultAndDoesNotWait() throws Exception {
+    void commitsAndMovesOfTheTickDuringAQueryDoNotChangeItsResultAndDoNotWait() throws Exception {
         for (IndexConfig config : CONFIGS) {
             GatedIndex[] index = new GatedIndex[1];
-            PartitionStorage3 storage = gatedStorage(config, index, 0);
+            PartitionStorage3 storage = gatedStorage(config, index, 1);
             storage.insertAll(List.of(new Entity3(10, A), new Entity3(20, B)));
-            long acquisitionId = storage.acquire(storage.commit(1));
+            long acquisitionId = storage.acquire(publish(storage), 0);
             Gate gate = new Gate();
             index[0].gate = gate;
-            QueryThread query = new QueryThread(storage, acquisitionId);
+            QueryThread query = new QueryThread(storage, acquisitionId, 0);
             query.start();
             gate.awaitEntered();
 
             // The query is stopped in the index. The writer changes the slots and the
-            // index and commits twice: it must not wait for the query.
+            // index, commits and moves the tick twice: it must not wait for the query.
             assertTimeoutPreemptively(TIMEOUT, () -> {
                 storage.updateAll(List.of(new Entity3(10, C)));
                 storage.removeAll(new long[] {20});
                 storage.insertAll(List.of(new Entity3(30, D)));
-                storage.commit(2);
+                publish(storage);
                 storage.updateAll(List.of(new Entity3(30, A)));
-                storage.commit(3);
+                publish(storage);
             }, config + ": the writer waited for a query");
-            assertEquals(3, storage.lastCommit());
+            assertEquals(3, storage.tick());
 
             gate.open();
             query.join();
@@ -98,21 +97,21 @@ class AcquisitionConcurrency3Test {
     void releaseDuringAQueryLetsTheQueryEnd() throws Exception {
         for (IndexConfig config : CONFIGS) {
             GatedIndex[] index = new GatedIndex[1];
-            PartitionStorage3 storage = gatedStorage(config, index, 0);
+            PartitionStorage3 storage = gatedStorage(config, index, 1);
             storage.insertAll(List.of(new Entity3(10, A)));
-            StorageSnapshot3 snapshot = storage.commit(1);
-            long acquisitionId = storage.acquire(snapshot);
+            StorageSnapshot3 snapshot = publish(storage);
+            long acquisitionId = storage.acquire(snapshot, 0);
             Gate gate = new Gate();
             index[0].gate = gate;
-            QueryThread query = new QueryThread(storage, acquisitionId);
+            QueryThread query = new QueryThread(storage, acquisitionId, 0);
             query.start();
             gate.awaitEntered();
 
             storage.release(acquisitionId);
-            assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId));
+            assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId, 0));
             // The snapshot leaves the window too: only the query still holds it.
             storage.removeAll(new long[] {10});
-            storage.commit(2);
+            publish(storage);
             assertEquals(0, storage.acquisitionCount());
             assertFalse(snapshot.uses().isEnded(), config + ": the snapshot ended during the query");
 
@@ -135,40 +134,40 @@ class AcquisitionConcurrency3Test {
             FakeClock clock = new FakeClock();
             GatedIndex[] index = new GatedIndex[1];
             PartitionStorage3 storage = new PartitionStorage3(config.limits(),
-                    slots -> index[0] = new GatedIndex(SpatialIndexes.create(config, slots)), 0, clock);
+                    slots -> index[0] = new GatedIndex(SpatialIndexes.create(config, slots)), 1, clock);
             storage.insertAll(List.of(new Entity3(10, A)));
-            StorageSnapshot3 snapshot = storage.commit(1);
-            long acquisitionA = storage.acquire(snapshot, AcquireOptions.timeout(TIMEOUT));
+            StorageSnapshot3 snapshot = publish(storage);
+            long acquisitionA = storage.acquire(snapshot, 0, AcquireOptions.timeout(TIMEOUT));
             Gate gate = new Gate();
             index[0].gate = gate;
-            QueryThread query = new QueryThread(storage, acquisitionA);
+            QueryThread query = new QueryThread(storage, acquisitionA, 0);
             query.start();
             gate.awaitEntered();
 
             clock.advance(TIMEOUT);
-            long acquisitionB = storage.acquire(snapshot, AcquireOptions.timeout(TIMEOUT));
+            long acquisitionB = storage.acquire(snapshot, 0, AcquireOptions.timeout(TIMEOUT));
             assertEquals(1, storage.acquisitionCount(), config + ": the expired acquisition was not removed");
-            assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA));
+            assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA, 0));
 
             gate.open();
             query.join();
             query.check(List.of(new Entity3(10, A)), config.toString());
-            assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA));
-            assertSame(snapshot, storage.admit(acquisitionB));
+            assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA, 0));
+            assertSame(snapshot, storage.admit(acquisitionB, 0));
         }
     }
 
     /**
-     * A writer commits while the readers acquire the snapshot before the last one,
-     * so each acquisition races with the move of the window. Each snapshot read must
-     * be a whole commit, in the slots and in the index; the snapshots kept by the
-     * readers must stay readable after they leave the window.
+     * A writer commits and moves the tick while the readers acquire the latest snapshot
+     * or the one of the tick before it, so each acquisition races with the move of the
+     * window. Each snapshot read must be a whole commit, in the slots and in the index;
+     * the snapshots kept by the readers must stay readable after they leave the window.
      */
     @Test
     void acquisitionsDuringTheMoveOfTheWindowReadWholeCommits() throws Exception {
         for (IndexConfig config : CONFIGS) {
             LocalPartitionNode3 node = new LocalPartitionNode3();
-            node.createPartition(P1, config, 1);
+            node.createPartition(P1, config, 2);
             long[] entityIds = new long[ENTITIES];
             List<Entity3> entities = new ArrayList<>();
             for (int i = 0; i < ENTITIES; i++) {
@@ -194,9 +193,12 @@ class AcquisitionConcurrency3Test {
                         while (!done.get()) {
                             Acquisition acquisition;
                             try {
-                                acquisition = previous ? node.acquirePrevious(P1, 1, defaultTimeout()) : node.acquireLatest(P1, defaultTimeout());
-                            } catch (SnapshotNotAvailableException e) {
-                                // At commit 0 the window has no snapshot before the last one.
+                                acquisition = previous
+                                        ? node.acquire(P1, node.tick(P1) - 2, defaultTimeout())
+                                        : node.acquireLatest(P1, defaultTimeout());
+                            } catch (SnapshotNotAvailableException | IllegalArgumentException e) {
+                                // The tick moved after it was read, or the window does not have
+                                // two ticks yet (then the tick asked for is negative).
                                 continue;
                             }
                             if (previous) {
@@ -219,14 +221,16 @@ class AcquisitionConcurrency3Test {
 
             try {
                 start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-                for (long commit = 1; commit <= COMMITS; commit++) {
+                for (long tick = 1; tick <= TICKS; tick++) {
+                    node.setTick(tick);
                     List<Entity3> moved = new ArrayList<>();
                     for (long id : entityIds) {
-                        moved.add(new Entity3(id, positionAt(commit, id)));
+                        moved.add(new Entity3(id, positionAt(tick, id)));
                     }
                     node.updateAll(P1, moved);
-                    node.commit(P1, commit);
+                    node.commit(P1);
                 }
+                node.setTick(TICKS + 1);
             } finally {
                 done.set(true);
                 for (Thread reader : readers) {
@@ -246,48 +250,52 @@ class AcquisitionConcurrency3Test {
                     assertThrows(IllegalStateException.class, () -> node.size(acquisition));
                 }
             }
-            // The queries of the node gave back their uses: only the window stays (k = 1).
+            // The queries of the node gave back their uses: only the window stays (k = 2).
             assertEquals(2, node.find(P1).liveSnapshotCount(), config.toString());
         }
     }
 
     /**
-     * The writer commits while each reader acquires a snapshot and a querier reads the
-     * same acquisition until the reader releases it. Acquisitions race with the commits
-     * that move the window, and admissions race with the releases. At the end every
-     * snapshot out of the window must have ended once: only the window stays.
+     * The writer commits and moves the tick while each reader acquires a snapshot and a
+     * querier reads the same acquisition until the reader releases it. Acquisitions race
+     * with the moves of the tick that move the window, and admissions race with the
+     * releases. At the end every snapshot out of the window must have ended once: only
+     * the window stays.
      */
     @Test
     void racingAcquisitionsQueriesAndReleasesEndEachSnapshotOnce() throws Exception {
         for (IndexConfig config : CONFIGS) {
-            PartitionStorage3 storage = new PartitionStorage3(config, 1);
+            PartitionStorage3 storage = new PartitionStorage3(config, 2);
             storage.insertAll(List.of(new Entity3(10, A), new Entity3(20, B)));
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
             CyclicBarrier start = new CyclicBarrier(2 * READERS + 1);
             List<Thread> threads = new ArrayList<>();
             for (int r = 0; r < READERS; r++) {
-                int offset = r % 2;
-                // The acquisition that the reader shares with its querier, or NONE.
-                AtomicLong shared = new AtomicLong(NONE);
+                int ticksBack = r % 2 + 1;
+                // The number and the tick of the acquisition that the reader shares with its
+                // querier, or null.
+                AtomicReference<long[]> shared = new AtomicReference<>();
                 threads.add(new Thread(() -> {
                     try {
                         start.await();
                         while (!done.get()) {
-                            StorageSnapshot3 snapshot = storage.catalog().previous(offset);
+                            SnapshotCatalog3 catalog = storage.catalog();
+                            long tick = catalog.tick() - ticksBack;
+                            StorageSnapshot3 snapshot = catalog.at(tick);
                             if (snapshot == null) {
                                 continue;
                             }
-                            long acquisitionId = storage.acquire(snapshot);
+                            long acquisitionId = storage.acquire(snapshot, tick);
                             if (acquisitionId == PartitionStorage3.NOT_ACQUIRED) {
                                 continue;
                             }
-                            shared.set(acquisitionId);
+                            shared.set(new long[] {acquisitionId, tick});
                             // Gives the querier some time to admit queries before the release.
                             for (int i = 0; i < SPINS; i++) {
                                 Thread.onSpinWait();
                             }
-                            shared.set(NONE);
+                            shared.set(null);
                             storage.release(acquisitionId);
                         }
                     } catch (Throwable e) {
@@ -298,13 +306,13 @@ class AcquisitionConcurrency3Test {
                     try {
                         start.await();
                         while (!done.get()) {
-                            long acquisitionId = shared.get();
-                            if (acquisitionId == NONE) {
+                            long[] acquisition = shared.get();
+                            if (acquisition == null) {
                                 continue;
                             }
                             StorageSnapshot3 snapshot;
                             try {
-                                snapshot = storage.admit(acquisitionId);
+                                snapshot = storage.admit(acquisition[0], acquisition[1]);
                             } catch (IllegalStateException e) {
                                 // The reader released it first.
                                 continue;
@@ -326,8 +334,9 @@ class AcquisitionConcurrency3Test {
 
             try {
                 start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-                for (long commit = 1; commit <= COMMITS; commit++) {
-                    storage.commit(commit);
+                for (long tick = 1; tick <= TICKS; tick++) {
+                    storage.commit();
+                    storage.setTick(tick);
                 }
             } finally {
                 done.set(true);
@@ -339,14 +348,14 @@ class AcquisitionConcurrency3Test {
                 throw new AssertionError(config + ": a thread failed", failure.get());
             }
             assertEquals(0, storage.acquisitionCount(), config.toString());
-            // k = 1: the last snapshot and the one before it.
+            // k = 2: the snapshots of the last two ticks.
             assertEquals(2, storage.liveSnapshotCount(), config + ": a snapshot did not end, or ended twice");
         }
     }
 
     /**
-     * Readers acquire, read and release the last snapshot while the writer commits and
-     * then drops the partition. An acquisition made before the mark stays readable until
+     * Readers acquire, read and release the latest snapshot while the writer commits and
+     * moves the tick, and then drops the partition. An acquisition made before the mark stays readable until
      * its release; after the mark the acquisitions fail. When
      * the last acquisition is released, the node no longer has the partition.
      */
@@ -367,6 +376,9 @@ class AcquisitionConcurrency3Test {
                             Acquisition acquisition;
                             try {
                                 acquisition = node.acquireLatest(P1, defaultTimeout());
+                            } catch (SnapshotNotAvailableException e) {
+                                // Nothing is published before the first move of the tick.
+                                continue;
                             } catch (IllegalStateException | IllegalArgumentException e) {
                                 // The partition is marked as removed, or already removed
                                 // by the release of the last acquisition: then it is unknown.
@@ -376,8 +388,9 @@ class AcquisitionConcurrency3Test {
                             for (int i = 0; i < SPINS; i++) {
                                 Thread.onSpinWait();
                             }
-                            int expectedSize = acquisition.commit() == 0 ? 0 : 2;
-                            assertEquals(expectedSize, node.size(acquisition), "commit " + acquisition.commit());
+                            // The entities are inserted at tick 0, and committed from tick 1.
+                            int expectedSize = acquisition.tick() == 0 ? 0 : 2;
+                            assertEquals(expectedSize, node.size(acquisition), "tick " + acquisition.tick());
                             node.release(acquisition);
                         }
                     } catch (Throwable e) {
@@ -391,8 +404,9 @@ class AcquisitionConcurrency3Test {
 
             try {
                 start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-                for (long commit = 1; commit <= COMMITS; commit++) {
-                    node.commit(P1, commit);
+                for (long tick = 1; tick <= TICKS; tick++) {
+                    node.setTick(tick);
+                    node.commit(P1);
                 }
                 node.dropPartition(P1);
             } finally {
@@ -407,33 +421,43 @@ class AcquisitionConcurrency3Test {
         }
     }
 
-    /** The position of an entity at a commit: all the entities move at each commit. */
-    private static Point3 positionAt(long commit, long entityId) {
-        return point(commit % 1000, entityId, 0);
+    /** The position of an entity at a tick: all the entities move at each tick. */
+    private static Point3 positionAt(long tick, long entityId) {
+        return point(tick % 1000, entityId, 0);
     }
 
     /**
-     * Checks that the acquired snapshot has all the entities at the positions of its commit,
-     * in the slots and in the index. The empty snapshot at commit 0 has no entities, because
-     * the insertions are committed with commit 1.
+     * Commits in the current tick of the storage, moves to the next tick and returns the
+     * published snapshot, which is the one of the tick before the new tick.
+     */
+    private static StorageSnapshot3 publish(PartitionStorage3 storage) {
+        StorageSnapshot3 snapshot = storage.commit();
+        storage.setTick(storage.tick() + 1);
+        return snapshot;
+    }
+
+    /**
+     * Checks that the acquired snapshot has all the entities at the positions of its tick,
+     * in the slots and in the index. The empty snapshot of tick 0 has no entities, because
+     * the insertions are committed at tick 1.
      */
     private static void checkWholeCommit(LocalPartitionNode3 node, Acquisition acquisition, long[] entityIds) {
-        long commit = acquisition.commit();
-        String where = "commit " + commit;
-        int expectedSize = commit == 0 ? 0 : entityIds.length;
+        long tick = acquisition.tick();
+        String where = "tick " + tick;
+        int expectedSize = tick == 0 ? 0 : entityIds.length;
         List<Entity3> byId = node.getAll(acquisition, entityIds);
         assertEquals(expectedSize, byId.size(), where);
         for (Entity3 e : byId) {
-            assertEquals(positionAt(commit, e.id()), e.position(), where);
+            assertEquals(positionAt(tick, e.id()), e.position(), where);
         }
         Region3 all = new Box3(point(-1, -1, 0), point(1000, entityIds.length + 1, 0));
         assertEquals(Set.copyOf(byId), Set.copyOf(node.findInRegion(acquisition, all)), where);
         assertEquals(expectedSize, node.size(acquisition), where);
     }
 
-    private static PartitionStorage3 gatedStorage(IndexConfig config, GatedIndex[] index, int retainedPastSnapshots) {
+    private static PartitionStorage3 gatedStorage(IndexConfig config, GatedIndex[] index, int retainedTicks) {
         return new PartitionStorage3(config.limits(),
-                slots -> index[0] = new GatedIndex(SpatialIndexes.create(config, slots)), retainedPastSnapshots);
+                slots -> index[0] = new GatedIndex(SpatialIndexes.create(config, slots)), retainedTicks);
     }
 
     /** A reader on another thread: admits the acquisition, then queries the snapshot by region and by ID. */
@@ -441,19 +465,21 @@ class AcquisitionConcurrency3Test {
 
         private final PartitionStorage3 storage;
         private final long acquisitionId;
+        private final long tick;
         private volatile List<Entity3> inRegion;
         private volatile List<Entity3> byId;
         private volatile Throwable failure;
 
-        QueryThread(PartitionStorage3 storage, long acquisitionId) {
+        QueryThread(PartitionStorage3 storage, long acquisitionId, long tick) {
             this.storage = storage;
             this.acquisitionId = acquisitionId;
+            this.tick = tick;
         }
 
         @Override
         public void run() {
             try {
-                StorageSnapshot3 snapshot = storage.admit(acquisitionId);
+                StorageSnapshot3 snapshot = storage.admit(acquisitionId, tick);
                 try {
                     inRegion = snapshot.findInRegion(new Box3(point(-100, -100, -100), point(100, 100, 100)));
                     byId = snapshot.getAll(ALL_IDS);

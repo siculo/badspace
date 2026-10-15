@@ -81,21 +81,21 @@ reader per snapshot o l'epoch-based reclamation: è lo stesso principio
 della *grace period* di RCU descritto nelle [letture
 coerenti](/mechanisms/consistent-reads.md).
 
-**Nel prototipo**, che segue ancora la semantica precedente
-(pubblicazione alla fine del commit, vedi [conservazione degli
-snapshot](/architecture/snapshot-retention.md#nel-prototipo)), lo
-snapshot della partizione (snapshot degli slot e snapshot dell'indice)
-entra nel catalogo degli snapshot, un oggetto
-immutabile con gli ultimi k + 1 snapshot, e il catalogo nuovo si
-pubblica con la scrittura di un campo `volatile`, l'ultima operazione
-del commit: chi legge il campo vede anche tutto quello che il commit ha
-scritto prima, quindi il catalogo precedente o tutto quello nuovo, mai
-uno snapshot nuovo con la finestra vecchia. Anche l'ultimo commit si
-legge dallo snapshot pubblicato, quindi da ogni thread. Prima del primo commit c'è uno
-snapshot vuoto al commit 0, con l'indice vuoto della scansione lineare,
-che con slot vuoti vale per ogni indice. Il writer legge il proprio
-stato, i reader gli snapshot pubblicati attraverso le acquisizioni, con
-una view controllata (vedi [API da
+**Nel prototipo** il commit prepara lo snapshot della partizione
+(snapshot degli slot e snapshot dell'indice) e lo tiene in attesa;
+l'avanzamento del tick lo mette nel catalogo degli snapshot, un oggetto
+immutabile con il tick e gli snapshot della finestra, e pubblica il
+catalogo nuovo con la scrittura di un campo `volatile`: chi legge il
+campo vede anche tutto quello che è stato scritto prima, quindi il
+catalogo precedente o tutto quello nuovo, mai un tick nuovo con la
+finestra vecchia (vedi [conservazione degli
+snapshot](/architecture/snapshot-retention.md#nel-prototipo)). Anche il
+tick della partizione si legge dal catalogo pubblicato, quindi da ogni
+thread. Una partizione nuova pubblica al primo avanzamento uno snapshot
+vuoto, con l'indice vuoto della scansione lineare, che con slot vuoti
+vale per ogni indice. Il writer legge il proprio stato, i reader gli
+snapshot pubblicati attraverso le acquisizioni, con una view controllata
+(vedi [API da
 esporre](/decisions/api-surface.md#letture-del-writer-e-dei-reader) e
 [Accesso dei reader](#accesso-dei-reader)): lo snapshot interno non
 esce dal nodo. La partizione rileva quando uno snapshot finisce (vedi
@@ -209,7 +209,7 @@ alberi](/indices/tree-module.md#snapshot-copy-on-write).
 quando la partizione chiude il commit n, che restituisce uno snapshot
 dell'indice (`IndexSnapshot`). Le query dello snapshot ricevono gli slot
 dello stesso commit, quindi lo snapshot non dipende dallo storage del
-writer. Con il commit senza numero, n diventa la **sequenza dei
+writer. Con il commit senza numero, n è la **sequenza dei
 commit**: un contatore interno del nodo che cresce a ogni commit, anche
 nello stesso tick, e non esce dal nodo. Gli indici non cambiano.
 

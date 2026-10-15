@@ -68,14 +68,15 @@ delle letture](/decisions/read-isolation.md#gli-indici)).
 
 # Nel prototipo
 
-Il codice segue ancora la semantica precedente; quella nuova arriva con
-i passi del TODO del prototipo. Il commit si chiude con `commit(n)`, con
-il numero n scelto dal software e maggiore dell'ultimo commit (vedi
-[API da esporre](/decisions/api-surface.md#commit)). Al commit lo
-storage produce lo snapshot della partizione, con lo snapshot degli
-slot e quello dell'indice, che le scritture successive non cambiano, e
-lo pubblica subito (vedi [isolamento delle
-letture](/decisions/read-isolation.md#il-commit)). I lettori lo leggono
+Il commit si chiude con `commit()`, senza numero (vedi [API da
+esporre](/decisions/api-surface.md#commit)). Al commit lo storage
+produce lo snapshot della partizione, con lo snapshot degli slot e
+quello dell'indice, che le scritture successive non cambiano, e lo
+tiene in attesa: lo pubblica l'avanzamento del tick, e un commit
+successivo nello stesso tick lo sostituisce (vedi [conservazione degli
+snapshot](/architecture/snapshot-retention.md#nel-prototipo)). Ogni
+commit ha un numero nella sequenza dei commit, interno allo storage,
+che va a `commit(n)` degli indici. I lettori leggono lo snapshot
 attraverso un'[acquisizione](/architecture/snapshot-retention.md#acquisizione-e-rilascio),
 e vedono solo commit completi; il writer vede le proprie scritture anche
 prima del commit (vedi [letture del writer e dei

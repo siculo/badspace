@@ -12,9 +12,9 @@ import java.util.Objects;
  * @param partitionId the partition of the acquired snapshot
  * @param id the number of the acquisition, chosen by the node; it is never
  *        used again for the same partition
- * @param commit the commit of the acquired snapshot
+ * @param tick the tick of the acquired snapshot
  */
-public record Acquisition(PartitionId partitionId, long id, long commit) {
+public record Acquisition(PartitionId partitionId, long id, long tick) {
 
     /** Fails with NullPointerException if partitionId is null. */
     public Acquisition {

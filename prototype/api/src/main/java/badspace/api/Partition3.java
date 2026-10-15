@@ -13,7 +13,7 @@ import java.util.Optional;
 
 /**
  * Proxy of a 3D partition that lives on a node. It has a single writer and is not thread-safe,
- * except {@link #lastCommit()}, {@link #tick()} and the acquisitions. The reads of the proxy see the writes
+ * except {@link #tick()} and the acquisitions. The reads of the proxy see the writes
  * not yet committed; the other threads {@linkplain #acquireLatest() acquire} the snapshot of
  * a commit and read it.
  * Single-entity operations are batches of one entity: to write many entities,
@@ -27,7 +27,7 @@ public final class Partition3 implements Partition {
     private final PartitionId partitionId;
     private final PartitionConfig config;
     // Written only by the writer, when the space removes the partition. Volatile
-    // because lastCommit() and the acquisitions can be called by any thread.
+    // because tick() and the acquisitions can be called by any thread.
     private volatile boolean removed;
 
     Partition3(Space3 space, PartitionNode3 node, PartitionId partitionId, PartitionConfig config) {
@@ -148,79 +148,43 @@ public final class Partition3 implements Partition {
     }
 
     @Override
-    public void commit(long n) {
+    public void commit() {
         checkNotRemoved();
-        node.commit(partitionId, n);
+        node.commit(partitionId);
     }
 
-    /** Acquires the snapshot of the last commit with the default timeout, like {@link #acquireLatest(AcquireOptions)}. */
+    /** Acquires the snapshot of a tick with the default timeout, like {@link #acquire(long, AcquireOptions)}. */
+    public AcquiredSnapshot3 acquire(long tick) {
+        return acquire(tick, AcquireOptions.defaultTimeout());
+    }
+
+    /**
+     * Acquires the snapshot of the given tick: with the tick T of the partition, the tick must
+     * be from T - k to T - 1, and not before the creation of the partition. Choosing the snapshot
+     * and acquiring it is a single step, so a move of the tick at the same time cannot make it
+     * go away. Fails with IllegalArgumentException if tick is negative, and with
+     * SnapshotNotAvailableException, with the reason, if the snapshot is not published yet, is
+     * older than the window, or is before the creation of the partition. The options give the
+     * timeout of the acquisition. Any thread can call it.
+     */
+    public AcquiredSnapshot3 acquire(long tick, AcquireOptions options) {
+        checkNotRemoved();
+        return new AcquiredSnapshot3(node, node.acquire(partitionId, tick, options));
+    }
+
+    /** Acquires the latest snapshot with the default timeout, like {@link #acquireLatest(AcquireOptions)}. */
     public AcquiredSnapshot3 acquireLatest() {
         return acquireLatest(AcquireOptions.defaultTimeout());
     }
 
     /**
-     * Acquires the snapshot of the last commit: the empty snapshot at commit 0 if the
-     * partition has no commit yet. Choosing the snapshot and acquiring it is a single
-     * step, so a commit at the same time cannot make it go away. The options give the
-     * timeout of the acquisition. Any thread can call it.
+     * Acquires the snapshot of the tick before the current tick of the partition, like
+     * {@link #acquire(long, AcquireOptions)}. Fails with SnapshotNotAvailableException if the
+     * tick has not moved since the creation of the partition. Any thread can call it.
      */
     public AcquiredSnapshot3 acquireLatest(AcquireOptions options) {
         checkNotRemoved();
         return new AcquiredSnapshot3(node, node.acquireLatest(partitionId, options));
-    }
-
-    /** Acquires a snapshot in the retention window with the default timeout, like {@link #acquirePrevious(int, AcquireOptions)}. */
-    public AcquiredSnapshot3 acquirePrevious(int offset) {
-        return acquirePrevious(offset, AcquireOptions.defaultTimeout());
-    }
-
-    /**
-     * Acquires a snapshot in the retention window: offset 0 is the last snapshot, offset i
-     * the i-th published commit before it. Fails with IllegalArgumentException if offset
-     * is negative, and with SnapshotNotAvailableException if the window has no snapshot at
-     * that offset. The options give the timeout of the acquisition. Any thread can call it.
-     */
-    public AcquiredSnapshot3 acquirePrevious(int offset, AcquireOptions options) {
-        checkNotRemoved();
-        return new AcquiredSnapshot3(node, node.acquirePrevious(partitionId, offset, options));
-    }
-
-    /** Acquires a snapshot at a tick or before with the default timeout, like {@link #acquireAtOrBefore(long, AcquireOptions)}. */
-    public AcquiredSnapshot3 acquireAtOrBefore(long tick) {
-        return acquireAtOrBefore(tick, AcquireOptions.defaultTimeout());
-    }
-
-    /**
-     * Acquires the snapshot in the retention window with the greatest commit that is not
-     * greater than tick. Fails with IllegalArgumentException if tick is negative, and with
-     * SnapshotNotAvailableException if there is no such snapshot. The options give the
-     * timeout of the acquisition. Any thread can call it.
-     */
-    public AcquiredSnapshot3 acquireAtOrBefore(long tick, AcquireOptions options) {
-        checkNotRemoved();
-        return new AcquiredSnapshot3(node, node.acquireAtOrBefore(partitionId, tick, options));
-    }
-
-    /** Acquires the snapshot of a commit with the default timeout, like {@link #acquireExact(long, AcquireOptions)}. */
-    public AcquiredSnapshot3 acquireExact(long commit) {
-        return acquireExact(commit, AcquireOptions.defaultTimeout());
-    }
-
-    /**
-     * Acquires the snapshot of the given commit. Fails with IllegalArgumentException if
-     * commit is negative, and with SnapshotNotAvailableException if that snapshot is not in
-     * the retention window. The options give the timeout of the acquisition. Any thread
-     * can call it.
-     */
-    public AcquiredSnapshot3 acquireExact(long commit, AcquireOptions options) {
-        checkNotRemoved();
-        return new AcquiredSnapshot3(node, node.acquireExact(partitionId, commit, options));
-    }
-
-    @Override
-    public long lastCommit() {
-        checkNotRemoved();
-        return node.lastCommit(partitionId);
     }
 
     @Override

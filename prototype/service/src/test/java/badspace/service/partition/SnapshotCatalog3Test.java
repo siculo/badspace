@@ -5,109 +5,143 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import badspace.common.partition.IndexConfig;
-import java.util.ArrayList;
-import java.util.List;
+import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import org.junit.jupiter.api.Test;
 
 class SnapshotCatalog3Test {
 
     @Test
-    void newCatalogHasOnlyTheEmptySnapshot() {
-        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(2);
-        assertEquals(List.of(0L), commitsOf(catalog));
-        assertEquals(0, catalog.lastSnapshot().commit());
-        assertEquals(0, catalog.lastSnapshot().size());
-        assertEquals(2, catalog.retainedPastSnapshots());
+    void newCatalogIsAtTheCreationTickWithoutSnapshots() {
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(5, 2);
+        assertEquals(5, catalog.tick());
+        assertEquals(5, catalog.creationTick());
+        assertEquals(2, catalog.retainedTicks());
+        assertEquals(0, catalog.size());
+        assertNull(catalog.latest());
+        assertNull(catalog.at(4));
+        assertNull(catalog.at(5));
     }
 
     @Test
-    void negativeRetainedPastSnapshotsAreRejected() {
-        assertThrows(IllegalArgumentException.class, () -> SnapshotCatalog3.empty(-1));
+    void retainedTicksLessThanOneAreRejected() {
+        assertThrows(IllegalArgumentException.class, () -> SnapshotCatalog3.empty(0, 0));
+        assertThrows(IllegalArgumentException.class, () -> SnapshotCatalog3.empty(0, -1));
     }
 
     @Test
-    void withZeroPastSnapshotsOnlyTheLastSnapshotStays() {
-        PartitionStorage3 storage = new PartitionStorage3(IndexConfig.linearScan(), 0);
-        StorageSnapshot3 first = storage.commit(100);
-        assertSame(first, storage.catalog().previous(0));
-        assertNull(storage.catalog().previous(1));
-        StorageSnapshot3 second = storage.commit(103);
-        assertSame(second, storage.catalog().previous(0));
-        assertNull(storage.catalog().previous(1));
-        assertSame(second, storage.catalog().lastSnapshot());
+    void moveWithACommitPublishesItsSnapshotForTheTickThatEnds() {
+        StorageSnapshot3 first = StorageSnapshot3.empty();
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(0, 3).advance(1, first);
+        assertEquals(1, catalog.tick());
+        assertSame(first, catalog.at(0));
+        assertSame(first, catalog.latest());
+        assertEquals(0, catalog.firstTickAt(0));
+        assertNull(catalog.at(1));
     }
 
     @Test
-    void withTwoPastSnapshotsTheLastThreePublishedCommitsStay() {
-        PartitionStorage3 storage = new PartitionStorage3(IndexConfig.linearScan(), 2);
-        storage.commit(100);
-        assertEquals(List.of(100L, 0L), commitsOf(storage.catalog()));
-        storage.commit(103);
-        assertEquals(List.of(103L, 100L, 0L), commitsOf(storage.catalog()));
-        storage.commit(107);
-        // The skipped numbers make no snapshot: 100 is still in the window.
-        assertEquals(List.of(107L, 103L, 100L), commitsOf(storage.catalog()));
-        storage.commit(110);
-        assertEquals(List.of(110L, 107L, 103L), commitsOf(storage.catalog()));
-    }
-
-    @Test
-    void atOrBeforeFindsTheGreatestCommitNotAfterTheTick() {
-        SnapshotCatalog3 catalog = catalogWithCommits(2, 100, 103, 107);
-        assertEquals(103, catalog.atOrBefore(105).commit());
-        assertEquals(107, catalog.atOrBefore(107).commit());
-        assertEquals(107, catalog.atOrBefore(Long.MAX_VALUE).commit());
-        assertEquals(100, catalog.atOrBefore(100).commit());
-        // 0 left the window: no snapshot is at tick 99 or before.
-        assertNull(catalog.atOrBefore(99));
-    }
-
-    @Test
-    void exactFindsOnlyThePublishedCommitsInTheWindow() {
-        SnapshotCatalog3 catalog = catalogWithCommits(2, 100, 103, 107, 110);
-        assertEquals(103, catalog.exact(103).commit());
-        assertEquals(110, catalog.exact(110).commit());
-        // 105 was never published, 100 left the window.
-        assertNull(catalog.exact(105));
-        assertNull(catalog.exact(100));
-    }
-
-    @Test
-    void emptySnapshotIsInTheWindowUntilItLeaves() {
-        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(1);
-        assertEquals(0, catalog.exact(0).commit());
-        assertEquals(0, catalog.atOrBefore(0).commit());
-        catalog = catalogWithCommits(1, 5);
-        assertEquals(0, catalog.exact(0).commit());
-        catalog = catalogWithCommits(1, 5, 6);
-        assertNull(catalog.exact(0));
-    }
-
-    @Test
-    void oldCatalogDoesNotChangeAfterACommit() {
-        PartitionStorage3 storage = new PartitionStorage3(IndexConfig.linearScan(), 1);
-        storage.commit(100);
-        SnapshotCatalog3 before = storage.catalog();
-        storage.commit(103);
-        assertEquals(List.of(100L, 0L), commitsOf(before));
-        assertEquals(List.of(103L, 100L), commitsOf(storage.catalog()));
-    }
-
-    private static SnapshotCatalog3 catalogWithCommits(int retainedPastSnapshots, long... commits) {
-        PartitionStorage3 storage = new PartitionStorage3(IndexConfig.linearScan(), retainedPastSnapshots);
-        for (long commit : commits) {
-            storage.commit(commit);
+    void ticksWithoutACommitShareTheSnapshotBefore() {
+        StorageSnapshot3 first = StorageSnapshot3.empty();
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(0, 3).advance(1, first).advance(2, null).advance(4, null);
+        assertEquals(1, catalog.size());
+        for (long tick = 1; tick <= 3; tick++) {
+            assertSame(first, catalog.at(tick));
         }
-        return storage.catalog();
     }
 
-    /** Returns the commits of the window, from the last one back, read with the offsets. */
-    private static List<Long> commitsOf(SnapshotCatalog3 catalog) {
-        List<Long> commits = new ArrayList<>();
-        for (int offset = 0; catalog.previous(offset) != null; offset++) {
-            commits.add(catalog.previous(offset).commit());
+    @Test
+    void skippedTicksShareTheSnapshotOfTheCommitBeforeThem() {
+        StorageSnapshot3 empty = StorageSnapshot3.empty();
+        StorageSnapshot3 committed = StorageSnapshot3.empty();
+        // Created at 100, at tick 102 with a commit, then a direct move to 105.
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(100, 5).advance(102, empty).advance(105, committed);
+        assertSame(empty, catalog.at(100));
+        assertSame(empty, catalog.at(101));
+        assertSame(committed, catalog.at(102));
+        assertSame(committed, catalog.at(103));
+        assertSame(committed, catalog.at(104));
+        assertNull(catalog.at(105));
+    }
+
+    @Test
+    void windowHasTheLastKTicks() {
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(100, 5);
+        StorageSnapshot3[] byTick = new StorageSnapshot3[110];
+        for (int tick = 100; tick < 110; tick++) {
+            byTick[tick] = StorageSnapshot3.empty();
+            catalog = catalog.advance(tick + 1, byTick[tick]);
         }
-        return commits;
+        assertEquals(110, catalog.tick());
+        for (int tick = 105; tick < 110; tick++) {
+            assertSame(byTick[tick], catalog.at(tick));
+        }
+        assertNull(catalog.at(104));
+        assertNull(catalog.at(110));
+        assertEquals(5, catalog.size());
+    }
+
+    @Test
+    void snapshotLeavesTheWindowWhenAllItsTicksAreBeforeIt() {
+        StorageSnapshot3 first = StorageSnapshot3.empty();
+        StorageSnapshot3 second = StorageSnapshot3.empty();
+        // first is valid for the ticks from 0 to 4.
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(0, 2).advance(1, first).advance(5, null);
+        catalog = catalog.advance(6, second);
+        // The window has the ticks 4 and 5: first is still in it for tick 4.
+        assertEquals(2, catalog.size());
+        assertSame(first, catalog.at(4));
+        catalog = catalog.advance(7, null);
+        assertEquals(1, catalog.size());
+        assertSame(second, catalog.snapshotAt(0));
+        assertSame(second, catalog.at(5));
+        assertSame(second, catalog.at(6));
+    }
+
+    @Test
+    void jumpLongerThanTheWindowLeavesOnlyTheLastSnapshot() {
+        StorageSnapshot3 first = StorageSnapshot3.empty();
+        StorageSnapshot3 second = StorageSnapshot3.empty();
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(0, 1).advance(1, first).advance(10, second);
+        assertEquals(1, catalog.size());
+        assertSame(second, catalog.at(9));
+        assertNull(catalog.at(8));
+    }
+
+    @Test
+    void reasonSaysWhyATickIsNotInTheWindow() {
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(10, 5).advance(20, StorageSnapshot3.empty());
+        assertEquals(Reason.NOT_YET_PUBLISHED, catalog.reasonNotAvailable(20));
+        assertEquals(Reason.NOT_YET_PUBLISHED, catalog.reasonNotAvailable(25));
+        assertEquals(Reason.OUT_OF_RETENTION, catalog.reasonNotAvailable(14));
+        assertEquals(Reason.BEFORE_CREATION, catalog.reasonNotAvailable(9));
+        assertNull(catalog.at(14));
+        assertSame(catalog.latest(), catalog.at(15));
+    }
+
+    @Test
+    void noTickBeforeTheCreationIsInTheWindow() {
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(10, 5).advance(11, StorageSnapshot3.empty());
+        assertSame(catalog.latest(), catalog.at(10));
+        assertNull(catalog.at(9));
+        assertEquals(Reason.BEFORE_CREATION, catalog.reasonNotAvailable(9));
+    }
+
+    @Test
+    void oldCatalogDoesNotChangeAfterAMove() {
+        StorageSnapshot3 first = StorageSnapshot3.empty();
+        SnapshotCatalog3 before = SnapshotCatalog3.empty(0, 1).advance(1, first);
+        SnapshotCatalog3 after = before.advance(2, StorageSnapshot3.empty());
+        assertEquals(1, before.tick());
+        assertSame(first, before.at(0));
+        assertNull(after.at(0));
+    }
+
+    @Test
+    void closedCatalogHasNoSnapshotsAndKeepsTheTick() {
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(0, 3).advance(4, StorageSnapshot3.empty()).closed();
+        assertEquals(4, catalog.tick());
+        assertEquals(0, catalog.size());
+        assertNull(catalog.at(3));
+        assertEquals(0, catalog.advance(6, null).size());
     }
 }

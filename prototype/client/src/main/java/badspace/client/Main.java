@@ -4,6 +4,7 @@ import static badspace.common.geometry.Point2.point;
 import static badspace.common.geometry.Point3.point;
 import static badspace.common.partition.Entity2.entity;
 
+import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition;
 import badspace.api.Partition2;
 import badspace.api.Partition3;
@@ -57,15 +58,21 @@ public class Main {
                 p2a.findInRegion(new Circle2(point(10, 3), 1)));
         System.out.printf("2D: the 2 nearest to (0,0): %s%n", p2a.findNearest(point(0, 0), 2));
 
-        // The software chooses the commit number, for example the tick, and can skip numbers
-        p2a.commit(1);
-        p2a.commit(3);
-        System.out.printf("2D: last commit of node A is %d%n", p2a.lastCommit());
+        // The writer commits in the current tick; the move of the tick publishes the snapshot
+        // of the tick to the readers. Ticks can be skipped.
+        p2a.commit();
+        space2.setTick(1);
+        p2a.commit();
+        space2.setTick(3);
+        try (AcquiredSnapshot2 latest = p2a.acquireLatest()) {
+            System.out.printf("2D: node A is at tick %d, the latest snapshot is of tick %d with %d entities%n",
+                    p2a.tick(), latest.tick(), latest.size());
+        }
 
         Space3 space3 = new Space3(spaceConfig);
         Partition3 p3 = space3.createPartition(new LocalPartitionNode3(),
                 new PartitionConfig(IndexConfig.uniformGrid(10), RemovalPolicy.DISCARD_ENTITIES,
-                        RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS));
+                        RetentionWindow.DEFAULT_RETAINED_TICKS));
         long c = p3.insert(1.0, 2.0, 3.0);
         p3.update(c, point(4.0, 5.0, 6.0));
         System.out.printf("3D: entity %d is at %s%n", c, p3.get(c).orElseThrow());

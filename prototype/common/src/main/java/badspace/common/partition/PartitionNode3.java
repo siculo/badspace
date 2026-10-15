@@ -14,15 +14,20 @@ import java.util.List;
  * <p>
  * The reads of a partition by ID or by position see the state of its writer,
  * with the writes not yet committed, and only the writer of the partition can
- * call them. The other threads read the snapshots of the commits: they
- * {@linkplain #acquireLatest acquire} a snapshot, read it through the
- * {@link Acquisition} and then {@linkplain #release release} it. The partition
- * keeps the last snapshot and k snapshots before it acquirable (the retention
- * window); a snapshot that leaves the window stays readable through the
- * acquisitions made before, until they are released. An acquisition can have
- * a timeout ({@link AcquireOptions}): after it, the acquisition behaves like a
- * released one, and the node removes it without waiting for the reader. The
- * acquisitions, the reads through them and the release are thread-safe.
+ * call them. The other threads read the snapshots of the ticks: they
+ * {@linkplain #acquire acquire} a snapshot, read it through the
+ * {@link Acquisition} and then {@linkplain #release release} it.
+ * <p>
+ * The snapshot of tick n is the state confirmed by the last {@linkplain #commit commit}
+ * of tick n, or the state of the tick before if tick n has no commit. It is published
+ * when the tick of the partition moves past n: the snapshot of the current tick is never
+ * acquirable. With the tick T of the partition, its creation tick C and k retained ticks,
+ * readers can acquire the snapshots of the ticks from max(T - k, C) to T - 1 (the
+ * retention window). A snapshot that leaves the window stays readable through the
+ * acquisitions made before, until they are released or expire. Every acquisition has a
+ * timeout ({@link AcquireOptions}): after it, the acquisition behaves like a released one,
+ * and the node removes it without waiting for the reader. The acquisitions, the reads
+ * through them and the release are thread-safe.
  * <p>
  * The removal of a partition has two steps. {@link #removePartition} and
  * {@link #dropPartition} mark the partition as removed: after the mark, the writes, the
@@ -39,7 +44,8 @@ import java.util.List;
  * moves forward with {@link #setTick}. A new node is at tick 0. Each partition has its
  * own tick too: the node moves its partitions to a new tick one after the other, so for
  * a short time the partitions of a node can be at different ticks. A partition is created
- * at the tick of the node.
+ * at the tick of the node. For now the writer and the thread that moves the tick must not
+ * work on the same partition at the same time.
  */
 public interface PartitionNode3 {
 
@@ -52,21 +58,20 @@ public interface PartitionNode3 {
     }
 
     /**
-     * Creates an empty partition with the given index and the default number of past snapshots,
+     * Creates an empty partition with the given index and the default number of retained ticks,
      * at the tick of the node. Fails if the ID is already in use on this node.
      */
     default void createPartition(PartitionId partitionId, IndexConfig index) {
-        createPartition(partitionId, index, RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS);
+        createPartition(partitionId, index, RetentionWindow.DEFAULT_RETAINED_TICKS);
     }
 
     /**
      * Creates an empty partition with the given index, at the tick of the node: this is its
-     * {@linkplain #creationTick creation tick}. The partition keeps the last snapshot and
-     * retainedPastSnapshots snapshots before it. Fails with IllegalArgumentException if the ID is
-     * already in use on this node or if retainedPastSnapshots is negative; in these cases no
-     * partition is created.
+     * {@linkplain #creationTick creation tick}. Readers can acquire the snapshots of the last
+     * retainedTicks ticks. Fails with IllegalArgumentException if the ID is already in use on
+     * this node or if retainedTicks is less than 1; in these cases no partition is created.
      */
-    void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastSnapshots);
+    void createPartition(PartitionId partitionId, IndexConfig index, int retainedTicks);
 
     /**
      * Moves the tick of the node forward to the given tick, and then the tick of each of its
@@ -147,46 +152,29 @@ public interface PartitionNode3 {
     List<Entity3> findNearest(PartitionId partitionId, Point3 point, int count);
 
     /**
-     * Closes the current commit of a partition with the given number. The number must be
-     * greater than the last commit of the partition, but numbers can be skipped. Fails with
-     * IllegalArgumentException if it is not greater; in this case the partition does not change.
-     * A commit with no writes is valid. The commit publishes the snapshot of the partition
-     * at the commit, which {@link #acquireLatest} then acquires.
+     * Confirms the writes of a partition in its current tick: the snapshot of the tick will
+     * have them. A later commit in the same tick replaces it, and the writes after the last
+     * commit go to the next commit. A commit with no writes is valid. The snapshot becomes
+     * acquirable when the tick of the partition moves forward.
      */
-    void commit(PartitionId partitionId, long commit);
+    void commit(PartitionId partitionId);
 
     /**
-     * Acquires the snapshot of the last commit of a partition: the empty snapshot at
-     * commit 0 if the partition has no commit yet. Choosing the snapshot and acquiring
-     * it is a single step, so a commit at the same time cannot make it go away. The
-     * options give the timeout of the acquisition.
+     * Acquires the snapshot of the given tick of a partition: it must be in the retention
+     * window. Checking the window and acquiring the snapshot is a single step, so a move of
+     * the tick at the same time cannot make it go away. Fails with IllegalArgumentException
+     * if tick is negative, and with SnapshotNotAvailableException, with the reason, if the
+     * snapshot is not published yet, is older than the window, or is before the creation of
+     * the partition. The options give the timeout of the acquisition.
+     */
+    Acquisition acquire(PartitionId partitionId, long tick, AcquireOptions options);
+
+    /**
+     * Acquires the snapshot of the tick before the current tick of a partition, like
+     * {@link #acquire}. Fails with SnapshotNotAvailableException if the tick of the partition
+     * has not moved since its creation, so no snapshot is published yet.
      */
     Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options);
-
-    /**
-     * Acquires a snapshot in the retention window of a partition: offset 0 is the last
-     * snapshot, offset i the i-th published commit before it. Fails with
-     * IllegalArgumentException if offset is negative, and with
-     * SnapshotNotAvailableException if the window has no snapshot at that offset.
-     * The options give the timeout of the acquisition.
-     */
-    Acquisition acquirePrevious(PartitionId partitionId, int offset, AcquireOptions options);
-
-    /**
-     * Acquires the snapshot in the retention window of a partition with the greatest
-     * commit that is not greater than tick. Fails with IllegalArgumentException if
-     * tick is negative, and with SnapshotNotAvailableException if no snapshot in the
-     * window has such a commit. The options give the timeout of the acquisition.
-     */
-    Acquisition acquireAtOrBefore(PartitionId partitionId, long tick, AcquireOptions options);
-
-    /**
-     * Acquires the snapshot of the given commit of a partition. Fails with
-     * IllegalArgumentException if commit is negative, and with
-     * SnapshotNotAvailableException if that snapshot is not in the retention window.
-     * The options give the timeout of the acquisition.
-     */
-    Acquisition acquireExact(PartitionId partitionId, long commit, AcquireOptions options);
 
     /**
      * Releases an acquisition: after this, its reads fail. Releasing it again, or
@@ -221,13 +209,6 @@ public interface PartitionNode3 {
      * {@link #size(Acquisition)}, and with IllegalArgumentException if count is negative.
      */
     List<Entity3> findNearest(Acquisition acquisition, Point3 point, int count);
-
-    /**
-     * Returns the number of the last commit of a partition, or 0 if it has no commit yet.
-     * Any thread can call it. It is only information: to read a snapshot, acquire it, since
-     * the window can change between the two calls.
-     */
-    long lastCommit(PartitionId partitionId);
 
     /** Returns the number of entities in a partition. */
     int size(PartitionId partitionId);

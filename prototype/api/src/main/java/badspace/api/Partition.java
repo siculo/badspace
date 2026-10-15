@@ -19,25 +19,19 @@ public interface Partition {
     void removeAll(long[] entityIds);
 
     /**
-     * Closes the current commit with the number n, which the software chooses: for example
-     * the tick. n must be greater than the {@linkplain #lastCommit() last commit}, but numbers
-     * can be skipped. Fails with IllegalArgumentException if n is not greater; in this case
-     * the partition does not change. A commit with no writes is valid.
-     * The commit publishes the snapshot of the partition at the commit, which the readers
-     * acquire with {@code acquireLatest()} and the other acquisitions of Partition2 and Partition3.
+     * Confirms the writes in the current tick of the partition: the snapshot of the tick will
+     * have them. A later commit in the same tick replaces it, and the writes after the last
+     * commit go to the next commit, also in a later tick. A commit with no writes is valid.
+     * The snapshot becomes acquirable when the tick moves forward, with {@code acquire(tick)}
+     * and {@code acquireLatest()} of Partition2 and Partition3.
      */
-    void commit(long n);
-
-    /**
-     * Returns the number of the last commit, or 0 if the partition has no commit yet.
-     * Any thread can call it. It is only information: to read a snapshot, acquire it, since
-     * the window can change between the two calls.
-     */
-    long lastCommit();
+    void commit();
 
     /**
      * Returns the tick of the partition. While the space moves to a new tick, it can be less
-     * than the {@linkplain Space#tick() tick of the space}. Any thread can call it.
+     * than the {@linkplain Space#tick() tick of the space}. Any thread can call it. It is only
+     * information: to read a snapshot, acquire it, since the window can change between the
+     * two calls.
      */
     long tick();
 

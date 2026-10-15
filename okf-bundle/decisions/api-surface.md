@@ -347,28 +347,21 @@ Scelte di dettaglio:
 
 ## Differenze nel codice attuale
 
-La forma descritta sopra è decisa, ma il codice segue ancora quella
-precedente; si allinea con i passi del TODO del prototipo. Oggi:
+La forma descritta sopra è decisa; il codice la segue per tick, commit e
+acquisizioni, e si allinea per il resto con i passi del TODO del
+prototipo. Oggi:
 
-- il tick c'è (`setTick`, `tick()`, `creationTick()`), ma commit e
-  acquisizioni non lo usano ancora;
-- il commit è `commit(long n)`, con n scelto dal software e maggiore
-  dell'ultimo commit, e `lastCommit()` dà il numero dell'ultimo commit
-  (0 per una partizione appena creata); lo snapshot è acquisibile alla
-  fine del commit, compreso lo snapshot vuoto del commit 0;
-- k è `retainedPastSnapshots` (≥ 0, default 0, con
-  `withRetainedPastSnapshots`): il catalogo tiene gli ultimi k + 1
-  snapshot pubblicati;
-- le selezioni sono quattro: `acquireLatest` (lo snapshot corrente),
-  `acquirePrevious(int offset)`, `acquireAtOrBefore(long tick)` e
-  `acquireExact(long commit)`; `Acquisition` e la view portano il
-  `commit`;
 - la rimozione segna subito la partizione: scritture, commit, letture
   del writer e nuove acquisizioni falliscono con
   `IllegalStateException`, la finestra si chiude, e il nodo toglie la
   partizione quando i suoi snapshot non hanno più utilizzi; dopo, l'ID è
   sconosciuto e le operazioni falliscono con `IllegalArgumentException`;
-  il proxy blocca tutte le operazioni dopo la rimozione.
+  il proxy blocca tutte le operazioni dopo la rimozione;
+- `SnapshotNotAvailableException` ha i motivi `NOT_YET_PUBLISHED`,
+  `OUT_OF_RETENTION` e `BEFORE_CREATION`; quello per i tick dalla
+  rimozione in poi arriva con la rimozione con gli stati;
+- manca il lock per partizione: il writer e il thread che fa avanzare il
+  tick non devono lavorare insieme sulla stessa partizione.
 
 ## Contratto del nodo
 

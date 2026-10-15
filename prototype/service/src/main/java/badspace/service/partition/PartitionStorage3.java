@@ -24,8 +24,8 @@ import java.util.function.Function;
 
 /**
  * Entities of a 3D partition. It has a single writer and is not thread-safe,
- * except {@link #catalog()}, {@link #lastSnapshot()}, {@link #lastCommit()} and the
- * methods of the acquisitions.
+ * except {@link #catalog()}, {@link #lastSnapshot()}, {@link #tick()},
+ * {@link #creationTick()} and the methods of the acquisitions.
  * Entities are stored in primitive arrays: slotEntityIds[i] has coordinates
  * coords[3*i], coords[3*i+1], coords[3*i+2]. A {@link SlotTable} gives the slot of each ID.
  * Removal moves the last entity into the free slot, so the arrays stay compact
@@ -42,27 +42,36 @@ import java.util.function.Function;
  * IDs and the table from ID to slot only after insertions or removals, else
  * the new snapshot shares them with the one before.
  * <p>
- * The commit also adds the snapshot to the {@link SnapshotCatalog3}, which keeps
- * the last k + 1 snapshots. The catalog holds the same snapshots, not copies.
+ * The commits have a number in a sequence that only grows, for the copy-on-write
+ * of the index.
+ * <p>
+ * The storage has a tick: the logical time of the partition, which the node moves
+ * forward. The snapshot of the last commit of a tick is not published at the
+ * commit: the move of the tick publishes it in the {@link SnapshotCatalog3}, as
+ * the snapshot of that tick and of the ticks without a commit after it. The new
+ * partition has the empty snapshot as if it had a commit at its creation tick.
+ * The catalog holds the same snapshots, not copies, for the ticks of the
+ * retention window.
  * <p>
  * The reads of the storage see the state of the writer, with the writes not
  * yet committed, and only the writer can call them. The other threads read
- * the {@linkplain #catalog() catalog}: the commit publishes it with a single
- * write of a volatile field, so a reader sees either the catalog before or the
- * whole new catalog, never a new last snapshot with an old window.
+ * the {@linkplain #catalog() catalog}: the move of the tick publishes it with a
+ * single write of a volatile field, so a reader sees either the catalog before
+ * or the whole new catalog, never a new tick with an old window. For now the
+ * writer and the thread that moves the tick must not work at the same time.
  * <p>
  * The storage also keeps the acquisitions of the snapshots: each one has a number
  * and holds its snapshot, also after the snapshot leaves the window, until it is
  * released or expires. The timeouts are measured with the {@link MonotonicClock}
- * of the node. At each acquisition, release and commit the storage removes the
- * expired acquisitions, so a reader that never releases does not keep its
+ * of the node. At each acquisition, release, commit and move of the tick the storage
+ * removes the expired acquisitions, so a reader that never releases does not keep its
  * snapshot in memory after the timeout.
  * <p>
  * Each snapshot ends when it is out of the window, with no valid acquisitions and
  * no admitted queries (see {@link SnapshotUses}). The event that removes the last of
- * these ends it: the commit that moves the window, the release or the removal after
- * the timeout of the last acquisition, the end of the last query. The storage counts
- * the snapshots that did not end yet.
+ * these ends it: the move of the tick that moves the window, the release or the removal
+ * after the timeout of the last acquisition, the end of the last query. The storage counts
+ * the published snapshots that did not end yet.
  * <p>
  * The removal of the partition has two steps. {@link #markRemoved()} marks the storage
  * as removed: no more writes, commits or new acquisitions, and the window closes, so
@@ -70,10 +79,6 @@ import java.util.function.Function;
  * snapshot ends the partition is finished: the method that ends it returns true, so the
  * node can remove the storage. It happens once, and only after the mark. The storage
  * has no reference to the node.
- * <p>
- * The storage has a tick: the logical time of the partition, which the node moves
- * forward, and the tick at which the partition was created. The other parts of the
- * storage do not use the tick yet.
  */
 final class PartitionStorage3 implements SlotView3 {
 
@@ -89,28 +94,34 @@ final class PartitionStorage3 implements SlotView3 {
     private double[] coords = new double[INITIAL_CAPACITY * DIMENSIONS];
     private final SlotTable slotById = new SlotTable();
     private int size;
-    // The writer replaces the catalog at each commit and any thread reads it. The
-    // volatile write publishes the new snapshot and the new window together.
+    // The thread that moves the tick replaces the catalog at each move, and any thread reads
+    // it. The volatile write publishes the new tick and the new window together.
     private volatile SnapshotCatalog3 catalog;
+    // The snapshot of the last commit, the empty snapshot before the first commit. Only the
+    // writer uses it, as the base of the next snapshot.
+    private StorageSnapshot3 lastCommitted;
+    // The snapshot that the next move of the tick publishes: the one of the last commit of
+    // the current tick, or null if the tick has no commit. Written by the writer, read and
+    // cleared by the thread that moves the tick.
+    private StorageSnapshot3 pending;
+    // The number of the last commit in the sequence. Only the writer uses it.
+    private long commitSequence;
     // Acquisition number -> acquired snapshot with its timeout. Any thread acquires, reads
     // and releases: the map makes each of these steps atomic, and a query keeps its own
     // reference to the snapshot, so a release or an expiry during the query does not stop it.
     private final ConcurrentHashMap<Long, AcquisitionEntry3> acquisitions = new ConcurrentHashMap<>();
     // The number of the last acquisition. Numbers start from 1 and are never used again.
     private final AtomicLong lastAcquisitionId = new AtomicLong();
-    // The snapshots that did not end yet, the empty snapshot at commit 0 included. The
-    // commit adds one; the thread that ends a snapshot, any thread, removes one. Before the
-    // mark of removal the window always has a snapshot that did not end, so the count
-    // reaches 0 only after the mark, and only once.
-    private final AtomicInteger liveSnapshots = new AtomicInteger(1);
+    // The published snapshots that did not end yet. The move of the tick that publishes a
+    // snapshot adds one; the thread that ends a snapshot, any thread, removes one. Only a
+    // published snapshot can end, and after the first move of the tick the last snapshot is
+    // always in the window until the mark of removal, so the count reaches 0 only after the
+    // mark, and only once.
+    private final AtomicInteger liveSnapshots = new AtomicInteger();
     // Written once by the writer, in markRemoved(), before the window closes. Read by the
     // threads that acquire: an acquisition that finds its snapshot out of the window after
     // the mark sees the mark too.
     private volatile boolean removed;
-    // The tick at which the partition was created.
-    private final long creationTick;
-    // Written by the thread that moves the tick of the node, read by any thread.
-    private volatile long tick;
     /** True after an insertion or a removal not yet in a snapshot. */
     private boolean idsChanged;
     private final CoordinateLimits limits;
@@ -122,75 +133,77 @@ final class PartitionStorage3 implements SlotView3 {
         this(IndexConfig.linearScan());
     }
 
-    /** Creates a storage with the given index, and with its limits, and the default number of past snapshots. */
+    /** Creates a storage with the given index, and with its limits, and the default number of retained ticks. */
     PartitionStorage3(IndexConfig index) {
-        this(index, RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS);
+        this(index, RetentionWindow.DEFAULT_RETAINED_TICKS);
     }
 
-    /** Creates a storage with the given index, and with its limits, that keeps retainedPastSnapshots past snapshots. */
-    PartitionStorage3(IndexConfig index, int retainedPastSnapshots) {
-        this(index, retainedPastSnapshots, MonotonicClock.SYSTEM);
+    /** Creates a storage with the given index, and with its limits, that keeps retainedTicks retained ticks. */
+    PartitionStorage3(IndexConfig index, int retainedTicks) {
+        this(index, retainedTicks, MonotonicClock.SYSTEM);
     }
 
     /**
      * Creates a storage at tick 0 with the given index, and with its limits, that keeps
-     * retainedPastSnapshots past snapshots and measures the timeouts with the clock.
+     * retainedTicks retained ticks and measures the timeouts with the clock.
      */
-    PartitionStorage3(IndexConfig index, int retainedPastSnapshots, MonotonicClock clock) {
-        this(index, retainedPastSnapshots, clock, 0);
+    PartitionStorage3(IndexConfig index, int retainedTicks, MonotonicClock clock) {
+        this(index, retainedTicks, clock, 0);
     }
 
     /**
      * Creates a storage at the given tick with the given index, and with its limits, that keeps
-     * retainedPastSnapshots past snapshots and measures the timeouts with the clock.
+     * retainedTicks retained ticks and measures the timeouts with the clock.
      */
-    PartitionStorage3(IndexConfig index, int retainedPastSnapshots, MonotonicClock clock, long creationTick) {
-        this(index.limits(), slots -> SpatialIndexes.create(index, slots), retainedPastSnapshots, clock,
+    PartitionStorage3(IndexConfig index, int retainedTicks, MonotonicClock clock, long creationTick) {
+        this(index.limits(), slots -> SpatialIndexes.create(index, slots), retainedTicks, clock,
                 creationTick);
     }
 
     /**
      * Creates a storage with the given limits, the index made by the factory
-     * and the default number of past snapshots. The factory gets this storage,
+     * and the default number of retained ticks. The factory gets this storage,
      * so the index can read it during the queries.
      */
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory) {
-        this(limits, indexFactory, RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS);
+        this(limits, indexFactory, RetentionWindow.DEFAULT_RETAINED_TICKS);
     }
 
     /**
      * Creates a storage with the given limits, the index made by the factory and
-     * retainedPastSnapshots past snapshots. The factory gets this storage, so the index can
+     * retainedTicks retained ticks. The factory gets this storage, so the index can
      * read it during the queries.
      */
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
-            int retainedPastSnapshots) {
-        this(limits, indexFactory, retainedPastSnapshots, MonotonicClock.SYSTEM);
+            int retainedTicks) {
+        this(limits, indexFactory, retainedTicks, MonotonicClock.SYSTEM);
     }
 
     /**
      * Creates a storage with the given limits, the index made by the factory,
-     * retainedPastSnapshots past snapshots and the clock of the timeouts. The factory
+     * retainedTicks retained ticks and the clock of the timeouts. The factory
      * gets this storage, so the index can read it during the queries.
      */
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
-            int retainedPastSnapshots, MonotonicClock clock) {
-        this(limits, indexFactory, retainedPastSnapshots, clock, 0);
+            int retainedTicks, MonotonicClock clock) {
+        this(limits, indexFactory, retainedTicks, clock, 0);
     }
 
     /**
      * Creates a storage at the given tick with the given limits, the index made by the factory,
-     * retainedPastSnapshots past snapshots and the clock of the timeouts. The factory gets this
+     * retainedTicks retained ticks and the clock of the timeouts. The factory gets this
      * storage, so the index can read it during the queries.
      */
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
-            int retainedPastSnapshots, MonotonicClock clock, long creationTick) {
-        this.creationTick = creationTick;
-        this.tick = creationTick;
+            int retainedTicks, MonotonicClock clock, long creationTick) {
         this.clock = clock;
         this.limits = limits;
         this.index = indexFactory.apply(this);
-        this.catalog = SnapshotCatalog3.empty(retainedPastSnapshots);
+        this.catalog = SnapshotCatalog3.empty(creationTick, retainedTicks);
+        // As if the partition had a commit at its creation tick: the first move of the tick
+        // publishes the empty snapshot, unless a commit replaces it.
+        this.lastCommitted = StorageSnapshot3.empty();
+        this.pending = lastCommitted;
     }
 
     void insertAll(List<Entity3> entities) {
@@ -272,57 +285,71 @@ final class PartitionStorage3 implements SlotView3 {
         return limits;
     }
 
-    /** Returns k: the number of past snapshots kept besides the last one. */
-    int retainedPastSnapshots() {
-        return catalog.retainedPastSnapshots();
+    /** Returns k: the number of retained ticks. */
+    int retainedTicks() {
+        return catalog.retainedTicks();
     }
 
     /** Returns the tick at which the partition was created. Any thread can call it. */
     long creationTick() {
-        return creationTick;
+        return catalog.creationTick();
     }
 
-    /** Returns the tick of the partition. Any thread can call it. */
+    /** Returns the tick of the partition, from the published catalog. Any thread can call it. */
     long tick() {
-        return tick;
+        return catalog.tick();
     }
 
     /**
-     * Moves the tick of the partition forward to the given tick. The same tick again does
-     * nothing. Fails with IllegalArgumentException if the tick is less than the tick of the
-     * partition. Only the thread that moves the tick of the node calls it.
+     * Confirms the writes in the current tick and returns the snapshot of the commit. The next
+     * move of the tick publishes it, unless a later commit in the same tick replaces it. It
+     * also removes the expired acquisitions. Only the writer can call it.
      */
-    void setTick(long tick) {
-        if (tick < this.tick) {
-            throw new IllegalArgumentException("Tick " + tick + " is less than the tick " + this.tick);
-        }
-        this.tick = tick;
-    }
-
-    /**
-     * Closes the commit, publishes the snapshot of the partition at the commit and returns it.
-     * If the window was full, the oldest snapshot leaves it, and ends if it has no uses.
-     * It also removes the expired acquisitions.
-     */
-    StorageSnapshot3 commit(long commit) {
-        long lastCommit = lastCommit();
-        if (commit <= lastCommit) {
-            throw new IllegalArgumentException(
-                    "Commit " + commit + " is not greater than the last commit " + lastCommit);
-        }
-        StorageSnapshot3 snapshot = new StorageSnapshot3(commit, slotSnapshot(), index.commit(commit));
+    StorageSnapshot3 commit() {
+        commitSequence++;
+        StorageSnapshot3 snapshot = new StorageSnapshot3(commitSequence, slotSnapshot(), index.commit(commitSequence));
         idsChanged = false;
-        StorageSnapshot3 leaving = catalog.nextToLeave();
-        liveSnapshots.incrementAndGet();
-        // The publication of the new snapshot and window.
-        catalog = catalog.withSnapshot(snapshot);
-        // After the publication, so a new acquisition finds the snapshot either in the
-        // window or out of it, and in that case it chooses again from the new window.
-        if (leaving != null && leaving.uses().leaveWindow()) {
-            snapshotEnded();
-        }
+        lastCommitted = snapshot;
+        pending = snapshot;
         removeExpired();
         return snapshot;
+    }
+
+    /**
+     * Moves the tick of the partition forward to the given tick. The move publishes the snapshot
+     * of the last commit of the current tick, if there is one, as the snapshot of the current
+     * tick; the ticks without a commit keep the snapshot before. The snapshots whose ticks are
+     * all before the new window leave it, and the ones with no uses end. It also removes the
+     * expired acquisitions. The same tick again does nothing. Returns true if this finishes a
+     * partition marked as removed. Fails with IllegalArgumentException if the tick is less than
+     * the tick of the partition. Only the thread that moves the tick of the node calls it.
+     */
+    boolean setTick(long tick) {
+        SnapshotCatalog3 current = catalog;
+        if (tick < current.tick()) {
+            throw new IllegalArgumentException("Tick " + tick + " is less than the tick " + current.tick());
+        }
+        if (tick == current.tick()) {
+            return false;
+        }
+        StorageSnapshot3 published = pending;
+        pending = null;
+        SnapshotCatalog3 next = current.advance(tick, published);
+        if (published != null) {
+            liveSnapshots.incrementAndGet();
+        }
+        // The publication of the new tick and window.
+        catalog = next;
+        // After the publication, so a new acquisition finds the snapshot either in the
+        // window or out of it, and in that case it chooses again from the new window.
+        int kept = next.size() - (published != null ? 1 : 0);
+        boolean finished = false;
+        for (int i = 0; i < current.size() - kept; i++) {
+            if (current.snapshotAt(i).uses().leaveWindow()) {
+                finished |= snapshotEnded();
+            }
+        }
+        return removeExpired() | finished;
     }
 
     /**
@@ -334,10 +361,13 @@ final class PartitionStorage3 implements SlotView3 {
      */
     boolean markRemoved() {
         removed = true;
-        boolean finished = false;
+        pending = null;
         SnapshotCatalog3 closing = catalog;
-        for (int offset = 0; closing.previous(offset) != null; offset++) {
-            if (closing.previous(offset).uses().leaveWindow()) {
+        catalog = closing.closed();
+        // With no published snapshot there are no acquisitions either: the partition is finished.
+        boolean finished = closing.size() == 0;
+        for (int i = 0; i < closing.size(); i++) {
+            if (closing.snapshotAt(i).uses().leaveWindow()) {
                 finished |= snapshotEnded();
             }
         }
@@ -350,50 +380,45 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     /**
-     * Returns the catalog of the last commit, with the snapshots in the retention
+     * Returns the catalog of the current tick, with the snapshots in the retention
      * window. Unlike the other methods, any thread can call it.
      */
     SnapshotCatalog3 catalog() {
         return catalog;
     }
 
-    /** Returns the snapshot of the last commit. Unlike the other methods, any thread can call it. */
+    /**
+     * Returns the last published snapshot, of the tick before the current one, or null before
+     * the first move of the tick. Unlike the other methods, any thread can call it.
+     */
     StorageSnapshot3 lastSnapshot() {
-        return catalog.lastSnapshot();
+        return catalog.latest();
     }
 
     /**
-     * Returns the number of the last commit, from the published snapshot, so any
-     * thread can call it. It is 0 before the first commit.
+     * Acquires the snapshot of the tick with the default timeout and returns the number of the
+     * acquisition, or NOT_ACQUIRED if the snapshot left the window.
      */
-    long lastCommit() {
-        return catalog.lastSnapshot().commit();
+    long acquire(StorageSnapshot3 snapshot, long tick) {
+        return acquire(snapshot, tick, AcquireOptions.defaultTimeout());
     }
 
     /**
-     * Acquires the snapshot with the default timeout and returns the number of the acquisition,
-     * or NOT_ACQUIRED if the snapshot left the window.
-     */
-    long acquire(StorageSnapshot3 snapshot) {
-        return acquire(snapshot, AcquireOptions.defaultTimeout());
-    }
-
-    /**
-     * Acquires the snapshot with the given options and returns the number of the
-     * acquisition. The caller chooses the snapshot from a {@linkplain #catalog() catalog}.
+     * Acquires the snapshot of the tick with the given options and returns the number of the
+     * acquisition. The caller chooses the snapshot of the tick from a {@linkplain #catalog() catalog}.
      * Returns NOT_ACQUIRED, and uses no number, if a commit made the snapshot leave the
      * window after the choice: the caller chooses again from the new catalog, or fails if
      * the partition is {@linkplain #isRemoved() removed}. It also
      * removes the expired acquisitions. Any thread can call it.
      */
-    long acquire(StorageSnapshot3 snapshot, AcquireOptions options) {
+    long acquire(StorageSnapshot3 snapshot, long tick, AcquireOptions options) {
         // Checking the window and adding the use is a single step, so a snapshot that
         // left the window is never acquired again.
         if (!snapshot.uses().addUseIfInWindow()) {
             return NOT_ACQUIRED;
         }
         long acquisitionId = lastAcquisitionId.incrementAndGet();
-        acquisitions.put(acquisitionId, AcquisitionEntry3.of(snapshot, options, clock.nanoTime()));
+        acquisitions.put(acquisitionId, AcquisitionEntry3.of(snapshot, tick, options, clock.nanoTime()));
         // The new acquisition keeps its snapshot, so this cannot finish the partition.
         removeExpired();
         return acquisitionId;
@@ -405,14 +430,19 @@ final class PartitionStorage3 implements SlotView3 {
      * Checking the acquisition and taking the snapshot is a single step: the query can end
      * also if the acquisition is released or expires in the meantime. Fails with
      * IllegalStateException if the acquisition was released or is expired, and with
-     * IllegalArgumentException if this storage never made it. Any thread can call it.
+     * IllegalArgumentException if this storage never made it or if its tick is not the given
+     * tick. Any thread can call it.
      */
-    StorageSnapshot3 admit(long acquisitionId) {
+    StorageSnapshot3 admit(long acquisitionId, long tick) {
         // A single read of the entry: a removal at the same time cannot make the
         // check and the snapshot disagree.
         AcquisitionEntry3 entry = acquisitions.get(acquisitionId);
         if (entry == null || entry.isExpired(clock.nanoTime())) {
             throw missingAcquisition(acquisitionId);
+        }
+        if (entry.tick() != tick) {
+            throw new IllegalArgumentException("Acquisition " + acquisitionId + " is of tick " + entry.tick()
+                    + ", not " + tick);
         }
         // A release at the same time can end the snapshot after the read of the entry:
         // then the query fails, as after the release.
@@ -450,7 +480,7 @@ final class PartitionStorage3 implements SlotView3 {
 
     /**
      * Returns the number of acquisitions not yet released or removed after the timeout:
-     * an expired acquisition counts until the next acquisition, release or commit.
+     * an expired acquisition counts until the next acquisition, release, commit or move of the tick.
      * Any thread can call it.
      */
     int acquisitionCount() {
@@ -458,8 +488,8 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     /**
-     * Returns the number of snapshots that did not end yet: the snapshots in the window
-     * and the ones out of it that still have uses. Any thread can call it.
+     * Returns the number of published snapshots that did not end yet: the snapshots in the
+     * window and the ones out of it that still have uses. Any thread can call it.
      */
     int liveSnapshotCount() {
         return liveSnapshots.get();
@@ -479,7 +509,7 @@ final class PartitionStorage3 implements SlotView3 {
     private SlotSnapshot3 slotSnapshot() {
         double[] coordsCopy = Arrays.copyOf(coords, size * DIMENSIONS);
         if (!idsChanged) {
-            SlotSnapshot3 last = catalog.lastSnapshot().slots();
+            SlotSnapshot3 last = lastCommitted.slots();
             return new SlotSnapshot3(last.slotEntityIds, coordsCopy, last.slotById);
         }
         return new SlotSnapshot3(Arrays.copyOf(slotEntityIds, size), coordsCopy, slotById.copy());

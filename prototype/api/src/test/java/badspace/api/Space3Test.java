@@ -15,6 +15,7 @@ import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
 import badspace.common.partition.RetentionWindow;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.geometry.Sphere3;
@@ -32,19 +33,24 @@ import org.junit.jupiter.api.Test;
 
 class Space3Test {
 
-    /** A snapshot of {@link MapNode}: only the commit and the size, the reads are not needed. */
-    private record MapSnapshot(long commit, int size) {
+    /** A snapshot of {@link MapNode}: only the tick and the size, the reads are not needed. */
+    private record MapSnapshot(long tick, int size) {
     }
 
     /**
      * A simple node that keeps the entities of each partition in a map. It does not check the input,
-     * except that a removed partition must be empty.
+     * except that a removed partition must be empty. It keeps only the latest snapshot of each
+     * partition.
      */
     private static final class MapNode implements PartitionNode3 {
         final Map<PartitionId, Map<Long, Point3>> partitions = new HashMap<>();
         final Map<PartitionId, IndexConfig> indices = new HashMap<>();
-        final Map<PartitionId, Integer> retainedPastSnapshots = new HashMap<>();
-        final Map<PartitionId, Long> commits = new HashMap<>();
+        final Map<PartitionId, Integer> retainedTicks = new HashMap<>();
+        /** The number of commits of each partition. */
+        final Map<PartitionId, Integer> commits = new HashMap<>();
+        /** The size at the last commit of each partition in the current tick. */
+        final Map<PartitionId, Integer> pending = new HashMap<>();
+        /** The latest snapshot of each partition, of the tick before the current one. */
         final Map<PartitionId, MapSnapshot> snapshots = new HashMap<>();
         /** The acquisitions not yet released, by number. */
         final Map<Long, MapSnapshot> acquired = new HashMap<>();
@@ -58,16 +64,24 @@ class Space3Test {
         int calls;
 
         @Override
-        public void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastSnapshots) {
+        public void createPartition(PartitionId partitionId, IndexConfig index, int retainedTicks) {
             partitions.put(partitionId, new HashMap<>());
             indices.put(partitionId, index);
-            this.retainedPastSnapshots.put(partitionId, retainedPastSnapshots);
+            this.retainedTicks.put(partitionId, retainedTicks);
+            pending.put(partitionId, 0);
             creationTicks.put(partitionId, tick);
         }
 
         @Override
         public void setTick(long tick) {
             setTicks.add(tick);
+            if (tick > this.tick) {
+                for (PartitionId partitionId : partitions.keySet()) {
+                    Integer size = pending.remove(partitionId);
+                    int published = size != null ? size : snapshots.get(partitionId).size();
+                    snapshots.put(partitionId, new MapSnapshot(tick - 1, published));
+                }
+            }
             this.tick = tick;
         }
 
@@ -159,42 +173,29 @@ class Space3Test {
         }
 
         @Override
-        public void commit(PartitionId partitionId, long commit) {
+        public void commit(PartitionId partitionId) {
             calls++;
-            commits.put(partitionId, commit);
-            snapshots.put(partitionId, new MapSnapshot(commit, partitions.get(partitionId).size()));
+            commits.merge(partitionId, 1, Integer::sum);
+            pending.put(partitionId, partitions.get(partitionId).size());
         }
 
-        /** Acquires the last snapshot: the map node keeps only that one. */
+        /** Acquires the snapshot of the tick: the map node keeps only the latest one. */
         @Override
-        public Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options) {
+        public Acquisition acquire(PartitionId partitionId, long tick, AcquireOptions options) {
             calls++;
             lastOptions = options;
-            MapSnapshot snapshot = snapshots.computeIfAbsent(partitionId, p -> new MapSnapshot(0, 0));
-            acquired.put(++lastAcquisitionId, snapshot);
-            return new Acquisition(partitionId, lastAcquisitionId, snapshot.commit());
-        }
-
-        @Override
-        public Acquisition acquirePrevious(PartitionId partitionId, int offset, AcquireOptions options) {
-            return acquireLatestIf(partitionId, offset == 0, options);
-        }
-
-        @Override
-        public Acquisition acquireAtOrBefore(PartitionId partitionId, long tick, AcquireOptions options) {
-            return acquireLatestIf(partitionId, lastCommit(partitionId) <= tick, options);
-        }
-
-        @Override
-        public Acquisition acquireExact(PartitionId partitionId, long commit, AcquireOptions options) {
-            return acquireLatestIf(partitionId, lastCommit(partitionId) == commit, options);
-        }
-
-        private Acquisition acquireLatestIf(PartitionId partitionId, boolean available, AcquireOptions options) {
-            if (!available) {
-                throw new SnapshotNotAvailableException("Only the last snapshot");
+            MapSnapshot snapshot = snapshots.get(partitionId);
+            if (snapshot == null || snapshot.tick() != tick) {
+                Reason reason = tick >= this.tick ? Reason.NOT_YET_PUBLISHED : Reason.OUT_OF_RETENTION;
+                throw new SnapshotNotAvailableException(reason, "Only the latest snapshot");
             }
-            return acquireLatest(partitionId, options);
+            acquired.put(++lastAcquisitionId, snapshot);
+            return new Acquisition(partitionId, lastAcquisitionId, tick);
+        }
+
+        @Override
+        public Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options) {
+            return acquire(partitionId, tick - 1, options);
         }
 
         @Override
@@ -230,12 +231,6 @@ class Space3Test {
                 throw new IllegalStateException("Acquisition was released");
             }
             return snapshot;
-        }
-
-        @Override
-        public long lastCommit(PartitionId partitionId) {
-            calls++;
-            return commits.getOrDefault(partitionId, 0L);
         }
 
         @Override
@@ -369,23 +364,25 @@ class Space3Test {
         MapNode node = new MapNode();
         Partition3 p = newSpace().createPartition(node);
         assertEquals(new PartitionConfig(IndexConfig.linearScan(), RemovalPolicy.REQUIRE_EMPTY,
-                RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS), p.config());
+                RetentionWindow.DEFAULT_RETAINED_TICKS), p.config());
+        assertEquals(1, p.config().retainedTicks());
         assertEquals(IndexConfig.linearScan(), node.indices.values().iterator().next());
-        assertEquals(RetentionWindow.DEFAULT_RETAINED_PAST_SNAPSHOTS, node.retainedPastSnapshots.values().iterator().next());
+        assertEquals(RetentionWindow.DEFAULT_RETAINED_TICKS, node.retainedTicks.values().iterator().next());
     }
 
     @Test
-    void chosenRetainedPastSnapshotsGoToTheNode() {
+    void chosenRetainedTicksGoToTheNode() {
         MapNode node = new MapNode();
-        Partition3 p = newSpace().createPartition(node, PartitionConfig.defaults().withRetainedPastSnapshots(2));
-        assertEquals(2, p.config().retainedPastSnapshots());
+        Partition3 p = newSpace().createPartition(node, PartitionConfig.defaults().withRetainedTicks(3));
+        assertEquals(3, p.config().retainedTicks());
         assertEquals(IndexConfig.linearScan(), p.config().index());
-        assertEquals(2, node.retainedPastSnapshots.values().iterator().next());
+        assertEquals(3, node.retainedTicks.values().iterator().next());
     }
 
     @Test
-    void configRejectsNegativeRetainedPastSnapshots() {
-        assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedPastSnapshots(-1));
+    void configRejectsRetainedTicksLessThanOne() {
+        assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedTicks(0));
+        assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedTicks(-1));
     }
 
     @Test
@@ -401,7 +398,7 @@ class Space3Test {
 
     @Test
     void configRejectsNull() {
-        assertThrows(NullPointerException.class, () -> new PartitionConfig(null, RemovalPolicy.REQUIRE_EMPTY, 0));
+        assertThrows(NullPointerException.class, () -> new PartitionConfig(null, RemovalPolicy.REQUIRE_EMPTY, 1));
         assertThrows(NullPointerException.class, () -> PartitionConfig.defaults().withRemovalPolicy(null));
         assertThrows(NullPointerException.class, () -> newSpace().createPartition(new MapNode(), null));
     }
@@ -441,14 +438,11 @@ class Space3Test {
         assertThrows(IllegalStateException.class, () -> p.update(1, new Point3(1, 1, 1)));
         assertThrows(IllegalStateException.class, () -> p.remove(1));
         assertThrows(IllegalStateException.class, p::size);
-        assertThrows(IllegalStateException.class, () -> p.commit(1));
-        assertThrows(IllegalStateException.class, p::lastCommit);
+        assertThrows(IllegalStateException.class, p::commit);
         assertThrows(IllegalStateException.class, p::tick);
         assertThrows(IllegalStateException.class, p::creationTick);
         assertThrows(IllegalStateException.class, p::acquireLatest);
-        assertThrows(IllegalStateException.class, () -> p.acquirePrevious(0));
-        assertThrows(IllegalStateException.class, () -> p.acquireAtOrBefore(0));
-        assertThrows(IllegalStateException.class, () -> p.acquireExact(0));
+        assertThrows(IllegalStateException.class, () -> p.acquire(0));
         assertThrows(IllegalStateException.class, () -> p.findInRegion(new Sphere3(new Point3(0, 0, 0), 1)));
         assertThrows(IllegalStateException.class, () -> p.findNearest(new Point3(0, 0, 0), 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(p));
@@ -466,20 +460,24 @@ class Space3Test {
 
     @Test
     void acquiredSnapshotReadsThroughTheNode() {
+        Space3 space = newSpace();
         MapNode node = new MapNode();
-        Partition3 p = newSpace().createPartition(node);
+        Partition3 p = space.createPartition(node);
         p.insert(1, 1, 1);
-        p.commit(3);
+        p.commit();
+        space.setTick(1);
         AcquiredSnapshot3 snapshot = p.acquireLatest();
-        assertEquals(3, snapshot.commit());
+        assertEquals(0, snapshot.tick());
         assertEquals(1, snapshot.size());
         assertEquals(1, node.acquired.size());
     }
 
     @Test
     void closeReleasesTheAcquisitionAndCanBeCalledAgain() {
+        Space3 space = newSpace();
         MapNode node = new MapNode();
-        Partition3 p = newSpace().createPartition(node);
+        Partition3 p = space.createPartition(node);
+        space.setTick(1);
         AcquiredSnapshot3 snapshot;
         try (AcquiredSnapshot3 v = p.acquireLatest()) {
             snapshot = v;
@@ -488,48 +486,49 @@ class Space3Test {
         assertEquals(0, node.acquired.size());
         snapshot.close();
         assertThrows(IllegalStateException.class, snapshot::size);
-        assertEquals(0, snapshot.commit());
+        assertEquals(0, snapshot.tick());
     }
 
     @Test
     void selectionsGoToTheNodeOfThePartition() {
+        Space3 space = newSpace();
         MapNode node = new MapNode();
-        Partition3 p = newSpace().createPartition(node);
-        p.commit(3);
-        assertEquals(3, p.acquirePrevious(0).commit());
-        assertEquals(3, p.acquireAtOrBefore(5).commit());
-        assertEquals(3, p.acquireExact(3).commit());
-        assertThrows(SnapshotNotAvailableException.class, () -> p.acquireExact(2));
-        assertEquals(3, node.acquired.size());
+        Partition3 p = space.createPartition(node);
+        p.commit();
+        space.setTick(4);
+        assertEquals(3, p.acquire(3).tick());
+        assertEquals(3, p.acquireLatest().tick());
+        SnapshotNotAvailableException old = assertThrows(SnapshotNotAvailableException.class, () -> p.acquire(2));
+        assertEquals(Reason.OUT_OF_RETENTION, old.reason());
+        SnapshotNotAvailableException future = assertThrows(SnapshotNotAvailableException.class, () -> p.acquire(4));
+        assertEquals(Reason.NOT_YET_PUBLISHED, future.reason());
+        assertEquals(2, node.acquired.size());
     }
 
     @Test
     void acquisitionsWithoutOptionsHaveTheDefaultTimeout() {
+        Space3 space = newSpace();
         MapNode node = new MapNode();
-        Partition3 p = newSpace().createPartition(node);
+        Partition3 p = space.createPartition(node);
+        space.setTick(1);
         p.acquireLatest();
         assertEquals(AcquireOptions.defaultTimeout(), node.lastOptions);
-        p.acquirePrevious(0);
-        assertEquals(AcquireOptions.defaultTimeout(), node.lastOptions);
-        p.acquireAtOrBefore(0);
-        assertEquals(AcquireOptions.defaultTimeout(), node.lastOptions);
-        p.acquireExact(0);
+        node.lastOptions = null;
+        p.acquire(0);
         assertEquals(AcquireOptions.defaultTimeout(), node.lastOptions);
     }
 
     @Test
     void acquisitionOptionsGoToTheNode() {
+        Space3 space = newSpace();
         MapNode node = new MapNode();
-        Partition3 p = newSpace().createPartition(node);
+        Partition3 p = space.createPartition(node);
+        space.setTick(1);
         AcquireOptions options = AcquireOptions.timeout(Duration.ofSeconds(5));
         p.acquireLatest(options);
         assertEquals(options, node.lastOptions);
         AcquireOptions other = AcquireOptions.timeout(Duration.ofSeconds(6));
-        p.acquirePrevious(0, other);
-        assertEquals(other, node.lastOptions);
-        p.acquireAtOrBefore(0, options);
-        assertEquals(options, node.lastOptions);
-        p.acquireExact(0, other);
+        p.acquire(0, other);
         assertEquals(other, node.lastOptions);
     }
 
@@ -537,10 +536,9 @@ class Space3Test {
     void commitGoesToTheNodeOfThePartition() {
         MapNode node = new MapNode();
         Partition3 p = newSpace().createPartition(node);
-        assertEquals(0, p.lastCommit());
-        p.commit(3);
-        assertEquals(3, p.lastCommit());
-        assertEquals(List.of(3L), List.copyOf(node.commits.values()));
+        p.commit();
+        p.commit();
+        assertEquals(List.of(2), List.copyOf(node.commits.values()));
     }
 
     @Test

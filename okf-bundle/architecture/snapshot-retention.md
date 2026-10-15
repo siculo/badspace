@@ -249,27 +249,40 @@ tollerare per un momento tick diversi.
 
 # Nel prototipo
 
-**Il codice segue ancora la semantica precedente**, descritta in questa
-sezione: commit numerati dal software con `commit(n)`, snapshot
-acquisibile alla fine del commit, finestra degli ultimi k + 1 snapshot
-pubblicati (k ≥ 0, default 0, `retainedPastSnapshots`), quattro
-selezioni (ultimo, precedente, al tick o prima, esatto) e rimozione in
-due fasi con un segno immediato che chiude la finestra. La semantica in
-tick arriva con i passi del TODO del prototipo; allora questa sezione
-si riscrive. Le parti su acquisizioni, scadenza, utilizzi e fine degli
-snapshot restano valide.
+Commit, finestra in tick e acquisizioni seguono la semantica di questa
+pagina. La rimozione della partizione segue ancora la semantica
+precedente, in **due fasi** con un segno immediato che chiude la
+finestra (descritta sotto); quella con gli stati arriva con il passo
+del TODO del prototipo. Il writer e il thread che fa avanzare il tick
+non devono ancora lavorare insieme sulla stessa partizione: il lock
+arriva con il passo successivo del TODO.
 
 Ogni partizione ha un **catalogo degli snapshot** nel service: un
-oggetto immutabile con gli snapshot della finestra, dal più vecchio
-all'ultimo, snapshot vuoto del commit 0 compreso finché non esce dalla
-finestra. Il catalogo tiene gli stessi snapshot che lo storage pubblica,
-senza copie di slot o indici. A ogni commit il writer crea un catalogo
-nuovo con il nuovo snapshot, che fa uscire il più vecchio se la
-finestra è piena, e lo pubblica con una sola scrittura: un reader vede
-sempre l'ultimo snapshot e la finestra dello stesso commit.
+oggetto immutabile con il tick della partizione, il tick di creazione,
+k (`retainedTicks`) e gli snapshot pubblicati della finestra, ognuno
+con il primo tick per cui vale (due array paralleli). Lo snapshot di un
+tick è quello con il primo tick più grande non maggiore del tick
+chiesto, quindi i tick senza commit condividono lo snapshot precedente
+senza copie. Il catalogo tiene gli stessi snapshot dello storage, senza
+copie di slot o indici.
 
-Le quattro selezioni scelgono lo snapshot da un solo catalogo
-pubblicato, quindi sono atomiche rispetto al commit. Le acquisizioni le
+`commit()` prepara lo snapshot e lo tiene come **snapshot in attesa**,
+che un secondo commit nello stesso tick sostituisce; ogni commit ha un
+numero nella sequenza dei commit, che va a `commit(n)` degli indici.
+Una partizione nuova ha come snapshot in attesa quello vuoto, come se
+avesse un commit al tick di creazione. `setTick(t)` crea un catalogo
+nuovo: aggiunge lo snapshot in attesa, se c'è, valido dal tick che si
+chiude, porta il tick a t e lascia fuori gli snapshot i cui tick sono
+tutti prima della finestra; poi lo pubblica con una sola scrittura, e
+un reader vede sempre il tick e la finestra insieme. Lo snapshot in
+attesa e la base dello snapshot successivo (l'ultimo commit) sono campi
+del writer.
+
+Le due selezioni (`acquire(tick)` e `acquireLatest`, cioè `S(T − 1)`)
+leggono tick e snapshot da un solo catalogo pubblicato, quindi sono
+atomiche rispetto all'avanzamento del tick. Se il tick non è nella
+finestra, `SnapshotNotAvailableException` dice il motivo:
+`NOT_YET_PUBLISHED`, `OUT_OF_RETENTION` o `BEFORE_CREATION`. Le acquisizioni le
 tiene lo storage della partizione in una mappa concorrente dal numero
 dell'acquisizione allo snapshot: uno snapshot uscito dalla finestra
 resta raggiungibile da lì finché ha acquisizioni, e il rilascio toglie
@@ -284,33 +297,40 @@ stato "finito" è un valore a parte, da cui non si torna. Ogni
 cambiamento è un `compareAndSet`, e solo la chiamata che porta lo
 snapshot fuori dalla finestra e senza utilizzi lo fa finire.
 L'acquisizione aggiunge un utilizzo solo se lo snapshot è ancora nella
-finestra, prima di prendere un numero: se un commit l'ha fatto uscire
-dopo la scelta, il nodo sceglie di nuovo dal catalogo nuovo, per tutte
-e quattro le selezioni. L'ammissione aggiunge un utilizzo solo se lo
-snapshot non è finito, e il nodo lo toglie alla fine della query in un
-`finally`, anche quando la query fallisce o l'identificatore ha il
-commit sbagliato. Il commit fa uscire lo snapshot più vecchio dopo aver
-pubblicato il catalogo nuovo; rilascio e scadenza tolgono la voce dalla
+finestra, prima di prendere un numero: se un avanzamento del tick l'ha
+fatto uscire dopo la scelta, il nodo sceglie di nuovo dal catalogo
+nuovo. L'ammissione controlla che il tick dell'identificatore sia
+quello acquisito e aggiunge un utilizzo solo se lo snapshot non è
+finito, e il nodo lo toglie alla fine della query in un `finally`,
+anche quando la query fallisce. L'avanzamento del tick fa uscire gli
+snapshot dopo aver pubblicato il catalogo nuovo, e conta come non finiti
+solo gli snapshot pubblicati; rilascio e scadenza tolgono la voce dalla
 mappa con un'operazione che riesce a un solo thread, e solo quel thread
 toglie l'utilizzo. Lo storage conta gli snapshot non finiti: il punto
 in cui uno snapshot finisce è un solo metodo, che decrementa quel
 conteggio.
 
 I test di concorrenza fermano una query a metà con un cancello
-nell'indice, senza sleep: un commit durante la query non cambia il suo
-risultato e il writer non aspetta la query; un rilascio durante la
-query, anche con lo snapshot uscito dalla finestra, la lascia finire
-con un risultato valido. Con più reader che acquisiscono l'ultimo
-snapshot o quello prima mentre il writer fa commit, ogni snapshot letto
-ha slot e indice dello stesso commit, e quelli tenuti restano leggibili
-dopo l'uscita dalla finestra.
+nell'indice, senza sleep: commit e avanzamenti del tick durante la
+query non cambiano il suo risultato e il writer non aspetta la query;
+un rilascio durante la query, anche con lo snapshot uscito dalla
+finestra, la lascia finire con un risultato valido. Con più reader che
+acquisiscono l'ultimo snapshot o quello del tick prima mentre il writer
+fa commit e fa avanzare il tick, ogni snapshot letto ha slot e indice
+dello stesso commit, e quelli tenuti restano leggibili dopo l'uscita
+dalla finestra. Altri test verificano gli esempi di questa pagina
+(T = 110 con k = 5, il salto da 102 a 105), lo snapshot del tick
+corrente mai acquisibile, niente da acquisire prima del primo
+avanzamento, due commit nello stesso tick, le scritture non confermate
+che passano al tick dopo e il motivo di ogni acquisizione fallita.
 
 Ogni voce della mappa è un'acquisizione con il suo snapshot, il momento
 dell'acquisizione e la durata della scadenza, ed è lei a dire se è
 scaduta, con la differenza tra due letture del clock, che non va in
 overflow. L'ammissione legge la voce una sola volta e rifiuta anche una
-voce scaduta ma non ancora eliminata. A ogni acquisizione, rilascio e
-commit lo storage scorre la mappa e toglie le voci scadute; una lettura
+voce scaduta ma non ancora eliminata. A ogni acquisizione, rilascio,
+commit e avanzamento del tick lo storage scorre la mappa e toglie le
+voci scadute; una lettura
 non è un evento della partizione e non toglie niente. Il clock
 monotono è un'interfaccia del service, `System.nanoTime()` di default,
 che i test sostituiscono con un clock che avanza solo quando lo dicono:
@@ -320,33 +340,41 @@ toglie la voce nel frattempo), rilascio dopo la scadenza, nuova
 acquisizione distinta, scadenza di default e scadenza massima che
 scadono anche loro.
 
-I test della fine degli snapshot la verificano a ogni evento: commit
-senza utilizzi, rilascio dell'ultima acquisizione, scadenza trovata da
-un commit, fine dell'ultima query; uno snapshot nella finestra non
+I test della fine degli snapshot la verificano a ogni evento:
+avanzamento del tick senza utilizzi (anche per uno snapshot valido per
+più tick, che finisce quando esce il suo ultimo tick), rilascio
+dell'ultima acquisizione, scadenza trovata da un commit, fine
+dell'ultima query; uno snapshot nella finestra non
 finisce al rilascio, una query tiene vivo uno snapshot rilasciato e
 fuori dalla finestra, uno snapshot uscito dalla finestra non si
 acquisisce più, e le query del nodo tolgono il loro utilizzo anche
 quando falliscono. Un test di concorrenza fa correre acquisizioni e
-commit, e ammissioni e rilasci della stessa acquisizione: alla fine
+avanzamenti del tick, e ammissioni e rilasci della stessa acquisizione: alla fine
 restano solo gli snapshot della finestra, quindi ogni altro è finito una
 e una sola volta.
 
 La rimozione in due fasi la fanno insieme storage e nodo. Il segno è
 un campo volatile dello storage, scritto dal writer prima di chiudere
-la finestra: chiuderla fa uscire tutti gli snapshot del catalogo, e
-quelli senza utilizzi finiscono subito. Un'acquisizione che trova lo
-snapshot fuori dalla finestra dopo il segno vede anche il segno, e
-fallisce invece di scegliere di nuovo. Prima del segno la finestra ha
-sempre uno snapshot non finito, quindi il conteggio degli snapshot non
-finiti arriva a zero solo dopo il segno, una sola volta. Lo storage non
+la finestra: chiuderla pubblica un catalogo senza snapshot, con lo
+stesso tick, scarta lo snapshot in attesa e fa uscire tutti gli
+snapshot del catalogo, e quelli senza utilizzi finiscono subito.
+Un'acquisizione che trova lo snapshot fuori dalla finestra, o nessuno
+snapshot, dopo il segno vede anche il segno, e fallisce con
+`IllegalStateException`. Uno snapshot finisce solo dopo essere stato
+pubblicato, e dal primo avanzamento fino al segno l'ultimo snapshot è
+sempre nella finestra (k ≥ 1), quindi il conteggio degli snapshot non
+finiti arriva a zero solo dopo il segno, una sola volta; una partizione
+che non ha mai pubblicato niente è finita già al segno. La partizione
+segnata riceve ancora gli avanzamenti del tick, che non pubblicano
+niente ma cercano le acquisizioni scadute. Lo storage non
 conosce il nodo: segno, rilascio, fine di una query ed eliminazione
 delle scadute restituiscono vero quando la partizione è finita, e il
 thread che lo riceve la toglie dal nodo.
 
 Il nodo tiene la partizione segnata nella stessa mappa, con il suo ID,
 e in una seconda mappa delle partizioni segnate. A ogni suo evento
-(creazione, rimozione, commit, acquisizione, rilascio) scorre la
-seconda mappa e toglie le acquisizioni scadute. Le letture e il
+(creazione, rimozione, commit, acquisizione, rilascio, avanzamento del
+tick) scorre la seconda mappa e toglie le acquisizioni scadute. Le letture e il
 rilascio trovano la partizione per ID anche dopo il segno; dopo la
 rimozione effettiva l'ID è sconosciuto, e il nodo tratta
 l'acquisizione come rilasciata: la lettura fallisce con
@@ -362,12 +390,15 @@ non la fanno mai finire) e il nodo: dopo il segno scritture, commit e
 nuove acquisizioni falliscono e le acquisizioni già fatte restano
 leggibili; la rimozione effettiva avviene subito senza acquisizioni, al
 rilascio dell'ultima e alla scadenza trovata da un evento di un'altra
-partizione (un reader che muore senza rilasciare); l'ID della
+partizione o da un avanzamento del tick (un reader che muore senza
+rilasciare); l'ID della
 partizione segnata è rifiutato da `createPartition`; dopo la rimozione
 il rilascio non fa niente. Un test di concorrenza fa correre
 acquisizioni e letture con i commit e la rimozione: ogni lettura vede
 un commit intero, e al rilascio dell'ultima acquisizione il nodo non ha
-più la partizione. Nell'API, due spazi con gli stessi generatori danno
+più la partizione. Il client `SampleRandomUpdater` fa un commit e un
+avanzamento del tick a ogni tick, e il reader mostra l'ultimo
+snapshot. Nell'API, due spazi con gli stessi generatori danno
 ID di partizione diversi.
 
 # Punti aperti

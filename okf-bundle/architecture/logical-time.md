@@ -104,11 +104,11 @@ La scelta è ribaltata per quattro motivi:
 
 # Nel prototipo
 
-Il tick c'è, ma il resto della partizione non lo usa ancora: commit,
-pubblicazione e acquisizioni seguono la semantica precedente, con
-`commit(n)` e il numero scelto dal software (vedi [commit della
-partizione](/architecture/partition-commit.md#nel-prototipo)), fino ai
-passi successivi del TODO del prototipo.
+Il tick regola commit, pubblicazione e acquisizioni (vedi [conservazione
+degli snapshot](/architecture/snapshot-retention.md#nel-prototipo)). La
+rimozione segue ancora la semantica precedente, e manca il lock per
+partizione: per ora il writer e il thread che fa avanzare il tick non
+devono lavorare insieme sulla stessa partizione.
 
 - **Contratto del nodo** (`PartitionNode2`/`PartitionNode3`):
   `setTick(long)`, `tick()`, `tick(PartitionId)` e
@@ -120,8 +120,10 @@ passi successivi del TODO del prototipo.
   prima, e allora avanza anche lei, o dopo, al tick nuovo. `setTick`
   avanza anche le partizioni segnate come rimosse, ed è un evento del
   nodo: dopo cerca le acquisizioni scadute delle partizioni segnate.
-- **Storage**: `creationTick` fisso e `tick` `volatile`, avanzato solo
-  dal thread che fa avanzare il nodo; un tick minore è rifiutato.
+- **Storage**: tick e tick di creazione stanno nel catalogo degli
+  snapshot, pubblicato a ogni avanzamento; `setTick` dello storage
+  pubblica lo snapshot in attesa e restituisce vero se finisce una
+  partizione segnata, e il nodo allora la toglie.
 - **API**: `Space.setTick(long)` e `tick()`; lo spazio tiene in un
   insieme per identità i nodi su cui ha creato partizioni, e su un nodo
   nuovo chiama `setTick` con il suo tick prima della creazione. Un

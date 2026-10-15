@@ -9,32 +9,36 @@ import java.util.List;
 
 /**
  * A 2D partition at a commit: the slots and the index of the same commit. The
- * storage makes a snapshot at each commit and publishes it to the readers.
+ * storage makes a snapshot at each commit, and the next move of the tick publishes
+ * it to the readers as the snapshot of the tick of the commit, and of the following
+ * ticks without a commit.
  * Its data never change, so many threads can read it at the same time while the
  * writer goes on. The readers outside the node reach it only through an
  * acquisition. Its {@linkplain #uses() uses} tell when the snapshot ends.
  */
 final class StorageSnapshot2 {
 
-    private final long commit;
+    // The number of the commit in the sequence of the commits of the partition: it is
+    // only for the copy-on-write of the index, and never leaves the node.
+    private final long commitSequence;
     private final SlotSnapshot2 slots;
     private final IndexSnapshot2 index;
     private final SnapshotUses uses = new SnapshotUses();
 
-    StorageSnapshot2(long commit, SlotSnapshot2 slots, IndexSnapshot2 index) {
-        this.commit = commit;
+    StorageSnapshot2(long commitSequence, SlotSnapshot2 slots, IndexSnapshot2 index) {
+        this.commitSequence = commitSequence;
         this.slots = slots;
         this.index = index;
     }
 
-    /** Returns the empty snapshot at commit 0, before the first commit. */
+    /** Returns the empty snapshot of a new partition, at commit sequence 0, before the first commit. */
     static StorageSnapshot2 empty() {
         SlotSnapshot2 slots = new SlotSnapshot2(new long[0], new double[0], new SlotTable());
         return new StorageSnapshot2(0, slots, IndexSnapshot2.empty());
     }
 
-    long commit() {
-        return commit;
+    long commitSequence() {
+        return commitSequence;
     }
 
     SlotSnapshot2 slots() {

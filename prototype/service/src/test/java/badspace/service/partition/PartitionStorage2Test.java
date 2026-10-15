@@ -45,9 +45,9 @@ class PartitionStorage2Test {
     private static final Point2 LIMITS_MAX = new Point2(10, 10);
     private static final long[] ALL_IDS = {10, 20, 30, 40};
     private static final int READERS = 3;
-    private static final int COMMITS = 3000;
+    private static final int TICKS = 3000;
     /** k of the partitions in the tests with concurrent readers. */
-    private static final int RETAINED_PAST_SNAPSHOTS = 2;
+    private static final int RETAINED_TICKS = 3;
 
     private RecordingIndex index;
     private PartitionStorage2 storage;
@@ -142,9 +142,18 @@ class PartitionStorage2Test {
     }
 
     @Test
-    void storageKeepsTheNumberOfRetainedPastSnapshots() {
-        assertEquals(0, new PartitionStorage2(IndexConfig.linearScan()).retainedPastSnapshots());
-        assertEquals(2, new PartitionStorage2(IndexConfig.linearScan(), 2).retainedPastSnapshots());
+    void storageKeepsTheNumberOfRetainedTicks() {
+        assertEquals(1, new PartitionStorage2(IndexConfig.linearScan()).retainedTicks());
+        assertEquals(3, new PartitionStorage2(IndexConfig.linearScan(), 3).retainedTicks());
+        assertThrows(IllegalArgumentException.class, () -> new PartitionStorage2(IndexConfig.linearScan(), 0));
+    }
+
+    @Test
+    void storageIsCreatedAtTheGivenTick() {
+        PartitionStorage2 created = new PartitionStorage2(IndexConfig.linearScan(), 1, MonotonicClock.SYSTEM, 7);
+        assertEquals(7, created.tick());
+        assertEquals(7, created.creationTick());
+        assertNull(created.lastSnapshot());
     }
 
     @Test
@@ -157,12 +166,22 @@ class PartitionStorage2Test {
     }
 
     @Test
-    void commitGoesToTheIndexOnlyWhenTheNumberIsValid() {
-        storage.commit(3);
-        assertThrows(IllegalArgumentException.class, () -> storage.commit(3));
-        storage.commit(7);
-        assertEquals(List.of("commit 3", "commit 7"), index.calls);
-        assertEquals(7, storage.lastCommit());
+    void commitGoesToTheIndexWithTheNextNumberOfTheSequence() {
+        storage.commit();
+        storage.commit();
+        storage.setTick(1);
+        storage.commit();
+        assertEquals(List.of("commit 1", "commit 2", "commit 3"), index.calls);
+    }
+
+    @Test
+    void setTickRejectsAnEarlierTickAndTheSameTickDoesNothing() {
+        storage.setTick(3);
+        SnapshotCatalog2 catalog = storage.catalog();
+        assertFalse(storage.setTick(3));
+        assertSame(catalog, storage.catalog());
+        assertThrows(IllegalArgumentException.class, () -> storage.setTick(2));
+        assertEquals(3, storage.tick());
     }
 
     @Test
@@ -171,12 +190,12 @@ class PartitionStorage2Test {
                 IndexConfig.linearScan(), IndexConfig.uniformGrid(4), IndexConfig.gridQuadtree(4, 2))) {
             PartitionStorage2 configured = new PartitionStorage2(config);
             configured.insertAll(List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)));
-            StorageSnapshot2 first = configured.commit(1);
+            StorageSnapshot2 first = configured.commit();
             // The removal of 10 moves 30 into its slot.
             configured.updateAll(List.of(new Entity2(30, D)));
             configured.removeAll(new long[] {10});
             configured.insertAll(List.of(new Entity2(40, A)));
-            StorageSnapshot2 second = configured.commit(2);
+            StorageSnapshot2 second = configured.commit();
             configured.removeAll(new long[] {20});
             configured.updateAll(List.of(new Entity2(40, B)));
 
@@ -190,9 +209,9 @@ class PartitionStorage2Test {
     @Test
     void commitWithoutInsertionsOrRemovalsSharesTheIds() {
         storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B)));
-        SlotSnapshot2 first = storage.commit(1).slots();
+        SlotSnapshot2 first = storage.commit().slots();
         storage.updateAll(List.of(new Entity2(20, C)));
-        SlotSnapshot2 moved = storage.commit(2).slots();
+        SlotSnapshot2 moved = storage.commit().slots();
         assertSame(first.slotEntityIds, moved.slotEntityIds);
         assertSame(first.slotById, moved.slotById);
         assertNotSame(first.coords, moved.coords);
@@ -200,11 +219,11 @@ class PartitionStorage2Test {
         assertEquals(C, moved.positionAt(1));
 
         storage.removeAll(new long[] {10});
-        SlotSnapshot2 removed = storage.commit(3).slots();
+        SlotSnapshot2 removed = storage.commit().slots();
         assertNotSame(moved.slotEntityIds, removed.slotEntityIds);
         assertNotSame(moved.slotById, removed.slotById);
         storage.insertAll(List.of(new Entity2(30, D)));
-        SlotSnapshot2 inserted = storage.commit(4).slots();
+        SlotSnapshot2 inserted = storage.commit().slots();
         assertNotSame(removed.slotEntityIds, inserted.slotEntityIds);
         assertNotSame(removed.slotById, inserted.slotById);
         assertEquals(2, moved.size());
@@ -213,43 +232,112 @@ class PartitionStorage2Test {
     }
 
     @Test
+    void newPartitionPublishesTheEmptySnapshotAtTheFirstMoveOfTheTick() {
+        assertNull(storage.lastSnapshot());
+        assertEquals(0, storage.liveSnapshotCount());
+        storage.setTick(1);
+        assertEquals(0, storage.lastSnapshot().size());
+        assertEquals(0, storage.lastSnapshot().commitSequence());
+        assertEquals(1, storage.liveSnapshotCount());
+    }
+
+    @Test
     void catalogHoldsTheSameSnapshotsThatTheCommitsReturn() {
-        PartitionStorage2 configured = new PartitionStorage2(IndexConfig.linearScan(), 1);
-        StorageSnapshot2 empty = configured.lastSnapshot();
-        StorageSnapshot2 first = configured.commit(1);
-        assertSame(first, configured.catalog().previous(0));
-        assertSame(empty, configured.catalog().previous(1));
-        StorageSnapshot2 second = configured.commit(2);
-        assertSame(second, configured.catalog().previous(0));
-        assertSame(first, configured.catalog().previous(1));
+        PartitionStorage2 configured = new PartitionStorage2(IndexConfig.linearScan(), 2);
+        StorageSnapshot2 first = configured.commit();
+        configured.setTick(1);
+        assertSame(first, configured.catalog().at(0));
+        StorageSnapshot2 second = configured.commit();
+        configured.setTick(2);
+        assertSame(first, configured.catalog().at(0));
+        assertSame(second, configured.catalog().at(1));
         assertSame(second, configured.lastSnapshot());
     }
 
     @Test
+    void onlyTheLastCommitOfATickIsPublished() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        storage.commit();
+        storage.insertAll(List.of(new Entity2(20, B)));
+        StorageSnapshot2 last = storage.commit();
+        storage.setTick(1);
+        assertSame(last, storage.lastSnapshot());
+        assertEquals(2, last.size());
+        assertEquals(1, storage.liveSnapshotCount());
+    }
+
+    @Test
+    void writesAfterTheLastCommitGoToTheNextCommit() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        storage.commit();
+        storage.insertAll(List.of(new Entity2(20, B)));
+        storage.setTick(1);
+        assertEquals(List.of(new Entity2(10, A)), storage.lastSnapshot().getAll(ALL_IDS));
+        storage.commit();
+        storage.setTick(2);
+        assertEquals(List.of(new Entity2(10, A), new Entity2(20, B)), storage.lastSnapshot().getAll(ALL_IDS));
+    }
+
+    @Test
+    void readersSeeTheWritesOnlyAfterTheCommitAndTheMoveOfTheTick() {
+        assertNull(storage.lastSnapshot());
+        storage.setTick(1);
+        StorageSnapshot2 empty = storage.lastSnapshot();
+        assertEquals(0, empty.size());
+        assertEquals(List.of(), empty.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX)));
+        assertEquals(List.of(), empty.findNearest(A, 1));
+
+        storage.insertAll(List.of(new Entity2(10, A)));
+        assertEquals(List.of(new Entity2(10, A)), storage.getAll(ALL_IDS));
+        StorageSnapshot2 committed = storage.commit();
+        // Committed, but not published until the tick moves.
+        assertSame(empty, storage.lastSnapshot());
+        storage.setTick(2);
+        assertSame(committed, storage.lastSnapshot());
+        assertEquals(List.of(new Entity2(10, A)), committed.getAll(ALL_IDS));
+
+        // A tick without a commit keeps the snapshot before.
+        storage.updateAll(List.of(new Entity2(10, B)));
+        storage.setTick(3);
+        assertEquals(List.of(new Entity2(10, B)), storage.getAll(ALL_IDS));
+        assertSame(committed, storage.lastSnapshot());
+        assertSame(committed, storage.catalog().at(2));
+    }
+
+    @Test
     void acquisitionKeepsItsSnapshotUntilTheRelease() {
-        StorageSnapshot2 first = storage.commit(1);
-        long acquisitionId = storage.acquire(first);
-        storage.commit(2);
-        assertSame(first, storage.admit(acquisitionId));
+        StorageSnapshot2 first = publish(storage);
+        long acquisitionId = storage.acquire(first, 0);
+        publish(storage);
+        assertSame(first, storage.admit(acquisitionId, 0));
+        storage.endQuery(first);
         storage.release(acquisitionId);
-        assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId));
+        assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId, 0));
         assertEquals(0, storage.acquisitionCount());
     }
 
     @Test
     void eachAcquisitionHasItsOwnNumber() {
-        StorageSnapshot2 snapshot = storage.commit(1);
-        long first = storage.acquire(snapshot);
-        long second = storage.acquire(snapshot);
+        StorageSnapshot2 snapshot = publish(storage);
+        long first = storage.acquire(snapshot, 0);
+        long second = storage.acquire(snapshot, 0);
         assertNotEquals(first, second);
         storage.release(first);
-        assertSame(snapshot, storage.admit(second));
+        assertSame(snapshot, storage.admit(second, 0));
         assertEquals(1, storage.acquisitionCount());
     }
 
     @Test
+    void admitRejectsAnotherTickAndKeepsTheAcquisition() {
+        StorageSnapshot2 snapshot = publish(storage);
+        long acquisitionId = storage.acquire(snapshot, 0);
+        assertThrows(IllegalArgumentException.class, () -> storage.admit(acquisitionId, 1));
+        assertSame(snapshot, storage.admit(acquisitionId, 0));
+    }
+
+    @Test
     void releaseAgainDoesNothing() {
-        long acquisitionId = storage.acquire(storage.lastSnapshot());
+        long acquisitionId = storage.acquire(publish(storage), 0);
         storage.release(acquisitionId);
         storage.release(acquisitionId);
         assertEquals(0, storage.acquisitionCount());
@@ -257,9 +345,9 @@ class PartitionStorage2Test {
 
     @Test
     void acquisitionNeverMadeIsRejected() {
-        long acquisitionId = storage.acquire(storage.lastSnapshot());
+        long acquisitionId = storage.acquire(publish(storage), 0);
         assertThrows(IllegalArgumentException.class, () -> storage.release(acquisitionId + 1));
-        assertThrows(IllegalArgumentException.class, () -> storage.admit(acquisitionId + 1));
+        assertThrows(IllegalArgumentException.class, () -> storage.admit(acquisitionId + 1, 0));
         assertThrows(IllegalArgumentException.class, () -> storage.release(0));
         assertEquals(1, storage.acquisitionCount());
     }
@@ -267,39 +355,46 @@ class PartitionStorage2Test {
     @Test
     void expiredAcquisitionsAreRemovedAtEachEventOfThePartition() {
         FakeClock clock = new FakeClock();
-        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 0, clock);
+        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 1, clock);
         AcquireOptions options = AcquireOptions.timeout(TIMEOUT);
+        timed.setTick(1);
 
         // The commit removes them.
-        timed.acquire(timed.lastSnapshot(), options);
+        timed.acquire(timed.lastSnapshot(), 0, options);
         clock.advance(TIMEOUT);
         assertEquals(1, timed.acquisitionCount());
-        timed.commit(1);
+        timed.commit();
+        assertEquals(0, timed.acquisitionCount());
+
+        // The move of the tick removes them.
+        timed.acquire(timed.lastSnapshot(), 0, options);
+        clock.advance(TIMEOUT);
+        timed.setTick(2);
         assertEquals(0, timed.acquisitionCount());
 
         // An acquisition removes them, and keeps the new one.
-        timed.acquire(timed.lastSnapshot(), options);
+        timed.acquire(timed.lastSnapshot(), 1, options);
         clock.advance(TIMEOUT);
-        long fresh = timed.acquire(timed.lastSnapshot(), options);
+        long fresh = timed.acquire(timed.lastSnapshot(), 1, options);
         assertEquals(1, timed.acquisitionCount());
 
         // The release of another acquisition removes them.
-        long kept = timed.acquire(timed.lastSnapshot());
+        long kept = timed.acquire(timed.lastSnapshot(), 1);
         clock.advance(TIMEOUT);
-        long released = timed.acquire(timed.lastSnapshot());
+        long released = timed.acquire(timed.lastSnapshot(), 1);
         timed.release(released);
         assertEquals(1, timed.acquisitionCount());
-        assertThrows(IllegalStateException.class, () -> timed.admit(fresh));
-        assertSame(timed.lastSnapshot(), timed.admit(kept));
+        assertThrows(IllegalStateException.class, () -> timed.admit(fresh, 1));
+        assertSame(timed.lastSnapshot(), timed.admit(kept, 1));
     }
 
     @Test
     void readOfAnExpiredAcquisitionDoesNotRemoveIt() {
         FakeClock clock = new FakeClock();
-        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 0, clock);
-        long acquisitionId = timed.acquire(timed.lastSnapshot(), AcquireOptions.timeout(TIMEOUT));
+        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 1, clock);
+        long acquisitionId = timed.acquire(publish(timed), 0, AcquireOptions.timeout(TIMEOUT));
         clock.advance(TIMEOUT);
-        assertThrows(IllegalStateException.class, () -> timed.admit(acquisitionId));
+        assertThrows(IllegalStateException.class, () -> timed.admit(acquisitionId, 0));
         // Only the events of the partition remove it: a read is not one of them.
         assertEquals(1, timed.acquisitionCount());
     }
@@ -307,35 +402,49 @@ class PartitionStorage2Test {
     @Test
     void snapshotWithoutUsesEndsWhenItLeavesTheWindow() {
         PartitionStorage2 kept = new PartitionStorage2(IndexConfig.linearScan(), 2);
-        assertEquals(1, kept.liveSnapshotCount());
-        StorageSnapshot2 empty = kept.lastSnapshot();
-        kept.commit(100);
-        kept.commit(103);
-        assertEquals(3, kept.liveSnapshotCount());
+        StorageSnapshot2 empty = publish(kept);
+        publish(kept);
+        assertEquals(2, kept.liveSnapshotCount());
         assertFalse(empty.uses().isEnded());
-        StorageSnapshot2 last = kept.commit(107);
+        StorageSnapshot2 last = publish(kept);
+        // The window has the ticks 1 and 2: the snapshot of tick 0 left it.
         assertTrue(empty.uses().isEnded());
-        assertEquals(3, kept.liveSnapshotCount());
+        assertEquals(2, kept.liveSnapshotCount());
         assertFalse(last.uses().isEnded());
     }
 
     @Test
+    void snapshotOfManyTicksEndsWhenItsLastTickLeavesTheWindow() {
+        PartitionStorage2 kept = new PartitionStorage2(IndexConfig.linearScan(), 2);
+        kept.setTick(1);
+        StorageSnapshot2 empty = kept.lastSnapshot();
+        // Without commits the empty snapshot is valid for the ticks from 0 to 3.
+        kept.setTick(4);
+        kept.commit();
+        kept.setTick(5);
+        assertFalse(empty.uses().isEnded());
+        kept.setTick(6);
+        assertTrue(empty.uses().isEnded());
+        assertEquals(1, kept.liveSnapshotCount());
+    }
+
+    @Test
     void snapshotInTheWindowDoesNotEndAtTheRelease() {
-        StorageSnapshot2 snapshot = storage.commit(1);
-        long acquisitionId = storage.acquire(snapshot);
+        StorageSnapshot2 snapshot = publish(storage);
+        long acquisitionId = storage.acquire(snapshot, 0);
         storage.release(acquisitionId);
         assertFalse(snapshot.uses().isEnded());
-        storage.commit(2);
+        publish(storage);
         assertTrue(snapshot.uses().isEnded());
         assertEquals(1, storage.liveSnapshotCount());
     }
 
     @Test
     void snapshotOutOfTheWindowEndsAtTheReleaseOfTheLastAcquisition() {
-        StorageSnapshot2 snapshot = storage.commit(1);
-        long first = storage.acquire(snapshot);
-        long second = storage.acquire(snapshot);
-        storage.commit(2);
+        StorageSnapshot2 snapshot = publish(storage);
+        long first = storage.acquire(snapshot, 0);
+        long second = storage.acquire(snapshot, 0);
+        publish(storage);
         assertEquals(2, storage.liveSnapshotCount());
         storage.release(first);
         assertFalse(snapshot.uses().isEnded());
@@ -350,13 +459,14 @@ class PartitionStorage2Test {
     @Test
     void snapshotOutOfTheWindowEndsWhenItsLastAcquisitionExpires() {
         FakeClock clock = new FakeClock();
-        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 0, clock);
-        StorageSnapshot2 snapshot = timed.commit(1);
-        long acquisitionId = timed.acquire(snapshot, AcquireOptions.timeout(TIMEOUT));
+        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 1, clock);
+        StorageSnapshot2 snapshot = publish(timed);
+        long acquisitionId = timed.acquire(snapshot, 0, AcquireOptions.timeout(TIMEOUT));
         clock.advance(TIMEOUT);
-        // The expiry alone is not an event: the commit finds it, and also moves the window.
+        // The expiry alone is not an event: the commit finds it, and the move of the tick
+        // moves the window.
         assertFalse(snapshot.uses().isEnded());
-        timed.commit(2);
+        publish(timed);
         assertTrue(snapshot.uses().isEnded());
         assertEquals(1, timed.liveSnapshotCount());
         // The release after the removal does not end it twice.
@@ -366,11 +476,11 @@ class PartitionStorage2Test {
 
     @Test
     void queryKeepsAReleasedSnapshotOutOfTheWindowUntilItEnds() {
-        StorageSnapshot2 snapshot = storage.commit(1);
-        long acquisitionId = storage.acquire(snapshot);
-        StorageSnapshot2 queried = storage.admit(acquisitionId);
+        StorageSnapshot2 snapshot = publish(storage);
+        long acquisitionId = storage.acquire(snapshot, 0);
+        StorageSnapshot2 queried = storage.admit(acquisitionId, 0);
         storage.release(acquisitionId);
-        storage.commit(2);
+        publish(storage);
         assertFalse(snapshot.uses().isEnded());
         assertEquals(2, storage.liveSnapshotCount());
         storage.endQuery(queried);
@@ -381,21 +491,31 @@ class PartitionStorage2Test {
     @Test
     void markOfRemovalEndsTheSnapshotsWithoutUses() {
         PartitionStorage2 kept = new PartitionStorage2(IndexConfig.linearScan(), 2);
-        kept.commit(1);
-        kept.commit(2);
+        publish(kept);
+        publish(kept);
         assertTrue(kept.markRemoved());
         assertTrue(kept.isRemoved());
         assertEquals(0, kept.liveSnapshotCount());
     }
 
     @Test
+    void markOfAPartitionThatPublishedNothingFinishesIt() {
+        storage.commit();
+        assertTrue(storage.markRemoved());
+        // The tick still moves, but nothing is published.
+        assertFalse(storage.setTick(1));
+        assertNull(storage.lastSnapshot());
+    }
+
+    @Test
     void acquisitionMadeBeforeTheMarkKeepsThePartitionUntilItsRelease() {
-        StorageSnapshot2 snapshot = storage.commit(1);
-        long acquisitionId = storage.acquire(snapshot);
+        StorageSnapshot2 snapshot = publish(storage);
+        long acquisitionId = storage.acquire(snapshot, 0);
         assertFalse(storage.markRemoved());
         // The mark closes the window.
-        assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(snapshot));
-        assertFalse(storage.endQuery(storage.admit(acquisitionId)));
+        assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(snapshot, 0));
+        assertNull(storage.catalog().at(0));
+        assertFalse(storage.endQuery(storage.admit(acquisitionId, 0)));
         assertEquals(1, storage.liveSnapshotCount());
         assertTrue(storage.release(acquisitionId));
         assertEquals(0, storage.liveSnapshotCount());
@@ -405,8 +525,8 @@ class PartitionStorage2Test {
 
     @Test
     void endOfTheLastQueryFinishesAMarkedPartition() {
-        long acquisitionId = storage.acquire(storage.commit(1));
-        StorageSnapshot2 queried = storage.admit(acquisitionId);
+        long acquisitionId = storage.acquire(publish(storage), 0);
+        StorageSnapshot2 queried = storage.admit(acquisitionId, 0);
         assertFalse(storage.markRemoved());
         assertFalse(storage.release(acquisitionId));
         assertTrue(storage.endQuery(queried));
@@ -416,21 +536,33 @@ class PartitionStorage2Test {
     @Test
     void expiryFoundAfterTheMarkFinishesThePartition() {
         FakeClock clock = new FakeClock();
-        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 0, clock);
-        long acquisitionId = timed.acquire(timed.commit(1), AcquireOptions.timeout(TIMEOUT));
+        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 1, clock);
+        long acquisitionId = timed.acquire(publish(timed), 0, AcquireOptions.timeout(TIMEOUT));
         assertFalse(timed.markRemoved());
         assertFalse(timed.removeExpired());
         clock.advance(TIMEOUT);
         assertTrue(timed.removeExpired());
         assertFalse(timed.removeExpired());
-        assertThrows(IllegalStateException.class, () -> timed.admit(acquisitionId));
+        assertThrows(IllegalStateException.class, () -> timed.admit(acquisitionId, 0));
+    }
+
+    @Test
+    void moveOfTheTickAfterTheMarkFindsTheExpiryAndFinishesThePartition() {
+        FakeClock clock = new FakeClock();
+        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 1, clock);
+        timed.acquire(publish(timed), 0, AcquireOptions.timeout(TIMEOUT));
+        assertFalse(timed.markRemoved());
+        assertFalse(timed.setTick(2));
+        clock.advance(TIMEOUT);
+        assertTrue(timed.setTick(3));
+        assertEquals(0, timed.liveSnapshotCount());
     }
 
     @Test
     void eventsBeforeTheMarkDoNotFinishThePartition() {
-        StorageSnapshot2 snapshot = storage.commit(1);
-        long acquisitionId = storage.acquire(snapshot);
-        storage.commit(2);
+        StorageSnapshot2 snapshot = publish(storage);
+        long acquisitionId = storage.acquire(snapshot, 0);
+        publish(storage);
         assertFalse(storage.release(acquisitionId));
         assertTrue(snapshot.uses().isEnded());
         assertEquals(1, storage.liveSnapshotCount());
@@ -438,52 +570,30 @@ class PartitionStorage2Test {
 
     @Test
     void snapshotOutOfTheWindowIsNotAcquiredAgain() {
-        StorageSnapshot2 snapshot = storage.commit(1);
-        long kept = storage.acquire(snapshot);
-        storage.commit(2);
-        assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(snapshot));
+        StorageSnapshot2 snapshot = publish(storage);
+        long kept = storage.acquire(snapshot, 0);
+        publish(storage);
+        assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(snapshot, 0));
         // The failed acquisition used no number.
-        assertEquals(kept + 1, storage.acquire(storage.lastSnapshot()));
+        assertEquals(kept + 1, storage.acquire(storage.lastSnapshot(), 1));
         storage.release(kept);
-        assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(snapshot));
-    }
-
-    @Test
-    void readersSeeTheWritesOnlyAfterTheCommit() {
-        StorageSnapshot2 empty = storage.lastSnapshot();
-        assertEquals(0, empty.commit());
-        assertEquals(0, empty.size());
-        assertEquals(List.of(), empty.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX)));
-        assertEquals(List.of(), empty.findNearest(A, 1));
-        assertEquals(0, storage.commit(1).size());
-
-        storage.insertAll(List.of(new Entity2(10, A)));
-        assertEquals(List.of(new Entity2(10, A)), storage.getAll(ALL_IDS));
-        assertEquals(1, storage.lastSnapshot().commit());
-        assertEquals(List.of(), storage.lastSnapshot().getAll(ALL_IDS));
-        StorageSnapshot2 second = storage.commit(2);
-        assertSame(second, storage.lastSnapshot());
-        assertEquals(List.of(new Entity2(10, A)), second.getAll(ALL_IDS));
-
-        storage.updateAll(List.of(new Entity2(10, B)));
-        assertEquals(List.of(new Entity2(10, B)), storage.getAll(ALL_IDS));
-        assertSame(second, storage.lastSnapshot());
-        assertEquals(List.of(new Entity2(10, A)), storage.lastSnapshot().getAll(ALL_IDS));
+        assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(snapshot, 0));
     }
 
     /**
-     * A writer and some readers on other threads. At each commit the writer
-     * moves all the entities to positions that depend on the commit, and
-     * changes their number; it moves them with more than one call, so the
-     * states between the calls are mixed. The readers check that each snapshot
-     * they read is a whole commit, and that the catalog has the window of the
-     * same commit.
+     * A writer and some readers on other threads. At each tick the writer moves all
+     * the entities to positions that depend on the tick, changes their number, commits
+     * and moves to the next tick; it moves the entities with more than one call, so the
+     * states between the calls are mixed. The readers check that each snapshot they read
+     * is the whole commit of its tick, and that the catalog has the window of the same tick.
      */
     @Test
     void readersOnOtherThreadsSeeOnlyWholeCommits() throws InterruptedException {
         for (IndexConfig config : List.of(
                 IndexConfig.linearScan(), IndexConfig.uniformGrid(4), IndexConfig.gridQuadtree(4))) {
-            PartitionStorage2 configured = new PartitionStorage2(config, RETAINED_PAST_SNAPSHOTS);
+            PartitionStorage2 configured = new PartitionStorage2(config, RETAINED_TICKS);
+            // Publishes the empty snapshot of tick 0 before the readers start.
+            configured.setTick(1);
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
             List<Thread> readers = new ArrayList<>();
@@ -495,12 +605,11 @@ class PartitionStorage2Test {
                         started.countDown();
                         while (!done.get()) {
                             SnapshotCatalog2 catalog = configured.catalog();
-                            StorageSnapshot2 snapshot = catalog.lastSnapshot();
-                            assertTrue(snapshot.commit() >= last, "commits go back");
-                            last = snapshot.commit();
+                            assertTrue(catalog.tick() >= last, "ticks go back");
+                            last = catalog.tick();
                             checkWindow(catalog);
-                            checkWholeCommit(snapshot);
-                            assertTrue(configured.lastCommit() >= last, "last commit goes back");
+                            checkWholeCommit(catalog.latest(), catalog.tick() - 1);
+                            assertTrue(configured.tick() >= last, "tick of the storage goes back");
                         }
                     } catch (Throwable e) {
                         failure.compareAndSet(null, e);
@@ -532,9 +641,20 @@ class PartitionStorage2Test {
         assertEquals(List.of(), index.calls);
     }
 
+    /**
+     * Commits in the current tick of the storage, moves to the next tick and returns the
+     * published snapshot, which is the one of the tick before the new tick.
+     */
+    private static StorageSnapshot2 publish(PartitionStorage2 storage) {
+        StorageSnapshot2 snapshot = storage.commit();
+        storage.setTick(storage.tick() + 1);
+        return snapshot;
+    }
+
     /** Checks all the reads of the snapshot, which must find exactly the expected entities, nearest to A first. */
-    private static void checkSnapshot(StorageSnapshot2 snapshot, long commit, List<Entity2> expected, String where) {
-        assertEquals(commit, snapshot.commit(), where);
+    private static void checkSnapshot(StorageSnapshot2 snapshot, long commitSequence, List<Entity2> expected,
+            String where) {
+        assertEquals(commitSequence, snapshot.commitSequence(), where);
         assertEquals(Set.copyOf(expected), Set.copyOf(snapshot.getAll(ALL_IDS)), where);
         assertEquals(expected.size(), snapshot.getAll(ALL_IDS).size(), where);
         List<Entity2> inRegion = snapshot.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX));
@@ -545,70 +665,75 @@ class PartitionStorage2Test {
     }
 
     /**
-     * Checks that the window of the catalog starts from its last snapshot and has
-     * the commits before it. writeCommits() makes the commits 1, 2, 3 and so on.
+     * Checks that the window of the catalog has the last RETAINED_TICKS ticks, and not
+     * the ticks before them or the current one. writeCommits() commits at every tick.
      */
     private static void checkWindow(SnapshotCatalog2 catalog) {
-        long lastCommit = catalog.lastSnapshot().commit();
-        int windowSize = (int) Math.min(lastCommit, RETAINED_PAST_SNAPSHOTS) + 1;
-        String where = "window at commit " + lastCommit;
-        for (int offset = 0; offset < windowSize; offset++) {
-            assertEquals(lastCommit - offset, catalog.previous(offset).commit(), where);
+        long tick = catalog.tick();
+        long windowStart = Math.max(tick - RETAINED_TICKS, 0);
+        String where = "window at tick " + tick;
+        assertEquals(tick - windowStart, catalog.size(), where);
+        for (long n = windowStart; n < tick; n++) {
+            assertTrue(catalog.at(n) != null, where);
         }
-        assertNull(catalog.previous(windowSize), where);
+        assertNull(catalog.at(tick), where);
+        if (windowStart > 0) {
+            assertNull(catalog.at(windowStart - 1), where);
+        }
     }
 
+    /** Writes the state of each tick from 1 to TICKS, commits it and moves to the next tick. */
     private static void writeCommits(PartitionStorage2 storage) {
         List<Long> ids = new ArrayList<>();
         long nextId = 1;
-        for (long commit = 1; commit <= COMMITS; commit++) {
+        for (long tick = 1; tick <= TICKS; tick++) {
             List<Entity2> moved = new ArrayList<>();
             for (long id : ids) {
-                moved.add(new Entity2(id, positionAt(commit, id)));
+                moved.add(new Entity2(id, positionAt(tick, id)));
             }
             int half = moved.size() / 2;
             storage.updateAll(moved.subList(0, half));
             storage.updateAll(moved.subList(half, moved.size()));
-            while (ids.size() > sizeAt(commit)) {
+            while (ids.size() > sizeAt(tick)) {
                 storage.removeAll(new long[] {ids.removeFirst()});
             }
-            while (ids.size() < sizeAt(commit)) {
+            while (ids.size() < sizeAt(tick)) {
                 long id = nextId++;
-                storage.insertAll(List.of(new Entity2(id, positionAt(commit, id))));
+                storage.insertAll(List.of(new Entity2(id, positionAt(tick, id))));
                 ids.add(id);
             }
-            storage.commit(commit);
+            storage.commit();
+            storage.setTick(tick + 1);
         }
     }
 
-    /** Checks that all the reads of the snapshot see the entities of its commit, and only them. */
-    private static void checkWholeCommit(StorageSnapshot2 snapshot) {
-        long commit = snapshot.commit();
-        String where = "commit " + commit;
-        assertEquals(sizeAt(commit), snapshot.size(), where);
+    /** Checks that all the reads of the snapshot see the entities of its tick, and only them. */
+    private static void checkWholeCommit(StorageSnapshot2 snapshot, long tick) {
+        String where = "tick " + tick;
+        assertEquals(sizeAt(tick), snapshot.size(), where);
         List<Entity2> found = snapshot.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX));
-        assertEquals(sizeAt(commit), found.size(), where);
+        assertEquals(sizeAt(tick), found.size(), where);
         for (Entity2 e : found) {
-            assertEquals(positionAt(commit, e.id()), e.position(), where);
+            assertEquals(positionAt(tick, e.id()), e.position(), where);
         }
         long[] ids = found.stream().mapToLong(Entity2::id).toArray();
         assertEquals(found.size(), snapshot.getAll(ids).size(), where);
         for (Entity2 e : snapshot.getAll(ids)) {
-            assertEquals(positionAt(commit, e.id()), e.position(), where);
+            assertEquals(positionAt(tick, e.id()), e.position(), where);
         }
-        for (Entity2 e : snapshot.findNearest(positionAt(commit, 0), sizeAt(commit) + 1)) {
-            assertEquals(positionAt(commit, e.id()), e.position(), where);
+        for (Entity2 e : snapshot.findNearest(positionAt(tick, 0), sizeAt(tick) + 1)) {
+            assertEquals(positionAt(tick, e.id()), e.position(), where);
         }
     }
 
-    /** The number of entities at the commit: 0 at commit 0, then from 0 to 22. */
-    private static int sizeAt(long commit) {
-        return (int) (commit * 7 % 23);
+    /** The number of entities at the tick: 0 at tick 0, then from 0 to 22. */
+    private static int sizeAt(long tick) {
+        return (int) (tick * 7 % 23);
     }
 
-    /** The position of an entity at the commit, inside the limits; it changes cell often. */
-    private static Point2 positionAt(long commit, long entityId) {
-        double base = commit % 16 - 8;
+    /** The position of an entity at the tick, inside the limits; it changes cell often. */
+    private static Point2 positionAt(long tick, long entityId) {
+        double base = tick % 16 - 8;
         return new Point2(base + (entityId % 10) * 0.25, -base - (entityId / 10 % 10) * 0.25);
     }
 

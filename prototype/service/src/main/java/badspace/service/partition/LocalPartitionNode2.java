@@ -7,7 +7,9 @@ import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.RetentionWindow;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import java.util.List;
@@ -57,16 +59,17 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
-    public void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastSnapshots) {
-        if (retainedPastSnapshots < 0) {
-            throw new IllegalArgumentException("Negative number of retained past snapshots: " + retainedPastSnapshots);
+    public void createPartition(PartitionId partitionId, IndexConfig index, int retainedTicks) {
+        if (retainedTicks < RetentionWindow.MIN_RETAINED_TICKS) {
+            throw new IllegalArgumentException("Number of retained ticks is less than "
+                    + RetentionWindow.MIN_RETAINED_TICKS + ": " + retainedTicks);
         }
         removeExpiredOfRemovedPartitions();
         tickLock.lock();
         try {
             // A partition marked as removed keeps its ID until it is finished, so this
             // also rejects its ID.
-            PartitionStorage2 storage = new PartitionStorage2(index, retainedPastSnapshots, clock, tick);
+            PartitionStorage2 storage = new PartitionStorage2(index, retainedTicks, clock, tick);
             if (partitions.putIfAbsent(partitionId, storage) != null) {
                 throw new IllegalArgumentException("Partition already exists: " + partitionId);
             }
@@ -84,8 +87,10 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             }
             this.tick = tick;
             // The partitions marked as removed are in the map too.
-            for (PartitionStorage2 storage : partitions.values()) {
-                storage.setTick(tick);
+            for (Map.Entry<PartitionId, PartitionStorage2> e : partitions.entrySet()) {
+                if (e.getValue().setTick(tick)) {
+                    finish(e.getKey(), e.getValue());
+                }
             }
         } finally {
             tickLock.unlock();
@@ -157,46 +162,24 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
-    public void commit(PartitionId partitionId, long commit) {
+    public void commit(PartitionId partitionId) {
         removeExpiredOfRemovedPartitions();
-        find(partitionId).commit(commit);
+        find(partitionId).commit();
+    }
+
+    @Override
+    public Acquisition acquire(PartitionId partitionId, long tick, AcquireOptions options) {
+        Objects.requireNonNull(options);
+        if (tick < 0) {
+            throw new IllegalArgumentException("Negative tick: " + tick);
+        }
+        return acquire(partitionId, options, false, tick);
     }
 
     @Override
     public Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options) {
         Objects.requireNonNull(options);
-        return acquire(partitionId, options, SnapshotCatalog2::lastSnapshot,
-                "No last snapshot in partition " + partitionId);
-    }
-
-    @Override
-    public Acquisition acquirePrevious(PartitionId partitionId, int offset, AcquireOptions options) {
-        Objects.requireNonNull(options);
-        if (offset < 0) {
-            throw new IllegalArgumentException("Negative offset: " + offset);
-        }
-        return acquire(partitionId, options, catalog -> catalog.previous(offset),
-                "No snapshot at offset " + offset + " in partition " + partitionId);
-    }
-
-    @Override
-    public Acquisition acquireAtOrBefore(PartitionId partitionId, long tick, AcquireOptions options) {
-        Objects.requireNonNull(options);
-        if (tick < 0) {
-            throw new IllegalArgumentException("Negative tick: " + tick);
-        }
-        return acquire(partitionId, options, catalog -> catalog.atOrBefore(tick),
-                "No snapshot at tick " + tick + " or before in partition " + partitionId);
-    }
-
-    @Override
-    public Acquisition acquireExact(PartitionId partitionId, long commit, AcquireOptions options) {
-        Objects.requireNonNull(options);
-        if (commit < 0) {
-            throw new IllegalArgumentException("Negative commit: " + commit);
-        }
-        return acquire(partitionId, options, catalog -> catalog.exact(commit),
-                "No snapshot of commit " + commit + " in partition " + partitionId);
+        return acquire(partitionId, options, true, 0);
     }
 
     @Override
@@ -230,11 +213,6 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
-    public long lastCommit(PartitionId partitionId) {
-        return find(partitionId).lastCommit();
-    }
-
-    @Override
     public int size(PartitionId partitionId) {
         return find(partitionId).size();
     }
@@ -245,24 +223,35 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     /**
-     * Acquires the snapshot that the selection chooses from the catalog. If a commit makes
-     * the snapshot leave the window before the acquisition, it chooses again from the new
-     * catalog. Fails with SnapshotNotAvailableException if the selection finds no snapshot,
-     * and with IllegalStateException if the partition is marked as removed, also during
-     * the acquisition.
+     * Acquires the snapshot of a tick: the tick before the current one if latest is true,
+     * otherwise the given tick. The tick and the snapshot come from the same catalog. If a move
+     * of the tick makes the snapshot leave the window before the acquisition, it chooses again
+     * from the new catalog. Fails with SnapshotNotAvailableException if the tick is not in the
+     * window, and with IllegalStateException if the partition is marked as removed, also
+     * during the acquisition.
      */
-    private Acquisition acquire(PartitionId partitionId, AcquireOptions options,
-            Function<SnapshotCatalog2, StorageSnapshot2> selection, String notAvailable) {
+    private Acquisition acquire(PartitionId partitionId, AcquireOptions options, boolean latest, long tick) {
         removeExpiredOfRemovedPartitions();
         PartitionStorage2 storage = find(partitionId);
         while (true) {
-            StorageSnapshot2 snapshot = selection.apply(storage.catalog());
+            SnapshotCatalog2 catalog = storage.catalog();
+            long chosen = latest ? catalog.tick() - 1 : tick;
+            StorageSnapshot2 snapshot = catalog.at(chosen);
             if (snapshot == null) {
-                throw new SnapshotNotAvailableException(notAvailable);
+                // The mark closes the window: no snapshot can be acquired.
+                if (storage.isRemoved()) {
+                    throw removedPartition(partitionId);
+                }
+                if (latest) {
+                    throw new SnapshotNotAvailableException(Reason.NOT_YET_PUBLISHED,
+                            "No snapshot published yet in partition " + partitionId);
+                }
+                throw new SnapshotNotAvailableException(catalog.reasonNotAvailable(chosen),
+                        "No snapshot of tick " + chosen + " in partition " + partitionId + " at tick " + catalog.tick());
             }
-            long acquisitionId = storage.acquire(snapshot, options);
+            long acquisitionId = storage.acquire(snapshot, chosen, options);
             if (acquisitionId != PartitionStorage2.NOT_ACQUIRED) {
-                return new Acquisition(partitionId, acquisitionId, snapshot.commit());
+                return new Acquisition(partitionId, acquisitionId, chosen);
             }
             // The mark closes the window: the snapshot left it, and no other snapshot
             // can be acquired.
@@ -274,8 +263,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     /**
      * Runs a query on the snapshot of the acquisition. The query keeps the snapshot until
-     * it ends, and then gives it back, also if it fails. The commit in the acquisition
-     * must be the one of the snapshot. The partition can be marked as removed.
+     * it ends, and then gives it back, also if it fails. The tick in the acquisition
+     * must be the acquired one. The partition can be marked as removed.
      */
     private <T> T query(Acquisition acquisition, Function<StorageSnapshot2, T> query) {
         PartitionStorage2 storage = partitions.get(acquisition.partitionId());
@@ -284,11 +273,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             // again, so the node cannot tell an unknown partition from a finished one.
             throw new IllegalStateException("Acquisition was released or is expired: " + acquisition);
         }
-        StorageSnapshot2 snapshot = storage.admit(acquisition.id());
+        StorageSnapshot2 snapshot = storage.admit(acquisition.id(), acquisition.tick());
         try {
-            if (snapshot.commit() != acquisition.commit()) {
-                throw new IllegalArgumentException("Wrong commit in acquisition: " + acquisition);
-            }
             return query.apply(snapshot);
         } finally {
             if (storage.endQuery(snapshot)) {

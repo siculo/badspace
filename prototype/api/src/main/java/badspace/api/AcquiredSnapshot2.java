@@ -10,8 +10,8 @@ import java.util.Optional;
 
 /**
  * A snapshot of a 2D partition that a reader acquired: the partition as it was
- * at a commit. The snapshot never changes, so all its reads see the same commit
- * while the writer goes on, also after the snapshot leaves the retention window.
+ * at the end of a tick. The snapshot never changes, so all its reads see the same
+ * state while the writer goes on, also after the snapshot leaves the retention window.
  * Use it with try-with-resources: {@link #close()} releases the acquisition.
  * <p>
  * Each read checks the acquisition when it starts. After the release, or after the
@@ -31,12 +31,9 @@ public final class AcquiredSnapshot2 implements AutoCloseable {
         this.acquisition = acquisition;
     }
 
-    /**
-     * Returns the number of the commit, or 0 for the empty snapshot before the first commit.
-     * It does not check the acquisition: the number is part of it.
-     */
-    public long commit() {
-        return acquisition.commit();
+    /** Returns the tick of the snapshot. It does not check the acquisition: the tick is part of it. */
+    public long tick() {
+        return acquisition.tick();
     }
 
     /** Returns the number of entities. */

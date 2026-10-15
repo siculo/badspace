@@ -49,7 +49,7 @@ public final class Space2 implements Space<PartitionNode2, Partition2> {
                 nodes.add(node);
             }
             PartitionId id = new PartitionId(this.config.partitionIds().nextId());
-            node.createPartition(id, config.index(), config.retainedPastSnapshots());
+            node.createPartition(id, config.index(), config.retainedTicks());
             return new Partition2(this, node, id, config);
         } finally {
             tickLock.unlock();
