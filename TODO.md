@@ -13,9 +13,9 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Indicizzazione spaziale](okf-bundle/decisions/spatial-indexing.md), [API da esporre](okf-bundle/decisions/api-surface.md).
 
-- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, indici copy-on-write, snapshot degli slot, conservazione e acquisizione degli snapshot (k nella configurazione, rilascio, scadenza), writer su thread diversi, fencing token. → [cose da fare](#fare-commit)
+- [ ] **Commit e proprietà:** un writer e più reader su una partizione: commit, indici copy-on-write, snapshot degli slot, conservazione e acquisizione degli snapshot (k nella configurazione, rilascio, scadenza), tick logico e semantica temporale degli snapshot, rimozione della partizione, writer su thread diversi, fencing token. → [cose da fare](#fare-commit)
 
-  Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md), [Conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md).
+  Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Tick logico](okf-bundle/architecture/logical-time.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md), [Conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md), [Rimozione della partizione](okf-bundle/architecture/partition-removal.md).
 
 - [ ] **Metadati:** metadati di sistema e applicativi nello strato service, API dei metadati, scritture condizionate. → [cose da fare](#fare-metadati) · [decisioni](#decisioni-metadati)
 
@@ -37,7 +37,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Tombstone](okf-bundle/architecture/tombstones.md), [Migrazione di entità tra partizioni](okf-bundle/mechanisms/entity-migration.md), [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md).
 
-- [ ] **Letture coerenti:** tick globale, lettura al tick N sugli snapshot conservati, rimozione differita. → [cose da fare](#fare-letture) · [decisioni](#decisioni-letture)
+- [ ] **Letture coerenti:** barriera sul gTick, lettura al tick N sugli snapshot conservati, verifica e acquisizione in un passo, rimozione differita delle entità. → [cose da fare](#fare-letture) · [decisioni](#decisioni-letture)
 
   Documenti: [Conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md), [Letture coerenti su più partizioni](okf-bundle/mechanisms/consistent-reads.md), [Architettura minima](okf-bundle/architecture/minimal-core.md).
 
@@ -110,6 +110,11 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
   - [x] Fine degli snapshot (semantica in [Vita di uno snapshot](okf-bundle/architecture/snapshot-retention.md#vita-di-uno-snapshot)): per ogni snapshot un contatore degli utilizzi (acquisizioni valide e query ammesse) e il segno "fuori dalla finestra"; lo snapshot finisce una sola volta, all'evento che toglie l'ultima condizione (commit, rilascio, scadenza, fine dell'ultima query); ammissione e acquisizione aggiungono un utilizzo solo se lo snapshot non è finito (e l'acquisizione solo se è nella finestra: altrimenti tutte le selezioni scelgono di nuovo dal catalogo nuovo); lo storage conta gli snapshot non finiti. Test: fine a ognuno degli eventi, snapshot nella finestra che non finisce al rilascio, query che tiene vivo uno snapshot rilasciato e fuori dalla finestra, snapshot uscito dalla finestra non più acquisibile, query del nodo che restituiscono lo snapshot anche quando falliscono, corse tra rilascio e ammissione e tra commit e acquisizione
   - [x] Scadenza obbligatoria (semantica in [Scadenza](okf-bundle/architecture/snapshot-retention.md#scadenza)): niente più acquisizioni senza scadenza, `AcquireOptions.defaultTimeout()` al posto di `noTimeout()` e nelle forme senza opzioni dell'API; costanti per la scadenza di default (1 minuto) e la scadenza massima (1 ora), durata maggiore rifiutata. Test: scadenza massima accettata e durata maggiore rifiutata, scadenza di default e scadenza massima che scadono anche loro
   - [x] Rimozione della partizione in due fasi (semantica in [Rimozione della partizione](okf-bundle/architecture/snapshot-retention.md#rimozione-della-partizione)): `SpaceConfig` costruito con metodi statici (`of(entityIds, partitionIds)`, `withEntityIds`, `withPartitionIds`, senza default) al posto del generatore nel costruttore degli spazi, con il generatore degli ID delle partizioni al posto del contatore di `Space2`, mai riusati; lo storage dice al nodo con il valore di ritorno quando non ha più snapshot non finiti, senza riferimenti al nodo; segno di rimozione (niente scritture, commit né nuove acquisizioni, finestra chiusa) con la partizione segnata che resta nella mappa del nodo per ID e rimozione effettiva dal nodo alla fine dell'ultimo snapshot; letture e rilascio per ID anche sulla partizione segnata; `createPartition` rifiutato con un ID ancora presente, anche se segnato; acquisizioni scadute delle partizioni segnate cercate a ogni evento del nodo. Test per `removePartition` e `dropPartition`: acquisizioni leggibili dopo il segno fino al rilascio o alla scadenza, rimozione effettiva al rilascio, alla fine dell'ultima query e alla scadenza trovata da un evento di un'altra partizione del nodo (reader che muore senza rilasciare: con la scadenza obbligatoria la rimozione finisce sempre), `createPartition` rifiutato con l'ID di una partizione segnata, ID delle partizioni diversi tra due spazi, `close()` della view dopo la rimozione, rimozione concorrente ad acquisizioni. Oggi gli ID delle partizioni vengono da un contatore per spazio e `close()` della view fallisce dopo la rimozione
+- [ ] Semantica temporale degli snapshot, in passi (semantica in [Tick logico](okf-bundle/architecture/logical-time.md), [Conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md) e [Rimozione della partizione](okf-bundle/architecture/partition-removal.md), forma in [API da esporre](okf-bundle/decisions/api-surface.md#tick-dello-spazio); oggi il codice segue la forma in [Differenze nel codice attuale](okf-bundle/decisions/api-surface.md#differenze-nel-codice-attuale)); ogni passo per 2D e 3D, con i test:
+  - [ ] Tick nel nodo e nella partizione: `setTick(t)` nel contratto del nodo, propagato alle partizioni (rifiutato all'indietro con `IllegalArgumentException`, idempotente con lo stesso valore, salti ammessi), tick iniziale del nodo 0, `tick()` e `creationTick()` con la partizione creata al tick corrente del nodo; ordine tra `createPartition` e `setTick` del nodo; nell'API `Space.setTick` e `tick()`, con lo spazio che tiene i nodi su cui ha creato partizioni e chiama `setTick` su un nodo nuovo prima della creazione. Commit e acquisizioni non cambiano ancora. Test: avanzamento, idempotenza, rifiuto all'indietro, salto, creazione a un tick diverso da 0, nodo nuovo allineato dallo spazio, creazione concorrente a un avanzamento
+  - [ ] Commit senza numero e catalogo per tick: `commit()` prepara lo snapshot del tick corrente (più commit nello stesso tick, vale l'ultimo; le scritture non confermate passano al tick dopo) e `setTick` lo pubblica; catalogo con le voci (snapshot, tick da cui vale) e `S(n)` per ogni tick, salti compresi; finestra di k tick (`retainedTicks`, ≥ 1, default 1, `withRetainedTicks`) con l'uscita dalla finestra all'avanzamento; `acquire(tick, options)` e `acquireLatest` = `S(T − 1)` al posto delle quattro selezioni; `Acquisition` e view con il tick; `SnapshotNotAvailableException` con `reason()`; sequenza dei commit interna per `index.commit`; snapshot non finiti contati alla pubblicazione; tolti `commit(n)` e `lastCommit()`; client aggiornati (`Main`, `SampleRandomUpdater`). Test: esempi del bundle (T = 110 con k = 5; `setTick(105)` da 102), `S(T)` mai acquisibile, niente da acquisire prima del primo avanzamento, creazione al tick 0 con `S(0)` dopo `setTick(1)`, tick senza commit con lo stesso contenuto, due commit nello stesso tick, scritture non confermate al tick dopo, motivi del fallimento; test di scadenza, fine degli snapshot e concorrenza riscritti con i tick
+  - [ ] Concorrenza tra avanzamento e writer: lock per partizione su scritture, commit, `setTick` e `remove()`; i reader restano senza lock. Test con latch o barriere, senza sleep: commit concorrente a `setTick` che finisce in `S(T)` o in `S(t)`, mai a metà; acquisizione concorrente all'avanzamento; `setTick` da un thread diverso dal writer; writer mai bloccato da un reader
+  - [ ] Rimozione della partizione con gli stati: `ACTIVE`, `REMOVAL_PENDING`, `RETIRED`, `DESTROYED`; `remove()` ultima operazione del writer (dopo niente scritture né commit, secondo `remove()` rifiutato), che scarta le scritture non confermate, con `REQUIRE_EMPTY` sullo stato confermato del tick; ritiro al primo avanzamento con `removalTick`; acquisizioni nuove sui tick `n < removalTick` nella finestra; distruzione con `T − k ≥ removalTick` e nessun utilizzo; `setTick` come punto di pulizia delle acquisizioni scadute per tutte le partizioni, al posto della scansione delle partizioni segnate a ogni evento del nodo; proxy che non blocca più le acquisizioni dopo la rimozione; errore generico per un ID sconosciuto. Test: esempi del bundle (`removalTick` = 105 da 102; con k = 5 `S(104)` al tick 109 e niente al 110), `setTick` idempotente che non applica la rimozione, scritture e commit dopo `remove()` rifiutati, `REQUIRE_EMPTY` con entità tolte ma non confermate, acquisizioni che tengono in vita gli snapshot dopo `T − k ≥ removalTick`, `createPartition` rifiutato con l'ID di una partizione ritirata, rimozione concorrente ad acquisizioni e avanzamenti
 - [ ] Writer su thread diversi per partizioni diverse, con pool dei buffer degli snapshot
 - [ ] Misura del costo per commit della copia degli slot e dei nodi dell'indice, con diverse frazioni di entità in movimento e reader concorrenti, e costo di acquisizione e rilascio; i benchmark degli indici nel [TODO degli indici](TODO-indices.md) andranno ripetuti sugli snapshot copy-on-write
 - [ ] Proprietà della partizione con fencing token (acquisire, rilasciare, trasferire)
@@ -161,9 +166,10 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-letture"></a>
 ### Letture coerenti [↑](#blocchi)
 
-- [ ] Tick globale e barriera
-- [ ] Lettura al tick N: acquisizione al tick N o prima su ogni partizione, nuovo tentativo se N esce dalla finestra, rilascio alla fine della lettura
-- [ ] Rimozione differita come alternativa alle letture al tick N
+- [ ] Barriera sul gTick (il tick è già nel livello base, con `Space.setTick`)
+- [ ] Lettura al tick N: acquisizione esatta di `S(N)` su ogni partizione, nuovo tentativo se N esce dalla finestra di una partizione, rilascio alla fine della lettura
+- [ ] Verifica e acquisizione in un passo (`tryAcquire` con un risultato sealed, se serve) e, se ancora servono, `partitionExistsAt` e `canAcquireSnapshot`
+- [ ] Rimozione differita delle entità come alternativa alle letture al tick N
 
 <a id="fare-gruppi"></a>
 ### Gruppi di partizioni [↑](#blocchi)
@@ -224,16 +230,18 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [x] Indice scelto per partizione
 - [x] Entità statiche e dinamiche come caso di partizionamento
 - [x] Aggregazione per tipo di query
-- [x] Commit distinto dal tick (al più un commit per tick)
-- [x] k configurabile per partizione, default 0: snapshot passati conservati oltre al corrente
-- [x] Acquisizione e rilascio degli snapshot: selezione atomica rispetto al commit, pin fuori dalla finestra, scadenza opzionale con clock monotono (durata zero rifiutata, senza rinnovo), acquisizioni leggibili dopo la rimozione della partizione
+- [x] Tick logico nel livello base: tick dello spazio, del nodo e della partizione, `setTick` monotono con salti, tick comune a tutte le partizioni di uno spazio (sostituisce "commit distinto dal tick")
+- [x] Commit senza numero nel tick corrente: più commit per tick (vale l'ultimo), scritture non confermate portate al tick dopo, snapshot di ogni tick pubblicato all'avanzamento del tick
+- [x] k configurabile per partizione: numero di tick consultabili, ≥ 1, default 1 (sostituisce gli snapshot passati oltre al corrente, default 0)
+- [x] Acquisizione e rilascio degli snapshot: acquisizione al tick e ultimo (`S(T − 1)`), atomica rispetto all'avanzamento del tick, pin fuori dalla finestra, scadenza obbligatoria con clock monotono (durata zero rifiutata, senza rinnovo), acquisizioni leggibili dopo la rimozione della partizione
+- [x] Rimozione della partizione: `remove()` ultima operazione del writer, ritiro al primo avanzamento del tick, snapshot dei tick precedenti acquisibili nella finestra, distruzione quando sono usciti tutti e nessuno li usa
 - [x] Scritture condizionate al posto delle transazioni
 - [x] Regole delle tombstone ed epoca
 - [x] Protocollo di migrazione (outbox con consumer idempotente)
 - [x] GC delle tombstone su conferma, non a TTL
 - [x] Ribilanciamento e split tramite trasferimento dell'esclusività
 - [x] Forma della query di range (box e cerchio/sfera, dietro un'interfaccia sealed estendibile)
-- [x] Forma delle chiamate per il commit (`commit(n)` con n scelto dal software e maggiore dell'ultimo commit)
+- [x] Forma delle chiamate per il commit e il tick (`commit()` senza numero, `setTick` sullo spazio, `tick()`, `creationTick()`; sostituisce `commit(n)`)
 - [x] Limiti delle coordinate fissati dall'indice: tetto globale 2^60, 2^30 celle per lato per gli indici a celle, query senza limiti, solo valori finiti (niente `NaN` né infiniti)
 
 <a id="decisioni-metadati"></a>
@@ -265,8 +273,9 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 <a id="decisioni-letture"></a>
 ### Letture coerenti [↑](#blocchi)
 
-- [ ] Lettura al tick N o rimozione differita come default
-- [ ] Servizio del tick globale e della barriera nella forma a cluster
+- [ ] Lettura al tick N o rimozione differita delle entità come default
+- [ ] Servizio del gTick e della barriera nella forma a cluster
+- [ ] Forma della verifica e acquisizione in un passo: solo il motivo nell'eccezione o anche `tryAcquire` senza eccezione; `partitionExistsAt` e `canAcquireSnapshot` ancora necessarie
 
 <a id="decisioni-gruppi"></a>
 ### Gruppi di partizioni [↑](#blocchi)
