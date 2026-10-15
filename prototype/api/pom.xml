@@ -19,5 +19,12 @@
             <groupId>badspace</groupId>
             <artifactId>badspace-common</artifactId>
         </dependency>
+        <!-- Only for the end-to-end tests of the API with the local nodes: the API itself
+             sees the nodes only through the contract in common. -->
+        <dependency>
+            <groupId>badspace</groupId>
+            <artifactId>badspace-service</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
