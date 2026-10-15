@@ -17,6 +17,8 @@ import java.util.Optional;
  * Each read checks the acquisition when it starts. After the release, or after the
  * timeout of the acquisition if it has one, a new read fails with IllegalStateException;
  * a read that started before ends normally, and the entities already read stay valid.
+ * The view stays readable also after the removal of the partition, until the release
+ * or the timeout: the node keeps the partition until its versions are no longer used.
  * Any thread can use the view.
  */
 public final class AcquiredVersion2 implements AutoCloseable {
@@ -71,7 +73,10 @@ public final class AcquiredVersion2 implements AutoCloseable {
         return node.findNearest(acquisition, point, count);
     }
 
-    /** Releases the acquisition. Calling it again, or after the timeout, does nothing. */
+    /**
+     * Releases the acquisition. Calling it again, after the timeout or after the removal
+     * of the partition does nothing.
+     */
     @Override
     public void close() {
         node.release(acquisition);

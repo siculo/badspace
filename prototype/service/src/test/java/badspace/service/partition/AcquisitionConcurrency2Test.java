@@ -344,6 +344,69 @@ class AcquisitionConcurrency2Test {
         }
     }
 
+    /**
+     * Readers acquire, read and release the last version while the writer commits and
+     * then drops the partition. An acquisition made before the mark stays readable until
+     * its release; after the mark the acquisitions fail. When
+     * the last acquisition is released, the node no longer has the partition.
+     */
+    @Test
+    void removalDuringAcquisitionsEndsWithTheLastRelease() throws Exception {
+        for (IndexConfig config : CONFIGS) {
+            LocalPartitionNode2 node = new LocalPartitionNode2();
+            node.createPartition(P1, config, 1);
+            node.insertAll(P1, List.of(new Entity2(10, A), new Entity2(20, B)));
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            CyclicBarrier start = new CyclicBarrier(READERS + 1);
+            List<Thread> readers = new ArrayList<>();
+            for (int r = 0; r < READERS; r++) {
+                readers.add(new Thread(() -> {
+                    try {
+                        start.await();
+                        while (true) {
+                            Acquisition acquisition;
+                            try {
+                                acquisition = node.acquireLatest(P1, defaultTimeout());
+                            } catch (IllegalStateException | IllegalArgumentException e) {
+                                // The partition is marked as removed, or already removed
+                                // by the release of the last acquisition: then it is unknown.
+                                return;
+                            }
+                            // Gives the writer some time to commit or to remove the partition.
+                            for (int i = 0; i < SPINS; i++) {
+                                Thread.onSpinWait();
+                            }
+                            int expectedSize = acquisition.commit() == 0 ? 0 : 2;
+                            assertEquals(expectedSize, node.size(acquisition), "commit " + acquisition.commit());
+                            node.release(acquisition);
+                        }
+                    } catch (Throwable e) {
+                        failure.compareAndSet(null, e);
+                    }
+                }));
+            }
+            for (Thread reader : readers) {
+                reader.start();
+            }
+
+            try {
+                start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+                for (long commit = 1; commit <= COMMITS; commit++) {
+                    node.commit(P1, commit);
+                }
+                node.dropPartition(P1);
+            } finally {
+                for (Thread reader : readers) {
+                    reader.join(TIMEOUT.toMillis());
+                }
+            }
+            if (failure.get() != null) {
+                throw new AssertionError(config + ": a reader failed", failure.get());
+            }
+            assertFalse(node.hasPartition(P1), config + ": the partition was not removed");
+        }
+    }
+
     /** The position of an entity at a commit: all the entities move at each commit. */
     private static Point2 positionAt(long commit, long entityId) {
         return point(commit % 1000, entityId);

@@ -4,7 +4,7 @@ title: Conservazione delle versioni
 description: Ogni partizione conserva acquisibili la versione corrente e quelle dei k commit precedenti (k + 1 versioni, k configurabile, default 0); i reader acquisiscono una versione, la leggono e la rilasciano, con una scadenza obbligatoria, e una versione uscita dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni versione, e la rimozione della partizione diventa effettiva quando sono finite tutte.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T10:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T14:00:00Z }
 ---
 
 # Primitiva
@@ -293,12 +293,44 @@ commit, e ammissioni e rilasci della stessa acquisizione: alla fine
 restano solo le versioni della finestra, quindi ogni altra è finita una
 e una sola volta.
 
-Manca la rimozione in due fasi. Dopo la rimozione le letture attraverso un'acquisizione falliscono
-perché il nodo non trova più la partizione. Gli ID delle partizioni
-vengono ancora da un contatore di `Space2`, univoco solo nello spazio,
-e non dal generatore di ID delle partizioni. I reader
-non hanno altro modo di leggere una versione: `lastVersion()` è solo un
-metodo interno dello storage.
+La rimozione in due fasi la fanno insieme storage e nodo. Il segno è
+un campo volatile dello storage, scritto dal writer prima di chiudere
+la finestra: chiuderla fa uscire tutte le versioni del catalogo, e
+quelle senza utilizzi finiscono subito. Un'acquisizione che trova la
+versione fuori dalla finestra dopo il segno vede anche il segno, e
+fallisce invece di scegliere di nuovo. Prima del segno la finestra ha
+sempre una versione non finita, quindi il conteggio delle versioni non
+finite arriva a zero solo dopo il segno, una sola volta. Lo storage non
+conosce il nodo: segno, rilascio, fine di una query ed eliminazione
+delle scadute restituiscono vero quando la partizione è finita, e il
+thread che lo riceve la toglie dal nodo.
+
+Il nodo tiene la partizione segnata nella stessa mappa, con il suo ID,
+e in una seconda mappa delle partizioni segnate. A ogni suo evento
+(creazione, rimozione, commit, acquisizione, rilascio) scorre la
+seconda mappa e toglie le acquisizioni scadute. Le letture e il
+rilascio trovano la partizione per ID anche dopo il segno; dopo la
+rimozione effettiva l'ID è sconosciuto, e il nodo tratta
+l'acquisizione come rilasciata: la lettura fallisce con
+`IllegalStateException` e il rilascio non fa niente. Gli ID delle
+partizioni li crea il generatore di ID delle partizioni che lo spazio
+riceve in `SpaceConfig`. I reader non hanno altro modo di leggere una
+versione: `lastVersion()` è solo un metodo interno dello storage.
+
+I test verificano lo storage (il segno fa finire le versioni senza
+utilizzi; la partizione finisce al rilascio, alla fine dell'ultima
+query e alla scadenza trovata dopo il segno; gli eventi prima del segno
+non la fanno mai finire) e il nodo: dopo il segno scritture, commit e
+nuove acquisizioni falliscono e le acquisizioni già fatte restano
+leggibili; la rimozione effettiva avviene subito senza acquisizioni, al
+rilascio dell'ultima e alla scadenza trovata da un evento di un'altra
+partizione (un reader che muore senza rilasciare); l'ID della
+partizione segnata è rifiutato da `createPartition`; dopo la rimozione
+il rilascio non fa niente. Un test di concorrenza fa correre
+acquisizioni e letture con i commit e la rimozione: ogni lettura vede
+un commit intero, e al rilascio dell'ultima acquisizione il nodo non ha
+più la partizione. Nell'API, due spazi con gli stessi generatori danno
+ID di partizione diversi.
 
 # Punti aperti
 

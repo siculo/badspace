@@ -16,11 +16,24 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
-/** A node that hosts 2D partitions in the same process as the API. */
+/**
+ * A node that hosts 2D partitions in the same process as the API.
+ * <p>
+ * The removal of a partition has two steps. The mark of removal stops the writes, the
+ * commits and the new acquisitions, but the acquisitions made before stay readable. The
+ * node keeps the storage, under the same ID, until its last version ends: then the
+ * storage says that the partition is finished, and the node removes it. A partition
+ * marked as removed has no events of its own, so at each event of the node (creation,
+ * removal, commit, acquisition, release) the node looks for its expired acquisitions.
+ */
 public final class LocalPartitionNode2 implements PartitionNode2 {
 
-    // Each partition has its own writer, possibly on a different thread.
+    // Each partition has its own writer, possibly on a different thread. A partition
+    // marked as removed stays here until it is finished.
     private final Map<PartitionId, PartitionStorage2> partitions = new ConcurrentHashMap<>();
+    // The partitions marked as removed and not yet finished. The writer adds a partition
+    // when it marks it; the thread that finishes it, any thread, removes it.
+    private final Map<PartitionId, PartitionStorage2> removedPartitions = new ConcurrentHashMap<>();
     // Measures the timeouts of the acquisitions in all the partitions.
     private final MonotonicClock clock;
 
@@ -39,6 +52,9 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         if (retainedPastVersions < 0) {
             throw new IllegalArgumentException("Negative number of retained past versions: " + retainedPastVersions);
         }
+        removeExpiredOfRemovedPartitions();
+        // A partition marked as removed keeps its ID until it is finished, so this
+        // also rejects its ID.
         if (partitions.putIfAbsent(partitionId, new PartitionStorage2(index, retainedPastVersions, clock)) != null) {
             throw new IllegalArgumentException("Partition already exists: " + partitionId);
         }
@@ -46,18 +62,20 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     @Override
     public void removePartition(PartitionId partitionId) {
-        // find() fails if the partition is unknown. Check and removal are two steps,
+        removeExpiredOfRemovedPartitions();
+        // find() fails if the partition is unknown. Check and mark are two steps,
         // but only the writer of the partition changes it.
-        if (find(partitionId).size() > 0) {
+        PartitionStorage2 storage = find(partitionId);
+        if (storage.size() > 0) {
             throw new IllegalStateException("Partition is not empty: " + partitionId);
         }
-        partitions.remove(partitionId);
+        markRemoved(partitionId, storage);
     }
 
     @Override
     public void dropPartition(PartitionId partitionId) {
-        find(partitionId);
-        partitions.remove(partitionId);
+        removeExpiredOfRemovedPartitions();
+        markRemoved(partitionId, find(partitionId));
     }
 
     @Override
@@ -92,6 +110,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     @Override
     public void commit(PartitionId partitionId, long commit) {
+        removeExpiredOfRemovedPartitions();
         find(partitionId).commit(commit);
     }
 
@@ -134,7 +153,12 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     @Override
     public void release(Acquisition acquisition) {
-        find(acquisition.partitionId()).release(acquisition.id());
+        removeExpiredOfRemovedPartitions();
+        PartitionStorage2 storage = partitions.get(acquisition.partitionId());
+        // A finished partition has no valid acquisitions: the release does nothing.
+        if (storage != null && storage.release(acquisition.id())) {
+            finish(acquisition.partitionId(), storage);
+        }
     }
 
     @Override
@@ -175,10 +199,13 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     /**
      * Acquires the version that the selection chooses from the catalog. If a commit makes
      * the version leave the window before the acquisition, it chooses again from the new
-     * catalog. Fails with VersionNotAvailableException if the selection finds no version.
+     * catalog. Fails with VersionNotAvailableException if the selection finds no version,
+     * and with IllegalStateException if the partition is marked as removed, also during
+     * the acquisition.
      */
     private Acquisition acquire(PartitionId partitionId, AcquireOptions options,
             Function<VersionCatalog2, StorageVersion2> selection, String notAvailable) {
+        removeExpiredOfRemovedPartitions();
         PartitionStorage2 storage = find(partitionId);
         while (true) {
             StorageVersion2 version = selection.apply(storage.catalog());
@@ -189,16 +216,26 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             if (acquisitionId != PartitionStorage2.NOT_ACQUIRED) {
                 return new Acquisition(partitionId, acquisitionId, version.commit());
             }
+            // The mark closes the window: the version left it, and no other version
+            // can be acquired.
+            if (storage.isRemoved()) {
+                throw removedPartition(partitionId);
+            }
         }
     }
 
     /**
      * Runs a query on the version of the acquisition. The query keeps the version until
      * it ends, and then gives it back, also if it fails. The commit in the acquisition
-     * must be the one of the version.
+     * must be the one of the version. The partition can be marked as removed.
      */
     private <T> T query(Acquisition acquisition, Function<StorageVersion2, T> query) {
-        PartitionStorage2 storage = find(acquisition.partitionId());
+        PartitionStorage2 storage = partitions.get(acquisition.partitionId());
+        if (storage == null) {
+            // A finished partition has no valid acquisitions. Partition IDs are never used
+            // again, so the node cannot tell an unknown partition from a finished one.
+            throw new IllegalStateException("Acquisition was released or is expired: " + acquisition);
+        }
         StorageVersion2 version = storage.admit(acquisition.id());
         try {
             if (version.commit() != acquisition.commit()) {
@@ -206,16 +243,69 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             }
             return query.apply(version);
         } finally {
-            storage.endQuery(version);
+            if (storage.endQuery(version)) {
+                finish(acquisition.partitionId(), storage);
+            }
         }
     }
 
-    /** Returns the storage of a partition. Package-private for the tests. */
+    /** Marks a partition as removed, and removes it at once if it is already finished. */
+    private void markRemoved(PartitionId partitionId, PartitionStorage2 storage) {
+        // Added before the mark, so a thread that finishes the partition after the
+        // mark always finds it here.
+        removedPartitions.put(partitionId, storage);
+        if (storage.markRemoved()) {
+            finish(partitionId, storage);
+        }
+    }
+
+    /**
+     * Removes a finished partition from the node: its last version ended. The storage
+     * says it once, so only one thread calls this for a partition.
+     */
+    private void finish(PartitionId partitionId, PartitionStorage2 storage) {
+        partitions.remove(partitionId, storage);
+        removedPartitions.remove(partitionId, storage);
+    }
+
+    /**
+     * Removes the expired acquisitions of the partitions marked as removed, which can
+     * finish them. Those partitions have no events of their own, so the node calls this
+     * at each of its events.
+     */
+    private void removeExpiredOfRemovedPartitions() {
+        for (Map.Entry<PartitionId, PartitionStorage2> e : removedPartitions.entrySet()) {
+            if (e.getValue().removeExpired()) {
+                finish(e.getKey(), e.getValue());
+            }
+        }
+    }
+
+    /**
+     * Returns the storage of a partition for its writer or for a new acquisition. Fails
+     * with IllegalArgumentException if the partition is unknown, and with
+     * IllegalStateException if it is marked as removed. Package-private for the tests.
+     */
     PartitionStorage2 find(PartitionId partitionId) {
         PartitionStorage2 storage = partitions.get(partitionId);
         if (storage == null) {
             throw new IllegalArgumentException("Unknown partition: " + partitionId);
         }
+        if (storage.isRemoved()) {
+            throw removedPartition(partitionId);
+        }
         return storage;
+    }
+
+    /**
+     * Returns true if the node still has the partition, also if it is marked as removed
+     * and not yet finished. For the tests.
+     */
+    boolean hasPartition(PartitionId partitionId) {
+        return partitions.containsKey(partitionId);
+    }
+
+    private static IllegalStateException removedPartition(PartitionId partitionId) {
+        return new IllegalStateException("Partition was removed: " + partitionId);
     }
 }

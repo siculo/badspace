@@ -379,6 +379,64 @@ class PartitionStorage2Test {
     }
 
     @Test
+    void markOfRemovalEndsTheVersionsWithoutUses() {
+        PartitionStorage2 kept = new PartitionStorage2(IndexConfig.linearScan(), 2);
+        kept.commit(1);
+        kept.commit(2);
+        assertTrue(kept.markRemoved());
+        assertTrue(kept.isRemoved());
+        assertEquals(0, kept.liveVersionCount());
+    }
+
+    @Test
+    void acquisitionMadeBeforeTheMarkKeepsThePartitionUntilItsRelease() {
+        StorageVersion2 version = storage.commit(1);
+        long acquisitionId = storage.acquire(version);
+        assertFalse(storage.markRemoved());
+        // The mark closes the window.
+        assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(version));
+        assertFalse(storage.endQuery(storage.admit(acquisitionId)));
+        assertEquals(1, storage.liveVersionCount());
+        assertTrue(storage.release(acquisitionId));
+        assertEquals(0, storage.liveVersionCount());
+        // A release again does not finish it twice.
+        assertFalse(storage.release(acquisitionId));
+    }
+
+    @Test
+    void endOfTheLastQueryFinishesAMarkedPartition() {
+        long acquisitionId = storage.acquire(storage.commit(1));
+        StorageVersion2 queried = storage.admit(acquisitionId);
+        assertFalse(storage.markRemoved());
+        assertFalse(storage.release(acquisitionId));
+        assertTrue(storage.endQuery(queried));
+        assertEquals(0, storage.liveVersionCount());
+    }
+
+    @Test
+    void expiryFoundAfterTheMarkFinishesThePartition() {
+        FakeClock clock = new FakeClock();
+        PartitionStorage2 timed = new PartitionStorage2(IndexConfig.linearScan(), 0, clock);
+        long acquisitionId = timed.acquire(timed.commit(1), AcquireOptions.timeout(TIMEOUT));
+        assertFalse(timed.markRemoved());
+        assertFalse(timed.removeExpired());
+        clock.advance(TIMEOUT);
+        assertTrue(timed.removeExpired());
+        assertFalse(timed.removeExpired());
+        assertThrows(IllegalStateException.class, () -> timed.admit(acquisitionId));
+    }
+
+    @Test
+    void eventsBeforeTheMarkDoNotFinishThePartition() {
+        StorageVersion2 version = storage.commit(1);
+        long acquisitionId = storage.acquire(version);
+        storage.commit(2);
+        assertFalse(storage.release(acquisitionId));
+        assertTrue(version.uses().isEnded());
+        assertEquals(1, storage.liveVersionCount());
+    }
+
+    @Test
     void versionOutOfTheWindowIsNotAcquiredAgain() {
         StorageVersion2 version = storage.commit(1);
         long kept = storage.acquire(version);

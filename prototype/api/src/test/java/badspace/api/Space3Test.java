@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
 class Space3Test {
@@ -225,11 +226,41 @@ class Space3Test {
         }
     }
 
-    // Short drift limit, so the constructor waits only a little
+    // Short drift limit, so the constructors wait only a little. The two generators make
+    // different kinds of ID, so they can have the same generator ID.
     private static final SnowflakeIdGenerator IDS = new SnowflakeIdGenerator(0, 10);
+    private static final SnowflakeIdGenerator PARTITION_IDS = new SnowflakeIdGenerator(0, 10);
+    private static final SpaceConfig CONFIG = SpaceConfig.of(IDS, PARTITION_IDS);
 
     private static Space3 newSpace() {
-        return new Space3(IDS);
+        return new Space3(CONFIG);
+    }
+
+    @Test
+    void partitionIdsComeFromTheirOwnGenerator() {
+        AtomicLong lastPartitionId = new AtomicLong(100);
+        Space3 space = new Space3(CONFIG.withPartitionIds(lastPartitionId::incrementAndGet));
+        MapNode node = new MapNode();
+        space.createPartition(node);
+        space.createPartition(node);
+        assertEquals(Set.of(new PartitionId(101), new PartitionId(102)), node.partitions.keySet());
+    }
+
+    @Test
+    void spacesThatShareTheGeneratorsGiveDifferentPartitionIds() {
+        MapNode node = new MapNode();
+        new Space3(CONFIG).createPartition(node);
+        new Space3(CONFIG).createPartition(node);
+        assertEquals(2, node.partitions.size());
+    }
+
+    @Test
+    void spaceConfigRejectsNull() {
+        assertThrows(NullPointerException.class, () -> SpaceConfig.of(null, PARTITION_IDS));
+        assertThrows(NullPointerException.class, () -> SpaceConfig.of(IDS, null));
+        assertThrows(NullPointerException.class, () -> CONFIG.withEntityIds(null));
+        assertThrows(NullPointerException.class, () -> CONFIG.withPartitionIds(null));
+        assertThrows(NullPointerException.class, () -> new Space3(null));
     }
 
     @Test

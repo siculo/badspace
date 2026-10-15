@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del commit (`commit(n)` con un numero scelto dal software, strettamente crescente) e delle letture dei reader (acquisizione con scadenza obbligatoria, lettura e rilascio delle versioni conservate), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T10:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T14:00:00Z }
 ---
 
 # Stato
@@ -181,7 +181,14 @@ configurazione dell'indice (`IndexConfig`, scansione lineare se manca)
 e k (0 se manca), e fallisce con `IllegalArgumentException` se k è
 negativo o se l'ID è ancora presente sul nodo, anche con la partizione
 segnata come rimossa; la rimozione ha due operazioni, una per le partizioni vuote e
-una che scarta anche le entità. L'API passa al nodo l'indice e k della
+una che scarta anche le entità. Le due operazioni segnano la partizione
+come rimossa: dopo il segno scritture, commit, letture del writer e
+nuove acquisizioni falliscono con `IllegalStateException`, e il nodo
+toglie la partizione quando le sue versioni non hanno più utilizzi
+(vedi [Rimozione della
+partizione](/architecture/version-retention.md#rimozione-della-partizione));
+dopo, l'ID è sconosciuto e le operazioni falliscono con
+`IllegalArgumentException`. L'API passa al nodo l'indice e k della
 configurazione. Il nodo passa k al catalogo delle versioni della
 partizione, che tiene le ultime k + 1 versioni pubblicate (vedi
 [Conservazione delle versioni](/architecture/version-retention.md#nel-prototipo)).
@@ -288,12 +295,14 @@ e attraverso gRPC.
 | Lettura attraverso un'acquisizione rilasciata o scaduta | `IllegalStateException`, con lo stesso messaggio nei due casi: dopo l'eliminazione di un'acquisizione scaduta il nodo non sa più se era stata rilasciata |
 | Acquisizione su una partizione rimossa | `IllegalStateException` |
 | Rilascio o lettura con un identificatore mai emesso o di un'altra partizione, nel contratto del nodo | `IllegalArgumentException`; le altre acquisizioni non cambiano |
+| Lettura con un identificatore di una partizione che il nodo non ha, nel contratto del nodo | `IllegalStateException`, come per un'acquisizione rilasciata; il rilascio non fa niente. Gli ID delle partizioni non si riusano, quindi il nodo non distingue una partizione mai esistita da una già tolta |
 | Lettura con un identificatore il cui commit non è quello della versione acquisita, nel contratto del nodo | `IllegalArgumentException` |
 
 Scelte di dettaglio:
 
 - **Rilascio ripetuto**: il secondo rilascio della stessa acquisizione,
-  o il rilascio dopo la scadenza, non fa niente.
+  il rilascio dopo la scadenza o dopo la rimozione della partizione non
+  fa niente, quindi `close()` della view non fallisce mai.
 - **Scadenza controllata dal nodo**: il record `Acquisition` non porta
   la scadenza e la view dell'API non la controlla. La scadenza è
   misurata con il clock del nodo, che in un altro processo non vale, e

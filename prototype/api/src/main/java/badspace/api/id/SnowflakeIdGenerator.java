@@ -4,8 +4,10 @@ import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;
 
 /**
- * Generates unique 64-bit entity IDs in Snowflake style.
- * Two generators with the same generator ID can create the same IDs.
+ * Generates unique 64-bit IDs in Snowflake style.
+ * Two generators with the same generator ID can create the same IDs: for the same
+ * kind of ID they need different generator IDs, while the generators of entity IDs
+ * and of partition IDs can share one.
  * The IDs of a generator are increasing, but {@link IdGenerator} does not promise it.
  *
  * <p>Layout of an ID, from the highest bit:

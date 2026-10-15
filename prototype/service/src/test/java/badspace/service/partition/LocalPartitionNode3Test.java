@@ -4,8 +4,10 @@ import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.AcquireOptions.timeout;
 import static badspace.common.partition.Entity3.entity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.common.geometry.Box3;
 import badspace.common.partition.AcquireOptions;
@@ -513,13 +515,85 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void removedPartitionIsGoneAndItsIdCanBeUsedAgain() {
+    void removedPartitionWithoutAcquisitionsIsGoneAtOnce() {
         node.commit(P1, 3);
         node.removePartition(P1);
+        assertFalse(node.hasPartition(P1));
         assertThrows(IllegalArgumentException.class, () -> node.size(P1));
-        node.createPartition(P1);
-        assertEquals(0, node.size(P1));
-        assertEquals(0, node.lastCommit(P1));
+    }
+
+    @Test
+    void markedPartitionRejectsWritesCommitsAndNewAcquisitions() {
+        Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
+        node.dropPartition(P1);
+        assertTrue(node.hasPartition(P1));
+        assertThrows(IllegalStateException.class, () -> node.insertAll(P1, List.of(entity(1, 1, 1, 1))));
+        assertThrows(IllegalStateException.class, () -> node.commit(P1, 1));
+        assertThrows(IllegalStateException.class, () -> node.size(P1));
+        assertThrows(IllegalStateException.class, () -> node.lastCommit(P1));
+        assertThrows(IllegalStateException.class, () -> node.acquireLatest(P1, defaultTimeout()));
+        assertThrows(IllegalStateException.class, () -> node.acquireExact(P1, 0, defaultTimeout()));
+        assertThrows(IllegalStateException.class, () -> node.removePartition(P1));
+        assertThrows(IllegalStateException.class, () -> node.dropPartition(P1));
+        assertEquals(0, node.size(acquisition));
+    }
+
+    @Test
+    void acquisitionStaysReadableAfterTheRemovalUntilItsRelease() {
+        node.insertAll(P1, List.of(entity(1, 1, 1, 1)));
+        node.commit(P1, 1);
+        Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
+        node.dropPartition(P1);
+        assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(acquisition, new long[] {1}));
+        node.release(acquisition);
+        assertFalse(node.hasPartition(P1));
+        assertThrows(IllegalStateException.class, () -> node.size(acquisition));
+        // A release after the removal does nothing, like the close of the view.
+        node.release(acquisition);
+    }
+
+    @Test
+    void removalWaitsForTheLastAcquisition() {
+        Acquisition first = node.acquireLatest(P1, defaultTimeout());
+        Acquisition second = node.acquireLatest(P1, defaultTimeout());
+        node.removePartition(P1);
+        node.release(first);
+        assertTrue(node.hasPartition(P1));
+        assertEquals(0, node.size(second));
+        node.release(second);
+        assertFalse(node.hasPartition(P1));
+    }
+
+    @Test
+    void markedPartitionKeepsItsIdUntilItIsRemoved() {
+        Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
+        node.removePartition(P1);
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1));
+        assertEquals(0, node.size(acquisition));
+    }
+
+    @Test
+    void expiryFoundByAnEventOfAnotherPartitionEndsTheRemoval() {
+        // A reader that dies without releasing: the timeout ends the removal anyway.
+        FakeClock clock = new FakeClock();
+        LocalPartitionNode3 timedNode = timedNode(clock);
+        timedNode.createPartition(P2);
+        Acquisition acquisition = timedNode.acquireLatest(P1, timeout(TIMEOUT));
+        timedNode.dropPartition(P1);
+        clock.advance(TIMEOUT);
+        // The expiry alone is not an event.
+        assertTrue(timedNode.hasPartition(P1));
+        timedNode.commit(P2, 1);
+        assertFalse(timedNode.hasPartition(P1));
+        assertThrows(IllegalStateException.class, () -> timedNode.size(acquisition));
+        timedNode.release(acquisition);
+    }
+
+    @Test
+    void acquisitionOfAnUnknownPartitionIsLikeAReleasedOne() {
+        Acquisition unknown = new Acquisition(P2, 1, 0);
+        node.release(unknown);
+        assertThrows(IllegalStateException.class, () -> node.size(unknown));
     }
 
     @Test

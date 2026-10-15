@@ -7,7 +7,8 @@ import java.util.List;
 /**
  * Contract of a node that hosts partitions of a 2-dimensional space.
  * A node can be in the same process as the API or in a remote process.
- * A node serves a single space, so partition IDs never collide on a node.
+ * A node serves a single space. The API generates the partition IDs, which are never
+ * used again: the node trusts them.
  * Write operations work on many entities in one call, to reduce the number of
  * remote calls. Each write is all or nothing: if it fails, the partition does not change.
  * <p>
@@ -22,6 +23,17 @@ import java.util.List;
  * a timeout ({@link AcquireOptions}): after it, the acquisition behaves like a
  * released one, and the node removes it without waiting for the reader. The
  * acquisitions, the reads through them and the release are thread-safe.
+ * <p>
+ * The removal of a partition has two steps. {@link #removePartition} and
+ * {@link #dropPartition} mark the partition as removed: after the mark, the writes, the
+ * commits, the reads of the writer and the new acquisitions fail with
+ * IllegalStateException, but the acquisitions made before stay readable until they are
+ * released or expire. When nobody uses its versions any more, the node removes the
+ * partition. Until then its ID stays in use on the node.
+ * <p>
+ * Partition IDs are never used again, so the node cannot tell an unknown partition from
+ * a removed one in an acquisition: the release does nothing and the reads fail with
+ * IllegalStateException, like for a released acquisition.
  */
 public interface PartitionNode2 {
 
@@ -47,12 +59,19 @@ public interface PartitionNode2 {
     void createPartition(PartitionId partitionId, IndexConfig index, int retainedPastVersions);
 
     /**
-     * Removes an empty partition. Fails with IllegalArgumentException if the ID is unknown,
-     * and with IllegalStateException if the partition still has entities.
+     * Removes an empty partition: marks it as removed, and the node removes it when its
+     * versions are no longer used. Fails with IllegalArgumentException if the ID is unknown,
+     * and with IllegalStateException if the partition still has entities or is already
+     * marked as removed.
      */
     void removePartition(PartitionId partitionId);
 
-    /** Removes a partition together with its entities. Fails with IllegalArgumentException if the ID is unknown. */
+    /**
+     * Removes a partition together with its entities: marks it as removed, and the node
+     * removes it when its versions are no longer used. Fails with IllegalArgumentException
+     * if the ID is unknown, and with IllegalStateException if the partition is already
+     * marked as removed.
+     */
     void dropPartition(PartitionId partitionId);
 
     /**
@@ -140,8 +159,9 @@ public interface PartitionNode2 {
 
     /**
      * Releases an acquisition: after this, its reads fail. Releasing it again, or
-     * after its timeout, does nothing. Fails with IllegalArgumentException if the partition never made the
-     * acquisition; the other acquisitions do not change.
+     * after its timeout, does nothing; also after the removal of the partition. Fails
+     * with IllegalArgumentException if the partition never made the acquisition; the
+     * other acquisitions do not change.
      */
     void release(Acquisition acquisition);
 

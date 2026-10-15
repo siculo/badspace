@@ -13,6 +13,7 @@ import badspace.api.id.IdGenerator;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.api.Space2;
 import badspace.api.Space3;
+import badspace.api.SpaceConfig;
 import badspace.common.geometry.Box2;
 import badspace.common.geometry.Circle2;
 import badspace.common.partition.IndexConfig;
@@ -23,17 +24,20 @@ import java.util.List;
 
 /**
  * Test client: creates a 2D and a 3D space with partitions on local nodes,
- * sharing one entity ID generator,
+ * sharing the generators of entity IDs and of partition IDs,
  * then inserts, reads, updates, queries, commits and removes entities, and at last removes partitions.
  */
 public class Main {
 
     public static void main(String[] args) {
-        // One generator for the whole process. The generator ID comes from the configuration.
+        // One generator for each kind of ID for the whole process. The generator ID comes from
+        // the configuration; the two kinds of ID can share it.
         long generatorId = Long.getLong("badspace.generatorId", 0);
         IdGenerator entityIds = new SnowflakeIdGenerator(generatorId);
+        IdGenerator partitionIds = new SnowflakeIdGenerator(generatorId);
+        SpaceConfig spaceConfig = SpaceConfig.of(entityIds, partitionIds);
 
-        Space2 space2 = new Space2(entityIds);
+        Space2 space2 = new Space2(spaceConfig);
         Partition2 p2a = space2.createPartition(new LocalPartitionNode2());
         Partition2 p2b = space2.createPartition(new LocalPartitionNode2());
         long a = p2a.insert(10.5, 3.0);
@@ -58,7 +62,7 @@ public class Main {
         p2a.commit(3);
         System.out.printf("2D: last commit of node A is %d%n", p2a.lastCommit());
 
-        Space3 space3 = new Space3(entityIds);
+        Space3 space3 = new Space3(spaceConfig);
         Partition3 p3 = space3.createPartition(new LocalPartitionNode3(),
                 new PartitionConfig(IndexConfig.uniformGrid(10), RemovalPolicy.DISCARD_ENTITIES,
                         RetentionWindow.DEFAULT_RETAINED_PAST_VERSIONS));
