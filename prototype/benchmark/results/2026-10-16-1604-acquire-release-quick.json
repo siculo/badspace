@@ -1,0 +1,176 @@
+[
+{
+        "commit" : "09439039b81d",
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.CommitBenchmark.acquireAndRelease",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "distribution" : "UNIFORM",
+            "index" : "LINEAR_SCAN",
+            "readers" : "0",
+            "size" : "1000"
+        },
+        "primaryMetric" : {
+            "score" : 0.12207447428427835,
+            "scoreError" : 0.00430689292650153,
+            "scoreConfidence" : [
+                0.11776758135777682,
+                0.1263813672107799
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.12191891627016062,
+                "50.0" : 0.12195839034585987,
+                "90.0" : 0.1223461162368146,
+                "95.0" : 0.1223461162368146,
+                "99.0" : 0.1223461162368146,
+                "99.9" : 0.1223461162368146,
+                "99.99" : 0.1223461162368146,
+                "99.999" : 0.1223461162368146,
+                "99.9999" : 0.1223461162368146,
+                "100.0" : 0.1223461162368146
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    0.12195839034585987,
+                    0.12191891627016062,
+                    0.1223461162368146
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "09439039b81d",
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.CommitBenchmark.acquireAndRelease",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "distribution" : "UNIFORM",
+            "index" : "LINEAR_SCAN",
+            "readers" : "2",
+            "size" : "1000"
+        },
+        "primaryMetric" : {
+            "score" : 0.18105471843692675,
+            "scoreError" : 7.211765844945861E-4,
+            "scoreConfidence" : [
+                0.18033354185243217,
+                0.18177589502142133
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.18101364946220835,
+                "50.0" : 0.18105800082181317,
+                "90.0" : 0.18109250502675872,
+                "95.0" : 0.18109250502675872,
+                "99.0" : 0.18109250502675872,
+                "99.9" : 0.18109250502675872,
+                "99.99" : 0.18109250502675872,
+                "99.999" : 0.18109250502675872,
+                "99.9999" : 0.18109250502675872,
+                "100.0" : 0.18109250502675872
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    0.18105800082181317,
+                    0.18101364946220835,
+                    0.18109250502675872
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "09439039b81d",
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.CommitBenchmark.acquireAndRelease",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "distribution" : "UNIFORM",
+            "index" : "LINEAR_SCAN",
+            "readers" : "4",
+            "size" : "1000"
+        },
+        "primaryMetric" : {
+            "score" : 0.25109966805471723,
+            "scoreError" : 0.009808590189404033,
+            "scoreConfidence" : [
+                0.2412910778653132,
+                0.2609082582441213
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.2506212801522437,
+                "50.0" : 0.25099619948751045,
+                "90.0" : 0.25168152452439757,
+                "95.0" : 0.25168152452439757,
+                "99.0" : 0.25168152452439757,
+                "99.9" : 0.25168152452439757,
+                "99.99" : 0.25168152452439757,
+                "99.999" : 0.25168152452439757,
+                "99.9999" : 0.25168152452439757,
+                "100.0" : 0.25168152452439757
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    0.2506212801522437,
+                    0.25099619948751045,
+                    0.25168152452439757
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    }
+]
