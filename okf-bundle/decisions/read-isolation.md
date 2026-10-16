@@ -301,9 +301,10 @@ esattamente lo snapshot del tick N.
   tick nella finestra, uno per commit, quello preparato nel tick
   corrente e quelli usciti dalla finestra ma ancora acquisiti), più i nodi dell'indice non condivisi.
 
-Per 1 000 000 di entità gli slot sono circa 24 MB in 2D e 32 MB in 3D;
-la copia completa costa qualche ms, da misurare, su un tick di circa
-16 ms. È un **caso limite**, utile per spingere le ottimizzazioni e
+Per 1 000 000 di entità gli slot sono circa 24 MB in 2D e 32 MB in 3D,
+su un tick di circa 16 ms. Le misure (sotto) danno circa 30–90 µs per
+la copia di tutte le coordinate di 100 000 entità in 2D; per 1 000 000
+la stima lineare, non misurata, è sotto il millisecondo. È un **caso limite**, utile per spingere le ottimizzazioni e
 vedere fin dove si arriva: in un uso realistico un numero così alto di
 entità si divide su più [partizioni](/decisions/partitioning.md), e il
 costo per partizione scende di conseguenza. Il totale da tenere
@@ -322,14 +323,58 @@ un'acquisizione con il suo rilascio. I parametri sono la frazione di
 entità in movimento e il numero di reader su altri thread, che tengono
 vivi degli snapshot e competono con il writer; il piano
 `plans/commit-cost.json` li combina con tre indici, due distribuzioni e
-due dimensioni. I risultati sulla macchina dedicata ai benchmark sono
-ancora da prendere.
+due dimensioni.
+
+Risultati del 2026-10-16 sulla macchina dedicata, profilo rapido,
+commit `0943903` (`prototype/benchmark/results/2026-10-16-1604-*`), con
+100 000 entità e senza reader. Il costo del commit è la differenza tra
+il tick e gli stessi spostamenti senza commit:
+
+| Entità in movimento | Scansione lineare (solo slot) | Grid uniforme 100 | Griglia di quadtree 128 |
+|---|---|---|---|
+| nessuna | 0,12 µs | 0,12 µs | 0,12 µs |
+| 1% | 24–25 µs (tick 2,6–2,8 volte gli spostamenti) | 52–68 µs | 74–96 µs (1,5–1,7 volte) |
+| 10% | 26–36 µs (1,1–1,15 volte) | 140–240 µs (1,3–1,45 volte) | 390–450 µs (1,25 volte) |
+| 100% | 76–86 µs (1,03 volte) | 0,2–1,7 ms, molto rumoroso | 4,2–4,8 ms (1,2–1,3 volte) |
+
+- **Senza movimenti il commit non costa niente**, circa 0,12 µs con
+  qualsiasi dimensione: lo snapshot condivide coordinate, ID e indice
+  con quello precedente. Le partizioni di entità statiche non pagano
+  gli snapshot.
+- **La copia degli slot è piccola.** Con il 10% di entità in movimento
+  pesa circa 3 ns per entità mossa e il 10–15% del tick; con tutte in
+  movimento il 3%.
+- **Con poche entità sparse le pagine servono meno.** Con l'1% di
+  entità in movimento, prese a caso negli slot, cambia circa metà delle
+  pagine da 64 slot, quindi la copia costa quasi come quella completa.
+  In valore assoluto resta piccola (circa 25 µs su 100 000 entità), ma
+  supera il costo degli spostamenti.
+- **Negli indici ad albero pesa la copia dei nodi.** Con il 10% di
+  entità in movimento la griglia di quadtree paga circa 40–45 ns per
+  entità mossa, la grid uniforme 14–24, contro i circa 3 degli slot:
+  il costo degli snapshot di un indice ad albero viene quasi tutto dai
+  nodi, e aggiunge circa il 20–25% al tick.
+- **I reader concorrenti cambiano poco**: con 2 reader le differenze
+  restano quasi sempre dentro l'errore della misura, tranne i commit
+  sotto il µs delle partizioni da 1000 entità.
+- **Acquisizione e rilascio** costano 0,12 µs, 0,18 µs con 2 reader e
+  0,25 µs con 4, per la contesa sui contatori condivisi.
+
+Il profilo rapido ha poche iterazioni: diverse misure con tutte le
+entità in movimento o con i reader hanno un errore grande quanto il
+valore, quindi valgono solo le tendenze grandi. Per numeri da
+conservare serve il profilo completo.
 
 # Punti aperti
 
-- Misurare nel prototipo il costo della copia degli slot e della copia
-  dei nodi dell'indice per commit, con diverse frazioni di entità in
-  movimento.
+- Pagine con poche entità in movimento sparse negli slot: pagine più
+  piccole, oppure le entità in movimento raccolte in slot vicini (per
+  esempio separando entità statiche e dinamiche, vedi [entità statiche
+  e dinamiche](/decisions/static-vs-dynamic-entities.md)). Le misure
+  dicono che il costo assoluto è piccolo, quindi non è urgente.
+- Copia dei nodi negli indici ad albero: è la parte più grande del
+  costo degli snapshot della griglia di quadtree (vedi le misure in
+  [Costi](#costi)); da rivedere con le ottimizzazioni degli indici.
 - Mappa ID → slot: nel prototipo tabella copiata; da rivedere con le
   misure se la copia pesa con molte entità e inserimenti o rimozioni a
   ogni commit (alternativa HAMT).

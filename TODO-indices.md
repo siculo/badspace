@@ -56,6 +56,7 @@ Documenti: [Indici spaziali](okf-bundle/indices/index.md), [Indicizzazione spazi
 - [x] Misure di riferimento con il profilo completo (2026-10-04, piano `plans/index-comparison-full.json`) → [Griglia di quadtree](okf-bundle/indices/grid-quadtree.md#benchmark)
 - [ ] Dopo le ottimizzazioni delle range query: rifare il profilo completo di tutti gli indici, con il nuovo riferimento → [Scansione lineare](okf-bundle/indices/linear-scan.md#problematiche)
 - [ ] Benchmark relativi tra strutture di indice
+- [ ] Benchmark degli indici ripetuti con un commit a ogni tick, cioè con le copie dei nodi degli snapshot copy-on-write: oggi solo `CommitBenchmark` fa commit, gli altri benchmark modificano i nodi sul posto → [Costi](okf-bundle/decisions/read-isolation.md#costi)
 
 ## Decisioni da prendere
 

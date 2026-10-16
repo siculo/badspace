@@ -346,6 +346,14 @@ possono aggiornare in un tick, dati i tick al secondo, è nella
   (`removed` e `relocated`). Possibile ottimizzazione: un `leafOf`
   privato del writer valido per le foglie del commit corrente, che però
   richiede di nuovo la risalita per i contatori.
+- **Copie per commit:** misure rapide del 2026-10-16 (piano
+  `plans/commit-cost.json`, commit `0943903`), con un commit a ogni
+  tick: con 100 000 entità e il 10% in movimento il commit costa circa
+  390–450 µs, cioè 40–45 ns per entità mossa, contro i 3 della
+  scansione lineare, che copia solo gli slot; con tutte in movimento
+  4,2–4,8 ms, il 20–30% del tick. Quasi tutto viene dalla copia dei
+  nodi condivisi con lo snapshot pubblicato (vedi
+  [costi](/decisions/read-isolation.md#costi)).
 
 # Correlati
 
