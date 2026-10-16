@@ -31,7 +31,7 @@ final class StorageSnapshot3 {
 
     /** Returns the empty snapshot of a new partition, before the first commit. */
     static StorageSnapshot3 empty() {
-        SlotSnapshot3 slots = new SlotSnapshot3(new long[0], new double[0], new SlotTable());
+        SlotSnapshot3 slots = new SlotSnapshot3(new long[0], new CoordinateBuffer(0), new SlotTable());
         return new StorageSnapshot3(slots, IndexSnapshot3.empty());
     }
 

@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
@@ -43,12 +43,18 @@ import java.util.function.Function;
  * IDs and the table from ID to slot only after insertions or removals, else
  * the new snapshot shares them with the one before.
  * <p>
- * The coordinates of a snapshot are in a buffer from a pool of the storage. When the
- * snapshot ends, its buffer goes back to the pool, and a later commit copies into it
- * instead of allocating a new array. The snapshot of a commit that a later commit in the
- * same tick replaces gives back its buffer at once, because no reader ever saw it. If the
- * pool has no buffer large enough, the commit allocates one: the writer never waits for
- * a reader, only the memory grows. The destruction of the partition empties the pool.
+ * The coordinates of a snapshot are in a {@link CoordinateBuffer} from a pool of the
+ * storage. The slots are grouped in pages of PAGE_SLOTS slots, and the writer keeps for each
+ * page the commit of its last change. A buffer knows the commit of the state it holds, so a
+ * commit that takes it again copies only the pages changed after that commit; a new buffer
+ * gets all the pages. A commit without changes of the coordinates copies nothing: its
+ * snapshot shares the buffer of the snapshot before it, as with the IDs. When the last
+ * snapshot that uses a buffer ends, the buffer goes back to the pool; the snapshot of a
+ * commit that a later commit in the same tick replaces gives it back at once, because no
+ * reader ever saw it. The pool gives first the buffer that came back last, which usually
+ * has the most recent state. If the pool has no buffer large enough, the commit allocates
+ * one: the writer never waits for a reader, only the memory grows. The destruction of the
+ * partition empties the pool.
  * <p>
  * Each commit advances an internal sequence for the copy-on-write of the index.
  * This sequence is separate from the logical tick: one tick can have many commits.
@@ -98,6 +104,8 @@ final class PartitionStorage3 implements SlotView3 {
 
     private static final int DIMENSIONS = 3;
     private static final int INITIAL_CAPACITY = 16;
+    /** The slots in a page: a commit copies the coordinates of a changed page as a whole. */
+    static final int PAGE_SLOTS = 64;
     /** The value that {@code acquire} returns when the snapshot left the window. */
     static final long NOT_ACQUIRED = 0;
 
@@ -135,16 +143,23 @@ final class PartitionStorage3 implements SlotView3 {
     // always in the window until the removal is effective, so the count reaches 0 only
     // after that, and only once.
     private final AtomicInteger liveSnapshots = new AtomicInteger();
-    // The coordinate buffers of the ended snapshots, ready for the next commits. The thread
-    // that ends a snapshot, any thread, adds its buffer; the writer takes one at each commit.
-    // The queue does not block, so the writer never waits for that thread.
-    private final ConcurrentLinkedQueue<double[]> coordinateBuffers;
+    // The coordinate buffers that no snapshot uses, ready for the next commits. The thread
+    // that ends the last snapshot of a buffer, any thread, adds it at the head; the writer
+    // takes from the head. The deque does not block, so the writer never waits for that thread.
+    private final ConcurrentLinkedDeque<CoordinateBuffer> coordinateBuffers;
+    // For each page of slots, the commit sequence of the commit that confirms its last change:
+    // page p has the slots from p * PAGE_SLOTS. Only the writer uses it.
+    private long[] pageChanges = new long[pageCount(INITIAL_CAPACITY)];
+    // The pages that the commits copied into a buffer since the creation. Only the writer uses it.
+    private long copiedPages;
     // The state of the removal. Written while holding writerLock: by the request of removal,
     // by the move of the tick that makes it effective, and by the end of the last snapshot
     // (which needs no lock: nothing else changes the state after RETIRED). Read by any thread.
     private volatile PartitionState state = PartitionState.ACTIVE;
     /** True after an insertion or a removal not yet in a snapshot. */
     private boolean idsChanged;
+    /** True after a change of the coordinates not yet in a snapshot. */
+    private boolean coordinatesChanged;
     private final CoordinateLimits limits;
     private final SpatialIndex3 index;
     private final MonotonicClock clock;
@@ -218,7 +233,7 @@ final class PartitionStorage3 implements SlotView3 {
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
             int retainedTicks, MonotonicClock clock, long creationTick) {
         this(limits, indexFactory, retainedTicks, clock, creationTick, new ReentrantLock(),
-                new ConcurrentLinkedQueue<>());
+                new ConcurrentLinkedDeque<>());
     }
 
     /**
@@ -229,7 +244,7 @@ final class PartitionStorage3 implements SlotView3 {
      */
     PartitionStorage3(CoordinateLimits limits, Function<SlotView3, SpatialIndex3> indexFactory,
             int retainedTicks, MonotonicClock clock, long creationTick, ReentrantLock writerLock,
-            ConcurrentLinkedQueue<double[]> coordinateBuffers) {
+            ConcurrentLinkedDeque<CoordinateBuffer> coordinateBuffers) {
         this.writerLock = writerLock;
         this.coordinateBuffers = coordinateBuffers;
         this.clock = clock;
@@ -349,21 +364,35 @@ final class PartitionStorage3 implements SlotView3 {
     /**
      * Confirms the writes in the current tick and returns the snapshot of the commit. The next
      * move of the tick publishes it, unless a later commit in the same tick replaces it: then
-     * its buffer goes back to the pool, and the returned snapshot must not be read any more.
+     * the returned snapshot must not be read any more, because its buffer can go to a later
+     * commit.
      * It also removes the expired acquisitions. Only the writer can call it.
      */
     StorageSnapshot3 commit() {
         StorageSnapshot3 snapshot;
         writerLock.lock();
         try {
-            if (pending != null) {
-                // Replaced before the move of the tick: no reader ever saw it. Its IDs can
-                // still go to the new snapshot, but not its coordinates.
-                recycle(pending);
-            }
             commitSequence++;
-            snapshot = new StorageSnapshot3(slotSnapshot(), index.commit(commitSequence));
+            // Replaced before the move of the tick, if not null: no reader ever saw it.
+            StorageSnapshot3 replaced = pending;
+            CoordinateBuffer coordinates;
+            if (coordinatesChanged) {
+                if (replaced != null) {
+                    // Its buffer can go to this commit, with only the pages changed since.
+                    recycle(replaced);
+                    replaced = null;
+                }
+                coordinates = copyChangedPages(coordinateBuffer(size * DIMENSIONS));
+            } else {
+                coordinates = lastCommitted.slots().coordinateBuffer();
+            }
+            snapshot = new StorageSnapshot3(slotSnapshot(coordinates), index.commit(commitSequence));
+            if (replaced != null) {
+                // After the new snapshot became a user of the shared buffer.
+                recycle(replaced);
+            }
             idsChanged = false;
+            coordinatesChanged = false;
             lastCommitted = snapshot;
             pending = snapshot;
         } finally {
@@ -569,6 +598,15 @@ final class PartitionStorage3 implements SlotView3 {
         return coordinateBuffers.size();
     }
 
+    /**
+     * Returns the number of pages that the commits copied into the coordinate buffers since
+     * the creation. For inspection and monitoring: it shows how much the commits copy. Only
+     * the writer can call it.
+     */
+    long copiedPageCount() {
+        return copiedPages;
+    }
+
     @Override
     public long idAt(int slot) {
         return slotEntityIds[slot];
@@ -580,14 +618,34 @@ final class PartitionStorage3 implements SlotView3 {
         return new Point3(coords[base], coords[base + 1], coords[base + 2]);
     }
 
-    private SlotSnapshot3 slotSnapshot() {
-        double[] coordsCopy = coordinateBuffer(size * DIMENSIONS);
-        System.arraycopy(coords, 0, coordsCopy, 0, size * DIMENSIONS);
+    private SlotSnapshot3 slotSnapshot(CoordinateBuffer coordinates) {
         if (!idsChanged) {
             SlotSnapshot3 last = lastCommitted.slots();
-            return last.withCoordinates(coordsCopy);
+            return last.withCoordinates(coordinates);
         }
-        return new SlotSnapshot3(Arrays.copyOf(slotEntityIds, size), coordsCopy, slotById.copy());
+        return new SlotSnapshot3(Arrays.copyOf(slotEntityIds, size), coordinates, slotById.copy());
+    }
+
+    /**
+     * Copies into the buffer the pages of slots changed after the commit of the state it
+     * holds, and records that it holds the current commit. A new buffer holds no commit, so
+     * it gets all the pages. The slots that the buffer did not have were inserted after its
+     * commit, so their pages are changed too.
+     */
+    private CoordinateBuffer copyChangedPages(CoordinateBuffer buffer) {
+        double[] values = buffer.values();
+        long held = buffer.commitSequence();
+        int pages = pageCount(size);
+        for (int page = 0; page < pages; page++) {
+            if (pageChanges[page] > held) {
+                int from = page * PAGE_SLOTS * DIMENSIONS;
+                int length = (Math.min(size, (page + 1) * PAGE_SLOTS) - page * PAGE_SLOTS) * DIMENSIONS;
+                System.arraycopy(coords, from, values, from, length);
+                copiedPages++;
+            }
+        }
+        buffer.holdCommit(commitSequence);
+        return buffer;
     }
 
     /**
@@ -595,25 +653,26 @@ final class PartitionStorage3 implements SlotView3 {
      * large as the coordinates of the writer if the pool has none large enough. The buffers
      * that are too small are dropped: the partition has more entities than when they were made.
      */
-    private double[] coordinateBuffer(int length) {
-        double[] buffer;
-        while ((buffer = coordinateBuffers.poll()) != null) {
-            if (buffer.length >= length) {
+    private CoordinateBuffer coordinateBuffer(int length) {
+        CoordinateBuffer buffer;
+        while ((buffer = coordinateBuffers.pollFirst()) != null) {
+            if (buffer.values().length >= length) {
                 return buffer;
             }
         }
-        return new double[coords.length];
+        return new CoordinateBuffer(coords.length);
     }
 
     /**
-     * Puts the coordinate buffer of a snapshot back in the pool. The snapshot ended, or was
-     * replaced before its publication, so no reader uses it and nobody can ask for it again.
-     * The empty buffer of the empty snapshot is not kept.
+     * Removes the snapshot from the users of its coordinate buffer, and puts the buffer back
+     * in the pool if no other snapshot uses it. The snapshot ended, or was replaced before its
+     * publication, so no reader uses it and nobody can ask for it again. The empty buffer of
+     * the empty snapshot is not kept.
      */
     private void recycle(StorageSnapshot3 snapshot) {
-        double[] buffer = snapshot.slots().coordinates();
-        if (buffer.length > 0) {
-            coordinateBuffers.add(buffer);
+        CoordinateBuffer buffer = snapshot.slots().coordinateBuffer();
+        if (buffer.removeUser() && buffer.values().length > 0) {
+            coordinateBuffers.addFirst(buffer);
         }
     }
 
@@ -689,6 +748,7 @@ final class PartitionStorage3 implements SlotView3 {
         if (slot != last) {
             slotEntityIds[slot] = slotEntityIds[last];
             System.arraycopy(coords, last * DIMENSIONS, coords, slot * DIMENSIONS, DIMENSIONS);
+            changed(slot);
             slotById.put(slotEntityIds[slot], slot);
         }
         size--;
@@ -722,6 +782,7 @@ final class PartitionStorage3 implements SlotView3 {
     }
 
     private void write(int slot, Point3 p) {
+        changed(slot);
         int base = slot * DIMENSIONS;
         coords[base] = p.x();
         coords[base + 1] = p.y();
@@ -738,5 +799,17 @@ final class PartitionStorage3 implements SlotView3 {
         }
         slotEntityIds = Arrays.copyOf(slotEntityIds, capacity);
         coords = Arrays.copyOf(coords, capacity * DIMENSIONS);
+        pageChanges = Arrays.copyOf(pageChanges, pageCount(capacity));
+    }
+
+    /** Records that the coordinates of the slot change in the next commit. */
+    private void changed(int slot) {
+        pageChanges[slot / PAGE_SLOTS] = commitSequence + 1;
+        coordinatesChanged = true;
+    }
+
+    /** Returns the number of pages for the given number of slots. */
+    private static int pageCount(int slots) {
+        return (slots + PAGE_SLOTS - 1) / PAGE_SLOTS;
     }
 }

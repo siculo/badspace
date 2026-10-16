@@ -18,7 +18,10 @@ import badspace.common.geometry.Point2;
 import badspace.service.index.SpatialIndexes;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -48,6 +51,9 @@ class PartitionStorage2Test {
     private static final int RETAINED_TICKS = 3;
     /** How many times the race between the end of a snapshot and a commit runs. */
     private static final int RACE_ROUNDS = 500;
+    /** The steps and the seed of the test with random writes. */
+    private static final int RANDOM_STEPS = 3000;
+    private static final long RANDOM_SEED = 42;
 
     private PartitionStorage2 storage;
 
@@ -656,7 +662,7 @@ class PartitionStorage2Test {
 
         storage.updateAll(List.of(new Entity2(10, C)));
         StorageSnapshot2 third = storage.commit();
-        assertSame(first.slots().coordinates(), third.slots().coordinates());
+        assertSame(first.slots().coordinateBuffer(), third.slots().coordinateBuffer());
         assertEquals(0, storage.pooledBufferCount());
         storage.setTick(storage.tick() + 1);
         checkSnapshot(third, List.of(new Entity2(10, C)), "reused buffer");
@@ -673,8 +679,8 @@ class PartitionStorage2Test {
         StorageSnapshot2 third = retained.commit();
 
         assertEquals(0, retained.pooledBufferCount());
-        assertNotSame(first.slots().coordinates(), third.slots().coordinates());
-        assertNotSame(second.slots().coordinates(), third.slots().coordinates());
+        assertNotSame(first.slots().coordinateBuffer(), third.slots().coordinateBuffer());
+        assertNotSame(second.slots().coordinateBuffer(), third.slots().coordinateBuffer());
         checkSnapshot(first, List.of(new Entity2(10, A)), "first");
         checkSnapshot(second, List.of(new Entity2(10, B)), "second");
     }
@@ -693,10 +699,11 @@ class PartitionStorage2Test {
         storage.updateAll(List.of(new Entity2(10, C)));
         StorageSnapshot2 third = publish(storage);
 
-        assertNotSame(kept.slots().coordinates(), second.slots().coordinates());
-        assertNotSame(kept.slots().coordinates(), third.slots().coordinates());
+        assertNotSame(kept.slots().coordinateBuffer(), second.slots().coordinateBuffer());
+        assertNotSame(kept.slots().coordinateBuffer(), third.slots().coordinateBuffer());
         // The second snapshot ended when the third one was published: the next commit reuses it.
-        assertSame(second.slots().coordinates(), storage.commit().slots().coordinates());
+        storage.updateAll(List.of(new Entity2(10, D)));
+        assertSame(second.slots().coordinateBuffer(), storage.commit().slots().coordinateBuffer());
         checkSnapshot(kept, List.of(new Entity2(10, A)), "acquired");
 
         storage.release(acquisitionId);
@@ -716,7 +723,7 @@ class PartitionStorage2Test {
         storage.updateAll(List.of(new Entity2(10, C)));
         StorageSnapshot2 later = storage.commit();
 
-        assertNotSame(snapshot.slots().coordinates(), later.slots().coordinates());
+        assertNotSame(snapshot.slots().coordinateBuffer(), later.slots().coordinateBuffer());
         checkSnapshot(admitted, List.of(new Entity2(10, A)), "in a query");
         storage.endQuery(admitted);
         assertTrue(snapshot.uses().isEnded());
@@ -729,7 +736,7 @@ class PartitionStorage2Test {
         StorageSnapshot2 replaced = storage.commit();
         storage.updateAll(List.of(new Entity2(10, B)));
         StorageSnapshot2 last = storage.commit();
-        assertSame(replaced.slots().coordinates(), last.slots().coordinates());
+        assertSame(replaced.slots().coordinateBuffer(), last.slots().coordinateBuffer());
 
         storage.setTick(1);
         assertSame(last, storage.catalog().latest());
@@ -741,18 +748,19 @@ class PartitionStorage2Test {
     void bufferTooSmallForTheEntitiesIsDropped() {
         storage.insertAll(List.of(new Entity2(10, A)));
         StorageSnapshot2 small = publish(storage);
+        storage.updateAll(List.of(new Entity2(10, B)));
         publish(storage);
         assertEquals(1, storage.pooledBufferCount());
 
         // More entities than the capacity of the buffer of the first snapshot.
         List<Entity2> many = new ArrayList<>();
-        int count = small.slots().coordinates().length + 1;
+        int count = small.slots().coordinateBuffer().values().length + 1;
         for (int i = 0; i < count; i++) {
             many.add(new Entity2(100 + i, B));
         }
         storage.insertAll(many);
         StorageSnapshot2 large = storage.commit();
-        assertNotSame(small.slots().coordinates(), large.slots().coordinates());
+        assertNotSame(small.slots().coordinateBuffer(), large.slots().coordinateBuffer());
         assertEquals(0, storage.pooledBufferCount());
         assertEquals(count + 1, large.size());
     }
@@ -761,7 +769,9 @@ class PartitionStorage2Test {
     void destructionEmptiesThePool() {
         storage.insertAll(List.of(new Entity2(10, A)));
         publish(storage);
+        storage.updateAll(List.of(new Entity2(10, B)));
         publish(storage);
+        storage.updateAll(List.of(new Entity2(10, C)));
         publish(storage);
         assertEquals(1, storage.pooledBufferCount());
 
@@ -812,7 +822,7 @@ class PartitionStorage2Test {
                 throw new AssertionError("The reader failed", failure.get());
             }
             assertTrue(first.uses().isEnded());
-            boolean reused = committed.slots().coordinates() == first.slots().coordinates();
+            boolean reused = committed.slots().coordinateBuffer() == first.slots().coordinateBuffer();
             assertEquals(reused ? 0 : 1, raced.pooledBufferCount(), "round " + round);
             raced.setTick(raced.tick() + 1);
             checkSnapshot(committed, List.of(new Entity2(10, C)), "round " + round);
@@ -874,6 +884,145 @@ class PartitionStorage2Test {
         assertEquals(PartitionState.DESTROYED, retired.state());
         assertEquals(0, retired.liveSnapshotCount());
         assertEquals(0, retired.pooledBufferCount());
+    }
+
+    /**
+     * Random insertions, moves and removals, with one or more commits in a tick, ticks
+     * without commits and acquisitions kept for some ticks, so the buffers come back in
+     * any order and with any state. Each published snapshot, and each acquired one until
+     * its release, must have the state of its commit, which the test keeps in a map.
+     */
+    @Test
+    void snapshotsHaveTheStateOfTheirCommitAfterAnySequenceOfWrites() {
+        for (IndexConfig config : List.of(IndexConfig.linearScan(), IndexConfig.gridQuadtree(4))) {
+            PartitionStorage2 random = new PartitionStorage2(config, 2);
+            Random rnd = new Random(RANDOM_SEED);
+            Map<Long, Point2> written = new HashMap<>();
+            Map<Long, Point2> committed = Map.of();
+            Map<Long, Point2> published = Map.of();
+            List<HeldSnapshot2> held = new ArrayList<>();
+            long nextId = 1;
+            for (int step = 0; step < RANDOM_STEPS; step++) {
+                List<Long> ids = new ArrayList<>(written.keySet());
+                int operation = rnd.nextInt(10);
+                if (operation < 3 || ids.isEmpty()) {
+                    List<Entity2> inserted = new ArrayList<>();
+                    for (int i = rnd.nextInt(PartitionStorage2.PAGE_SLOTS / 2) + 1; i > 0; i--) {
+                        Entity2 e = new Entity2(nextId++, randomPoint(rnd));
+                        inserted.add(e);
+                        written.put(e.id(), e.position());
+                    }
+                    random.insertAll(inserted);
+                } else if (operation < 6) {
+                    // Few moves, so most pages do not change.
+                    List<Entity2> moved = new ArrayList<>();
+                    for (int i = rnd.nextInt(3) + 1; i > 0; i--) {
+                        long id = ids.get(rnd.nextInt(ids.size()));
+                        if (moved.stream().noneMatch(e -> e.id() == id)) {
+                            moved.add(new Entity2(id, randomPoint(rnd)));
+                        }
+                    }
+                    random.updateAll(moved);
+                    moved.forEach(e -> written.put(e.id(), e.position()));
+                } else if (operation < 7) {
+                    long id = ids.get(rnd.nextInt(ids.size()));
+                    random.removeAll(new long[] {id});
+                    written.remove(id);
+                } else if (operation < 8) {
+                    random.commit();
+                    committed = Map.copyOf(written);
+                } else {
+                    if (operation == 9) {
+                        random.commit();
+                        committed = Map.copyOf(written);
+                    }
+                    // The move publishes the last commit, of this tick or of one before.
+                    random.setTick(random.tick() + 1);
+                    published = committed;
+                    StorageSnapshot2 latest = random.catalog().latest();
+                    checkState(latest, published, config + " at step " + step);
+                    if (rnd.nextInt(3) == 0) {
+                        held.add(new HeldSnapshot2(random.acquire(latest, random.tick() - 1), latest, published));
+                    }
+                    if (!held.isEmpty() && (held.size() > 3 || rnd.nextInt(3) == 0)) {
+                        HeldSnapshot2 release = held.remove(rnd.nextInt(held.size()));
+                        checkState(release.snapshot(), release.state(), config + " held until step " + step);
+                        random.release(release.acquisitionId());
+                    }
+                }
+            }
+            for (HeldSnapshot2 h : held) {
+                checkState(h.snapshot(), h.state(), config + " held to the end");
+                random.release(h.acquisitionId());
+            }
+        }
+    }
+
+    /**
+     * Only the pages of the moved entities are copied into a buffer that comes back from the
+     * pool: it holds the state of an older commit, and gets the pages changed since.
+     */
+    @Test
+    void fewMovingEntitiesCopyOnlyTheirPages() {
+        int pages = 10;
+        List<Entity2> entities = new ArrayList<>();
+        for (int i = 0; i < pages * PartitionStorage2.PAGE_SLOTS; i++) {
+            entities.add(new Entity2(i + 1, A));
+        }
+        storage.insertAll(entities);
+        StorageSnapshot2 first = publish(storage);
+        assertEquals(pages, storage.copiedPageCount());
+        // A new buffer, because the first snapshot is still in the window.
+        storage.updateAll(List.of(new Entity2(idInPage(3), B)));
+        publish(storage);
+        assertEquals(2 * pages, storage.copiedPageCount());
+        assertEquals(1, storage.pooledBufferCount());
+
+        storage.updateAll(List.of(new Entity2(idInPage(7), C)));
+        StorageSnapshot2 third = storage.commit();
+        assertSame(first.slots().coordinateBuffer(), third.slots().coordinateBuffer());
+        // Page 3 changed after the commit of the first snapshot, page 7 now.
+        assertEquals(2 * pages + 2, storage.copiedPageCount());
+        storage.setTick(storage.tick() + 1);
+        assertEquals(List.of(new Entity2(1, A), new Entity2(idInPage(3), B), new Entity2(idInPage(7), C)),
+                third.getAll(new long[] {1, idInPage(3), idInPage(7)}));
+        assertEquals(pages * PartitionStorage2.PAGE_SLOTS, third.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX)).size());
+    }
+
+    @Test
+    void partitionWithoutMovementsCopiesNothing() {
+        List<Entity2> entities = new ArrayList<>();
+        for (int i = 0; i < 2 * PartitionStorage2.PAGE_SLOTS; i++) {
+            entities.add(new Entity2(i + 1, A));
+        }
+        storage.insertAll(entities);
+        StorageSnapshot2 first = publish(storage);
+        long copied = storage.copiedPageCount();
+        for (int i = 0; i < 5; i++) {
+            StorageSnapshot2 next = publish(storage);
+            assertSame(first.slots().coordinateBuffer(), next.slots().coordinateBuffer());
+        }
+        assertEquals(copied, storage.copiedPageCount());
+        assertEquals(0, storage.pooledBufferCount());
+    }
+
+    @Test
+    void sharedBufferGoesBackToThePoolAfterItsLastSnapshot() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        StorageSnapshot2 first = publish(storage);
+        long acquisitionId = storage.acquire(first, 0);
+        // No moves: the second snapshot shares the buffer of the first one.
+        StorageSnapshot2 second = publish(storage);
+        assertSame(first.slots().coordinateBuffer(), second.slots().coordinateBuffer());
+        storage.updateAll(List.of(new Entity2(10, B)));
+        publish(storage);
+
+        // The second snapshot ended, the first one is out of the window but acquired.
+        assertTrue(second.uses().isEnded());
+        assertEquals(0, storage.pooledBufferCount());
+        checkSnapshot(first, List.of(new Entity2(10, A)), "acquired");
+        storage.release(acquisitionId);
+        assertEquals(1, storage.pooledBufferCount());
     }
 
     private static void assertAdmission(PartitionStorage2 storage, long acquisitionId, long tick,
@@ -974,6 +1123,31 @@ class PartitionStorage2Test {
         for (Entity2 e : nearest) {
             assertEquals(positionAt(tick, e.id()), e.position(), where);
         }
+    }
+
+    /** An acquisition kept by the random test, with the state that its snapshot must have. */
+    private record HeldSnapshot2(long acquisitionId, StorageSnapshot2 snapshot, Map<Long, Point2> state) {
+    }
+
+    /** Checks that the snapshot has exactly the entities of the state, in the slots and in the index. */
+    private static void checkState(StorageSnapshot2 snapshot, Map<Long, Point2> state, String where) {
+        assertEquals(state.size(), snapshot.size(), where);
+        long[] ids = state.keySet().stream().mapToLong(Long::longValue).toArray();
+        List<Entity2> byId = snapshot.getAll(ids);
+        assertEquals(ids.length, byId.size(), where);
+        for (Entity2 e : byId) {
+            assertEquals(state.get(e.id()), e.position(), where);
+        }
+        assertEquals(Set.copyOf(byId), Set.copyOf(snapshot.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX))), where);
+    }
+
+    private static Point2 randomPoint(Random rnd) {
+        return new Point2(rnd.nextDouble() * 20 - 10, rnd.nextDouble() * 20 - 10);
+    }
+
+    /** The ID of an entity in the given page, when the entities are inserted with IDs from 1 in order. */
+    private static long idInPage(int page) {
+        return page * PartitionStorage2.PAGE_SLOTS + 6;
     }
 
     /** The number of entities at the tick: 0 at tick 0, then from 0 to 22. */

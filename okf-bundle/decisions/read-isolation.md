@@ -151,7 +151,7 @@ saranno, seguono la stessa regola):
 
 | Struttura | Cambia con | Nello snapshot |
 |---|---|---|
-| coordinate | ogni movimento | copia completa |
+| coordinate | ogni movimento | copia delle pagine cambiate in un buffer riusato; condivise con lo snapshot precedente se il commit non ha movimenti |
 | ID | solo inserimenti e rimozioni | copia solo se il commit ha inserimenti o rimozioni, altrimenti condivisa con lo snapshot precedente |
 | mappa ID → slot | solo inserimenti e rimozioni | come gli ID: una tabella hash ad indirizzamento aperto su array primitivi si copia come gli slot; in alternativa una mappa hash persistente (HAMT) |
 
@@ -161,18 +161,18 @@ al massimo mezza piena. La rimozione sposta indietro le chiavi che
 seguono, quindi non ci sono tombstone; un posto vuoto ha slot -1, così
 ogni valore può essere un ID. La copia sono due array.
 
-- Al commit lo storage crea uno snapshot immutabile degli slot, con
-  array lunghi quanto gli slot occupati. Le coordinate si copiano
-  sempre; ID e tabella si copiano solo se il commit ha avuto
-  inserimenti o rimozioni, altrimenti lo snapshot li condivide con
-  quello precedente.
+- Al commit lo storage crea uno snapshot immutabile degli slot. Le
+  coordinate si copiano solo se il commit ha cambiato delle coordinate
+  (movimenti, inserimenti, rimozioni che spostano uno slot), e solo
+  nelle pagine cambiate, come descritto sotto; altrimenti lo snapshot
+  condivide il buffer di quello precedente. ID e tabella si copiano
+  solo se il commit ha avuto inserimenti o rimozioni, altrimenti lo
+  snapshot li condivide con quello precedente.
 - Lo snapshot degli slot e quello dell'indice formano lo snapshot della
   partizione (`StorageSnapshot`, interna al service: commit, slot e indice), con le
   letture `getAll`, `findInRegion` e `findNearest`.
 - Le coordinate di ogni snapshot stanno in un buffer preso da un pool
-  della partizione, come descritto sotto. Per ora il commit copia
-  sempre tutte le coordinate nel buffer; la copia delle sole pagine
-  cambiate arriva in un passo successivo. ID e tabella ID → slot
+  della partizione, come descritto sotto. ID e tabella ID → slot
   restano fuori dal pool: si copiano solo con inserimenti o rimozioni.
 
 **Riuso dei buffer.** I buffer degli snapshot stanno in un pool. Un
@@ -191,15 +191,35 @@ nuovo: il writer non aspetta mai, cresce solo la memoria.
 
 **Nel prototipo** il pool è per partizione, perché la copia delle sole
 pagine cambiate richiede che il buffer contenga uno snapshot vecchio
-della stessa partizione. È una coda che non blocca: il thread che fa
-finire uno snapshot, uno qualsiasi, vi rimette il suo buffer, e il
-writer ne prende uno a ogni commit. Un buffer torna nel pool in due
-casi:
+della stessa partizione. È una pila che non blocca: il thread che fa
+finire l'ultimo snapshot di un buffer, uno qualsiasi, lo rimette in
+cima, e il writer prende dalla cima, cioè il buffer tornato per ultimo,
+che di solito ha lo stato più recente e quindi meno pagine da copiare.
+
+- **Pagine.** Gli slot sono divisi in pagine di 64 slot (`PAGE_SLOTS`).
+  Il writer tiene per ogni pagina la sequenza del commit che conferma
+  la sua ultima modifica: una scrittura di posizione, un inserimento o
+  lo spostamento di uno slot per una rimozione.
+- **Buffer.** Un buffer (`CoordinateBuffer`) sa di quale commit
+  contiene lo stato. Il commit che lo riprende dal pool copia solo le
+  pagine cambiate dopo quel commit; un buffer nuovo non contiene nessun
+  commit e riceve tutte le pagine. Gli slot che il buffer non aveva
+  sono stati inseriti dopo il suo commit, quindi le loro pagine
+  risultano cambiate.
+- **Condivisione.** Un commit senza cambi delle coordinate non copia
+  niente: il suo snapshot usa lo stesso buffer di quello precedente.
+  Il buffer conta gli snapshot che lo usano e torna nel pool alla fine
+  dell'ultimo.
+
+Un buffer torna nel pool, quando non lo usa più nessuno snapshot, in
+due casi:
 
 - alla [fine dello snapshot](/architecture/snapshot-retention.md#vita-di-uno-snapshot):
   fuori dalla finestra, senza acquisizioni valide né query in corso;
 - subito, se un commit dopo nello stesso tick sostituisce lo snapshot
-  prima della pubblicazione, perché nessun reader l'ha mai visto.
+  prima della pubblicazione, perché nessun reader l'ha mai visto; se il
+  nuovo commit ha dei movimenti, riprende quel buffer e copia solo le
+  pagine cambiate da allora.
 
 Un buffer nuovo è lungo quanto le coordinate del writer, con la loro
 capacità libera, quindi lo snapshot ha la sua dimensione, separata
@@ -214,7 +234,11 @@ l'ultimo snapshot da un altro reader.
 Una conseguenza: uno snapshot si legge solo con un utilizzo
 (un'acquisizione o una query ammessa), perché dopo la sua fine il buffer
 passa a un altro commit. I test controllano il riuso con l'identità dei
-buffer e con il numero di buffer nel pool, esposto per l'ispezione.
+buffer e con il numero di buffer nel pool, esposto per l'ispezione;
+il numero di pagine copiate, esposto allo stesso modo, verifica che con
+poche entità in movimento si copino solo le loro pagine. Un test con
+scritture casuali confronta ogni snapshot con lo stato confermato,
+tenuto dal test, anche con acquisizioni tenute per più tick.
 
 # Gli indici
 

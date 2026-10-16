@@ -8,8 +8,10 @@ import badspace.service.index.SlotView3;
  * many threads can read it while the writer goes on. The IDs are as long as the slots;
  * the coordinates are in a buffer of the storage, which can be longer.
  * <p>
- * The coordinates are copied at each commit into a buffer that the storage takes from
- * its pool: when the snapshot ends, the buffer goes back to the pool for a later commit. The IDs and the table from ID to
+ * The coordinates are in a {@link CoordinateBuffer} from the pool of the storage: each
+ * commit with changes of the coordinates copies the changed pages into a buffer, a commit
+ * without them shares the buffer of the snapshot before it. The snapshot is a user of its
+ * buffer, which goes back to the pool when the last snapshot that uses it ends. The IDs and the table from ID to
  * slot change only with insertions and removals, so a commit without them
  * shares the arrays and the table of the snapshot before it.
  */
@@ -23,25 +25,29 @@ final class SlotSnapshot3 implements SlotView3 {
     // coords holds at least DIMENSIONS * size values; the ones after them mean nothing.
     private final long[] slotEntityIds;
     private final double[] coords;
+    private final CoordinateBuffer coordinateBuffer;
     private final SlotTable slotById;
 
-    SlotSnapshot3(long[] slotEntityIds, double[] coords, SlotTable slotById) {
+    /** Creates a snapshot that becomes a user of the coordinate buffer. */
+    SlotSnapshot3(long[] slotEntityIds, CoordinateBuffer coordinateBuffer, SlotTable slotById) {
         this.size = slotEntityIds.length;
         this.slotEntityIds = slotEntityIds;
-        this.coords = coords;
+        this.coords = coordinateBuffer.values();
+        this.coordinateBuffer = coordinateBuffer;
         this.slotById = slotById;
+        coordinateBuffer.addUser();
     }
 
     /**
-     * Returns the buffer of the coordinates, so the storage can put it back in its pool
-     * when the snapshot ends.
+     * Returns the buffer of the coordinates, so the storage can share it with the next
+     * snapshot, or put it back in its pool when the last snapshot that uses it ends.
      */
-    double[] coordinates() {
-        return coords;
+    CoordinateBuffer coordinateBuffer() {
+        return coordinateBuffer;
     }
 
-    /** Creates a snapshot that shares the unchanged IDs and uses the new coordinates. */
-    SlotSnapshot3 withCoordinates(double[] coordinates) {
+    /** Creates a snapshot that shares the unchanged IDs and uses the given coordinates. */
+    SlotSnapshot3 withCoordinates(CoordinateBuffer coordinates) {
         return new SlotSnapshot3(slotEntityIds, coordinates, slotById);
     }
 

@@ -18,7 +18,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -69,7 +69,7 @@ class PartitionWriters2Test {
                     GatedIndex2 gated = new GatedIndex2(SpatialIndexes.create(index, slots));
                     indexes.add(gated);
                     return gated;
-                }, retainedTicks, clock, tick, lock, new ConcurrentLinkedQueue<>());
+                }, retainedTicks, clock, tick, lock, new ConcurrentLinkedDeque<>());
             });
             node.createPartition(P1, config, 1);
             node.createPartition(P2, config, 1);
