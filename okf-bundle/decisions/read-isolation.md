@@ -169,8 +169,11 @@ ogni valore può essere un ID. La copia sono due array.
 - Lo snapshot degli slot e quello dell'indice formano lo snapshot della
   partizione (`StorageSnapshot`, interna al service: commit, slot e indice), con le
   letture `getAll`, `findInRegion` e `findNearest`.
-- Per ora ogni commit alloca array nuovi: il pool dei buffer e la copia
-  delle sole pagine cambiate arrivano con i writer su thread diversi.
+- Le coordinate di ogni snapshot stanno in un buffer preso da un pool
+  della partizione, come descritto sotto. Per ora il commit copia
+  sempre tutte le coordinate nel buffer; la copia delle sole pagine
+  cambiate arriva in un passo successivo. ID e tabella ID → slot
+  restano fuori dal pool: si copiano solo con inserimenti o rimozioni.
 
 **Riuso dei buffer.** I buffer degli snapshot stanno in un pool. Un
 buffer che si riusa contiene uno snapshot vecchio, quindi basta copiare
@@ -185,6 +188,33 @@ cambiano mai e lo snapshot non copia niente.
 **Reader lento.** Se un reader tiene a lungo un'acquisizione, il buffer
 dello snapshot resta occupato e il writer ne prende un altro dal pool, o ne alloca uno
 nuovo: il writer non aspetta mai, cresce solo la memoria.
+
+**Nel prototipo** il pool è per partizione, perché la copia delle sole
+pagine cambiate richiede che il buffer contenga uno snapshot vecchio
+della stessa partizione. È una coda che non blocca: il thread che fa
+finire uno snapshot, uno qualsiasi, vi rimette il suo buffer, e il
+writer ne prende uno a ogni commit. Un buffer torna nel pool in due
+casi:
+
+- alla [fine dello snapshot](/architecture/snapshot-retention.md#vita-di-uno-snapshot):
+  fuori dalla finestra, senza acquisizioni valide né query in corso;
+- subito, se un commit dopo nello stesso tick sostituisce lo snapshot
+  prima della pubblicazione, perché nessun reader l'ha mai visto.
+
+Un buffer nuovo è lungo quanto le coordinate del writer, con la loro
+capacità libera, quindi lo snapshot ha la sua dimensione, separata
+dalla lunghezza del buffer; un buffer troppo piccolo per le entità del
+commit viene scartato. La distruzione della partizione svuota il pool:
+il buffer di uno snapshot torna nel pool prima che scenda il conteggio
+degli snapshot non finiti, così il thread che porta il conteggio a zero
+svuota il pool dopo tutte le restituzioni, e nessun buffer vi rientra
+dopo. Un test ferma un reader mentre restituisce il buffer, con un pool
+dei test passato allo storage alla creazione come il lock, e fa finire
+l'ultimo snapshot da un altro reader.
+Una conseguenza: uno snapshot si legge solo con un utilizzo
+(un'acquisizione o una query ammessa), perché dopo la sua fine il buffer
+passa a un altro commit. I test controllano il riuso con l'identità dei
+buffer e con il numero di buffer nel pool, esposto per l'ispezione.
 
 # Gli indici
 

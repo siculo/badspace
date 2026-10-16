@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
@@ -41,6 +42,13 @@ import java.util.function.Function;
  * index of the same commit. The coordinates are copied at each commit; the
  * IDs and the table from ID to slot only after insertions or removals, else
  * the new snapshot shares them with the one before.
+ * <p>
+ * The coordinates of a snapshot are in a buffer from a pool of the storage. When the
+ * snapshot ends, its buffer goes back to the pool, and a later commit copies into it
+ * instead of allocating a new array. The snapshot of a commit that a later commit in the
+ * same tick replaces gives back its buffer at once, because no reader ever saw it. If the
+ * pool has no buffer large enough, the commit allocates one: the writer never waits for
+ * a reader, only the memory grows. The destruction of the partition empties the pool.
  * <p>
  * Each commit advances an internal sequence for the copy-on-write of the index.
  * This sequence is separate from the logical tick: one tick can have many commits.
@@ -127,6 +135,10 @@ final class PartitionStorage2 implements SlotView2 {
     // always in the window until the removal is effective, so the count reaches 0 only
     // after that, and only once.
     private final AtomicInteger liveSnapshots = new AtomicInteger();
+    // The coordinate buffers of the ended snapshots, ready for the next commits. The thread
+    // that ends a snapshot, any thread, adds its buffer; the writer takes one at each commit.
+    // The queue does not block, so the writer never waits for that thread.
+    private final ConcurrentLinkedQueue<double[]> coordinateBuffers;
     // The state of the removal. Written while holding writerLock: by the request of removal,
     // by the move of the tick that makes it effective, and by the end of the last snapshot
     // (which needs no lock: nothing else changes the state after RETIRED). Read by any thread.
@@ -205,17 +217,21 @@ final class PartitionStorage2 implements SlotView2 {
      */
     PartitionStorage2(CoordinateLimits limits, Function<SlotView2, SpatialIndex2> indexFactory,
             int retainedTicks, MonotonicClock clock, long creationTick) {
-        this(limits, indexFactory, retainedTicks, clock, creationTick, new ReentrantLock());
+        this(limits, indexFactory, retainedTicks, clock, creationTick, new ReentrantLock(),
+                new ConcurrentLinkedQueue<>());
     }
 
     /**
      * Creates a storage at the given tick with the given limits, the index made by the factory,
-     * retainedTicks retained ticks, the clock of the timeouts and the lock of the writer. The
-     * tests give a lock that tells them when a thread starts to wait for it.
+     * retainedTicks retained ticks, the clock of the timeouts, the lock of the writer and the
+     * empty pool of the coordinate buffers. The tests give a lock that tells them when a
+     * thread starts to wait for it, and a pool that stops a thread that gives back a buffer.
      */
     PartitionStorage2(CoordinateLimits limits, Function<SlotView2, SpatialIndex2> indexFactory,
-            int retainedTicks, MonotonicClock clock, long creationTick, ReentrantLock writerLock) {
+            int retainedTicks, MonotonicClock clock, long creationTick, ReentrantLock writerLock,
+            ConcurrentLinkedQueue<double[]> coordinateBuffers) {
         this.writerLock = writerLock;
+        this.coordinateBuffers = coordinateBuffers;
         this.clock = clock;
         this.limits = limits;
         this.index = indexFactory.apply(this);
@@ -332,13 +348,19 @@ final class PartitionStorage2 implements SlotView2 {
 
     /**
      * Confirms the writes in the current tick and returns the snapshot of the commit. The next
-     * move of the tick publishes it, unless a later commit in the same tick replaces it. It
-     * also removes the expired acquisitions. Only the writer can call it.
+     * move of the tick publishes it, unless a later commit in the same tick replaces it: then
+     * its buffer goes back to the pool, and the returned snapshot must not be read any more.
+     * It also removes the expired acquisitions. Only the writer can call it.
      */
     StorageSnapshot2 commit() {
         StorageSnapshot2 snapshot;
         writerLock.lock();
         try {
+            if (pending != null) {
+                // Replaced before the move of the tick: no reader ever saw it. Its IDs can
+                // still go to the new snapshot, but not its coordinates.
+                recycle(pending);
+            }
             commitSequence++;
             snapshot = new StorageSnapshot2(slotSnapshot(), index.commit(commitSequence));
             idsChanged = false;
@@ -397,7 +419,7 @@ final class PartitionStorage2 implements SlotView2 {
         boolean finished = false;
         for (int i = 0; i < current.size() - kept; i++) {
             if (current.snapshotAt(i).uses().leaveWindow()) {
-                finished |= snapshotEnded();
+                finished |= snapshotEnded(current.snapshotAt(i));
             }
         }
         return removeExpired() | finished;
@@ -538,6 +560,15 @@ final class PartitionStorage2 implements SlotView2 {
         return liveSnapshots.get();
     }
 
+    /**
+     * Returns the number of coordinate buffers in the pool, ready for the next commits. For
+     * inspection and monitoring: it shows how many buffers the ended snapshots keep for reuse.
+     * Any thread can call it.
+     */
+    int pooledBufferCount() {
+        return coordinateBuffers.size();
+    }
+
     @Override
     public long idAt(int slot) {
         return slotEntityIds[slot];
@@ -550,12 +581,40 @@ final class PartitionStorage2 implements SlotView2 {
     }
 
     private SlotSnapshot2 slotSnapshot() {
-        double[] coordsCopy = Arrays.copyOf(coords, size * DIMENSIONS);
+        double[] coordsCopy = coordinateBuffer(size * DIMENSIONS);
+        System.arraycopy(coords, 0, coordsCopy, 0, size * DIMENSIONS);
         if (!idsChanged) {
             SlotSnapshot2 last = lastCommitted.slots();
             return last.withCoordinates(coordsCopy);
         }
         return new SlotSnapshot2(Arrays.copyOf(slotEntityIds, size), coordsCopy, slotById.copy());
+    }
+
+    /**
+     * Returns a buffer for at least length coordinates: one from the pool, or a new one as
+     * large as the coordinates of the writer if the pool has none large enough. The buffers
+     * that are too small are dropped: the partition has more entities than when they were made.
+     */
+    private double[] coordinateBuffer(int length) {
+        double[] buffer;
+        while ((buffer = coordinateBuffers.poll()) != null) {
+            if (buffer.length >= length) {
+                return buffer;
+            }
+        }
+        return new double[coords.length];
+    }
+
+    /**
+     * Puts the coordinate buffer of a snapshot back in the pool. The snapshot ended, or was
+     * replaced before its publication, so no reader uses it and nobody can ask for it again.
+     * The empty buffer of the empty snapshot is not kept.
+     */
+    private void recycle(StorageSnapshot2 snapshot) {
+        double[] buffer = snapshot.slots().coordinates();
+        if (buffer.length > 0) {
+            coordinateBuffers.add(buffer);
+        }
     }
 
     /**
@@ -578,19 +637,24 @@ final class PartitionStorage2 implements SlotView2 {
 
     /** Removes a use of the snapshot. Returns true if this destroys the removed partition. */
     private boolean removeUse(StorageSnapshot2 snapshot) {
-        return snapshot.uses().removeUse() && snapshotEnded();
+        return snapshot.uses().removeUse() && snapshotEnded(snapshot);
     }
 
     /**
-     * The point where a snapshot ends: nobody uses it and nobody can ask for it again.
-     * Called once for each snapshot, by the thread that ends it. Returns true if it was
-     * the last snapshot: the removed partition is destroyed.
+     * The point where a snapshot ends: nobody uses it and nobody can ask for it again, so
+     * its buffer goes back to the pool. Called once for each snapshot, by the thread that
+     * ends it. Returns true if it was the last snapshot: the removed partition is destroyed,
+     * and the pool is emptied, because no commit will use it again.
      */
-    private boolean snapshotEnded() {
+    private boolean snapshotEnded(StorageSnapshot2 snapshot) {
+        // The buffer goes back before the count goes down: the thread that sees 0 empties the
+        // pool after all the other snapshots gave back their buffers, so none comes back later.
+        recycle(snapshot);
         if (liveSnapshots.decrementAndGet() > 0) {
             return false;
         }
         state = PartitionState.DESTROYED;
+        coordinateBuffers.clear();
         return true;
     }
 

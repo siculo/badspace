@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -491,7 +492,7 @@ class AcquisitionConcurrency2Test {
             ObservedLock lock = new ObservedLock();
             PartitionStorage2 storage = new PartitionStorage2(config.limits(),
                     slots -> index[0] = new GatedIndex2(SpatialIndexes.create(config, slots)), 2,
-                    MonotonicClock.SYSTEM, 0, lock);
+                    MonotonicClock.SYSTEM, 0, lock, new ConcurrentLinkedQueue<>());
             storage.insertAll(List.of(new Entity2(10, A)));
             Gate gate = new Gate();
             index[0].commitGate = gate;

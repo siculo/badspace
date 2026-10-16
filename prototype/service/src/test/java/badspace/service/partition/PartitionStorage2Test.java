@@ -3,6 +3,7 @@ package badspace.service.partition;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -20,9 +21,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -43,6 +46,8 @@ class PartitionStorage2Test {
     private static final int TICKS = 3000;
     /** k of the partitions in the tests with concurrent readers. */
     private static final int RETAINED_TICKS = 3;
+    /** How many times the race between the end of a snapshot and a commit runs. */
+    private static final int RACE_ROUNDS = 500;
 
     private PartitionStorage2 storage;
 
@@ -102,14 +107,16 @@ class PartitionStorage2Test {
     void snapshotOfACommitDoesNotSeeLaterWrites() {
         for (IndexConfig config : List.of(
                 IndexConfig.linearScan(), IndexConfig.uniformGrid(4), IndexConfig.gridQuadtree(4, 2))) {
-            PartitionStorage2 configured = new PartitionStorage2(config);
+            // Two retained ticks, so both snapshots stay in the window: a snapshot that ends
+            // gives its buffer to a later commit.
+            PartitionStorage2 configured = new PartitionStorage2(config, 2);
             configured.insertAll(List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)));
-            StorageSnapshot2 first = configured.commit();
+            StorageSnapshot2 first = publish(configured);
             // The removal of 10 moves 30 into its slot.
             configured.updateAll(List.of(new Entity2(30, D)));
             configured.removeAll(new long[] {10});
             configured.insertAll(List.of(new Entity2(40, A)));
-            StorageSnapshot2 second = configured.commit();
+            StorageSnapshot2 second = publish(configured);
             configured.removeAll(new long[] {20});
             configured.updateAll(List.of(new Entity2(40, B)));
 
@@ -122,17 +129,19 @@ class PartitionStorage2Test {
 
     @Test
     void snapshotsKeepTheirIdsAndPositionsAcrossUpdatesInsertionsAndRemovals() {
-        storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B)));
-        SlotSnapshot2 first = storage.commit().slots();
-        storage.updateAll(List.of(new Entity2(20, C)));
-        SlotSnapshot2 moved = storage.commit().slots();
+        // Four retained ticks, so all the snapshots stay in the window.
+        PartitionStorage2 retained = new PartitionStorage2(LIMITS, s -> SpatialIndexes.create(IndexConfig.linearScan(), s), 4);
+        retained.insertAll(List.of(new Entity2(10, A), new Entity2(20, B)));
+        SlotSnapshot2 first = publish(retained).slots();
+        retained.updateAll(List.of(new Entity2(20, C)));
+        SlotSnapshot2 moved = publish(retained).slots();
         assertEquals(B, first.positionAt(1));
         assertEquals(C, moved.positionAt(1));
 
-        storage.removeAll(new long[] {10});
-        SlotSnapshot2 removed = storage.commit().slots();
-        storage.insertAll(List.of(new Entity2(30, D)));
-        SlotSnapshot2 inserted = storage.commit().slots();
+        retained.removeAll(new long[] {10});
+        SlotSnapshot2 removed = publish(retained).slots();
+        retained.insertAll(List.of(new Entity2(30, D)));
+        SlotSnapshot2 inserted = publish(retained).slots();
         assertEquals(10, first.idAt(0));
         assertEquals(20, first.idAt(1));
         assertEquals(10, moved.idAt(0));
@@ -564,8 +573,9 @@ class PartitionStorage2Test {
      * A writer and some readers on other threads. At each tick the writer moves all
      * the entities to positions that depend on the tick, changes their number, commits
      * and moves to the next tick; it moves the entities with more than one call, so the
-     * states between the calls are mixed. The readers check that each snapshot they read
+     * states between the calls are mixed. The readers check that each snapshot they acquire
      * is the whole commit of its tick, and that the catalog has the window of the same tick.
+     * The buffers of the ended snapshots go to the later commits during the test.
      */
     @Test
     void readersOnOtherThreadsSeeOnlyWholeCommits() throws InterruptedException {
@@ -590,7 +600,17 @@ class PartitionStorage2Test {
                             assertTrue(catalog.tick() >= last, "ticks go back");
                             last = catalog.tick();
                             checkWindow(catalog);
-                            checkWholeCommit(catalog.latest(), catalog.tick() - 1);
+                            // The acquisition keeps the snapshot: without it, the snapshot could
+                            // end while the reader reads it, and its buffer go to a later commit.
+                            StorageSnapshot2 latest = catalog.latest();
+                            long acquisitionId = configured.acquire(latest, catalog.tick() - 1);
+                            if (acquisitionId != PartitionStorage2.NOT_ACQUIRED) {
+                                try {
+                                    checkWholeCommit(latest, catalog.tick() - 1);
+                                } finally {
+                                    configured.release(acquisitionId);
+                                }
+                            }
                             if (catalog.tick() > 1 && !read) {
                                 observed.countDown();
                                 read = true;
@@ -622,6 +642,238 @@ class PartitionStorage2Test {
                 throw new AssertionError(config + ": a reader failed", failure.get());
             }
         }
+    }
+
+    @Test
+    void bufferOfAnEndedSnapshotGoesToALaterCommit() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        StorageSnapshot2 first = publish(storage);
+        storage.updateAll(List.of(new Entity2(10, B)));
+        publish(storage);
+        // With one retained tick the first snapshot left the window, with no uses.
+        assertTrue(first.uses().isEnded());
+        assertEquals(1, storage.pooledBufferCount());
+
+        storage.updateAll(List.of(new Entity2(10, C)));
+        StorageSnapshot2 third = storage.commit();
+        assertSame(first.slots().coordinates(), third.slots().coordinates());
+        assertEquals(0, storage.pooledBufferCount());
+        storage.setTick(storage.tick() + 1);
+        checkSnapshot(third, List.of(new Entity2(10, C)), "reused buffer");
+    }
+
+    @Test
+    void snapshotInTheWindowKeepsItsBuffer() {
+        PartitionStorage2 retained = new PartitionStorage2(LIMITS, s -> SpatialIndexes.create(IndexConfig.linearScan(), s), 2);
+        retained.insertAll(List.of(new Entity2(10, A)));
+        StorageSnapshot2 first = publish(retained);
+        retained.updateAll(List.of(new Entity2(10, B)));
+        StorageSnapshot2 second = publish(retained);
+        retained.updateAll(List.of(new Entity2(10, C)));
+        StorageSnapshot2 third = retained.commit();
+
+        assertEquals(0, retained.pooledBufferCount());
+        assertNotSame(first.slots().coordinates(), third.slots().coordinates());
+        assertNotSame(second.slots().coordinates(), third.slots().coordinates());
+        checkSnapshot(first, List.of(new Entity2(10, A)), "first");
+        checkSnapshot(second, List.of(new Entity2(10, B)), "second");
+    }
+
+    /**
+     * A slow reader keeps its snapshot out of the window: the writer does not wait for it,
+     * and allocates a new buffer at each commit until the pool has one.
+     */
+    @Test
+    void acquiredSnapshotKeepsItsBufferAndTheWriterAllocatesOthers() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        StorageSnapshot2 kept = publish(storage);
+        long acquisitionId = storage.acquire(kept, 0);
+        storage.updateAll(List.of(new Entity2(10, B)));
+        StorageSnapshot2 second = publish(storage);
+        storage.updateAll(List.of(new Entity2(10, C)));
+        StorageSnapshot2 third = publish(storage);
+
+        assertNotSame(kept.slots().coordinates(), second.slots().coordinates());
+        assertNotSame(kept.slots().coordinates(), third.slots().coordinates());
+        // The second snapshot ended when the third one was published: the next commit reuses it.
+        assertSame(second.slots().coordinates(), storage.commit().slots().coordinates());
+        checkSnapshot(kept, List.of(new Entity2(10, A)), "acquired");
+
+        storage.release(acquisitionId);
+        assertTrue(kept.uses().isEnded());
+        assertEquals(1, storage.pooledBufferCount());
+    }
+
+    @Test
+    void queryKeepsTheBufferOfAReleasedSnapshotUntilItEnds() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        StorageSnapshot2 snapshot = publish(storage);
+        long acquisitionId = storage.acquire(snapshot, 0);
+        StorageSnapshot2 admitted = storage.admit(acquisitionId, 0);
+        storage.release(acquisitionId);
+        storage.updateAll(List.of(new Entity2(10, B)));
+        publish(storage);
+        storage.updateAll(List.of(new Entity2(10, C)));
+        StorageSnapshot2 later = storage.commit();
+
+        assertNotSame(snapshot.slots().coordinates(), later.slots().coordinates());
+        checkSnapshot(admitted, List.of(new Entity2(10, A)), "in a query");
+        storage.endQuery(admitted);
+        assertTrue(snapshot.uses().isEnded());
+        assertEquals(1, storage.pooledBufferCount());
+    }
+
+    @Test
+    void snapshotReplacedInTheSameTickGivesItsBufferToTheNextCommit() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        StorageSnapshot2 replaced = storage.commit();
+        storage.updateAll(List.of(new Entity2(10, B)));
+        StorageSnapshot2 last = storage.commit();
+        assertSame(replaced.slots().coordinates(), last.slots().coordinates());
+
+        storage.setTick(1);
+        assertSame(last, storage.catalog().latest());
+        checkSnapshot(last, List.of(new Entity2(10, B)), "published");
+        assertEquals(1, storage.liveSnapshotCount());
+    }
+
+    @Test
+    void bufferTooSmallForTheEntitiesIsDropped() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        StorageSnapshot2 small = publish(storage);
+        publish(storage);
+        assertEquals(1, storage.pooledBufferCount());
+
+        // More entities than the capacity of the buffer of the first snapshot.
+        List<Entity2> many = new ArrayList<>();
+        int count = small.slots().coordinates().length + 1;
+        for (int i = 0; i < count; i++) {
+            many.add(new Entity2(100 + i, B));
+        }
+        storage.insertAll(many);
+        StorageSnapshot2 large = storage.commit();
+        assertNotSame(small.slots().coordinates(), large.slots().coordinates());
+        assertEquals(0, storage.pooledBufferCount());
+        assertEquals(count + 1, large.size());
+    }
+
+    @Test
+    void destructionEmptiesThePool() {
+        storage.insertAll(List.of(new Entity2(10, A)));
+        publish(storage);
+        publish(storage);
+        publish(storage);
+        assertEquals(1, storage.pooledBufferCount());
+
+        storage.requestRemoval(false);
+        storage.setTick(storage.tick() + 1);
+        assertTrue(storage.setTick(storage.tick() + 1));
+        assertEquals(PartitionState.DESTROYED, storage.state());
+        assertEquals(0, storage.pooledBufferCount());
+    }
+
+    /**
+     * A reader ends a snapshot with its release while the writer commits, both after the
+     * same barrier. The buffer is either in the new snapshot or in the pool, never in both
+     * and never lost, and the new snapshot has the state of its commit. This stress test
+     * repeats the race; the tests above check each order alone.
+     */
+    @Test
+    void endOfASnapshotOnAnotherThreadDuringACommitGivesItsBufferOnce() throws Exception {
+        for (int round = 0; round < RACE_ROUNDS; round++) {
+            PartitionStorage2 raced = new PartitionStorage2(IndexConfig.linearScan());
+            raced.insertAll(List.of(new Entity2(10, A)));
+            StorageSnapshot2 first = publish(raced);
+            long acquisitionId = raced.acquire(first, 0);
+            raced.updateAll(List.of(new Entity2(10, B)));
+            publish(raced);
+            raced.updateAll(List.of(new Entity2(10, C)));
+
+            CyclicBarrier start = new CyclicBarrier(2);
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            Thread reader = new Thread(() -> {
+                try {
+                    start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+                    raced.release(acquisitionId);
+                } catch (Throwable e) {
+                    failure.compareAndSet(null, e);
+                }
+            });
+            reader.start();
+            StorageSnapshot2 committed;
+            try {
+                start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+                committed = raced.commit();
+            } finally {
+                reader.join(TIMEOUT.toMillis());
+            }
+            assertFalse(reader.isAlive(), "the reader did not finish");
+            if (failure.get() != null) {
+                throw new AssertionError("The reader failed", failure.get());
+            }
+            assertTrue(first.uses().isEnded());
+            boolean reused = committed.slots().coordinates() == first.slots().coordinates();
+            assertEquals(reused ? 0 : 1, raced.pooledBufferCount(), "round " + round);
+            raced.setTick(raced.tick() + 1);
+            checkSnapshot(committed, List.of(new Entity2(10, C)), "round " + round);
+        }
+    }
+
+    /**
+     * Two snapshots out of the window of a retired partition, each with an acquisition. The
+     * release of A stops while it gives back its buffer; then the release of B ends the other
+     * snapshot. The partition is destroyed only by the last of the two, and no buffer comes
+     * back to the pool after the destruction empties it.
+     */
+    @Test
+    void bufferGivenBackDuringTheDestructionDoesNotStayInThePool() throws Exception {
+        GatedBufferPool pool = new GatedBufferPool();
+        PartitionStorage2 retired = new PartitionStorage2(LIMITS, s -> SpatialIndexes.create(IndexConfig.linearScan(), s),
+                1, MonotonicClock.SYSTEM, 0, new ReentrantLock(), pool);
+        retired.insertAll(List.of(new Entity2(10, A)));
+        StorageSnapshot2 first = publish(retired);
+        long acquisitionA = retired.acquire(first, 0);
+        retired.updateAll(List.of(new Entity2(10, B)));
+        StorageSnapshot2 second = publish(retired);
+        long acquisitionB = retired.acquire(second, 1);
+        retired.requestRemoval(false);
+        // Retired at tick 3; at tick 4 no snapshot is in the window, but both are acquired.
+        retired.setTick(3);
+        retired.setTick(4);
+        assertEquals(2, retired.liveSnapshotCount());
+        assertEquals(0, retired.pooledBufferCount());
+
+        Gate gate = new Gate();
+        pool.gate = gate;
+        AtomicBoolean destroyedByA = new AtomicBoolean();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread readerA = new Thread(() -> {
+            try {
+                destroyedByA.set(retired.release(acquisitionA));
+            } catch (Throwable e) {
+                failure.compareAndSet(null, e);
+            }
+        });
+        readerA.start();
+        boolean destroyedByB;
+        try {
+            gate.awaitEntered();
+            // A ended its snapshot and is giving back the buffer: B ends the other one.
+            destroyedByB = retired.release(acquisitionB);
+            assertFalse(destroyedByB, "the partition was destroyed while A gives back its buffer");
+            assertEquals(PartitionState.RETIRED, retired.state());
+        } finally {
+            gate.open();
+            readerA.join(TIMEOUT.toMillis());
+        }
+        assertFalse(readerA.isAlive(), "reader A did not finish");
+        if (failure.get() != null) {
+            throw new AssertionError("Reader A failed", failure.get());
+        }
+        assertTrue(destroyedByA.get());
+        assertEquals(PartitionState.DESTROYED, retired.state());
+        assertEquals(0, retired.liveSnapshotCount());
+        assertEquals(0, retired.pooledBufferCount());
     }
 
     private static void assertAdmission(PartitionStorage2 storage, long acquisitionId, long tick,

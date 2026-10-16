@@ -12,9 +12,11 @@ import java.util.List;
  * storage makes a snapshot at each commit, and the next move of the tick publishes
  * it to the readers as the snapshot of the tick of the commit, and of the following
  * ticks without a commit.
- * Its data never change, so many threads can read it at the same time while the
- * writer goes on. The readers outside the node reach it only through an
- * acquisition. Its {@linkplain #uses() uses} tell when the snapshot ends.
+ * Its data do not change while it has uses, so many threads can read it at the same
+ * time while the writer goes on. The readers outside the node reach it only through an
+ * acquisition. Its {@linkplain #uses() uses} tell when the snapshot ends: then the buffer
+ * of its coordinates goes to a later commit, so a thread reads it only while it holds a
+ * use, an acquisition or an admitted query.
  */
 final class StorageSnapshot3 {
 

@@ -4,11 +4,12 @@ import badspace.common.geometry.Point3;
 import badspace.service.index.SlotView3;
 
 /**
- * The slots of a 3D partition at a commit. It never changes, so many threads
- * can read it while the writer goes on. The arrays are as long as the slots,
- * without the free capacity of the writer.
+ * The slots of a 3D partition at a commit. It never changes while it is in use, so
+ * many threads can read it while the writer goes on. The IDs are as long as the slots;
+ * the coordinates are in a buffer of the storage, which can be longer.
  * <p>
- * The coordinates are copied at each commit. The IDs and the table from ID to
+ * The coordinates are copied at each commit into a buffer that the storage takes from
+ * its pool: when the snapshot ends, the buffer goes back to the pool for a later commit. The IDs and the table from ID to
  * slot change only with insertions and removals, so a commit without them
  * shares the arrays and the table of the snapshot before it.
  */
@@ -19,6 +20,7 @@ final class SlotSnapshot3 implements SlotView3 {
     private final int size;
     // Slot: entity ID and position, as in the storage. coords holds DIMENSIONS values
     // per slot (x, y, z), so slot i is slotEntityIds[i] and coords[DIMENSIONS * i ...].
+    // coords holds at least DIMENSIONS * size values; the ones after them mean nothing.
     private final long[] slotEntityIds;
     private final double[] coords;
     private final SlotTable slotById;
@@ -28,6 +30,14 @@ final class SlotSnapshot3 implements SlotView3 {
         this.slotEntityIds = slotEntityIds;
         this.coords = coords;
         this.slotById = slotById;
+    }
+
+    /**
+     * Returns the buffer of the coordinates, so the storage can put it back in its pool
+     * when the snapshot ends.
+     */
+    double[] coordinates() {
+        return coords;
     }
 
     /** Creates a snapshot that shares the unchanged IDs and uses the new coordinates. */
