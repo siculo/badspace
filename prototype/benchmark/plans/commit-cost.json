@@ -1,0 +1,41 @@
+// Measures the cost of the snapshots of a partition. A tick moves a fraction of the
+// entities, commits and moves the tick; the same moves without a commit are the
+// reference, so the difference is the cost of the commit: the copy of the changed pages
+// of the coordinates and of the nodes of the index shared with the published snapshot.
+// Two readers on other threads keep snapshots alive and compete with the writer.
+// The last run measures an acquisition and its release, with and without readers.
+//
+// The linear scan is the reference index; the uniform grid and the grid of quadtrees
+// also copy their nodes. Two distributions are enough: the cost of the copy depends on
+// the number of moved entities more than on where they are.
+{
+  "groups": [
+    {
+      "profile": "quick",
+      "report": "commit-cost",
+      "runs": [
+        {
+          "name": "commit-tick",
+          "index": ["LINEAR_SCAN", "UNIFORM_GRID_100", "GRID_QUADTREE_128"],
+          "include": "CommitBenchmark\\.(commitTick|movesWithoutCommit)",
+          "params": {
+            "distribution": ["UNIFORM", "CLUSTERS"],
+            "size": [1000, 100000],
+            "movingFraction": [0, 0.01, 0.1, 1],
+            "readers": [0, 2]
+          }
+        },
+        {
+          "name": "acquire-release",
+          "index": "LINEAR_SCAN",
+          "include": "CommitBenchmark\\.acquireAndRelease",
+          "params": {
+            "distribution": "UNIFORM",
+            "size": 1000,
+            "readers": [0, 2, 4]
+          }
+        }
+      ]
+    }
+  ]
+}

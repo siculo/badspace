@@ -97,6 +97,9 @@ class BenchmarkPlanTest {
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"step\": 0 } } ] } ] }",
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"step\": -10 } } ] } ] }",
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"step\": \"Infinity\" } } ] } ] }",
+                "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"movingFraction\": 1.5 } } ] } ] }",
+                "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"movingFraction\": -0.1 } } ] } ] }",
+                "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"params\": { \"readers\": -1 } } ] } ] }",
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"include\": \"(\" } ] } ] }",
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"include\": \"nothing\" } ] } ] }",
                 "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"percentiles\": \"yes\" } ] } ] }",
@@ -104,6 +107,26 @@ class BenchmarkPlanTest {
         for (String plan : plans) {
             assertThrows(IllegalArgumentException.class, () -> BenchmarkPlan.parse(plan, DATE), plan);
         }
+    }
+
+    @Test
+    void commitBenchmarksRunOnlyWhenTheIncludePatternChoosesThem() {
+        BenchmarkPlan plan = BenchmarkPlan.parse("""
+                { "groups": [ { "runs": [
+                  { "name": "default" },
+                  { "name": "commit", "include": "CommitBenchmark" },
+                  { "name": "acquire", "include": "acquireAndRelease" }
+                ] } ] }
+                """, DATE);
+        List<String> defaults = plan.groups().get(0).runs().get(0).operationBenchmarks();
+        assertTrue(defaults.contains(PartitionBenchmark.class.getName() + ".update"));
+        assertTrue(defaults.stream().noneMatch(name -> name.startsWith(CommitBenchmark.class.getName())));
+        assertEquals(List.of(CommitBenchmark.class.getName() + ".acquireAndRelease",
+                        CommitBenchmark.class.getName() + ".commitTick",
+                        CommitBenchmark.class.getName() + ".movesWithoutCommit"),
+                plan.groups().get(0).runs().get(1).operationBenchmarks());
+        assertEquals(List.of(CommitBenchmark.class.getName() + ".acquireAndRelease"),
+                plan.groups().get(0).runs().get(2).operationBenchmarks());
     }
 
     @Test

@@ -48,6 +48,15 @@ final class BenchmarkParams {
             if (!(step > 0 && Double.isFinite(step))) {
                 throw new IllegalArgumentException("The step must be a positive number");
             }
+        } else if (name.equals("movingFraction")) {
+            double fraction = Double.parseDouble(value);
+            if (!(fraction >= 0 && fraction <= 1)) {
+                throw new IllegalArgumentException("The moving fraction must be between 0 and 1");
+            }
+        } else if (name.equals("readers")) {
+            if (Integer.parseInt(value) < 0) {
+                throw new IllegalArgumentException("The number of readers must not be negative");
+            }
         } else if (type == int.class) {
             Integer.parseInt(value);
         } else if (type == double.class) {
@@ -60,6 +69,7 @@ final class BenchmarkParams {
     private static Map<String, Class<?>> types() {
         List<Class<?>> states = new ArrayList<>(List.of(BuildBenchmark.class.getDeclaredClasses()));
         states.addAll(List.of(PartitionBenchmark.class.getDeclaredClasses()));
+        states.addAll(List.of(CommitBenchmark.class.getDeclaredClasses()));
         Map<String, Class<?>> types = new TreeMap<>();
         for (Class<?> state : states) {
             for (Class<?> c = state; c != null; c = c.getSuperclass()) {

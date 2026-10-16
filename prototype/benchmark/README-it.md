@@ -138,6 +138,10 @@ lasciare un piano in esecuzione dopo il logout:
 nohup ./bench.sh run --plan plans/index-comparison-full.json > plan.log 2>&1 &
 ```
 
+`commit-cost.json` misura il costo degli snapshot (vedi [Commit e
+snapshot](#commit-e-snapshot)) con la scansione lineare, la grid uniforme e
+la griglia di quadtree, in un unico report. Dura circa 10-15 minuti.
+
 ## Cosa si misura
 
 | Benchmark | Cosa misura | Unità |
@@ -150,8 +154,32 @@ nohup ./bench.sh run --plan plans/index-comparison-full.json > plan.log 2>&1 &
 | `PartitionBenchmark.findInRegion` | Query di range. | µs per chiamata |
 | `PartitionBenchmark.findNearest` | Query k-nearest. | µs per chiamata |
 | `Footprint.bytesPerEntity` | Memoria usata dalla partizione, storage e indice insieme. | byte per entità |
+| `CommitBenchmark.commitTick` | Un tick del writer: spostare una frazione delle entità, fare il commit e avanzare il tick. | µs per chiamata |
+| `CommitBenchmark.movesWithoutCommit` | Gli stessi spostamenti senza commit, riferimento per `commitTick`. | µs per chiamata |
+| `CommitBenchmark.acquireAndRelease` | Acquisire l'ultimo snapshot e rilasciarlo. | µs per chiamata |
 
 Più basso è sempre meglio.
+
+### Commit e snapshot
+
+I benchmark di `CommitBenchmark` non sono nel run di default, perché hanno
+parametri propri e da soli durerebbero più di tutti gli altri insieme. Si
+chiedono con un pattern, per esempio `--include CommitBenchmark`, o con il
+piano `plans/commit-cost.json`.
+
+- `commitTick` sposta le entità in movimento di un passo `LOCAL` di 10, fa il
+  commit e avanza il tick; al tick dopo le riporta indietro. Il commit copia
+  nel buffer dello snapshot le pagine delle coordinate cambiate, e gli
+  spostamenti copiano i nodi dell'indice ancora condivisi con lo snapshot
+  pubblicato.
+- `movesWithoutCommit` fa gli stessi spostamenti senza commit: la differenza
+  con `commitTick` è il costo degli snapshot.
+- `acquireAndRelease` misura un'acquisizione e il suo rilascio.
+
+Con `readers` maggiore di 0 alcuni thread, non misurati, acquisiscono
+l'ultimo snapshot, chiedono le 10 entità più vicine a un punto e lo
+rilasciano, in continuazione: tengono vivi degli snapshot, così i commit
+trovano meno buffer nel pool, e competono con il writer.
 
 ## Parametri
 
@@ -167,6 +195,8 @@ Più basso è sempre meglio.
 | `shape` | findInRegion | `BOX` | `BOX`, `CIRCLE` |
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | gli stessi |
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
+| `movingFraction` | commitTick, movesWithoutCommit | 0, 0.01, 0.1, 1 | gli stessi |
+| `readers` | commitTick, movesWithoutCommit, acquireAndRelease | 0, 2 | gli stessi |
 
 Il nome di un indice dà l'indice e i suoi parametri:
 

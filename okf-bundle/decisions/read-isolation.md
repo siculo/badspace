@@ -313,6 +313,18 @@ Nel prototipo Java la copia completa pesa anche sul GC, ma il
 [linguaggio finale](/decisions/language.md) non sarà Java, e il riuso
 dei buffer evita comunque le allocazioni a ogni tick.
 
+**Misure.** Il modulo di benchmark del prototipo misura un tick del
+writer (spostamenti di una frazione delle entità, commit e avanzamento
+del tick) contro gli stessi spostamenti senza commit: la differenza è
+il costo degli snapshot, cioè la copia delle pagine cambiate e dei
+nodi dell'indice condivisi con lo snapshot pubblicato. Misura anche
+un'acquisizione con il suo rilascio. I parametri sono la frazione di
+entità in movimento e il numero di reader su altri thread, che tengono
+vivi degli snapshot e competono con il writer; il piano
+`plans/commit-cost.json` li combina con tre indici, due distribuzioni e
+due dimensioni. I risultati sulla macchina dedicata ai benchmark sono
+ancora da prendere.
+
 # Punti aperti
 
 - Misurare nel prototipo il costo della copia degli slot e della copia

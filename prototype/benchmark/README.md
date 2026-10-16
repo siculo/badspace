@@ -137,6 +137,10 @@ after logout:
 nohup ./bench.sh run --plan plans/index-comparison-full.json > plan.log 2>&1 &
 ```
 
+`commit-cost.json` measures the cost of the snapshots (see [Commits and
+snapshots](#commits-and-snapshots)) with the linear scan, the uniform grid and
+the grid of quadtrees, in one report. It takes about 10-15 minutes.
+
 ## What is measured
 
 | Benchmark | What it measures | Unit |
@@ -149,8 +153,32 @@ nohup ./bench.sh run --plan plans/index-comparison-full.json > plan.log 2>&1 &
 | `PartitionBenchmark.findInRegion` | Range query. | µs per call |
 | `PartitionBenchmark.findNearest` | k-nearest query. | µs per call |
 | `Footprint.bytesPerEntity` | Memory used by the partition, storage and index together. | bytes per entity |
+| `CommitBenchmark.commitTick` | A tick of the writer: move a fraction of the entities, commit and move the tick. | µs per call |
+| `CommitBenchmark.movesWithoutCommit` | The same moves without a commit, the reference for `commitTick`. | µs per call |
+| `CommitBenchmark.acquireAndRelease` | Acquire the latest snapshot and release it. | µs per call |
 
 Lower is always better.
+
+### Commits and snapshots
+
+The benchmarks in `CommitBenchmark` are not in the default run, because they
+have their own parameters and alone they would take longer than all the others
+together. A run asks for them with a pattern, for example
+`--include CommitBenchmark`, or with the plan `plans/commit-cost.json`.
+
+- `commitTick` moves the moving entities by a `LOCAL` step of 10, commits and
+  moves the tick; at the next tick it moves them back. The commit copies the
+  changed pages of the coordinates into the buffer of the snapshot, and the
+  moves copy the nodes of the index that are still shared with the published
+  snapshot.
+- `movesWithoutCommit` makes the same moves without a commit: the difference
+  from `commitTick` is the cost of the snapshots.
+- `acquireAndRelease` measures an acquisition and its release.
+
+With `readers` greater than 0, some threads, not measured, keep acquiring the
+latest snapshot, asking it for the 10 entities nearest to a point and
+releasing it: they keep snapshots alive, so the commits find fewer buffers in
+the pool, and they compete with the writer.
 
 ## Parameters
 
@@ -166,6 +194,8 @@ Lower is always better.
 | `shape` | findInRegion | `BOX` | `BOX`, `CIRCLE` |
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | the same |
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
+| `movingFraction` | commitTick, movesWithoutCommit | 0, 0.01, 0.1, 1 | the same |
+| `readers` | commitTick, movesWithoutCommit, acquireAndRelease | 0, 2 | the same |
 
 An index name gives the index and its parameters:
 

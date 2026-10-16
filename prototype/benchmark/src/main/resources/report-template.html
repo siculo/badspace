@@ -55,10 +55,14 @@ const RUNS = /*DATA*/[];
 
 // Parameters that are on the axes or in the series, so they are not filters.
 const AXES = ['index', 'distribution', 'size'];
-const ORDER = ['build', 'insert', 'remove', 'update', 'get', 'findInRegion', 'findNearest', 'bytesPerEntity'];
+const ORDER = ['build', 'insert', 'remove', 'update', 'get', 'findInRegion', 'findNearest', 'bytesPerEntity',
+  'commitTick', 'movesWithoutCommit', 'acquireAndRelease'];
 const TITLES = {
   build: 'Build (all entities in one call)', insert: 'Insert', remove: 'Remove', update: 'Update',
-  get: 'Get by ID', findInRegion: 'Range query', findNearest: 'k-nearest query', bytesPerEntity: 'Memory per entity'
+  get: 'Get by ID', findInRegion: 'Range query', findNearest: 'k-nearest query', bytesPerEntity: 'Memory per entity',
+  commitTick: 'Tick with a commit (moves, commit, move of the tick)',
+  movesWithoutCommit: 'Moves without a commit (reference for the tick)',
+  acquireAndRelease: 'Acquisition and release of the latest snapshot'
 };
 const COLORS = ['#2f6fdf', '#e8590c', '#2b9348', '#c2255c', '#7048e8', '#0b7285', '#a87900', '#495057'];
 const PERCENTILES = { p50: '50.0', p90: '90.0', p99: '99.0' };

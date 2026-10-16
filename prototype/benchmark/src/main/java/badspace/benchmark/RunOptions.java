@@ -2,6 +2,7 @@ package badspace.benchmark;
 
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,9 +54,18 @@ record RunOptions(
         return matching(BuildBenchmark.class);
     }
 
-    /** Returns the full names of the operation benchmarks to run. */
+    /**
+     * Returns the full names of the operation benchmarks to run. The benchmarks of the
+     * commits run only when the options give an include pattern that matches them: they
+     * have their own parameters, and in the default run they would take longer than all
+     * the others.
+     */
     List<String> operationBenchmarks() {
-        return matching(PartitionBenchmark.class);
+        List<String> names = new ArrayList<>(matching(PartitionBenchmark.class));
+        if (!include.pattern().isEmpty()) {
+            names.addAll(matching(CommitBenchmark.class));
+        }
+        return names;
     }
 
     boolean measuresFootprint() {
