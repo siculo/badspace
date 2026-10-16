@@ -34,6 +34,11 @@ import java.util.function.Function;
  * A lock orders the moves to a new tick and the creation of partitions: a partition created
  * while the node moves to a new tick is created either before the move, and then moves too,
  * or after it, at the new tick. So no partition stays behind the node.
+ * <p>
+ * The writers of different partitions can work on different threads. Each partition has its
+ * own lock and its own sequence of commits, and the writes and the commits do not take the
+ * lock of the node: a writer waits only for a move of the tick of its own partition, never
+ * for the writers of the other partitions.
  */
 public final class LocalPartitionNode2 implements PartitionNode2 {
 
@@ -43,6 +48,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     private final Map<PartitionId, PartitionStorage2> partitions = new ConcurrentHashMap<>();
     // Measures the timeouts of the acquisitions in all the partitions.
     private final MonotonicClock clock;
+    // Makes the storage of each new partition.
+    private final StorageFactory storageFactory;
     // Orders setTick and createPartition: both run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
     // The tick of the node. Written by setTick while holding tickLock, read by any thread.
@@ -55,7 +62,17 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     /** Creates a node that measures the timeouts of the acquisitions with the given clock. */
     LocalPartitionNode2(MonotonicClock clock) {
+        this(clock, PartitionStorage2::new);
+    }
+
+    /**
+     * Creates a node that measures the timeouts with the given clock and makes the storages of
+     * the partitions with the factory. The tests use it to stop a commit inside the index of a
+     * partition, and to know when a move of the tick waits for the lock of a partition.
+     */
+    LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory) {
         this.clock = clock;
+        this.storageFactory = storageFactory;
     }
 
     @Override
@@ -68,7 +85,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         try {
             // A removed partition keeps its ID until it is destroyed, so this also rejects
             // its ID.
-            PartitionStorage2 storage = new PartitionStorage2(index, retainedTicks, clock, tick);
+            PartitionStorage2 storage = storageFactory.create(index, retainedTicks, clock, tick);
             if (partitions.putIfAbsent(partitionId, storage) != null) {
                 throw new IllegalArgumentException("Partition already exists: " + partitionId);
             }
@@ -292,5 +309,12 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
             throw new IllegalArgumentException("Unknown partition: " + partitionId);
         }
         return storage;
+    }
+
+    /** Makes the storage of a new partition at the given tick. */
+    @FunctionalInterface
+    interface StorageFactory {
+
+        PartitionStorage2 create(IndexConfig index, int retainedTicks, MonotonicClock clock, long creationTick);
     }
 }

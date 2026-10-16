@@ -2,6 +2,7 @@ package badspace.integration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
@@ -17,8 +18,17 @@ import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.service.partition.LocalPartitionNode2;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -33,6 +43,7 @@ class Space2EndToEndTest {
     private final AtomicLong entityIds = new AtomicLong();
     private final AtomicLong partitionIds = new AtomicLong();
     private final SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
+    private static final Duration TIMEOUT = Duration.ofSeconds(10);
     private static final Box2 ALL = new Box2(new Point2(-100, -100), new Point2(100, 100));
 
     private final Space2 space = new Space2(config);
@@ -255,6 +266,62 @@ class Space2EndToEndTest {
             assertEquals(4, snapshot.tick());
             assertEquals(1, snapshot.size());
         }
+    }
+
+    /**
+     * Two writers insert into two partitions of the same node, each on its own thread, and
+     * share the generator of the entity IDs. Each partition gets all the entities of its
+     * writer, and the IDs are all different.
+     */
+    @Test
+    void writersOfPartitionsOnTheSameNodeWorkOnTheirOwnThreads() throws Exception {
+        LocalPartitionNode2 node = new LocalPartitionNode2();
+        List<Partition2> partitions = List.of(space.createPartition(node), space.createPartition(node));
+        int batches = 50;
+        int batchSize = 20;
+        CyclicBarrier start = new CyclicBarrier(partitions.size());
+        List<long[]> written = new ArrayList<>();
+        ExecutorService writers = Executors.newFixedThreadPool(partitions.size());
+        try {
+            List<Future<long[]>> results = new ArrayList<>();
+            for (int w = 0; w < partitions.size(); w++) {
+                Partition2 partition = partitions.get(w);
+                int writer = w;
+                results.add(writers.submit(() -> {
+                    start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+                    long[] ids = new long[batches * batchSize];
+                    for (int b = 0; b < batches; b++) {
+                        List<Point2> positions = new ArrayList<>();
+                        for (int i = 0; i < batchSize; i++) {
+                            positions.add(new Point2(writer, i));
+                        }
+                        System.arraycopy(partition.insertAll(positions), 0, ids, b * batchSize, batchSize);
+                        partition.commit();
+                    }
+                    return ids;
+                }));
+            }
+            for (Future<long[]> result : results) {
+                written.add(result.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS));
+            }
+        } finally {
+            // Stops a writer that is still running, also when the test fails.
+            writers.shutdownNow();
+            assertTrue(writers.awaitTermination(TIMEOUT.toSeconds(), TimeUnit.SECONDS), "a writer did not finish");
+        }
+        space.setTick(1);
+        Set<Long> allIds = new HashSet<>();
+        for (int w = 0; w < partitions.size(); w++) {
+            long[] ids = written.get(w);
+            for (long id : ids) {
+                allIds.add(id);
+            }
+            try (AcquiredSnapshot2 snapshot = partitions.get(w).acquireLatest()) {
+                assertEquals(ids.length, snapshot.size());
+                assertEquals(ids.length, snapshot.getAll(ids).size());
+            }
+        }
+        assertEquals(partitions.size() * batches * batchSize, allIds.size());
     }
 
     /** Checks that the acquisition fails as not available, for the given reason. */

@@ -79,8 +79,8 @@ con uno snapshot per ogni tick, il numero del commit non serve più, e
 la pubblicazione avviene in un momento preciso.
 
 Gli indici copy-on-write hanno comunque bisogno di distinguere un commit
-dal successivo, anche dentro lo stesso tick: usano un contatore interno,
-la **sequenza dei commit**, che non esce dal nodo (vedi [isolamento
+dal successivo, anche dentro lo stesso tick: usano un contatore interno
+a ogni partizione, la **sequenza dei commit**, che non esce dal nodo (vedi [isolamento
 delle letture](/decisions/read-isolation.md#gli-indici)).
 
 # Nel prototipo

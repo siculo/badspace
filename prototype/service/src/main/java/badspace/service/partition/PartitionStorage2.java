@@ -102,7 +102,7 @@ final class PartitionStorage2 implements SlotView2 {
     private int size;
     // Orders the moves of the tick and the operations of the writer that change the
     // partition: each of them runs while holding it. The readers never take it.
-    private final ReentrantLock writerLock = new ReentrantLock();
+    private final ReentrantLock writerLock;
     // Replaced by the move of the tick while holding writerLock;
     // any thread reads it. The volatile write publishes the new tick and the new window together.
     private volatile SnapshotCatalog2 catalog;
@@ -205,6 +205,17 @@ final class PartitionStorage2 implements SlotView2 {
      */
     PartitionStorage2(CoordinateLimits limits, Function<SlotView2, SpatialIndex2> indexFactory,
             int retainedTicks, MonotonicClock clock, long creationTick) {
+        this(limits, indexFactory, retainedTicks, clock, creationTick, new ReentrantLock());
+    }
+
+    /**
+     * Creates a storage at the given tick with the given limits, the index made by the factory,
+     * retainedTicks retained ticks, the clock of the timeouts and the lock of the writer. The
+     * tests give a lock that tells them when a thread starts to wait for it.
+     */
+    PartitionStorage2(CoordinateLimits limits, Function<SlotView2, SpatialIndex2> indexFactory,
+            int retainedTicks, MonotonicClock clock, long creationTick, ReentrantLock writerLock) {
+        this.writerLock = writerLock;
         this.clock = clock;
         this.limits = limits;
         this.index = indexFactory.apply(this);

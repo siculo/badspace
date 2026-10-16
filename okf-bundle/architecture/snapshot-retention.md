@@ -275,6 +275,21 @@ recente non ha mai un commit più vecchio, l'ultimo commit viene
 pubblicato e, rilasciate le acquisizioni e rimossa la partizione,
 la distruzione verifica che non restino utilizzi delle query.
 
+I writer di partizioni diverse dello stesso nodo lavorano su thread
+diversi senza coordinarsi: lock e sequenza dei commit sono di ogni
+partizione, e scritture e commit non prendono il lock del nodo, che
+ordina solo `setTick` e la creazione delle partizioni. Un writer
+aspetta quindi al più un avanzamento del tick della sua partizione. Un
+test ferma il commit di una partizione nell'indice, con un `setTick`
+che lo aspetta, e verifica che il writer di un'altra partizione scriva
+e confermi senza aspettare. I test sanno che `setTick` aspetta dal lock
+della partizione: lo storage riceve il lock alla creazione, e quello dei
+test segnala quando un thread comincia ad aspettarlo, senza guardare lo
+stato dei thread; un altro fa lavorare più writer, ognuno
+sulla sua partizione, con avanzamento del tick e reader su altri
+thread, e verifica che ogni snapshot sia un commit intero della sua
+partizione, senza entità delle altre.
+
 Ogni partizione ha un **catalogo degli snapshot** nel service: un
 oggetto immutabile con il tick della partizione, il tick di creazione,
 k (`retainedTicks`) e gli snapshot pubblicati della finestra, ognuno

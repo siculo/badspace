@@ -210,8 +210,10 @@ quando la partizione chiude il commit n, che restituisce uno snapshot
 dell'indice (`IndexSnapshot`). Le query dello snapshot ricevono gli slot
 dello stesso commit, quindi lo snapshot non dipende dallo storage del
 writer. Con il commit senza numero, n è la **sequenza dei
-commit**: un contatore interno del nodo che cresce a ogni commit, anche
-nello stesso tick, e non esce dal nodo. Gli indici non cambiano.
+commit**: un contatore interno di ogni partizione che cresce a ogni
+commit, anche nello stesso tick, e non esce dal nodo. Non è condiviso
+tra le partizioni, quindi i writer di partizioni diverse non si
+coordinano. Gli indici non cambiano.
 
 - La [scansione lineare](/indices/linear-scan.md) non ha strutture: la
   suo snapshot legge solo gli slot.

@@ -19,9 +19,6 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
-import badspace.service.index.IndexSnapshot3;
-import badspace.service.index.SlotView3;
-import badspace.service.index.SpatialIndex3;
 import badspace.service.index.SpatialIndexes;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -67,7 +64,7 @@ class AcquisitionConcurrency3Test {
     @Test
     void commitsAndMovesOfTheTickDuringAQueryDoNotChangeItsResultAndDoNotWait() throws Exception {
         for (IndexConfig config : CONFIGS) {
-            GatedIndex[] index = new GatedIndex[1];
+            GatedIndex3[] index = new GatedIndex3[1];
             PartitionStorage3 storage = gatedStorage(config, index, 1);
             storage.insertAll(List.of(new Entity3(10, A), new Entity3(20, B)));
             long acquisitionId = storage.acquire(publish(storage), 0);
@@ -103,7 +100,7 @@ class AcquisitionConcurrency3Test {
     @Test
     void releaseDuringAQueryLetsTheQueryEnd() throws Exception {
         for (IndexConfig config : CONFIGS) {
-            GatedIndex[] index = new GatedIndex[1];
+            GatedIndex3[] index = new GatedIndex3[1];
             PartitionStorage3 storage = gatedStorage(config, index, 1);
             storage.insertAll(List.of(new Entity3(10, A)));
             StorageSnapshot3 snapshot = publish(storage);
@@ -142,9 +139,9 @@ class AcquisitionConcurrency3Test {
     void expiryDuringAQueryLetsTheQueryEnd() throws Exception {
         for (IndexConfig config : CONFIGS) {
             FakeClock clock = new FakeClock();
-            GatedIndex[] index = new GatedIndex[1];
+            GatedIndex3[] index = new GatedIndex3[1];
             PartitionStorage3 storage = new PartitionStorage3(config.limits(),
-                    slots -> index[0] = new GatedIndex(SpatialIndexes.create(config, slots)), 1, clock);
+                    slots -> index[0] = new GatedIndex3(SpatialIndexes.create(config, slots)), 1, clock);
             storage.insertAll(List.of(new Entity3(10, A)));
             StorageSnapshot3 snapshot = publish(storage);
             long acquisitionA = storage.acquire(snapshot, 0, AcquireOptions.timeout(TIMEOUT));
@@ -490,8 +487,11 @@ class AcquisitionConcurrency3Test {
     @Test
     void moveOfTheTickWaitsForACommitThatIsRunning() throws Exception {
         for (IndexConfig config : CONFIGS) {
-            GatedIndex[] index = new GatedIndex[1];
-            PartitionStorage3 storage = gatedStorage(config, index, 2);
+            GatedIndex3[] index = new GatedIndex3[1];
+            ObservedLock lock = new ObservedLock();
+            PartitionStorage3 storage = new PartitionStorage3(config.limits(),
+                    slots -> index[0] = new GatedIndex3(SpatialIndexes.create(config, slots)), 2,
+                    MonotonicClock.SYSTEM, 0, lock);
             storage.insertAll(List.of(new Entity3(10, A)));
             Gate gate = new Gate();
             index[0].commitGate = gate;
@@ -503,7 +503,7 @@ class AcquisitionConcurrency3Test {
                 gate.awaitEntered();
 
                 mover.start();
-                awaitWaiting(mover, config + ": the move of the tick did not wait for the commit");
+                lock.awaitWaiting();
                 assertEquals(0, storage.tick(), config + ": the tick moved during a commit");
 
             } finally {
@@ -667,19 +667,6 @@ class AcquisitionConcurrency3Test {
         }
     }
 
-    /**
-     * Waits until the thread waits for a lock, and fails if it ends first or if it does not
-     * wait within the timeout.
-     */
-    private static void awaitWaiting(Thread thread, String message) {
-        long deadline = System.nanoTime() + TIMEOUT.toNanos();
-        while (thread.getState() != Thread.State.WAITING && thread.getState() != Thread.State.BLOCKED) {
-            if (thread.getState() == Thread.State.TERMINATED || System.nanoTime() - deadline > 0) {
-                throw new AssertionError(message);
-            }
-            Thread.onSpinWait();
-        }
-    }
 
     /**
      * Returns the number of the commit in the acquired snapshot: the x of all its entities,
@@ -738,9 +725,9 @@ class AcquisitionConcurrency3Test {
         assertEquals(expectedSize, node.size(acquisition), where);
     }
 
-    private static PartitionStorage3 gatedStorage(IndexConfig config, GatedIndex[] index, int retainedTicks) {
+    private static PartitionStorage3 gatedStorage(IndexConfig config, GatedIndex3[] index, int retainedTicks) {
         return new PartitionStorage3(config.limits(),
-                slots -> index[0] = new GatedIndex(SpatialIndexes.create(config, slots)), retainedTicks);
+                slots -> index[0] = new GatedIndex3(SpatialIndexes.create(config, slots)), retainedTicks);
     }
 
     /** A reader on another thread: admits the acquisition, then queries the snapshot by region and by ID. */
@@ -782,110 +769,6 @@ class AcquisitionConcurrency3Test {
             assertEquals(Set.copyOf(expected), Set.copyOf(inRegion), where);
             assertEquals(expected.size(), inRegion.size(), where);
             assertEquals(expected, byId, where);
-        }
-    }
-
-    /** Stops the queries, or the commit, that reach it until the test opens it. */
-    private static final class Gate {
-
-        private final CountDownLatch entered = new CountDownLatch(1);
-        private final CountDownLatch opened = new CountDownLatch(1);
-
-        void pass() throws InterruptedException {
-            entered.countDown();
-            assertTrue(opened.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS), "the gate was never opened");
-        }
-
-        void awaitEntered() throws InterruptedException {
-            assertTrue(entered.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS), "no query reached the gate");
-        }
-
-        void open() {
-            opened.countDown();
-        }
-    }
-
-    /**
-     * A real index whose snapshots stop findInRegion at the gate, if there is one,
-     * before they read the index. The commit stops at the commit gate, if there is one.
-     */
-    private static final class GatedIndex implements SpatialIndex3 {
-
-        private final SpatialIndex3 index;
-        // Set by the test thread before the query starts, read by the query thread.
-        volatile Gate gate;
-        // Set by the test thread before the commit starts, read by the writer thread.
-        volatile Gate commitGate;
-
-        GatedIndex(SpatialIndex3 index) {
-            this.index = index;
-        }
-
-        @Override
-        public void inserted(int slot, Point3 position) {
-            index.inserted(slot, position);
-        }
-
-        @Override
-        public void moved(int slot, Point3 from, Point3 to) {
-            index.moved(slot, from, to);
-        }
-
-        @Override
-        public void removed(int slot, Point3 position) {
-            index.removed(slot, position);
-        }
-
-        @Override
-        public void relocated(int from, int to, Point3 position) {
-            index.relocated(from, to, position);
-        }
-
-        @Override
-        public IndexSnapshot3 commit(long n) {
-            Gate currentCommitGate = commitGate;
-            if (currentCommitGate != null) {
-                try {
-                    currentCommitGate.pass();
-                } catch (InterruptedException e) {
-                    throw new IllegalStateException(e);
-                }
-            }
-            IndexSnapshot3 snapshot = index.commit(n);
-            return new IndexSnapshot3() {
-                @Override
-                public long commitSequence() {
-                    return snapshot.commitSequence();
-                }
-
-                @Override
-                public int[] findInRegion(Region3 region, SlotView3 slots) {
-                    Gate current = gate;
-                    if (current != null) {
-                        try {
-                            current.pass();
-                        } catch (InterruptedException e) {
-                            throw new IllegalStateException(e);
-                        }
-                    }
-                    return snapshot.findInRegion(region, slots);
-                }
-
-                @Override
-                public int[] findNearest(Point3 point, int count, SlotView3 slots) {
-                    return snapshot.findNearest(point, count, slots);
-                }
-            };
-        }
-
-        @Override
-        public int[] findInRegion(Region3 region) {
-            return index.findInRegion(region);
-        }
-
-        @Override
-        public int[] findNearest(Point3 point, int count) {
-            return index.findNearest(point, count);
         }
     }
 }
