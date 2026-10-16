@@ -21,7 +21,7 @@ import java.util.List;
  * <p>
  * At each commit the index gives a snapshot that shares the cells with the
  * writer. The map of the cells is a {@link HashTrie}, and a cell keeps the
- * last commit at the time it was made: the writer copies a cell, and the
+ * internal commit sequence at the time it was made: the writer copies a cell, and the
  * path of the map to it, the first time it changes the cell after a commit.
  * The map from slot to place in the cell is used only by the writer, so it
  * is not in the snapshots; a copy keeps the slots in the same places.
@@ -47,7 +47,7 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     private final HashTrie<CellKey, Cell> cells = new HashTrie<>();
     /** For each slot, its place in the list of its cell. */
     private int[] placeInCell = new int[INITIAL_CAPACITY];
-    private long lastCommit;
+    private long lastCommitSequence;
 
     UniformGridIndex3(SlotView3 storage, double cellSize) {
         this.storage = storage;
@@ -82,9 +82,9 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     }
 
     @Override
-    public IndexSnapshot3 commit(long n) {
-        lastCommit = n;
-        return new Snapshot(n, cells.commit(n), cellSize);
+    public IndexSnapshot3 commit(long commitSequence) {
+        lastCommitSequence = commitSequence;
+        return new Snapshot(commitSequence, cells.commit(commitSequence), cellSize);
     }
 
     @Override
@@ -115,7 +115,7 @@ final class UniformGridIndex3 implements SpatialIndex3 {
         }
         Cell cell = cells.get(key);
         if (cell == null) {
-            cell = new Cell(key, lastCommit);
+            cell = new Cell(key, lastCommitSequence);
             cells.put(key, cell);
         } else {
             cell = writable(cell);
@@ -141,8 +141,8 @@ final class UniformGridIndex3 implements SpatialIndex3 {
 
     /** Returns the cell, or a copy of it put in the map if an older snapshot can see the cell. */
     private Cell writable(Cell cell) {
-        if (cell.commit != lastCommit) {
-            cell = cell.copy(lastCommit);
+        if (cell.commitSequence != lastCommitSequence) {
+            cell = cell.copy(lastCommitSequence);
             cells.put(cell.key, cell);
         }
         return cell;
@@ -303,7 +303,7 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     }
 
     /** A snapshot of the index at a commit. */
-    private record Snapshot(long commit, HashTrie.View<CellKey, Cell> cells, double cellSize) implements IndexSnapshot3 {
+    private record Snapshot(long commitSequence, HashTrie.View<CellKey, Cell> cells, double cellSize) implements IndexSnapshot3 {
 
         @Override
         public int[] findInRegion(Region3 region, SlotView3 slots) {
@@ -327,23 +327,23 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     private static final class Cell {
 
         final CellKey key;
-        /** The last commit when the cell was made. */
-        final long commit;
+        /** The internal commit sequence when the cell was made. */
+        final long commitSequence;
         final SlotList slots;
 
-        Cell(CellKey key, long commit) {
-            this(key, commit, new SlotList());
+        Cell(CellKey key, long commitSequence) {
+            this(key, commitSequence, new SlotList());
         }
 
-        private Cell(CellKey key, long commit, SlotList slots) {
+        private Cell(CellKey key, long commitSequence, SlotList slots) {
             this.key = key;
-            this.commit = commit;
+            this.commitSequence = commitSequence;
             this.slots = slots;
         }
 
-        /** Returns a copy for the given commit, with the slots in the same places. */
-        Cell copy(long commit) {
-            return new Cell(key, commit, slots.copy());
+        /** Returns a copy for the given commit sequence, with the slots in the same places. */
+        Cell copy(long commitSequence) {
+            return new Cell(key, commitSequence, slots.copy());
         }
     }
 

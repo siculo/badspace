@@ -18,27 +18,19 @@ import java.util.List;
  */
 final class StorageSnapshot2 {
 
-    // The number of the commit in the sequence of the commits of the partition: it is
-    // only for the copy-on-write of the index, and never leaves the node.
-    private final long commitSequence;
     private final SlotSnapshot2 slots;
     private final IndexSnapshot2 index;
     private final SnapshotUses uses = new SnapshotUses();
 
-    StorageSnapshot2(long commitSequence, SlotSnapshot2 slots, IndexSnapshot2 index) {
-        this.commitSequence = commitSequence;
+    StorageSnapshot2(SlotSnapshot2 slots, IndexSnapshot2 index) {
         this.slots = slots;
         this.index = index;
     }
 
-    /** Returns the empty snapshot of a new partition, at commit sequence 0, before the first commit. */
+    /** Returns the empty snapshot of a new partition, before the first commit. */
     static StorageSnapshot2 empty() {
         SlotSnapshot2 slots = new SlotSnapshot2(new long[0], new double[0], new SlotTable());
-        return new StorageSnapshot2(0, slots, IndexSnapshot2.empty());
-    }
-
-    long commitSequence() {
-        return commitSequence;
+        return new StorageSnapshot2(slots, IndexSnapshot2.empty());
     }
 
     SlotSnapshot2 slots() {

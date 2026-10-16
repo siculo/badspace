@@ -77,7 +77,7 @@ final class SnapshotUses {
     }
 
     /**
-     * Marks that the snapshot left the window: it happens once, at the commit that
+     * Marks that the snapshot left the window: it happens once, when the tick advances and
      * moves the window. Returns true if this ends the snapshot, because it has no uses.
      */
     boolean leaveWindow() {

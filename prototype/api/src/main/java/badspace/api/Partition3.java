@@ -15,7 +15,7 @@ import java.util.Optional;
  * Proxy of a 3D partition that lives on a node. It has a single writer and is not thread-safe,
  * except {@link #tick()} and the acquisitions. The reads of the proxy see the writes
  * not yet committed; the other threads {@linkplain #acquireLatest() acquire} the snapshot of
- * a commit and read it.
+ * a completed tick and read it.
  * Single-entity operations are batches of one entity: to write many entities,
  * the batch operations make fewer calls to the node.
  * After the space removes the partition, the operations of the writer fail with

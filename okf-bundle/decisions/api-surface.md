@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` senza numero, nel tick corrente) e delle letture dei reader (acquisizione al tick con scadenza obbligatoria, lettura e rilascio degli snapshot conservati), con il codice ancora nella forma precedente, mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
+generated: { by: codex/gpt-6, at: 2026-10-16T10:08:30Z }
 ---
 
 # Stato
@@ -228,6 +228,14 @@ le scritture fatte fino a quel momento nel tick corrente della
 partizione. Più commit nello stesso tick sono ammessi, e l'ultimo
 definisce lo snapshot del tick; le scritture non confermate passano al
 tick successivo.
+
+Ogni commit conferma lo stato cumulativo del writer, compresi gli effetti
+dei commit precedenti che non sono stati modificati o rimossi. Solo lo
+stato dell’ultimo commit del tick diventa acquisibile all’avanzamento;
+gli stati intermedi non si acquisiscono. `commit()` non avanza il tick,
+non aspetta il successivo e permette di continuare a scrivere nello
+stesso tick: decidere se attendere spetta al software del writer (vedi
+l’esempio in [Commit e tick](/architecture/partition-commit.md#commit-e-tick)).
 
 | Operazione | Forma | Note |
 |---|---|---|

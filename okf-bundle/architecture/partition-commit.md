@@ -4,7 +4,7 @@ title: Commit della partizione
 description: Le scritture del writer sono confermate da commit atomici, unica transazione del sistema; il commit non ha un numero visibile e avviene nel tick corrente della partizione, l'ultimo commit del tick definisce lo snapshot del tick, le scritture non confermate passano al tick successivo, e lo snapshot diventa visibile all'avanzamento del tick.
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
+generated: { by: codex/gpt-6, at: 2026-10-16T10:08:30Z }
 ---
 
 # Primitiva
@@ -40,6 +40,23 @@ quel momento e usa il tick corrente della partizione.
   concorrente all'avanzamento è ordinato rispetto a esso: finisce nel
   tick che si chiude o in quello nuovo, e non cambia mai uno snapshot già
   pubblicato.
+
+Il commit conferma lo **stato cumulativo** del writer: non azzera le
+scritture già confermate. Con più commit nello stesso tick, l’ultimo
+include anche gli effetti dei precedenti, salvo le successive modifiche
+o rimozioni. I reader vedono solo lo stato dell’ultimo commit del tick,
+non gli stati intermedi dei singoli commit.
+
+Per esempio, nel tick 10 il writer inserisce A e fa commit, poi
+inserisce B e fa un secondo commit. Dopo `setTick(11)`, `S(10)` contiene
+A e B. Se prima dell’avanzamento inserisce anche C senza un altro
+commit, C resta nello stato del writer ma non entra in `S(10)`.
+
+`commit()` non fa avanzare il tick, non attende il tick successivo e
+non impedisce nuove scritture nello stesso tick. È il software del
+writer a scegliere quando fare commit e se attendere il tick successivo
+prima di continuare. Se scrive e conferma in continuazione, per ogni
+tick i reader possono acquisire solo lo stato dell’ultimo commit.
 
 Nel caso tipico di un server a frame il writer fa un commit per tick.
 Un uso a batch, per esempio per dati di posizione aggiornati a

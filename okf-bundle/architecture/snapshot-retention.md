@@ -4,7 +4,7 @@ title: Conservazione degli snapshot
 description: Ogni partizione ha uno snapshot logico S(n) per ogni tick completato dalla creazione alla rimozione, con contenuto condiviso tra tick senza commit, e conserva acquisibili quelli degli ultimi k tick (max(T − k, C) ≤ n ≤ T − 1, k ≥ 1, default 1); i reader acquisiscono uno snapshot, lo leggono e lo rilasciano, con una scadenza obbligatoria, e uno snapshot uscito dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni snapshot.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T20:26:50Z }
+generated: { by: codex/gpt-6, at: 2026-10-16T10:08:30Z }
 ---
 
 # Primitiva
@@ -23,6 +23,12 @@ creazione della partizione fino alla sua
   iniziale vuoto. Vale anche per una partizione creata al tick 0: `S(0)`
   si acquisisce dopo `setTick(1)`, e non serve uno snapshot con tick
   negativo.
+
+Con più commit nello stesso tick, `S(n)` contiene lo stato cumulativo
+confermato dall’ultimo: gli effetti dei commit precedenti restano, salvo
+successive modifiche o rimozioni. Gli stati intermedi non sono
+acquisibili. Il writer sceglie se attendere il tick successivo dopo un
+commit (vedi [Commit e tick](/architecture/partition-commit.md#commit-e-tick)).
 
 Snapshot logici consecutivi uguali **condividono il contenuto**: non si
 duplicano i dati. Ogni commit prepara già uno snapshot per

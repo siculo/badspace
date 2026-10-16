@@ -11,17 +11,17 @@ import badspace.common.geometry.Region3;
 public interface IndexSnapshot3 {
 
     /**
-     * Returns the snapshot of an index with no entities, at commit 0: the
+     * Returns the snapshot of an index with no entities, at commit sequence 0: the
      * snapshot of a partition before its first commit. It reads all the slots
-     * it gets, so it works with the empty slots of commit 0 for every kind
+     * it gets, so it works with the empty slots of commit sequence 0 for every kind
      * of index.
      */
     static IndexSnapshot3 empty() {
         return LinearScanIndex3.EMPTY;
     }
 
-    /** Returns the number of the commit of this snapshot. */
-    long commit();
+    /** Returns the internal commit sequence of this snapshot, not a logical tick. */
+    long commitSequence();
 
     /** Returns the slots of the entities inside the region, border included, in any order. */
     int[] findInRegion(Region3 region, SlotView3 slots);

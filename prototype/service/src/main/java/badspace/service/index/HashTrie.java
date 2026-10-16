@@ -8,7 +8,7 @@ import java.util.function.Consumer;
  * the map, and at each commit it gets a {@link View} that never changes, even
  * when the writer goes on. Versions share the nodes that did not change.
  * <p>
- * Each node of the trie keeps the last commit at the time the node was made.
+ * Each node of the trie keeps the internal commit sequence when it was made.
  * The writer changes in place only the nodes made after the last commit; it
  * copies the other nodes, with the path from the root, the first time it
  * changes them. So a node is copied at most once in each commit.
@@ -29,7 +29,7 @@ final class HashTrie<K, V> {
 
     private Node root = new BitmapNode(0, 0, new Object[0]);
     private int size;
-    private long lastCommit;
+    private long lastCommitSequence;
     /** Set by put and remove: the change of the size. */
     private int sizeChange;
 
@@ -50,7 +50,7 @@ final class HashTrie<K, V> {
         sizeChange = 0;
         Object result = remove(root, hash(key), key, 0);
         root = switch (result) {
-            case null -> new BitmapNode(lastCommit, 0, new Object[0]);
+            case null -> new BitmapNode(lastCommitSequence, 0, new Object[0]);
             case Node node -> node;
             // The root keeps its last entry: only the nodes below the root collapse.
             default -> throw new IllegalStateException("Root collapsed into an entry");
@@ -69,12 +69,12 @@ final class HashTrie<K, V> {
 
     /**
      * Closes the current commit and returns its view, which never changes.
-     * n must be greater than the last commit. After the commit, all the
-     * nodes are copied before they change.
+     * commitSequence must be greater than the last sequence; it is not a logical tick.
+     * After the commit, all the nodes are copied before they change.
      */
-    View<K, V> commit(long n) {
+    View<K, V> commit(long commitSequence) {
         View<K, V> view = view();
-        lastCommit = n;
+        lastCommitSequence = commitSequence;
         return view;
     }
 
@@ -206,10 +206,10 @@ final class HashTrie<K, V> {
         int bitA = bitOf(a.hash, shift);
         int bitB = bitOf(b.hash, shift);
         if (bitA == bitB) {
-            return new BitmapNode(lastCommit, bitA, new Object[] {merge(a, b, shift + BITS)});
+            return new BitmapNode(lastCommitSequence, bitA, new Object[] {merge(a, b, shift + BITS)});
         }
         Object[] children = Integer.compareUnsigned(bitA, bitB) < 0 ? new Object[] {a, b} : new Object[] {b, a};
-        return new BitmapNode(lastCommit, bitA | bitB, children);
+        return new BitmapNode(lastCommitSequence, bitA | bitB, children);
     }
 
     /**
@@ -277,23 +277,23 @@ final class HashTrie<K, V> {
 
     /** Sets one child of the node: in place if the node was made after the last commit, else on a copy. */
     private BitmapNode withChild(BitmapNode node, int index, Object child) {
-        if (node.commit == lastCommit) {
+        if (node.commitSequence == lastCommitSequence) {
             node.children[index] = child;
             return node;
         }
         Object[] children = node.children.clone();
         children[index] = child;
-        return new BitmapNode(lastCommit, node.bitmap, children);
+        return new BitmapNode(lastCommitSequence, node.bitmap, children);
     }
 
     /** Sets the bitmap and the children of the node: in place if the node was made after the last commit, else on a copy. */
     private BitmapNode withChildren(BitmapNode node, int bitmap, Object[] children) {
-        if (node.commit == lastCommit) {
+        if (node.commitSequence == lastCommitSequence) {
             node.bitmap = bitmap;
             node.children = children;
             return node;
         }
-        return new BitmapNode(lastCommit, bitmap, children);
+        return new BitmapNode(lastCommitSequence, bitmap, children);
     }
 
     private static Object[] inserted(Object[] array, int index, Object value) {
@@ -328,12 +328,12 @@ final class HashTrie<K, V> {
      */
     private static final class BitmapNode implements Node {
 
-        final long commit;
+        final long commitSequence;
         int bitmap;
         Object[] children;
 
-        BitmapNode(long commit, int bitmap, Object[] children) {
-            this.commit = commit;
+        BitmapNode(long commitSequence, int bitmap, Object[] children) {
+            this.commitSequence = commitSequence;
             this.bitmap = bitmap;
             this.children = children;
         }

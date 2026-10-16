@@ -103,7 +103,7 @@ abstract class SpatialIndex2Contract {
         storage.insertAll(List.of(entity(4, 1, 1)));
         Box2 box = new Box2(new Point2(0, 0), new Point2(6, 6));
         List<Entity2> committed = List.of(entity(1, 0, 0), entity(2, 5, 5));
-        assertEquals(1, snapshot.index().commit());
+        assertEquals(1, snapshot.index().commitSequence());
         assertEquals(committed, sortedById(snapshot.findInRegion(box)));
         assertEquals(committed, snapshot.findNearest(new Point2(0, 0), 2));
         assertEquals(List.of(entity(4, 1, 1)), sortedById(storage.findInRegion(box)));
@@ -185,7 +185,7 @@ abstract class SpatialIndex2Contract {
 
     /** Checks that a kept snapshot gives the results of the model at its commit. */
     private void checkSnapshot(Random random, KeptSnapshot kept, String where) {
-        String at = where + ", snapshot " + kept.snapshot().index().commit();
+        String at = where + ", snapshot " + kept.snapshot().index().commitSequence();
         Region2 region = randomRegion(random);
         assertEquals(expectedInRegion(kept.model(), region), sortedById(kept.snapshot().findInRegion(region)),
                 at + ": findInRegion " + region);

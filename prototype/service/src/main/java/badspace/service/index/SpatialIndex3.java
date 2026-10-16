@@ -37,11 +37,11 @@ public interface SpatialIndex3 {
     void relocated(int from, int to, Point3 position);
 
     /**
-     * Closes the current commit with the number of the partition commit. The
-     * storage checks that n is greater than the last commit. Returns the snapshot
-     * of the index at this commit, which the next writes do not change.
+     * Closes the current commit with the internal sequence supplied by the storage.
+     * The sequence increases at every commit, even within the same logical tick.
+     * Returns the snapshot of the index at this commit, which the next writes do not change.
      */
-    IndexSnapshot3 commit(long n);
+    IndexSnapshot3 commit(long commitSequence);
 
     /**
      * Returns the slots of the entities inside the region, border included, in any order.

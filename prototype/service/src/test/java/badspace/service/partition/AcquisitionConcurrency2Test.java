@@ -763,8 +763,8 @@ class AcquisitionConcurrency2Test {
             IndexSnapshot2 snapshot = index.commit(n);
             return new IndexSnapshot2() {
                 @Override
-                public long commit() {
-                    return snapshot.commit();
+                public long commitSequence() {
+                    return snapshot.commitSequence();
                 }
 
                 @Override

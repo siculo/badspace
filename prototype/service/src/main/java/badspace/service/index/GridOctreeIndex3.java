@@ -32,7 +32,7 @@ import java.util.PriorityQueue;
  * <p>
  * At each commit the index gives a snapshot that shares the nodes with the
  * writer. The map of the cells is a {@link HashTrie}, and each node keeps the
- * last commit at the time it was made: the writer copies a node, with the
+ * internal commit sequence at the time it was made: the writer copies a node, with the
  * path from the root of its cell, the first time it changes the node after a
  * commit. So the nodes have no link to their parent, and each write goes down
  * from the root of the cell, following the position. The map from slot to
@@ -60,7 +60,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     private final HashTrie<CellKey, Node> cells = new HashTrie<>();
     /** For each slot, its place in the list of its leaf. */
     private int[] placeOf = new int[INITIAL_CAPACITY];
-    private long lastCommit;
+    private long lastCommitSequence;
 
     /** The cell size must be a power of 2 and the leaf capacity positive, as in {@code IndexConfig.GridQuadtree}. */
     GridOctreeIndex3(SlotView3 storage, double cellSize, int leafCapacity) {
@@ -131,9 +131,9 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     }
 
     @Override
-    public IndexSnapshot3 commit(long n) {
-        lastCommit = n;
-        return new Snapshot(n, cells.commit(n), cellSize);
+    public IndexSnapshot3 commit(long commitSequence) {
+        lastCommitSequence = commitSequence;
+        return new Snapshot(commitSequence, cells.commit(commitSequence), cellSize);
     }
 
     @Override
@@ -175,7 +175,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
         CellKey key = keyOf(position);
         Node root = cells.get(key);
         if (root == null) {
-            root = new Node(lastCommit, key.x * cellSize, key.y * cellSize, key.z * cellSize, cellSize, 0);
+            root = new Node(lastCommitSequence, key.x * cellSize, key.y * cellSize, key.z * cellSize, cellSize, 0);
             cells.put(key, root);
         } else {
             root = writable(key, root);
@@ -245,8 +245,8 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
 
     /** Returns the root of the cell, copied first and put in the map if an older snapshot can see it. */
     private Node writable(CellKey key, Node root) {
-        if (root.commit != lastCommit) {
-            root = root.copy(lastCommit);
+        if (root.commitSequence != lastCommitSequence) {
+            root = root.copy(lastCommitSequence);
             cells.put(key, root);
         }
         return root;
@@ -259,8 +259,8 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
      */
     private Node writableChild(Node node, int i) {
         Node child = node.children[i];
-        if (child.commit != lastCommit) {
-            child = child.copy(lastCommit);
+        if (child.commitSequence != lastCommitSequence) {
+            child = child.copy(lastCommitSequence);
             node.children[i] = child;
         }
         return child;
@@ -283,7 +283,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
         leaf.slots = null;
         leaf.children = new Node[CHILDREN];
         for (int i = 0; i < CHILDREN; i++) {
-            leaf.children[i] = new Node(lastCommit, leaf.minX + (i & 1) * half, leaf.minY + (i >> 1 & 1) * half,
+            leaf.children[i] = new Node(lastCommitSequence, leaf.minX + (i & 1) * half, leaf.minY + (i >> 1 & 1) * half,
                     leaf.minZ + (i >> 2) * half, half, leaf.depth + 1);
         }
         for (int i = 0; i < slots.size(); i++) {
@@ -324,7 +324,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     /**
      * Fails with IllegalStateException if the structure is not consistent:
      * the counts of the nodes, the place of each slot, the nodes that should
-     * be merged, the stacked leaves, and the commits of the nodes. Only for
+     * be merged, the stacked leaves, and the commit sequences of the nodes. Only for
      * the tests.
      */
     void checkStructure() {
@@ -371,9 +371,9 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
             for (Node child : node.children) {
                 // A node of the current commit under an older one could change
                 // what an older snapshot sees.
-                if (child.commit > node.commit) {
-                    throw new IllegalStateException("Node of commit " + child.commit + " under a node of commit "
-                            + node.commit);
+                if (child.commitSequence > node.commitSequence) {
+                    throw new IllegalStateException("Node of commit sequence " + child.commitSequence + " under a node of commit sequence "
+                            + node.commitSequence);
                 }
                 count += checkNode(child, seen);
             }
@@ -669,7 +669,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     }
 
     /** A snapshot of the index at a commit. */
-    private record Snapshot(long commit, HashTrie.View<CellKey, Node> cells, double cellSize) implements IndexSnapshot3 {
+    private record Snapshot(long commitSequence, HashTrie.View<CellKey, Node> cells, double cellSize) implements IndexSnapshot3 {
 
         @Override
         public int[] findInRegion(Region3 region, SlotView3 slots) {
@@ -700,8 +700,8 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
      */
     private static final class Node {
 
-        /** The last commit when the node was made. */
-        final long commit;
+        /** The internal commit sequence when the node was made. */
+        final long commitSequence;
         final double minX;
         final double minY;
         final double minZ;
@@ -718,8 +718,8 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
         /** Number of entities in the subtree. */
         int count;
 
-        Node(long commit, double minX, double minY, double minZ, double side, int depth) {
-            this.commit = commit;
+        Node(long commitSequence, double minX, double minY, double minZ, double side, int depth) {
+            this.commitSequence = commitSequence;
             this.minX = minX;
             this.minY = minY;
             this.minZ = minZ;
@@ -727,9 +727,9 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
             this.depth = depth;
         }
 
-        /** Returns a copy for the given commit: it shares the children, and keeps the slots in the same places. */
-        Node copy(long commit) {
-            Node copy = new Node(commit, minX, minY, minZ, side, depth);
+        /** Returns a copy for the given commit sequence: it shares the children, and keeps the slots in the same places. */
+        Node copy(long commitSequence) {
+            Node copy = new Node(commitSequence, minX, minY, minZ, side, depth);
             copy.children = children == null ? null : children.clone();
             copy.slots = slots == null ? null : slots.copy();
             copy.stackedAt = stackedAt;

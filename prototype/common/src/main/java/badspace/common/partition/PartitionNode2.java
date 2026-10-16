@@ -160,9 +160,14 @@ public interface PartitionNode2 {
 
     /**
      * Confirms the writes of a partition in its current tick: the snapshot of the tick will
-     * have them. A later commit in the same tick replaces it, and the writes after the last
-     * commit go to the next commit. A commit with no writes is valid. The snapshot becomes
-     * acquirable when the tick of the partition moves forward.
+     * have them.
+     * Each commit confirms the full current state, including the effects of earlier commits
+     * unless later writes change or remove them. Only the last commit of a tick defines its
+     * snapshot; readers cannot acquire the intermediate states. Writes after the last commit
+     * stay uncommitted and carry over to the next tick. A commit with no writes is valid.
+     * This call does not advance the tick, wait for the next tick or stop further writes
+     * in the same tick. The writer decides whether to wait before writing again.
+     * The snapshot becomes acquirable when the tick of the partition moves forward.
      */
     void commit(PartitionId partitionId);
 

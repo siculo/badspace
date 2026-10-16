@@ -20,8 +20,13 @@ public interface Partition {
 
     /**
      * Confirms the writes in the current tick of the partition: the snapshot of the tick will
-     * have them. A later commit in the same tick replaces it, and the writes after the last
-     * commit go to the next commit, also in a later tick. A commit with no writes is valid.
+     * have them.
+     * Each commit confirms the full current state, including the effects of earlier commits
+     * unless later writes change or remove them. Only the last commit of a tick defines its
+     * snapshot; readers cannot acquire the intermediate states. Writes after the last commit
+     * stay uncommitted and carry over to the next tick. A commit with no writes is valid.
+     * This call does not advance the tick, wait for the next tick or stop further writes
+     * in the same tick. The writer decides whether to wait before writing again.
      * The snapshot becomes acquirable when the tick moves forward, with {@code acquire(tick)}
      * and {@code acquireLatest()} of Partition2 and Partition3.
      */

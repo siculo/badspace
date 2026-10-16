@@ -200,8 +200,8 @@ class PartitionStorage2Test {
             configured.updateAll(List.of(new Entity2(40, B)));
 
             String where = config.toString();
-            checkSnapshot(first, 1, List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)), where);
-            checkSnapshot(second, 2, List.of(new Entity2(40, A), new Entity2(20, B), new Entity2(30, D)), where);
+            checkSnapshot(first, List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)), where);
+            checkSnapshot(second, List.of(new Entity2(40, A), new Entity2(20, B), new Entity2(30, D)), where);
             assertEquals(List.of(new Entity2(30, D), new Entity2(40, B)), configured.getAll(ALL_IDS), where);
         }
     }
@@ -237,7 +237,6 @@ class PartitionStorage2Test {
         assertEquals(0, storage.liveSnapshotCount());
         storage.setTick(1);
         assertEquals(0, storage.lastSnapshot().size());
-        assertEquals(0, storage.lastSnapshot().commitSequence());
         assertEquals(1, storage.liveSnapshotCount());
     }
 
@@ -708,9 +707,8 @@ class PartitionStorage2Test {
     }
 
     /** Checks all the reads of the snapshot, which must find exactly the expected entities, nearest to A first. */
-    private static void checkSnapshot(StorageSnapshot2 snapshot, long commitSequence, List<Entity2> expected,
+    private static void checkSnapshot(StorageSnapshot2 snapshot, List<Entity2> expected,
             String where) {
-        assertEquals(commitSequence, snapshot.commitSequence(), where);
         assertEquals(Set.copyOf(expected), Set.copyOf(snapshot.getAll(ALL_IDS)), where);
         assertEquals(expected.size(), snapshot.getAll(ALL_IDS).size(), where);
         List<Entity2> inRegion = snapshot.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX));

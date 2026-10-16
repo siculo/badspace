@@ -763,8 +763,8 @@ class AcquisitionConcurrency3Test {
             IndexSnapshot3 snapshot = index.commit(n);
             return new IndexSnapshot3() {
                 @Override
-                public long commit() {
-                    return snapshot.commit();
+                public long commitSequence() {
+                    return snapshot.commitSequence();
                 }
 
                 @Override

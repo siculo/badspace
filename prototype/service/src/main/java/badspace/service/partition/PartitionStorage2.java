@@ -37,14 +37,13 @@ import java.util.function.Function;
  * of each change. The index finds the slots and the storage builds the entities.
  * The positions of the entities must be in the limits of the index: writes
  * outside them fail, so the indices never see them.
- * Writes are grouped in commits, whose numbers always grow. Each commit makes
- * a {@link StorageSnapshot2}: a snapshot of the slots and the snapshot of the
+ * Writes are grouped in commits. Each commit makes a {@link StorageSnapshot2}: a snapshot of the slots and the snapshot of the
  * index of the same commit. The coordinates are copied at each commit; the
  * IDs and the table from ID to slot only after insertions or removals, else
  * the new snapshot shares them with the one before.
  * <p>
- * The commits have a number in a sequence that only grows, for the copy-on-write
- * of the index.
+ * Each commit advances an internal sequence for the copy-on-write of the index.
+ * This sequence is separate from the logical tick: one tick can have many commits.
  * <p>
  * The storage has a tick: the logical time of the partition, which the node moves
  * forward. The snapshot of the last commit of a tick is not published at the
@@ -335,7 +334,7 @@ final class PartitionStorage2 implements SlotView2 {
         writerLock.lock();
         try {
             commitSequence++;
-            snapshot = new StorageSnapshot2(commitSequence, slotSnapshot(), index.commit(commitSequence));
+            snapshot = new StorageSnapshot2(slotSnapshot(), index.commit(commitSequence));
             idsChanged = false;
             lastCommitted = snapshot;
             pending = snapshot;
