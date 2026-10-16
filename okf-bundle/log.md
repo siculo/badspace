@@ -1,6 +1,8 @@
 # Bundle Update Log
 
 ## 2026-10-16
+* **Edit**: Spostate da `AGENTS.md` in [Scrittura e revisione dei test](/process/development-approach.md#scrittura-e-revisione-dei-test) le indicazioni emerse dalla revisione della suite: semantica come riferimento, implementazioni reali e facade, mock mirati, accessi interni limitati e motivati, gestione delle risorse, concorrenza sincronizzata, tempo controllato e manutenzione della copertura. Allineati descrizione e indice del processo.
+* **Edit**: Allineata [Conservazione degli snapshot](/architecture/snapshot-retention.md#nel-prototipo) alla revisione dei test: eliminato `lastSnapshot()` dello storage, accesso interno tramite catalogo e verifica degli utilizzi residui delle query attraverso la distruzione della partizione.
 * **Edit**: Chiarita la semantica cumulativa dei commit nello stesso tick in [Commit della partizione](/architecture/partition-commit.md#commit-e-tick), [Conservazione degli snapshot](/architecture/snapshot-retention.md) e [API da esporre](/decisions/api-surface.md#commit): solo l’ultimo commit definisce lo snapshot acquisibile del tick, le scritture successive non confermate passano al tick dopo, e attendere il tick successivo è una scelta del writer. Aggiunto un esempio con due commit nello stesso tick.
 
 ## 2026-10-15

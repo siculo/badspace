@@ -25,7 +25,7 @@ import java.util.function.Function;
 
 /**
  * Entities of a 2D partition. It has a single writer and is not thread-safe,
- * except {@link #setTick}, {@link #catalog()}, {@link #lastSnapshot()}, {@link #tick()},
+ * except {@link #setTick}, {@link #catalog()}, {@link #tick()},
  * {@link #creationTick()} and the methods of the acquisitions.
  * Entities are stored in primitive arrays: slotEntityIds[i] has coordinates
  * coords[2*i], coords[2*i+1]. A {@link SlotTable} gives the slot of each ID.
@@ -309,11 +309,6 @@ final class PartitionStorage2 implements SlotView2 {
         return limits;
     }
 
-    /** Returns k: the number of retained ticks. */
-    int retainedTicks() {
-        return catalog.retainedTicks();
-    }
-
     /** Returns the tick at which the partition was created. Any thread can call it. */
     long creationTick() {
         return catalog.creationTick();
@@ -434,14 +429,6 @@ final class PartitionStorage2 implements SlotView2 {
     }
 
     /**
-     * Returns the last published snapshot, of the tick before the current one, or null before
-     * the first move of the tick. Unlike the other methods, any thread can call it.
-     */
-    StorageSnapshot2 lastSnapshot() {
-        return catalog.latest();
-    }
-
-    /**
      * Acquires the snapshot of the tick with the default timeout and returns the number of the
      * acquisition, or NOT_ACQUIRED if the snapshot left the window.
      */
@@ -555,7 +542,7 @@ final class PartitionStorage2 implements SlotView2 {
         double[] coordsCopy = Arrays.copyOf(coords, size * DIMENSIONS);
         if (!idsChanged) {
             SlotSnapshot2 last = lastCommitted.slots();
-            return new SlotSnapshot2(last.slotEntityIds, coordsCopy, last.slotById);
+            return last.withCoordinates(coordsCopy);
         }
         return new SlotSnapshot2(Arrays.copyOf(slotEntityIds, size), coordsCopy, slotById.copy());
     }

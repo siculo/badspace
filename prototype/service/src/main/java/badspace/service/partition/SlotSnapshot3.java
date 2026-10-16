@@ -19,16 +19,20 @@ final class SlotSnapshot3 implements SlotView3 {
     private final int size;
     // Slot: entity ID and position, as in the storage. coords holds DIMENSIONS values
     // per slot (x, y, z), so slot i is slotEntityIds[i] and coords[DIMENSIONS * i ...].
-    /** Package-private so that the tests can check what the snapshots share. */
-    final long[] slotEntityIds;
-    final double[] coords;
-    final SlotTable slotById;
+    private final long[] slotEntityIds;
+    private final double[] coords;
+    private final SlotTable slotById;
 
     SlotSnapshot3(long[] slotEntityIds, double[] coords, SlotTable slotById) {
         this.size = slotEntityIds.length;
         this.slotEntityIds = slotEntityIds;
         this.coords = coords;
         this.slotById = slotById;
+    }
+
+    /** Creates a snapshot that shares the unchanged IDs and uses the new coordinates. */
+    SlotSnapshot3 withCoordinates(double[] coordinates) {
+        return new SlotSnapshot3(slotEntityIds, coordinates, slotById);
     }
 
     /** Returns the slot of the ID, or {@link SlotTable#NONE} if the ID is not in the snapshot. */

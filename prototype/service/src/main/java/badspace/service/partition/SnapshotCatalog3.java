@@ -156,11 +156,6 @@ final class SnapshotCatalog3 {
         return snapshots[i];
     }
 
-    /** Returns the first tick that the i-th snapshot in the window is valid for. */
-    long firstTickAt(int i) {
-        return firstTicks[i];
-    }
-
     private long windowStart(long tick) {
         return Math.max(tick - retainedTicks, creationTick);
     }

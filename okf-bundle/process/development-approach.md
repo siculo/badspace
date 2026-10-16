@@ -1,10 +1,10 @@
 ---
 type: Playbook
 title: Approccio di sviluppo
-description: BADSPACE viene sviluppato per prototipi minimali, verificati da test di integrazione e accompagnati da client d'esempio costruiti man mano, per validare le decisioni di progettazione sul campo; lo sviluppo è incrementale, ogni concetto nuovo porta con sé le estensioni che richiede e i meccanismi si implementano una volta e si estendono quando servono nuovi dati; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
+description: BADSPACE viene sviluppato per prototipi minimali, verificati da test di integrazione e accompagnati da client d'esempio costruiti man mano, per validare le decisioni di progettazione sul campo; lo sviluppo è incrementale, ogni concetto nuovo porta con sé le estensioni che richiede e i meccanismi si implementano una volta e si estendono quando servono nuovi dati; i test partono dalla semantica, preferiscono componenti reali e verificano effetti, risorse e concorrenza; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
 tags: [badspace, methodology, prototyping]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T20:26:50Z }
+generated: { by: codex/gpt-6, at: 2026-10-16T11:36:47Z }
 ---
 
 # Approccio
@@ -67,6 +67,20 @@ accanto ai prototipi che li richiedono, per esempio uno scenario con
 aree non contigue per la [migrazione](/mechanisms/entity-migration.md)
 e uno con zone contigue per le [letture
 coerenti](/mechanisms/consistent-reads.md).
+
+# Scrittura e revisione dei test
+
+Questi criteri valgono sia per i nuovi test sia per la revisione di quelli
+esistenti, nei moduli unitari e nei test di integrazione descritti sopra.
+
+- **Partire dalla semantica.** Prima di scrivere o modificare un test, leggere la semantica nel bundle, il contratto del componente e il codice che lo implementa. Verificare comportamenti e invarianti con risultati attesi indipendenti dall'implementazione. Quando il software evolve, rivedere criticamente gli scenari e le asserzioni: non limitarsi ad adattare i test per farli passare.
+- **Preferire componenti reali.** Usare le implementazioni reali delle dipendenze quando possibile. Per osservare o controllare un'interazione, preferire una facade che delega all'implementazione reale, creata tramite il framework di testing quando possibile. Riservare i mock a verifiche mirate di delega, argomenti, errori o interazioni necessarie al contratto. Non ricostruire nei fake la logica del componente dipendente: anche quella logica deve evolvere e può divergere dalla semantica reale.
+- **Scegliere il livello adatto.** Verificare la semantica dei componenti nei rispettivi moduli e i comportamenti dell'API insieme ai nodi reali in `prototype/integration-tests`, senza introdurre una dipendenza dell'API dal service. Una verifica del numero o dell'ordine delle chiamate è utile solo se quel vincolo ha un significato nel contratto; non sostituisce la verifica del risultato.
+- **Limitare gli accessi agli internals.** Non aggiungere né mantenere proprietà, funzioni o visibilità più ampia esclusivamente per i test, salvo che la verifica sia critica e non sia possibile attraverso il comportamento osservabile, oppure che l'esposizione sia utile per inspection e monitoring. Motivare queste eccezioni. Preferire informazioni in sola lettura ed evitare di esporre strutture mutabili. Eliminare gli accessi di supporto quando non servono più.
+- **Verificare effetti e risorse.** Un errore atteso deve lasciare invariato lo stato previsto dal contratto. Per acquisizioni, query e altre risorse, verificare rilascio e fine effettiva del ciclo di vita, anche dopo un fallimento. La continuità degli ID o il solo conteggio delle chiamate non dimostrano l'assenza di risorse residue. Conservare gli handle realmente ottenuti, bilanciare ogni ammissione con la fine della query e usare `try-with-resources` o `finally` per la pulizia.
+- **Rendere significativi i test concorrenti.** Usare latch o barriere per garantire che le operazioni rilevanti avvengano nelle fasi previste; avviare più thread non basta. Non affidarsi a sleep o spin per ottenere un ordine. Verificare che ogni worker abbia eseguito il lavoro richiesto, propagare i suoi errori al test, limitare le attese e controllare la terminazione dopo un `join` con timeout. Sbloccare le barriere e terminare i worker anche quando un'asserzione fallisce. Gli stress test completano gli scenari sincronizzati, senza sostituirli.
+- **Controllare il tempo nei test.** Per scadenze e altri comportamenti temporali, usare un clock sostituibile e controllato dal test. Usare il generatore di ID reale nei test del generatore; negli altri test preferire generatori deterministici quando lo schema degli ID non è rilevante.
+- **Mantenere la suite essenziale.** Un comportamento per test, nomi che descrivono il comportamento e copertura sia 2D sia 3D quando applicabile. Prima di eliminare o accorpare un test, identificare quale verifica conserva la sua garanzia. Non eliminare una sovrapposizione solo perché lo stesso scenario compare a livelli diversi: può verificare responsabilità diverse. Eseguire i test pertinenti alle modifiche e la suite completa prima di concludere una revisione trasversale.
 
 # Benchmark
 

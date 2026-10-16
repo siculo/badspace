@@ -36,7 +36,6 @@ class SnapshotCatalog3Test {
         assertEquals(1, catalog.tick());
         assertSame(first, catalog.at(0));
         assertSame(first, catalog.latest());
-        assertEquals(0, catalog.firstTickAt(0));
         assertNull(catalog.at(1));
     }
 

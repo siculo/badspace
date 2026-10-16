@@ -75,24 +75,28 @@ class AcquisitionConcurrency3Test {
             index[0].gate = gate;
             QueryThread query = new QueryThread(storage, acquisitionId, 0);
             query.start();
-            gate.awaitEntered();
+            try {
+                gate.awaitEntered();
 
-            // The query is stopped in the index. The writer changes the slots and the
-            // index, commits and moves the tick twice: it must not wait for the query.
-            assertTimeoutPreemptively(TIMEOUT, () -> {
-                storage.updateAll(List.of(new Entity3(10, C)));
-                storage.removeAll(new long[] {20});
-                storage.insertAll(List.of(new Entity3(30, D)));
-                publish(storage);
-                storage.updateAll(List.of(new Entity3(30, A)));
-                publish(storage);
-            }, config + ": the writer waited for a query");
-            assertEquals(3, storage.tick());
+                // The query is stopped in the index. The writer changes the slots and the
+                // index, commits and moves the tick twice: it must not wait for the query.
+                assertTimeoutPreemptively(TIMEOUT, () -> {
+                    storage.updateAll(List.of(new Entity3(10, C)));
+                    storage.removeAll(new long[] {20});
+                    storage.insertAll(List.of(new Entity3(30, D)));
+                    publish(storage);
+                    storage.updateAll(List.of(new Entity3(30, A)));
+                    publish(storage);
+                    }, config + ": the writer waited for a query");
+                assertEquals(3, storage.tick());
 
-            gate.open();
-            query.join();
+            } finally {
+                gate.open();
+                join(query);
+            }
             List<Entity3> expected = List.of(new Entity3(10, A), new Entity3(20, B));
             query.check(expected, config.toString());
+            storage.release(acquisitionId);
         }
     }
 
@@ -108,18 +112,21 @@ class AcquisitionConcurrency3Test {
             index[0].gate = gate;
             QueryThread query = new QueryThread(storage, acquisitionId, 0);
             query.start();
-            gate.awaitEntered();
+            try {
+                gate.awaitEntered();
 
-            storage.release(acquisitionId);
-            assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId, 0));
-            // The snapshot leaves the window too: only the query still holds it.
-            storage.removeAll(new long[] {10});
-            publish(storage);
-            assertEquals(0, storage.acquisitionCount());
-            assertFalse(snapshot.uses().isEnded(), config + ": the snapshot ended during the query");
+                storage.release(acquisitionId);
+                assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId, 0));
+                // The snapshot leaves the window too: only the query still holds it.
+                storage.removeAll(new long[] {10});
+                publish(storage);
+                assertEquals(0, storage.acquisitionCount());
+                assertFalse(snapshot.uses().isEnded(), config + ": the snapshot ended during the query");
 
-            gate.open();
-            query.join();
+            } finally {
+                gate.open();
+                join(query);
+            }
             query.check(List.of(new Entity3(10, A)), config.toString());
             assertTrue(snapshot.uses().isEnded(), config + ": the snapshot did not end with the query");
             assertEquals(1, storage.liveSnapshotCount());
@@ -145,18 +152,28 @@ class AcquisitionConcurrency3Test {
             index[0].gate = gate;
             QueryThread query = new QueryThread(storage, acquisitionA, 0);
             query.start();
-            gate.awaitEntered();
+            long acquisitionB;
+            try {
+                gate.awaitEntered();
 
-            clock.advance(TIMEOUT);
-            long acquisitionB = storage.acquire(snapshot, 0, AcquireOptions.timeout(TIMEOUT));
-            assertEquals(1, storage.acquisitionCount(), config + ": the expired acquisition was not removed");
-            assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA, 0));
+                clock.advance(TIMEOUT);
+                acquisitionB = storage.acquire(snapshot, 0, AcquireOptions.timeout(TIMEOUT));
+                assertEquals(1, storage.acquisitionCount(), config + ": the expired acquisition was not removed");
+                assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA, 0));
 
-            gate.open();
-            query.join();
+            } finally {
+                gate.open();
+                join(query);
+            }
             query.check(List.of(new Entity3(10, A)), config.toString());
             assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA, 0));
-            assertSame(snapshot, storage.admit(acquisitionB, 0));
+            StorageSnapshot3 admitted = storage.admit(acquisitionB, 0);
+            try {
+                assertSame(snapshot, admitted);
+            } finally {
+                storage.endQuery(admitted);
+                storage.release(acquisitionB);
+            }
         }
     }
 
@@ -183,6 +200,7 @@ class AcquisitionConcurrency3Test {
             AtomicReference<Throwable> failure = new AtomicReference<>();
             CyclicBarrier start = new CyclicBarrier(READERS + 1);
             AtomicLong previousAcquired = new AtomicLong();
+            CountDownLatch observed = new CountDownLatch(READERS);
             List<List<Acquisition>> kept = new ArrayList<>();
             List<Thread> readers = new ArrayList<>();
             for (int r = 0; r < READERS; r++) {
@@ -191,7 +209,7 @@ class AcquisitionConcurrency3Test {
                 boolean previous = r % 2 == 0;
                 Thread reader = new Thread(() -> {
                     try {
-                        start.await();
+                        start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                         int reads = 0;
                         while (!done.get()) {
                             Acquisition acquisition;
@@ -208,7 +226,10 @@ class AcquisitionConcurrency3Test {
                                 previousAcquired.incrementAndGet();
                             }
                             checkWholeCommit(node, acquisition, entityIds);
-                            if (++reads % KEEP_EVERY == 0) {
+                            if (reads == 0) {
+                                observed.countDown();
+                            }
+                            if (reads++ % KEEP_EVERY == 0) {
                                 readerKept.add(acquisition);
                             } else {
                                 node.release(acquisition);
@@ -232,12 +253,15 @@ class AcquisitionConcurrency3Test {
                     }
                     node.updateAll(P1, moved);
                     node.commit(P1);
+                    if (tick == 2) {
+                        await(observed);
+                    }
                 }
                 node.setTick(TICKS + 1);
             } finally {
                 done.set(true);
                 for (Thread reader : readers) {
-                    reader.join(TIMEOUT.toMillis());
+                    join(reader);
                 }
             }
             if (failure.get() != null) {
@@ -254,7 +278,10 @@ class AcquisitionConcurrency3Test {
                 }
             }
             // The queries of the node gave back their uses: only the window stays (k = 2).
-            assertEquals(2, node.find(P1).liveSnapshotCount(), config.toString());
+            node.dropPartition(P1);
+            node.setTick(TICKS + 2);
+            node.setTick(TICKS + 4);
+            assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
         }
     }
 
@@ -270,6 +297,9 @@ class AcquisitionConcurrency3Test {
         for (IndexConfig config : CONFIGS) {
             PartitionStorage3 storage = new PartitionStorage3(config, 2);
             storage.insertAll(List.of(new Entity3(10, A), new Entity3(20, B)));
+            storage.commit();
+            storage.setTick(2);
+            CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
             CyclicBarrier start = new CyclicBarrier(2 * READERS + 1);
@@ -279,9 +309,10 @@ class AcquisitionConcurrency3Test {
                 // The number and the tick of the acquisition that the reader shares with its
                 // querier, or null.
                 AtomicReference<long[]> shared = new AtomicReference<>();
+                CountDownLatch firstAdmitted = new CountDownLatch(1);
                 threads.add(new Thread(() -> {
                     try {
-                        start.await();
+                        start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                         while (!done.get()) {
                             SnapshotCatalog3 catalog = storage.catalog();
                             long tick = catalog.tick() - ticksBack;
@@ -294,6 +325,7 @@ class AcquisitionConcurrency3Test {
                                 continue;
                             }
                             shared.set(new long[] {acquisitionId, tick});
+                            await(firstAdmitted);
                             // Gives the querier some time to admit queries before the release.
                             for (int i = 0; i < SPINS; i++) {
                                 Thread.onSpinWait();
@@ -307,7 +339,7 @@ class AcquisitionConcurrency3Test {
                 }));
                 threads.add(new Thread(() -> {
                     try {
-                        start.await();
+                        start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                         while (!done.get()) {
                             long[] acquisition = shared.get();
                             if (acquisition == null) {
@@ -321,7 +353,11 @@ class AcquisitionConcurrency3Test {
                                 continue;
                             }
                             try {
-                                snapshot.size();
+                                assertEquals(2, snapshot.size());
+                                if (firstAdmitted.getCount() != 0) {
+                                    firstAdmitted.countDown();
+                                    observed.countDown();
+                                }
                             } finally {
                                 storage.endQuery(snapshot);
                             }
@@ -337,14 +373,17 @@ class AcquisitionConcurrency3Test {
 
             try {
                 start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-                for (long tick = 1; tick <= TICKS; tick++) {
+                for (long tick = 3; tick <= TICKS; tick++) {
                     storage.commit();
                     storage.setTick(tick);
+                    if (tick == 3) {
+                        await(observed);
+                    }
                 }
             } finally {
                 done.set(true);
                 for (Thread thread : threads) {
-                    thread.join(TIMEOUT.toMillis());
+                    join(thread);
                 }
             }
             if (failure.get() != null) {
@@ -369,14 +408,17 @@ class AcquisitionConcurrency3Test {
             LocalPartitionNode3 node = new LocalPartitionNode3();
             node.createPartition(P1, config, 1);
             node.insertAll(P1, List.of(new Entity3(10, A), new Entity3(20, B)));
+            CountDownLatch observed = new CountDownLatch(READERS);
+            AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
             CyclicBarrier start = new CyclicBarrier(READERS + 1);
             List<Thread> readers = new ArrayList<>();
             for (int r = 0; r < READERS; r++) {
                 readers.add(new Thread(() -> {
                     try {
-                        start.await();
-                        while (true) {
+                        start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+                        boolean read = false;
+                        while (!done.get()) {
                             Acquisition acquisition;
                             try {
                                 acquisition = node.acquireLatest(P1, defaultTimeout());
@@ -399,6 +441,10 @@ class AcquisitionConcurrency3Test {
                             int expectedSize = acquisition.tick() == 0 ? 0 : 2;
                             assertEquals(expectedSize, node.size(acquisition), "tick " + acquisition.tick());
                             node.release(acquisition);
+                            if (!read) {
+                                observed.countDown();
+                                read = true;
+                            }
                         }
                     } catch (Throwable e) {
                         failure.compareAndSet(null, e);
@@ -414,6 +460,9 @@ class AcquisitionConcurrency3Test {
                 for (long tick = 1; tick <= TICKS; tick++) {
                     node.setTick(tick);
                     node.commit(P1);
+                    if (tick == 2) {
+                        await(observed);
+                    }
                 }
                 node.dropPartition(P1);
                 // The removal tick, and then the first tick with no tick of the partition in
@@ -421,14 +470,15 @@ class AcquisitionConcurrency3Test {
                 node.setTick(TICKS + 1);
                 node.setTick(TICKS + 2);
             } finally {
+                done.set(true);
                 for (Thread reader : readers) {
-                    reader.join(TIMEOUT.toMillis());
+                    join(reader);
                 }
             }
             if (failure.get() != null) {
                 throw new AssertionError(config + ": a reader failed", failure.get());
             }
-            assertFalse(node.hasPartition(P1), config + ": the partition was not removed");
+            assertThrows(IllegalArgumentException.class, () -> node.tick(P1), config.toString());
         }
     }
 
@@ -445,20 +495,25 @@ class AcquisitionConcurrency3Test {
             storage.insertAll(List.of(new Entity3(10, A)));
             Gate gate = new Gate();
             index[0].commitGate = gate;
-            Thread writer = new Thread(storage::commit);
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            Thread writer = worker(storage::commit, failure);
+            Thread mover = worker(() -> storage.setTick(1), failure);
             writer.start();
-            gate.awaitEntered();
+            try {
+                gate.awaitEntered();
 
-            Thread mover = new Thread(() -> storage.setTick(1));
-            mover.start();
-            awaitWaiting(mover, config + ": the move of the tick did not wait for the commit");
-            assertEquals(0, storage.tick(), config + ": the tick moved during a commit");
+                mover.start();
+                awaitWaiting(mover, config + ": the move of the tick did not wait for the commit");
+                assertEquals(0, storage.tick(), config + ": the tick moved during a commit");
 
-            gate.open();
-            assertTimeoutPreemptively(TIMEOUT, () -> {
-                writer.join();
-                mover.join();
-            });
+            } finally {
+                gate.open();
+                join(writer);
+                join(mover);
+            }
+            if (failure.get() != null) {
+                throw new AssertionError("Commit or tick worker failed", failure.get());
+            }
             assertEquals(1, storage.tick(), config.toString());
             assertEquals(List.of(new Entity3(10, A)), storage.catalog().at(0).getAll(ALL_IDS), config.toString());
         }
@@ -484,6 +539,7 @@ class AcquisitionConcurrency3Test {
             }
             node.insertAll(P1, entities);
 
+            CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
             AtomicBoolean writerDone = new AtomicBoolean();
             AtomicLong lastTick = new AtomicLong();
@@ -494,8 +550,9 @@ class AcquisitionConcurrency3Test {
                 long ticksBack = r % 2 + 1;
                 threads.add(new Thread(() -> {
                     try {
-                        start.await();
+                        start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                         long lastVersion = 0;
+                        boolean read = false;
                         while (!done.get()) {
                             long tick = node.tick(P1) - ticksBack;
                             if (tick < 0) {
@@ -513,6 +570,10 @@ class AcquisitionConcurrency3Test {
                             assertTrue(version >= lastVersion, "tick " + tick + " has an older commit");
                             lastVersion = version;
                             node.release(acquisition);
+                            if (version > 0 && !read) {
+                                observed.countDown();
+                                read = true;
+                            }
                         }
                     } catch (Throwable e) {
                         failure.compareAndSet(null, e);
@@ -521,7 +582,7 @@ class AcquisitionConcurrency3Test {
             }
             threads.add(new Thread(() -> {
                 try {
-                    start.await();
+                    start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                     for (long version = 1; version <= VERSIONS; version++) {
                         List<Entity3> moved = new ArrayList<>();
                         for (long id : entityIds) {
@@ -531,6 +592,9 @@ class AcquisitionConcurrency3Test {
                         node.updateAll(P1, moved.subList(0, ENTITIES / 2));
                         node.updateAll(P1, moved.subList(ENTITIES / 2, ENTITIES));
                         node.commit(P1);
+                        if (version == VERSIONS / 2) {
+                            await(observed);
+                        }
                     }
                 } catch (Throwable e) {
                     failure.compareAndSet(null, e);
@@ -540,9 +604,9 @@ class AcquisitionConcurrency3Test {
             }));
             threads.add(new Thread(() -> {
                 try {
-                    start.await();
+                    start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                     long tick = 0;
-                    while (!writerDone.get()) {
+                    while (!writerDone.get() && !done.get()) {
                         node.setTick(++tick);
                     }
                     lastTick.set(tick);
@@ -557,12 +621,12 @@ class AcquisitionConcurrency3Test {
             try {
                 start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                 // The writer and the mover end by themselves; then the readers stop.
-                threads.get(READERS).join(TIMEOUT.toMillis());
-                threads.get(READERS + 1).join(TIMEOUT.toMillis());
+                join(threads.get(READERS));
+                join(threads.get(READERS + 1));
             } finally {
                 done.set(true);
                 for (Thread thread : threads) {
-                    thread.join(TIMEOUT.toMillis());
+                    join(thread);
                 }
             }
             if (failure.get() != null) {
@@ -573,8 +637,33 @@ class AcquisitionConcurrency3Test {
             Acquisition latest = node.acquireLatest(P1, defaultTimeout());
             assertEquals(VERSIONS, versionOf(node, latest, entityIds), config + ": the last commit was lost");
             node.release(latest);
-            PartitionStorage3 storage = node.find(P1);
-            assertEquals(storage.catalog().size(), storage.liveSnapshotCount(), config.toString());
+            node.dropPartition(P1);
+            node.setTick(lastTick.get() + 2);
+            node.setTick(lastTick.get() + 4);
+            assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
+        }
+    }
+
+    private static Thread worker(Runnable action, AtomicReference<Throwable> failure) {
+        return new Thread(() -> {
+            try {
+                action.run();
+            } catch (Throwable e) {
+                failure.compareAndSet(null, e);
+            }
+        });
+    }
+
+    private static void await(CountDownLatch latch) throws InterruptedException {
+        assertTrue(latch.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS), "a worker made no progress");
+    }
+
+    private static void join(Thread thread) throws InterruptedException {
+        thread.join(TIMEOUT.toMillis());
+        if (thread.isAlive()) {
+            thread.interrupt();
+            thread.join(TIMEOUT.toMillis());
+            throw new AssertionError("Worker did not finish: " + thread.getName());
         }
     }
 
@@ -600,6 +689,8 @@ class AcquisitionConcurrency3Test {
     private static long versionOf(LocalPartitionNode3 node, Acquisition acquisition, long[] entityIds) {
         List<Entity3> byId = node.getAll(acquisition, entityIds);
         if (byId.isEmpty()) {
+            assertEquals(0, node.size(acquisition));
+            assertEquals(List.of(), node.findNearest(acquisition, A, entityIds.length));
             return 0;
         }
         String where = "tick " + acquisition.tick();

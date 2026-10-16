@@ -272,9 +272,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     /**
      * Returns the storage of a partition for its writer. Fails with IllegalArgumentException
      * if the partition is unknown, and with IllegalStateException if its removal was requested.
-     * Package-private for the tests.
      */
-    PartitionStorage2 find(PartitionId partitionId) {
+    private PartitionStorage2 find(PartitionId partitionId) {
         PartitionStorage2 storage = findAny(partitionId);
         if (storage.state() != PartitionState.ACTIVE) {
             throw new IllegalStateException("Partition was removed: " + partitionId);
@@ -285,21 +284,13 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     /**
      * Returns the storage of a partition, also if it is removed, for the readers and the
      * ticks. Fails with IllegalArgumentException if the partition is unknown: never created
-     * on this node, or already destroyed. Package-private for the tests.
+     * on this node, or already destroyed.
      */
-    PartitionStorage2 findAny(PartitionId partitionId) {
+    private PartitionStorage2 findAny(PartitionId partitionId) {
         PartitionStorage2 storage = partitions.get(partitionId);
         if (storage == null) {
             throw new IllegalArgumentException("Unknown partition: " + partitionId);
         }
         return storage;
-    }
-
-    /**
-     * Returns true if the node still has the partition, also if it is removed and not yet
-     * destroyed. For the tests.
-     */
-    boolean hasPartition(PartitionId partitionId) {
-        return partitions.containsKey(partitionId);
     }
 }

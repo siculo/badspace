@@ -9,31 +9,33 @@ import badspace.api.PartitionConfig;
 import badspace.api.RemovalPolicy;
 import badspace.api.Space2;
 import badspace.api.SpaceConfig;
-import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Box2;
 import badspace.common.geometry.Point2;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.service.partition.LocalPartitionNode2;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
 /**
  * The API together with the local nodes of the service: spaces, partitions, ticks, commits,
  * acquisitions and removal from the point of view of the software. The semantics in detail is
- * tested in the service; Space2Test in the api module checks the calls of the API with a simple node.
+ * tested in the service; Space2Test in the api module checks the calls of the API with framework mocks.
  */
 class Space2EndToEndTest {
 
-    // Short drift limit, so the constructors wait only a little.
-    private static final SpaceConfig CONFIG = SpaceConfig.of(
-            new SnowflakeIdGenerator(0, 10), new SnowflakeIdGenerator(0, 10));
+    private final AtomicLong entityIds = new AtomicLong();
+    private final AtomicLong partitionIds = new AtomicLong();
+    private final SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
     private static final Box2 ALL = new Box2(new Point2(-100, -100), new Point2(100, 100));
 
-    private final Space2 space = new Space2(CONFIG);
+    private final Space2 space = new Space2(config);
 
     @Test
     void readerSeesACommitOnlyAfterTheMoveOfTheTick() {
@@ -157,6 +159,101 @@ class Space2EndToEndTest {
         space.setTick(1);
         try (AcquiredSnapshot2 last = partition.acquireLatest()) {
             assertEquals(0, last.size());
+        }
+    }
+
+    @Test
+    void getUpdateAndRemoveUseTheEntityId() {
+        Partition2 p = space.createPartition(new LocalPartitionNode2());
+        long[] ids = p.insertAll(List.of(new Point2(1, 1), new Point2(2, 2)));
+        assertEquals(Optional.of(new Point2(1, 1)), p.get(ids[0]));
+
+        p.update(ids[0], new Point2(5, 5));
+        p.updateAll(List.of(new Entity2(ids[1], new Point2(6, 6))));
+        assertEquals(List.of(new Entity2(ids[1], new Point2(6, 6)), new Entity2(ids[0], new Point2(5, 5))),
+                p.getAll(new long[] {ids[1], ids[0]}));
+
+        p.remove(ids[0]);
+        assertEquals(Optional.empty(), p.get(ids[0]));
+        p.removeAll(new long[] {ids[1]});
+        assertEquals(0, p.size());
+    }
+
+    @Test
+    void removalDiscardsUncommittedInsertionsWhenTheLastCommitIsEmpty() {
+        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        partition.insert(new Point2(1, 2));
+        space.removePartition(partition);
+        space.setTick(1);
+        try (var snapshot = partition.acquireLatest()) {
+            assertEquals(0, snapshot.size());
+        }
+    }
+
+    @Test
+    void closingAViewTwiceReleasesItAndKeepsItsTick() {
+        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        space.setTick(1);
+        AcquiredSnapshot2 snapshot = partition.acquireLatest();
+        snapshot.close();
+        snapshot.close();
+        assertThrows(IllegalStateException.class, snapshot::size);
+        assertEquals(0, snapshot.tick());
+        space.removePartition(partition);
+        space.setTick(2);
+        space.setTick(3);
+        assertThrows(IllegalArgumentException.class, partition::tick);
+    }
+
+    @Test
+    void generatorsAreSharedAcrossPartitionsAndSpaces() {
+        AtomicLong entityIds = new AtomicLong();
+        AtomicLong partitionIds = new AtomicLong();
+        SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
+        LocalPartitionNode2 first = new LocalPartitionNode2();
+        LocalPartitionNode2 second = new LocalPartitionNode2();
+        Partition2 a = new Space2(config).createPartition(first);
+        Partition2 b = new Space2(config).createPartition(second);
+        assertEquals(1, a.insert(new Point2(1, 2)));
+        assertEquals(2, b.insert(new Point2(1, 2)));
+        assertEquals(0, first.creationTick(new PartitionId(1)));
+        assertEquals(0, second.creationTick(new PartitionId(2)));
+    }
+
+    @Test
+    void writesAndQueriesStayOnTheChosenPartitionAndNode() {
+        LocalPartitionNode2 node = new LocalPartitionNode2();
+        Partition2 first = space.createPartition(node);
+        Partition2 sameNode = space.createPartition(node);
+        Partition2 otherNode = space.createPartition(new LocalPartitionNode2());
+        Point2 position = new Point2(1, 2);
+        long id = first.insert(position);
+        Box2 region = new Box2(position, position);
+        assertEquals(List.of(new Entity2(id, position)), first.findInRegion(region));
+        assertEquals(List.of(new Entity2(id, position)), first.findNearest(position, 1));
+        assertEquals(0, sameNode.size());
+        assertEquals(0, otherNode.size());
+        assertEquals(Optional.empty(), sameNode.get(id));
+        assertEquals(Optional.empty(), otherNode.get(id));
+    }
+
+    @Test
+    void repeatingTheTickDoesNotPublishAnUnfinishedTick() {
+        assertEquals(0, space.tick());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        space.setTick(4);
+        partition.insert(new Point2(1, 2));
+        partition.commit();
+        space.setTick(4);
+        assertEquals(4, space.tick());
+        try (var snapshot = partition.acquireLatest()) {
+            assertEquals(3, snapshot.tick());
+            assertEquals(0, snapshot.size());
+        }
+        space.setTick(5);
+        try (var snapshot = partition.acquireLatest()) {
+            assertEquals(4, snapshot.tick());
+            assertEquals(1, snapshot.size());
         }
     }
 

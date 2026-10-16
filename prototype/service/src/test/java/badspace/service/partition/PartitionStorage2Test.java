@@ -3,7 +3,6 @@ package badspace.service.partition;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -15,22 +14,19 @@ import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.geometry.Point2;
-import badspace.common.geometry.Region2;
-import badspace.service.index.IndexSnapshot2;
-import badspace.service.index.SlotView2;
-import badspace.service.index.SpatialIndex2;
+import badspace.service.index.SpatialIndexes;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/** Checks the calls that the storage makes to its index. */
+/** Checks storage semantics with real spatial indices. */
 class PartitionStorage2Test {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -39,7 +35,6 @@ class PartitionStorage2Test {
     private static final Point2 C = new Point2(5, 6);
     private static final Point2 D = new Point2(7, 8);
 
-    private static final Point2 OUTSIDE = new Point2(11, 0);
     private static final CoordinateLimits LIMITS = new CoordinateLimits(-10, 10);
     private static final Point2 LIMITS_MIN = new Point2(-10, -10);
     private static final Point2 LIMITS_MAX = new Point2(10, 10);
@@ -49,74 +44,11 @@ class PartitionStorage2Test {
     /** k of the partitions in the tests with concurrent readers. */
     private static final int RETAINED_TICKS = 3;
 
-    private RecordingIndex index;
     private PartitionStorage2 storage;
 
     @BeforeEach
     void setUp() {
-        storage = new PartitionStorage2(LIMITS, s -> index = new RecordingIndex(s));
-    }
-
-    @Test
-    void factoryGetsTheStorage() {
-        assertEquals(storage, index.storage);
-    }
-
-    @Test
-    void insertNotifiesEachNewSlot() {
-        storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B)));
-        assertEquals(List.of("inserted 0 " + A + " id=10", "inserted 1 " + B + " id=20"), index.calls);
-    }
-
-    @Test
-    void updateNotifiesOldAndNewPosition() {
-        storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B)));
-        index.calls.clear();
-        storage.updateAll(List.of(new Entity2(20, C)));
-        assertEquals(List.of("moved 1 " + B + " -> " + C + " now=" + C), index.calls);
-    }
-
-    @Test
-    void removeOfLastSlotNotifiesOnlyTheRemoval() {
-        storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B)));
-        index.calls.clear();
-        storage.removeAll(new long[] {20});
-        assertEquals(List.of("removed 1 " + B + " size=1"), index.calls);
-    }
-
-    @Test
-    void removeOfOtherSlotNotifiesTheRemovalAndThenTheRelocation() {
-        storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)));
-        index.calls.clear();
-        storage.removeAll(new long[] {10});
-        assertEquals(List.of("removed 0 " + A + " size=2", "relocated 2 -> 0 " + C + " id=30"), index.calls);
-    }
-
-    @Test
-    void removeOfManyNotifiesInOrder() {
-        storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C), new Entity2(40, D)));
-        index.calls.clear();
-        storage.removeAll(new long[] {20, 40});
-        assertEquals(List.of(
-                "removed 1 " + B + " size=3", "relocated 3 -> 1 " + D + " id=40",
-                "removed 1 " + D + " size=2", "relocated 2 -> 1 " + C + " id=30"), index.calls);
-    }
-
-    @Test
-    void failedWritesNotifyNothing() {
-        storage.insertAll(List.of(new Entity2(10, A)));
-        index.calls.clear();
-        assertThrows(IllegalArgumentException.class,
-                () -> storage.insertAll(List.of(new Entity2(20, B), new Entity2(10, C))));
-        assertThrows(NoSuchElementException.class,
-                () -> storage.updateAll(List.of(new Entity2(10, B), new Entity2(99, C))));
-        assertThrows(NoSuchElementException.class, () -> storage.removeAll(new long[] {10, 99}));
-        assertThrows(IllegalArgumentException.class,
-                () -> storage.insertAll(List.of(new Entity2(20, B), new Entity2(30, OUTSIDE))));
-        assertThrows(IllegalArgumentException.class,
-                () -> storage.updateAll(List.of(new Entity2(10, B), new Entity2(10, OUTSIDE))));
-        assertEquals(List.of(), index.calls);
-        assertEquals(List.of(new Entity2(10, A)), storage.getAll(new long[] {10, 20, 30}));
+        storage = new PartitionStorage2(LIMITS, s -> SpatialIndexes.create(IndexConfig.linearScan(), s));
     }
 
     @Test
@@ -143,8 +75,8 @@ class PartitionStorage2Test {
 
     @Test
     void storageKeepsTheNumberOfRetainedTicks() {
-        assertEquals(1, new PartitionStorage2(IndexConfig.linearScan()).retainedTicks());
-        assertEquals(3, new PartitionStorage2(IndexConfig.linearScan(), 3).retainedTicks());
+        assertEquals(1, new PartitionStorage2(IndexConfig.linearScan()).catalog().retainedTicks());
+        assertEquals(3, new PartitionStorage2(IndexConfig.linearScan(), 3).catalog().retainedTicks());
         assertThrows(IllegalArgumentException.class, () -> new PartitionStorage2(IndexConfig.linearScan(), 0));
     }
 
@@ -153,25 +85,7 @@ class PartitionStorage2Test {
         PartitionStorage2 created = new PartitionStorage2(IndexConfig.linearScan(), 1, MonotonicClock.SYSTEM, 7);
         assertEquals(7, created.tick());
         assertEquals(7, created.creationTick());
-        assertNull(created.lastSnapshot());
-    }
-
-    @Test
-    void queriesReturnTheEntitiesOfTheSlotsInTheGivenOrder() {
-        storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)));
-        index.result = new int[] {2, 0};
-        List<Entity2> expected = List.of(new Entity2(30, C), new Entity2(10, A));
-        assertEquals(expected, storage.findInRegion(new Box2(A, B)));
-        assertEquals(expected, storage.findNearest(A, 2));
-    }
-
-    @Test
-    void commitGoesToTheIndexWithTheNextNumberOfTheSequence() {
-        storage.commit();
-        storage.commit();
-        storage.setTick(1);
-        storage.commit();
-        assertEquals(List.of("commit 1", "commit 2", "commit 3"), index.calls);
+        assertNull(created.catalog().latest());
     }
 
     @Test
@@ -207,25 +121,24 @@ class PartitionStorage2Test {
     }
 
     @Test
-    void commitWithoutInsertionsOrRemovalsSharesTheIds() {
+    void snapshotsKeepTheirIdsAndPositionsAcrossUpdatesInsertionsAndRemovals() {
         storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B)));
         SlotSnapshot2 first = storage.commit().slots();
         storage.updateAll(List.of(new Entity2(20, C)));
         SlotSnapshot2 moved = storage.commit().slots();
-        assertSame(first.slotEntityIds, moved.slotEntityIds);
-        assertSame(first.slotById, moved.slotById);
-        assertNotSame(first.coords, moved.coords);
         assertEquals(B, first.positionAt(1));
         assertEquals(C, moved.positionAt(1));
 
         storage.removeAll(new long[] {10});
         SlotSnapshot2 removed = storage.commit().slots();
-        assertNotSame(moved.slotEntityIds, removed.slotEntityIds);
-        assertNotSame(moved.slotById, removed.slotById);
         storage.insertAll(List.of(new Entity2(30, D)));
         SlotSnapshot2 inserted = storage.commit().slots();
-        assertNotSame(removed.slotEntityIds, inserted.slotEntityIds);
-        assertNotSame(removed.slotById, inserted.slotById);
+        assertEquals(10, first.idAt(0));
+        assertEquals(20, first.idAt(1));
+        assertEquals(10, moved.idAt(0));
+        assertEquals(20, moved.idAt(1));
+        assertEquals(20, removed.idAt(0));
+        assertEquals(30, inserted.idAt(1));
         assertEquals(2, moved.size());
         assertEquals(1, removed.size());
         assertEquals(2, inserted.size());
@@ -233,10 +146,10 @@ class PartitionStorage2Test {
 
     @Test
     void newPartitionPublishesTheEmptySnapshotAtTheFirstMoveOfTheTick() {
-        assertNull(storage.lastSnapshot());
+        assertNull(storage.catalog().latest());
         assertEquals(0, storage.liveSnapshotCount());
         storage.setTick(1);
-        assertEquals(0, storage.lastSnapshot().size());
+        assertEquals(0, storage.catalog().latest().size());
         assertEquals(1, storage.liveSnapshotCount());
     }
 
@@ -250,7 +163,7 @@ class PartitionStorage2Test {
         configured.setTick(2);
         assertSame(first, configured.catalog().at(0));
         assertSame(second, configured.catalog().at(1));
-        assertSame(second, configured.lastSnapshot());
+        assertSame(second, configured.catalog().latest());
     }
 
     @Test
@@ -260,7 +173,7 @@ class PartitionStorage2Test {
         storage.insertAll(List.of(new Entity2(20, B)));
         StorageSnapshot2 last = storage.commit();
         storage.setTick(1);
-        assertSame(last, storage.lastSnapshot());
+        assertSame(last, storage.catalog().latest());
         assertEquals(2, last.size());
         assertEquals(1, storage.liveSnapshotCount());
     }
@@ -271,17 +184,17 @@ class PartitionStorage2Test {
         storage.commit();
         storage.insertAll(List.of(new Entity2(20, B)));
         storage.setTick(1);
-        assertEquals(List.of(new Entity2(10, A)), storage.lastSnapshot().getAll(ALL_IDS));
+        assertEquals(List.of(new Entity2(10, A)), storage.catalog().latest().getAll(ALL_IDS));
         storage.commit();
         storage.setTick(2);
-        assertEquals(List.of(new Entity2(10, A), new Entity2(20, B)), storage.lastSnapshot().getAll(ALL_IDS));
+        assertEquals(List.of(new Entity2(10, A), new Entity2(20, B)), storage.catalog().latest().getAll(ALL_IDS));
     }
 
     @Test
     void readersSeeTheWritesOnlyAfterTheCommitAndTheMoveOfTheTick() {
-        assertNull(storage.lastSnapshot());
+        assertNull(storage.catalog().latest());
         storage.setTick(1);
-        StorageSnapshot2 empty = storage.lastSnapshot();
+        StorageSnapshot2 empty = storage.catalog().latest();
         assertEquals(0, empty.size());
         assertEquals(List.of(), empty.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX)));
         assertEquals(List.of(), empty.findNearest(A, 1));
@@ -290,16 +203,16 @@ class PartitionStorage2Test {
         assertEquals(List.of(new Entity2(10, A)), storage.getAll(ALL_IDS));
         StorageSnapshot2 committed = storage.commit();
         // Committed, but not published until the tick moves.
-        assertSame(empty, storage.lastSnapshot());
+        assertSame(empty, storage.catalog().latest());
         storage.setTick(2);
-        assertSame(committed, storage.lastSnapshot());
+        assertSame(committed, storage.catalog().latest());
         assertEquals(List.of(new Entity2(10, A)), committed.getAll(ALL_IDS));
 
         // A tick without a commit keeps the snapshot before.
         storage.updateAll(List.of(new Entity2(10, B)));
         storage.setTick(3);
         assertEquals(List.of(new Entity2(10, B)), storage.getAll(ALL_IDS));
-        assertSame(committed, storage.lastSnapshot());
+        assertSame(committed, storage.catalog().latest());
         assertSame(committed, storage.catalog().at(2));
     }
 
@@ -308,8 +221,7 @@ class PartitionStorage2Test {
         StorageSnapshot2 first = publish(storage);
         long acquisitionId = storage.acquire(first, 0);
         publish(storage);
-        assertSame(first, storage.admit(acquisitionId, 0));
-        storage.endQuery(first);
+        assertAdmission(storage, acquisitionId, 0, first);
         storage.release(acquisitionId);
         assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId, 0));
         assertEquals(0, storage.acquisitionCount());
@@ -322,8 +234,12 @@ class PartitionStorage2Test {
         long second = storage.acquire(snapshot, 0);
         assertNotEquals(first, second);
         storage.release(first);
-        assertSame(snapshot, storage.admit(second, 0));
+        assertAdmission(storage, second, 0, snapshot);
         assertEquals(1, storage.acquisitionCount());
+        storage.release(second);
+        publish(storage);
+        assertTrue(snapshot.uses().isEnded());
+        assertEquals(0, storage.acquisitionCount());
     }
 
     @Test
@@ -331,7 +247,10 @@ class PartitionStorage2Test {
         StorageSnapshot2 snapshot = publish(storage);
         long acquisitionId = storage.acquire(snapshot, 0);
         assertThrows(IllegalArgumentException.class, () -> storage.admit(acquisitionId, 1));
-        assertSame(snapshot, storage.admit(acquisitionId, 0));
+        assertAdmission(storage, acquisitionId, 0, snapshot);
+        storage.release(acquisitionId);
+        publish(storage);
+        assertTrue(snapshot.uses().isEnded());
     }
 
     @Test
@@ -349,6 +268,7 @@ class PartitionStorage2Test {
         assertThrows(IllegalArgumentException.class, () -> storage.admit(acquisitionId + 1, 0));
         assertThrows(IllegalArgumentException.class, () -> storage.release(0));
         assertEquals(1, storage.acquisitionCount());
+        storage.release(acquisitionId);
     }
 
     @Test
@@ -359,32 +279,34 @@ class PartitionStorage2Test {
         timed.setTick(1);
 
         // The commit removes them.
-        timed.acquire(timed.lastSnapshot(), 0, options);
+        timed.acquire(timed.catalog().latest(), 0, options);
         clock.advance(TIMEOUT);
         assertEquals(1, timed.acquisitionCount());
         timed.commit();
         assertEquals(0, timed.acquisitionCount());
 
         // The move of the tick removes them.
-        timed.acquire(timed.lastSnapshot(), 0, options);
+        timed.acquire(timed.catalog().latest(), 0, options);
         clock.advance(TIMEOUT);
         timed.setTick(2);
         assertEquals(0, timed.acquisitionCount());
 
         // An acquisition removes them, and keeps the new one.
-        timed.acquire(timed.lastSnapshot(), 1, options);
+        timed.acquire(timed.catalog().latest(), 1, options);
         clock.advance(TIMEOUT);
-        long fresh = timed.acquire(timed.lastSnapshot(), 1, options);
+        long fresh = timed.acquire(timed.catalog().latest(), 1, options);
         assertEquals(1, timed.acquisitionCount());
 
         // The release of another acquisition removes them.
-        long kept = timed.acquire(timed.lastSnapshot(), 1);
+        long kept = timed.acquire(timed.catalog().latest(), 1);
         clock.advance(TIMEOUT);
-        long released = timed.acquire(timed.lastSnapshot(), 1);
+        long released = timed.acquire(timed.catalog().latest(), 1);
         timed.release(released);
         assertEquals(1, timed.acquisitionCount());
         assertThrows(IllegalStateException.class, () -> timed.admit(fresh, 1));
-        assertSame(timed.lastSnapshot(), timed.admit(kept, 1));
+        assertAdmission(timed, kept, 1, timed.catalog().latest());
+        timed.release(kept);
+        assertEquals(0, timed.acquisitionCount());
     }
 
     @Test
@@ -416,7 +338,7 @@ class PartitionStorage2Test {
     void snapshotOfManyTicksEndsWhenItsLastTickLeavesTheWindow() {
         PartitionStorage2 kept = new PartitionStorage2(IndexConfig.linearScan(), 2);
         kept.setTick(1);
-        StorageSnapshot2 empty = kept.lastSnapshot();
+        StorageSnapshot2 empty = kept.catalog().latest();
         // Without commits the empty snapshot is valid for the ticks from 0 to 3.
         kept.setTick(4);
         kept.commit();
@@ -513,8 +435,8 @@ class PartitionStorage2Test {
     void partitionRemovedBeforeItsFirstMoveExistsAtItsCreationTick() {
         storage.requestRemoval(true);
         assertFalse(storage.setTick(1));
-        assertEquals(0, storage.lastSnapshot().size());
-        assertSame(storage.lastSnapshot(), storage.catalog().at(0));
+        assertEquals(0, storage.catalog().latest().size());
+        assertSame(storage.catalog().latest(), storage.catalog().at(0));
         // k = 1: at tick 2 the window starts at the removal tick.
         assertTrue(storage.setTick(2));
     }
@@ -540,7 +462,7 @@ class PartitionStorage2Test {
         storage.insertAll(List.of(new Entity2(20, B)));
         storage.requestRemoval(false);
         storage.setTick(1);
-        assertEquals(List.of(new Entity2(10, A)), storage.lastSnapshot().getAll(ALL_IDS));
+        assertEquals(List.of(new Entity2(10, A)), storage.catalog().latest().getAll(ALL_IDS));
     }
 
     @Test
@@ -629,10 +551,13 @@ class PartitionStorage2Test {
         long kept = storage.acquire(snapshot, 0);
         publish(storage);
         assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(snapshot, 0));
-        // The failed acquisition used no number.
-        assertEquals(kept + 1, storage.acquire(storage.lastSnapshot(), 1));
+        long current = storage.acquire(storage.catalog().latest(), 1);
+        storage.release(current);
         storage.release(kept);
         assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(snapshot, 0));
+        assertTrue(snapshot.uses().isEnded());
+        assertEquals(0, storage.acquisitionCount());
+        assertEquals(1, storage.liveSnapshotCount());
     }
 
     /**
@@ -653,10 +578,12 @@ class PartitionStorage2Test {
             AtomicReference<Throwable> failure = new AtomicReference<>();
             List<Thread> readers = new ArrayList<>();
             CountDownLatch started = new CountDownLatch(READERS);
+            CountDownLatch observed = new CountDownLatch(READERS);
             for (int r = 0; r < READERS; r++) {
                 Thread reader = new Thread(() -> {
                     try {
                         long last = 0;
+                        boolean read = false;
                         started.countDown();
                         while (!done.get()) {
                             SnapshotCatalog2 catalog = configured.catalog();
@@ -664,6 +591,10 @@ class PartitionStorage2Test {
                             last = catalog.tick();
                             checkWindow(catalog);
                             checkWholeCommit(catalog.latest(), catalog.tick() - 1);
+                            if (catalog.tick() > 1 && !read) {
+                                observed.countDown();
+                                read = true;
+                            }
                             assertTrue(configured.tick() >= last, "tick of the storage goes back");
                         }
                     } catch (Throwable e) {
@@ -674,12 +605,17 @@ class PartitionStorage2Test {
                 readers.add(reader);
             }
             try {
-                started.await();
-                writeCommits(configured);
+                assertTrue(started.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS));
+                writeCommits(configured, observed);
             } finally {
                 done.set(true);
                 for (Thread reader : readers) {
-                    reader.join(10_000);
+                    reader.join(TIMEOUT.toMillis());
+                    if (reader.isAlive()) {
+                        reader.interrupt();
+                        reader.join(TIMEOUT.toMillis());
+                        throw new AssertionError("Reader did not finish");
+                    }
                 }
             }
             if (failure.get() != null) {
@@ -688,12 +624,14 @@ class PartitionStorage2Test {
         }
     }
 
-    @Test
-    void findNearestWithZeroCountDoesNotCallTheIndex() {
-        storage.insertAll(List.of(new Entity2(10, A)));
-        index.calls.clear();
-        assertEquals(List.of(), storage.findNearest(A, 0));
-        assertEquals(List.of(), index.calls);
+    private static void assertAdmission(PartitionStorage2 storage, long acquisitionId, long tick,
+            StorageSnapshot2 expected) {
+        StorageSnapshot2 admitted = storage.admit(acquisitionId, tick);
+        try {
+            assertSame(expected, admitted);
+        } finally {
+            storage.endQuery(admitted);
+        }
     }
 
     /**
@@ -737,7 +675,7 @@ class PartitionStorage2Test {
     }
 
     /** Writes the state of each tick from 1 to TICKS, commits it and moves to the next tick. */
-    private static void writeCommits(PartitionStorage2 storage) {
+    private static void writeCommits(PartitionStorage2 storage, CountDownLatch observed) throws InterruptedException {
         List<Long> ids = new ArrayList<>();
         long nextId = 1;
         for (long tick = 1; tick <= TICKS; tick++) {
@@ -758,6 +696,9 @@ class PartitionStorage2Test {
             }
             storage.commit();
             storage.setTick(tick + 1);
+            if (tick == 1) {
+                assertTrue(observed.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS));
+            }
         }
     }
 
@@ -775,7 +716,10 @@ class PartitionStorage2Test {
         for (Entity2 e : snapshot.getAll(ids)) {
             assertEquals(positionAt(tick, e.id()), e.position(), where);
         }
-        for (Entity2 e : snapshot.findNearest(positionAt(tick, 0), sizeAt(tick) + 1)) {
+        List<Entity2> nearest = snapshot.findNearest(positionAt(tick, 0), sizeAt(tick) + 1);
+        assertEquals(found.size(), nearest.size(), where);
+        assertEquals(Set.copyOf(found), Set.copyOf(nearest), where);
+        for (Entity2 e : nearest) {
             assertEquals(positionAt(tick, e.id()), e.position(), where);
         }
     }
@@ -791,57 +735,4 @@ class PartitionStorage2Test {
         return new Point2(base + (entityId % 10) * 0.25, -base - (entityId / 10 % 10) * 0.25);
     }
 
-    /**
-     * Index that records each call as a string, with some state of the
-     * storage at that moment, and gives a fixed result to the queries.
-     */
-    private static final class RecordingIndex implements SpatialIndex2 {
-
-        final SlotView2 storage;
-        final List<String> calls = new ArrayList<>();
-        int[] result = new int[0];
-
-        RecordingIndex(SlotView2 storage) {
-            this.storage = storage;
-        }
-
-        @Override
-        public void inserted(int slot, Point2 position) {
-            calls.add("inserted " + slot + " " + position + " id=" + storage.idAt(slot));
-        }
-
-        @Override
-        public void moved(int slot, Point2 from, Point2 to) {
-            calls.add("moved " + slot + " " + from + " -> " + to + " now=" + storage.positionAt(slot));
-        }
-
-        @Override
-        public void removed(int slot, Point2 position) {
-            calls.add("removed " + slot + " " + position + " size=" + storage.size());
-        }
-
-        @Override
-        public void relocated(int from, int to, Point2 position) {
-            calls.add("relocated " + from + " -> " + to + " " + position + " id=" + storage.idAt(to));
-        }
-
-        @Override
-        public IndexSnapshot2 commit(long n) {
-            calls.add("commit " + n);
-            // These tests do not read the snapshot of the index.
-            return null;
-        }
-
-        @Override
-        public int[] findInRegion(Region2 region) {
-            calls.add("findInRegion");
-            return result;
-        }
-
-        @Override
-        public int[] findNearest(Point2 point, int count) {
-            calls.add("findNearest");
-            return result;
-        }
-    }
 }

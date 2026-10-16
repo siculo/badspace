@@ -9,31 +9,33 @@ import badspace.api.PartitionConfig;
 import badspace.api.RemovalPolicy;
 import badspace.api.Space3;
 import badspace.api.SpaceConfig;
-import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Box3;
 import badspace.common.geometry.Point3;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.service.partition.LocalPartitionNode3;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
 /**
  * The API together with the local nodes of the service: spaces, partitions, ticks, commits,
  * acquisitions and removal from the point of view of the software. The semantics in detail is
- * tested in the service; Space3Test in the api module checks the calls of the API with a simple node.
+ * tested in the service; Space3Test in the api module checks the calls of the API with framework mocks.
  */
 class Space3EndToEndTest {
 
-    // Short drift limit, so the constructors wait only a little.
-    private static final SpaceConfig CONFIG = SpaceConfig.of(
-            new SnowflakeIdGenerator(0, 10), new SnowflakeIdGenerator(0, 10));
+    private final AtomicLong entityIds = new AtomicLong();
+    private final AtomicLong partitionIds = new AtomicLong();
+    private final SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
     private static final Box3 ALL = new Box3(new Point3(-100, -100, -100), new Point3(100, 100, 100));
 
-    private final Space3 space = new Space3(CONFIG);
+    private final Space3 space = new Space3(config);
 
     @Test
     void readerSeesACommitOnlyAfterTheMoveOfTheTick() {
@@ -157,6 +159,101 @@ class Space3EndToEndTest {
         space.setTick(1);
         try (AcquiredSnapshot3 last = partition.acquireLatest()) {
             assertEquals(0, last.size());
+        }
+    }
+
+    @Test
+    void getUpdateAndRemoveUseTheEntityId() {
+        Partition3 p = space.createPartition(new LocalPartitionNode3());
+        long[] ids = p.insertAll(List.of(new Point3(1, 1, 1), new Point3(2, 2, 2)));
+        assertEquals(Optional.of(new Point3(1, 1, 1)), p.get(ids[0]));
+
+        p.update(ids[0], new Point3(5, 5, 5));
+        p.updateAll(List.of(new Entity3(ids[1], new Point3(6, 6, 6))));
+        assertEquals(List.of(new Entity3(ids[1], new Point3(6, 6, 6)), new Entity3(ids[0], new Point3(5, 5, 5))),
+                p.getAll(new long[] {ids[1], ids[0]}));
+
+        p.remove(ids[0]);
+        assertEquals(Optional.empty(), p.get(ids[0]));
+        p.removeAll(new long[] {ids[1]});
+        assertEquals(0, p.size());
+    }
+
+    @Test
+    void removalDiscardsUncommittedInsertionsWhenTheLastCommitIsEmpty() {
+        Partition3 partition = space.createPartition(new LocalPartitionNode3());
+        partition.insert(new Point3(1, 2, 3));
+        space.removePartition(partition);
+        space.setTick(1);
+        try (var snapshot = partition.acquireLatest()) {
+            assertEquals(0, snapshot.size());
+        }
+    }
+
+    @Test
+    void closingAViewTwiceReleasesItAndKeepsItsTick() {
+        Partition3 partition = space.createPartition(new LocalPartitionNode3());
+        space.setTick(1);
+        AcquiredSnapshot3 snapshot = partition.acquireLatest();
+        snapshot.close();
+        snapshot.close();
+        assertThrows(IllegalStateException.class, snapshot::size);
+        assertEquals(0, snapshot.tick());
+        space.removePartition(partition);
+        space.setTick(2);
+        space.setTick(3);
+        assertThrows(IllegalArgumentException.class, partition::tick);
+    }
+
+    @Test
+    void generatorsAreSharedAcrossPartitionsAndSpaces() {
+        AtomicLong entityIds = new AtomicLong();
+        AtomicLong partitionIds = new AtomicLong();
+        SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
+        LocalPartitionNode3 first = new LocalPartitionNode3();
+        LocalPartitionNode3 second = new LocalPartitionNode3();
+        Partition3 a = new Space3(config).createPartition(first);
+        Partition3 b = new Space3(config).createPartition(second);
+        assertEquals(1, a.insert(new Point3(1, 2, 3)));
+        assertEquals(2, b.insert(new Point3(1, 2, 3)));
+        assertEquals(0, first.creationTick(new PartitionId(1)));
+        assertEquals(0, second.creationTick(new PartitionId(2)));
+    }
+
+    @Test
+    void writesAndQueriesStayOnTheChosenPartitionAndNode() {
+        LocalPartitionNode3 node = new LocalPartitionNode3();
+        Partition3 first = space.createPartition(node);
+        Partition3 sameNode = space.createPartition(node);
+        Partition3 otherNode = space.createPartition(new LocalPartitionNode3());
+        Point3 position = new Point3(1, 2, 3);
+        long id = first.insert(position);
+        Box3 region = new Box3(position, position);
+        assertEquals(List.of(new Entity3(id, position)), first.findInRegion(region));
+        assertEquals(List.of(new Entity3(id, position)), first.findNearest(position, 1));
+        assertEquals(0, sameNode.size());
+        assertEquals(0, otherNode.size());
+        assertEquals(Optional.empty(), sameNode.get(id));
+        assertEquals(Optional.empty(), otherNode.get(id));
+    }
+
+    @Test
+    void repeatingTheTickDoesNotPublishAnUnfinishedTick() {
+        assertEquals(0, space.tick());
+        Partition3 partition = space.createPartition(new LocalPartitionNode3());
+        space.setTick(4);
+        partition.insert(new Point3(1, 2, 3));
+        partition.commit();
+        space.setTick(4);
+        assertEquals(4, space.tick());
+        try (var snapshot = partition.acquireLatest()) {
+            assertEquals(3, snapshot.tick());
+            assertEquals(0, snapshot.size());
+        }
+        space.setTick(5);
+        try (var snapshot = partition.acquireLatest()) {
+            assertEquals(4, snapshot.tick());
+            assertEquals(1, snapshot.size());
         }
     }
 

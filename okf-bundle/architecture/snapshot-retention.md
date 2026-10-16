@@ -4,7 +4,7 @@ title: Conservazione degli snapshot
 description: Ogni partizione ha uno snapshot logico S(n) per ogni tick completato dalla creazione alla rimozione, con contenuto condiviso tra tick senza commit, e conserva acquisibili quelli degli ultimi k tick (max(T − k, C) ≤ n ≤ T − 1, k ≥ 1, default 1); i reader acquisiscono uno snapshot, lo leggono e lo rilasciano, con una scadenza obbligatoria, e uno snapshot uscito dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni snapshot.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-16T10:08:30Z }
+generated: { by: codex/gpt-6, at: 2026-10-16T10:49:06Z }
 ---
 
 # Primitiva
@@ -272,7 +272,8 @@ senza il lock il test fallisce. Un altro test fa lavorare writer,
 avanzamento del tick e reader su thread diversi, senza ordine tra
 writer e tick: ogni snapshot letto è un commit intero, un tick più
 recente non ha mai un commit più vecchio, l'ultimo commit viene
-pubblicato e alla fine restano solo gli snapshot della finestra.
+pubblicato e, rilasciate le acquisizioni e rimossa la partizione,
+la distruzione verifica che non restino utilizzi delle query.
 
 Ogni partizione ha un **catalogo degli snapshot** nel service: un
 oggetto immutabile con il tick della partizione, il tick di creazione,
@@ -383,8 +384,9 @@ partizione per ID fino alla distruzione; dopo l'ID è sconosciuto, e il
 nodo tratta l'acquisizione come rilasciata: la lettura fallisce con
 `IllegalStateException` e il rilascio non fa niente. Gli ID delle
 partizioni li crea il generatore di ID delle partizioni che lo spazio
-riceve in `SpaceConfig`. I reader non hanno altro modo di leggere uno
-snapshot: `lastSnapshot()` è solo un metodo interno dello storage.
+riceve in `SpaceConfig`. I reader leggono gli snapshot solo attraverso
+le acquisizioni; il nodo accede internamente al catalogo dello storage.
+Non ci sono accessi diretti agli snapshot nel contratto del nodo.
 
 Il client d'esempio `RandomUpdater` fa un commit e un avanzamento del tick a
 ogni tick, e il reader mostra l'ultimo snapshot. Nell'API, due spazi con

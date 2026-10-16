@@ -4,7 +4,6 @@ import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.AcquireOptions.timeout;
 import static badspace.common.partition.Entity2.entity;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -444,13 +443,17 @@ class LocalPartitionNode2Test {
     }
 
     @Test
-    void failedAcquisitionMakesNoAcquisition() {
+    void failedAcquisitionDoesNotKeepThePartitionAlive() {
         node.setTick(1);
         Acquisition before = node.acquireLatest(P1, defaultTimeout());
-        assertThrows(SnapshotNotAvailableException.class, () -> node.acquire(P1, 1, defaultTimeout()));
+        assertReason(Reason.NOT_YET_PUBLISHED, () -> node.acquire(P1, 1, defaultTimeout()));
         Acquisition after = node.acquireLatest(P1, defaultTimeout());
-        // No number was used by the failed acquisition.
-        assertEquals(before.id() + 1, after.id());
+        node.release(before);
+        node.release(after);
+        node.dropPartition(P1);
+        node.setTick(2);
+        node.setTick(3);
+        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
     }
 
     @Test
@@ -519,7 +522,10 @@ class LocalPartitionNode2Test {
         // With no queries left, the snapshot ends when it leaves the window.
         node.commit(P1);
         node.setTick(2);
-        assertEquals(1, node.find(P1).liveSnapshotCount());
+        node.dropPartition(P1);
+        node.setTick(3);
+        node.setTick(4);
+        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
     }
 
     @Test
@@ -627,13 +633,13 @@ class LocalPartitionNode2Test {
         node.setTick(1);
         node.dropPartition(P1);
         node.setTick(2);
-        assertTrue(node.hasPartition(P1));
+        assertEquals(2, node.tick(P1));
         // Removal tick 2, k = 1: tick 1 is still in the window.
-        assertEquals(1, node.size(node.acquire(P1, 1, defaultTimeout())));
+        Acquisition kept = node.acquire(P1, 1, defaultTimeout());
+        assertEquals(1, node.size(kept));
         node.setTick(3);
-        assertTrue(node.hasPartition(P1), "the acquisition keeps the snapshot");
-        node.release(new Acquisition(P1, 1, 1));
-        assertFalse(node.hasPartition(P1));
+        assertEquals(3, node.tick(P1));
+        node.release(kept);
         assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
         assertThrows(IllegalArgumentException.class, () -> node.acquireLatest(P1, defaultTimeout()));
     }
@@ -643,9 +649,9 @@ class LocalPartitionNode2Test {
         node.setTick(1);
         node.removePartition(P1);
         node.setTick(2);
-        assertTrue(node.hasPartition(P1));
+        assertEquals(2, node.tick(P1));
         node.setTick(3);
-        assertFalse(node.hasPartition(P1));
+        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
         assertThrows(IllegalArgumentException.class, () -> node.size(P1));
     }
 
@@ -653,7 +659,7 @@ class LocalPartitionNode2Test {
     void removedPartitionRejectsTheWriterButGivesItsSnapshots() {
         node.setTick(1);
         node.dropPartition(P1);
-        assertTrue(node.hasPartition(P1));
+        assertEquals(1, node.tick(P1));
         assertThrows(IllegalStateException.class, () -> node.insertAll(P1, List.of(entity(1, 1, 1))));
         assertThrows(IllegalStateException.class, () -> node.getAll(P1, new long[] {1}));
         assertThrows(IllegalStateException.class, () -> node.commit(P1));
@@ -678,20 +684,22 @@ class LocalPartitionNode2Test {
         }
         node.dropPartition(P2);
         node.setTick(105);
-        assertEquals(3, node.size(node.acquire(P2, 102, defaultTimeout())));
-        assertEquals(3, node.size(node.acquire(P2, 103, defaultTimeout())));
-        assertEquals(3, node.size(node.acquire(P2, 104, defaultTimeout())));
-        assertEquals(1, node.size(node.acquire(P2, 100, defaultTimeout())));
+        assertEquals(3, readSize(P2, 102));
+        assertEquals(3, readSize(P2, 103));
+        assertEquals(3, readSize(P2, 104));
+        assertEquals(1, readSize(P2, 100));
         assertReason(Reason.AFTER_REMOVAL, () -> node.acquire(P2, 105, defaultTimeout()));
-        assertEquals(104, node.acquireLatest(P2, defaultTimeout()).tick());
-        releaseAll(P2);
+        Acquisition latest = node.acquireLatest(P2, defaultTimeout());
+        assertEquals(104, latest.tick());
+        node.release(latest);
         node.setTick(109);
-        assertEquals(104, node.acquire(P2, 104, defaultTimeout()).tick());
+        Acquisition last = node.acquire(P2, 104, defaultTimeout());
+        assertEquals(104, last.tick());
+        node.release(last);
         assertReason(Reason.AFTER_REMOVAL, () -> node.acquireLatest(P2, defaultTimeout()));
         assertReason(Reason.OUT_OF_RETENTION, () -> node.acquire(P2, 103, defaultTimeout()));
-        releaseAll(P2);
         node.setTick(110);
-        assertFalse(node.hasPartition(P2));
+        assertThrows(IllegalArgumentException.class, () -> node.tick(P2));
     }
 
     @Test
@@ -710,10 +718,10 @@ class LocalPartitionNode2Test {
         node.setTick(1);
         node.dropPartition(P1);
         node.setTick(1);
-        assertEquals(1, node.findAny(P1).catalog().tick());
-        assertEquals(SnapshotCatalog2.NOT_REMOVED, node.findAny(P1).catalog().removalTick());
-        node.setTick(2);
-        assertEquals(2, node.findAny(P1).catalog().removalTick());
+        assertEquals(1, node.tick(P1));
+        node.setTick(3);
+        assertEquals(0, readSize(P1, 2));
+        assertReason(Reason.AFTER_REMOVAL, () -> node.acquire(P1, 3, defaultTimeout()));
     }
 
     @Test
@@ -726,10 +734,10 @@ class LocalPartitionNode2Test {
         // Removal tick 5; at tick 6 no tick of the partition is in the window.
         node.setTick(5);
         node.setTick(6);
-        assertTrue(node.hasPartition(P1));
+        assertEquals(6, node.tick(P1));
         assertEquals(List.of(entity(1, 1, 1)), node.getAll(acquisition, new long[] {1}));
         node.release(acquisition);
-        assertFalse(node.hasPartition(P1));
+        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
         assertThrows(IllegalStateException.class, () -> node.size(acquisition));
         // A release after the destruction does nothing, like the close of the view.
         node.release(acquisition);
@@ -744,10 +752,10 @@ class LocalPartitionNode2Test {
         node.setTick(2);
         node.setTick(3);
         node.release(first);
-        assertTrue(node.hasPartition(P1));
+        assertEquals(3, node.tick(P1));
         assertEquals(0, node.size(second));
         node.release(second);
-        assertFalse(node.hasPartition(P1));
+        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
     }
 
     @Test
@@ -771,9 +779,9 @@ class LocalPartitionNode2Test {
         timedNode.setTick(3);
         clock.advance(TIMEOUT);
         // The expiry alone is not an event.
-        assertTrue(timedNode.hasPartition(P1));
+        assertEquals(3, timedNode.tick(P1));
         timedNode.setTick(4);
-        assertFalse(timedNode.hasPartition(P1));
+        assertThrows(IllegalArgumentException.class, () -> timedNode.tick(P1));
         assertThrows(IllegalStateException.class, () -> timedNode.size(acquisition));
         timedNode.release(acquisition);
     }
@@ -845,15 +853,13 @@ class LocalPartitionNode2Test {
         return timedNode;
     }
 
-    /** Releases the acquisitions 1 to 20 of the partition, the ones that the test may have made. */
-    private void releaseAll(PartitionId partitionId) {
-        for (long id = 1; id <= 20; id++) {
-            try {
-                node.release(new Acquisition(partitionId, id, 0));
-            } catch (IllegalArgumentException e) {
-                // Never made.
-                return;
-            }
+    /** Reads through a real acquisition and releases exactly that acquisition. */
+    private int readSize(PartitionId partitionId, long tick) {
+        Acquisition acquisition = node.acquire(partitionId, tick, defaultTimeout());
+        try {
+            return node.size(acquisition);
+        } finally {
+            node.release(acquisition);
         }
     }
 
