@@ -17,13 +17,13 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Tick logico](okf-bundle/architecture/logical-time.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md), [Conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md), [Rimozione della partizione](okf-bundle/architecture/partition-removal.md).
 
-- [ ] **Metadati:** metadati di sistema e applicativi nello strato service, API dei metadati, scritture condizionate. → [cose da fare](#fare-metadati) · [decisioni](#decisioni-metadati)
+- [ ] **Metadati:** metadati applicativi delle entità, API dei metadati, scritture condizionate. I metadati di sistema arrivano con [tombstone e migrazione](#fare-migrazione). → [cose da fare](#fare-metadati) · [decisioni](#decisioni-metadati)
 
   Documenti: [Metadati delle entità](okf-bundle/architecture/entity-metadata.md), [Architettura minima](okf-bundle/architecture/minimal-core.md).
 
-- [ ] **Persistenza:** snapshot per partizione e durabilità osservabile. → [cose da fare](#fare-persistenza) · [decisioni](#decisioni-persistenza)
+- [ ] **Persistenza:** snapshot per partizione, durabilità osservabile e copia di uno snapshot oltre la scadenza delle acquisizioni. → [cose da fare](#fare-persistenza) · [decisioni](#decisioni-persistenza)
 
-  Documenti: [Persistenza](okf-bundle/decisions/persistence.md), [Durabilità osservabile](okf-bundle/architecture/observable-durability.md).
+  Documenti: [Persistenza](okf-bundle/decisions/persistence.md), [Durabilità osservabile](okf-bundle/architecture/observable-durability.md), [Conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md).
 
 - [ ] **Query su più partizioni:** aggregazione dei risultati per tipo di query. → [cose da fare](#fare-query) · [decisioni](#decisioni-query)
 
@@ -33,9 +33,9 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Ribilanciamento e split](okf-bundle/mechanisms/rebalancing-and-split.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md).
 
-- [ ] **Tombstone e migrazione:** tombstone, protocollo di spostamento delle entità tra partizioni, deduplica per epoca nelle letture. → [cose da fare](#fare-migrazione) · [decisioni](#decisioni-migrazione)
+- [ ] **Tombstone e migrazione:** metadati di sistema delle entità, tombstone, protocollo di spostamento delle entità tra partizioni, deduplica per epoca nelle letture. → [cose da fare](#fare-migrazione) · [decisioni](#decisioni-migrazione)
 
-  Documenti: [Tombstone](okf-bundle/architecture/tombstones.md), [Migrazione di entità tra partizioni](okf-bundle/mechanisms/entity-migration.md), [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md).
+  Documenti: [Metadati delle entità](okf-bundle/architecture/entity-metadata.md), [Tombstone](okf-bundle/architecture/tombstones.md), [Migrazione di entità tra partizioni](okf-bundle/mechanisms/entity-migration.md), [Aggregazione delle query su più partizioni](okf-bundle/mechanisms/query-aggregation.md).
 
 - [ ] **Letture coerenti:** barriera sul gTick, lettura al tick N sugli snapshot conservati, verifica e acquisizione in un passo, rimozione differita delle entità. → [cose da fare](#fare-letture) · [decisioni](#decisioni-letture)
 
@@ -133,18 +133,17 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-metadati"></a>
 ### Metadati [↑](#blocchi)
 
-- [ ] Metadati di sistema delle entità nello strato service (epoca, stato, destinazione), in sola lettura per il software
 - [ ] Metadati applicativi delle entità
 - [ ] Metadati nello snapshot di ogni commit
-- [ ] API dei metadati (lettura e scrittura)
-- [ ] Scritture condizionate (compare-and-set)
-- [ ] Funzione di copia di uno snapshot, per chi deve tenerlo oltre la scadenza massima delle acquisizioni
+- [ ] API dei metadati (lettura e scrittura dei metadati applicativi)
+- [ ] Scritture condizionate (compare-and-set) sui metadati applicativi
 
 <a id="fare-persistenza"></a>
 ### Persistenza [↑](#blocchi)
 
 - [ ] Salvataggio e ripristino degli snapshot per partizione, senza fermare il writer
 - [ ] Durabilità osservabile (ultimo commit persistito)
+- [ ] Funzione di copia di uno snapshot, per chi deve tenerlo oltre la scadenza massima delle acquisizioni
 
 <a id="fare-query"></a>
 ### Query su più partizioni [↑](#blocchi)
@@ -162,6 +161,8 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-migrazione"></a>
 ### Tombstone e migrazione [↑](#blocchi)
 
+- [ ] Metadati di sistema delle entità nello strato service (epoca, stato, destinazione), in sola lettura per il software, nello snapshot di ogni commit
+- [ ] Lettura dei metadati di sistema nell'API dei metadati e scritture condizionate anche sui metadati di sistema
 - [ ] Tombstone alla rimozione
 - [ ] Regola di inserimento con confronto dell'epoca
 - [ ] Lettura ed eliminazione delle tombstone
