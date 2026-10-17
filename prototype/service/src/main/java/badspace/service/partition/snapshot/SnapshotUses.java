@@ -1,4 +1,4 @@
-package badspace.service.partition;
+package badspace.service.partition.snapshot;
 
 import java.util.concurrent.atomic.AtomicInteger;
 

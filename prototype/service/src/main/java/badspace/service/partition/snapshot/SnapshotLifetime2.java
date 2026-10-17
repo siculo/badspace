@@ -1,5 +1,7 @@
-package badspace.service.partition;
+package badspace.service.partition.snapshot;
 
+import badspace.service.partition.slots.CoordinateBuffer;
+import badspace.service.partition.slots.CoordinateBufferPool;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -20,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * It happens once, as the result of the event that ends that snapshot. Any thread can call the
  * methods, except where they say otherwise.
  */
-final class SnapshotLifetime2 {
+public final class SnapshotLifetime2 {
 
     // The published snapshots that did not end yet. The move of the tick that publishes a
     // snapshot adds one; the thread that ends a snapshot, any thread, removes one. Only a
@@ -31,12 +33,13 @@ final class SnapshotLifetime2 {
     // The pool of the partition, which the writer also uses to prepare the snapshots.
     private final CoordinateBufferPool coordinateBuffers;
 
-    SnapshotLifetime2(CoordinateBufferPool coordinateBuffers) {
+    /** Creates a lifetime that returns ended snapshots' buffers to the partition pool. */
+    public SnapshotLifetime2(CoordinateBufferPool coordinateBuffers) {
         this.coordinateBuffers = coordinateBuffers;
     }
 
     /** Counts a snapshot that the move of the tick publishes. Called while holding the lock of the writer. */
-    void published() {
+    public void published() {
         liveSnapshots.incrementAndGet();
     }
 
@@ -44,7 +47,7 @@ final class SnapshotLifetime2 {
      * Marks that a published snapshot left the window. Returns true if this ends the last
      * published snapshot: the partition is destroyed.
      */
-    boolean leaveWindow(StorageSnapshot2 snapshot) {
+    public boolean leaveWindow(StorageSnapshot2 snapshot) {
         return snapshot.uses().leaveWindow() && ended(snapshot);
     }
 
@@ -61,7 +64,7 @@ final class SnapshotLifetime2 {
      * its publication: no reader ever saw it, and it is not in the count of the live
      * snapshots. Only the writer calls it, while holding its lock.
      */
-    void replaced(StorageSnapshot2 snapshot) {
+    public void replaced(StorageSnapshot2 snapshot) {
         recycle(snapshot);
     }
 
@@ -69,7 +72,7 @@ final class SnapshotLifetime2 {
      * Returns the number of published snapshots that did not end yet: the snapshots in the
      * window and the ones out of it that still have uses.
      */
-    int liveCount() {
+    public int liveCount() {
         return liveSnapshots.get();
     }
 

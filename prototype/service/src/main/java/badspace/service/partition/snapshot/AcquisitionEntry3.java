@@ -1,4 +1,4 @@
-package badspace.service.partition;
+package badspace.service.partition.snapshot;
 
 import badspace.common.partition.AcquireOptions;
 
@@ -12,11 +12,11 @@ import badspace.common.partition.AcquireOptions;
  * @param acquiredAtNanos the time of the acquisition on the clock of the node
  * @param timeoutNanos the timeout
  */
-record AcquisitionEntry2(StorageSnapshot2 snapshot, long tick, long acquiredAtNanos, long timeoutNanos) {
+record AcquisitionEntry3(StorageSnapshot3 snapshot, long tick, long acquiredAtNanos, long timeoutNanos) {
 
     /** Returns the entry of an acquisition made now with the given options. */
-    static AcquisitionEntry2 of(StorageSnapshot2 snapshot, long tick, AcquireOptions options, long nowNanos) {
-        return new AcquisitionEntry2(snapshot, tick, nowNanos, options.timeoutNanos());
+    static AcquisitionEntry3 of(StorageSnapshot3 snapshot, long tick, AcquireOptions options, long nowNanos) {
+        return new AcquisitionEntry3(snapshot, tick, nowNanos, options.timeoutNanos());
     }
 
     /** Returns true if the timeout has passed at the given time. */

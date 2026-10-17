@@ -1,4 +1,4 @@
-package badspace.service.partition;
+package badspace.service.partition.snapshot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -9,11 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import org.junit.jupiter.api.Test;
 
-class SnapshotCatalog2Test {
+class SnapshotCatalog3Test {
 
     @Test
     void newCatalogIsAtTheCreationTickWithoutSnapshots() {
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(5, 2);
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(5, 2);
         assertEquals(5, catalog.tick());
         assertEquals(5, catalog.creationTick());
         assertEquals(2, catalog.retainedTicks());
@@ -25,14 +25,14 @@ class SnapshotCatalog2Test {
 
     @Test
     void retainedTicksLessThanOneAreRejected() {
-        assertThrows(IllegalArgumentException.class, () -> SnapshotCatalog2.empty(0, 0));
-        assertThrows(IllegalArgumentException.class, () -> SnapshotCatalog2.empty(0, -1));
+        assertThrows(IllegalArgumentException.class, () -> SnapshotCatalog3.empty(0, 0));
+        assertThrows(IllegalArgumentException.class, () -> SnapshotCatalog3.empty(0, -1));
     }
 
     @Test
     void moveWithACommitPublishesItsSnapshotForTheTickThatEnds() {
-        StorageSnapshot2 first = StorageSnapshot2.empty();
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(0, 3).advance(1, first, false);
+        StorageSnapshot3 first = StorageSnapshot3.empty();
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(0, 3).advance(1, first, false);
         assertEquals(1, catalog.tick());
         assertSame(first, catalog.at(0));
         assertSame(first, catalog.latest());
@@ -41,8 +41,8 @@ class SnapshotCatalog2Test {
 
     @Test
     void ticksWithoutACommitShareTheSnapshotBefore() {
-        StorageSnapshot2 first = StorageSnapshot2.empty();
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(0, 3).advance(1, first, false).advance(2, null, false).advance(4, null, false);
+        StorageSnapshot3 first = StorageSnapshot3.empty();
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(0, 3).advance(1, first, false).advance(2, null, false).advance(4, null, false);
         assertEquals(1, catalog.size());
         for (long tick = 1; tick <= 3; tick++) {
             assertSame(first, catalog.at(tick));
@@ -51,10 +51,10 @@ class SnapshotCatalog2Test {
 
     @Test
     void skippedTicksShareTheSnapshotOfTheCommitBeforeThem() {
-        StorageSnapshot2 empty = StorageSnapshot2.empty();
-        StorageSnapshot2 committed = StorageSnapshot2.empty();
+        StorageSnapshot3 empty = StorageSnapshot3.empty();
+        StorageSnapshot3 committed = StorageSnapshot3.empty();
         // Created at 100, at tick 102 with a commit, then a direct move to 105.
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(100, 5).advance(102, empty, false).advance(105, committed, false);
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(100, 5).advance(102, empty, false).advance(105, committed, false);
         assertSame(empty, catalog.at(100));
         assertSame(empty, catalog.at(101));
         assertSame(committed, catalog.at(102));
@@ -65,10 +65,10 @@ class SnapshotCatalog2Test {
 
     @Test
     void windowHasTheLastKTicks() {
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(100, 5);
-        StorageSnapshot2[] byTick = new StorageSnapshot2[110];
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(100, 5);
+        StorageSnapshot3[] byTick = new StorageSnapshot3[110];
         for (int tick = 100; tick < 110; tick++) {
-            byTick[tick] = StorageSnapshot2.empty();
+            byTick[tick] = StorageSnapshot3.empty();
             catalog = catalog.advance(tick + 1, byTick[tick], false);
         }
         assertEquals(110, catalog.tick());
@@ -82,10 +82,10 @@ class SnapshotCatalog2Test {
 
     @Test
     void snapshotLeavesTheWindowWhenAllItsTicksAreBeforeIt() {
-        StorageSnapshot2 first = StorageSnapshot2.empty();
-        StorageSnapshot2 second = StorageSnapshot2.empty();
+        StorageSnapshot3 first = StorageSnapshot3.empty();
+        StorageSnapshot3 second = StorageSnapshot3.empty();
         // first is valid for the ticks from 0 to 4.
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(0, 2).advance(1, first, false).advance(5, null, false);
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(0, 2).advance(1, first, false).advance(5, null, false);
         catalog = catalog.advance(6, second, false);
         // The window has the ticks 4 and 5: first is still in it for tick 4.
         assertEquals(2, catalog.size());
@@ -99,9 +99,9 @@ class SnapshotCatalog2Test {
 
     @Test
     void jumpLongerThanTheWindowLeavesOnlyTheLastSnapshot() {
-        StorageSnapshot2 first = StorageSnapshot2.empty();
-        StorageSnapshot2 second = StorageSnapshot2.empty();
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(0, 1).advance(1, first, false).advance(10, second, false);
+        StorageSnapshot3 first = StorageSnapshot3.empty();
+        StorageSnapshot3 second = StorageSnapshot3.empty();
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(0, 1).advance(1, first, false).advance(10, second, false);
         assertEquals(1, catalog.size());
         assertSame(second, catalog.at(9));
         assertNull(catalog.at(8));
@@ -109,7 +109,7 @@ class SnapshotCatalog2Test {
 
     @Test
     void reasonSaysWhyATickIsNotInTheWindow() {
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(10, 5).advance(20, StorageSnapshot2.empty(), false);
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(10, 5).advance(20, StorageSnapshot3.empty(), false);
         assertEquals(Reason.NOT_YET_PUBLISHED, catalog.reasonNotAvailable(20));
         assertEquals(Reason.NOT_YET_PUBLISHED, catalog.reasonNotAvailable(25));
         assertEquals(Reason.OUT_OF_RETENTION, catalog.reasonNotAvailable(14));
@@ -120,7 +120,7 @@ class SnapshotCatalog2Test {
 
     @Test
     void noTickBeforeTheCreationIsInTheWindow() {
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(10, 5).advance(11, StorageSnapshot2.empty(), false);
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(10, 5).advance(11, StorageSnapshot3.empty(), false);
         assertSame(catalog.latest(), catalog.at(10));
         assertNull(catalog.at(9));
         assertEquals(Reason.BEFORE_CREATION, catalog.reasonNotAvailable(9));
@@ -128,9 +128,9 @@ class SnapshotCatalog2Test {
 
     @Test
     void oldCatalogDoesNotChangeAfterAMove() {
-        StorageSnapshot2 first = StorageSnapshot2.empty();
-        SnapshotCatalog2 before = SnapshotCatalog2.empty(0, 1).advance(1, first, false);
-        SnapshotCatalog2 after = before.advance(2, StorageSnapshot2.empty(), false);
+        StorageSnapshot3 first = StorageSnapshot3.empty();
+        SnapshotCatalog3 before = SnapshotCatalog3.empty(0, 1).advance(1, first, false);
+        SnapshotCatalog3 after = before.advance(2, StorageSnapshot3.empty(), false);
         assertEquals(1, before.tick());
         assertSame(first, before.at(0));
         assertNull(after.at(0));
@@ -138,8 +138,8 @@ class SnapshotCatalog2Test {
 
     @Test
     void retiredCatalogHasNoTickFromTheRemovalOn() {
-        StorageSnapshot2 last = StorageSnapshot2.empty();
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(0, 5).advance(1, StorageSnapshot2.empty(), false)
+        StorageSnapshot3 last = StorageSnapshot3.empty();
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(0, 5).advance(1, StorageSnapshot3.empty(), false)
                 .advance(3, last, true);
         assertEquals(3, catalog.removalTick());
         assertSame(last, catalog.at(2));
@@ -154,11 +154,11 @@ class SnapshotCatalog2Test {
     @Test
     void ticksOfARemovedPartitionLeaveTheWindowOneAfterTheOther() {
         // k = 5 and removal tick 105, as in the bundle.
-        SnapshotCatalog2 catalog = SnapshotCatalog2.empty(100, 5);
+        SnapshotCatalog3 catalog = SnapshotCatalog3.empty(100, 5);
         for (int tick = 100; tick < 104; tick++) {
-            catalog = catalog.advance(tick + 1, StorageSnapshot2.empty(), false);
+            catalog = catalog.advance(tick + 1, StorageSnapshot3.empty(), false);
         }
-        StorageSnapshot2 last = StorageSnapshot2.empty();
+        StorageSnapshot3 last = StorageSnapshot3.empty();
         catalog = catalog.advance(105, last, true);
         for (long tick = 100; tick < 105; tick++) {
             assertTrue(catalog.at(tick) != null);
@@ -175,6 +175,6 @@ class SnapshotCatalog2Test {
 
     @Test
     void notRemovedCatalogHasNoRemovalTick() {
-        assertEquals(SnapshotCatalog2.NOT_REMOVED, SnapshotCatalog2.empty(0, 1).removalTick());
+        assertEquals(SnapshotCatalog3.NOT_REMOVED, SnapshotCatalog3.empty(0, 1).removalTick());
     }
 }

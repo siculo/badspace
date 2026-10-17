@@ -1,4 +1,4 @@
-package badspace.service.partition;
+package badspace.service.partition.slots;
 
 import java.util.concurrent.ConcurrentLinkedDeque;
 
@@ -13,12 +13,12 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  * buffer that came back last, which usually has the most recent state. The deque does not
  * block, so the writer never waits for the thread that gives a buffer back.
  */
-final class CoordinateBufferPool {
+public final class CoordinateBufferPool {
 
     private final ConcurrentLinkedDeque<CoordinateBuffer> buffers;
 
     /** Creates an empty pool. */
-    CoordinateBufferPool() {
+    public CoordinateBufferPool() {
         this(new ConcurrentLinkedDeque<>());
     }
 
@@ -26,7 +26,7 @@ final class CoordinateBufferPool {
      * Creates a pool on the given empty deque. The tests give a deque that stops a thread
      * that gives back a buffer.
      */
-    CoordinateBufferPool(ConcurrentLinkedDeque<CoordinateBuffer> buffers) {
+    public CoordinateBufferPool(ConcurrentLinkedDeque<CoordinateBuffer> buffers) {
         this.buffers = buffers;
     }
 
@@ -50,19 +50,19 @@ final class CoordinateBufferPool {
      * Puts back a buffer that no snapshot uses any more. The empty buffer of the empty
      * snapshot is not kept. Any thread can call it.
      */
-    void giveBack(CoordinateBuffer buffer) {
+    public void giveBack(CoordinateBuffer buffer) {
         if (buffer.values().length > 0) {
             buffers.addFirst(buffer);
         }
     }
 
     /** Drops all the buffers: no commit will use them again. Any thread can call it. */
-    void clear() {
+    public void clear() {
         buffers.clear();
     }
 
     /** Returns the number of buffers in the pool. Any thread can call it. */
-    int size() {
+    public int size() {
         return buffers.size();
     }
 }

@@ -17,6 +17,7 @@ import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.service.index.SpatialIndex2;
 import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.snapshot.StorageSnapshot2;
 import java.util.List;
 import java.util.NoSuchElementException;
 import org.junit.jupiter.api.BeforeEach;

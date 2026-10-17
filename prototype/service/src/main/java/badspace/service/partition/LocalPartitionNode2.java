@@ -1,5 +1,7 @@
 package badspace.service.partition;
 
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Region2;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.CoordinateLimits;
@@ -9,11 +11,12 @@ import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.RetentionWindow;
-import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
+import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.WriteToken;
-import badspace.common.geometry.Point2;
-import badspace.common.geometry.Region2;
+import badspace.service.partition.snapshot.MonotonicClock;
+import badspace.service.partition.snapshot.SnapshotCatalog2;
+import badspace.service.partition.snapshot.StorageSnapshot2;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;

@@ -1,8 +1,8 @@
 package badspace.service.partition;
 
-import static badspace.service.partition.Owners.owner;
 import static badspace.common.geometry.Point2.point;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
+import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,6 +15,8 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.slots.CoordinateBufferPool;
+import badspace.service.partition.snapshot.MonotonicClock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;

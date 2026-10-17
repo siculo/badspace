@@ -1,4 +1,4 @@
-package badspace.service.partition;
+package badspace.service.partition.snapshot;
 
 import badspace.common.partition.AcquireOptions;
 import java.util.Map;
@@ -20,10 +20,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * makes each acquisition, read and release atomic, and a query keeps its own reference to the
  * snapshot, so a release or an expiry during the query does not stop it.
  */
-final class SnapshotAcquisitions2 {
+public final class SnapshotAcquisitions2 {
 
     /** The value that {@link #acquire} returns when the snapshot left the window. */
-    static final long NOT_ACQUIRED = 0;
+    public static final long NOT_ACQUIRED = 0;
 
     // Acquisition number -> acquired snapshot with its timeout.
     private final ConcurrentHashMap<Long, AcquisitionEntry2> acquisitions = new ConcurrentHashMap<>();
@@ -32,7 +32,8 @@ final class SnapshotAcquisitions2 {
     private final MonotonicClock clock;
     private final SnapshotLifetime2 lifetime;
 
-    SnapshotAcquisitions2(MonotonicClock clock, SnapshotLifetime2 lifetime) {
+    /** Creates empty acquisitions with the clock and lifetime of their partition. */
+    public SnapshotAcquisitions2(MonotonicClock clock, SnapshotLifetime2 lifetime) {
         this.clock = clock;
         this.lifetime = lifetime;
     }
@@ -45,7 +46,7 @@ final class SnapshotAcquisitions2 {
      * because the new acquisition can already be expired, and then the scan can end the last
      * published snapshot.
      */
-    long acquire(StorageSnapshot2 snapshot, long tick, AcquireOptions options) {
+    public long acquire(StorageSnapshot2 snapshot, long tick, AcquireOptions options) {
         // Checking the window and adding the use is a single step, so a snapshot that
         // left the window is never acquired again.
         if (!snapshot.uses().addUseIfInWindow()) {
@@ -64,7 +65,7 @@ final class SnapshotAcquisitions2 {
      * IllegalStateException if the acquisition was released or is expired, and with
      * IllegalArgumentException if it was never made or if its tick is not the given tick.
      */
-    StorageSnapshot2 admit(long acquisitionId, long tick) {
+    public StorageSnapshot2 admit(long acquisitionId, long tick) {
         // A single read of the entry: a removal at the same time cannot make the
         // check and the snapshot disagree.
         AcquisitionEntry2 entry = acquisitions.get(acquisitionId);
@@ -87,7 +88,7 @@ final class SnapshotAcquisitions2 {
      * Ends a query admitted by {@link #admit}: removes its use, which can end the snapshot.
      * Returns true if this ends the last published snapshot.
      */
-    boolean endQuery(StorageSnapshot2 snapshot) {
+    public boolean endQuery(StorageSnapshot2 snapshot) {
         return lifetime.removeUse(snapshot);
     }
 
@@ -97,7 +98,7 @@ final class SnapshotAcquisitions2 {
      * Returns true if this ends the last published snapshot. Fails with
      * IllegalArgumentException if the acquisition was never made.
      */
-    boolean release(long acquisitionId) {
+    public boolean release(long acquisitionId) {
         checkMade(acquisitionId);
         boolean lastEnded = false;
         // Only one thread gets the entry: a second release or the removal after the
@@ -115,7 +116,7 @@ final class SnapshotAcquisitions2 {
      * acquisition may never come back, so nobody waits for it. It scans all the
      * acquisitions; the map does not block the other threads.
      */
-    boolean removeExpired() {
+    public boolean removeExpired() {
         boolean lastEnded = false;
         long now = clock.nanoTime();
         for (Map.Entry<Long, AcquisitionEntry2> e : acquisitions.entrySet()) {
@@ -131,7 +132,7 @@ final class SnapshotAcquisitions2 {
      * Returns the number of acquisitions not yet released or removed after the timeout:
      * an expired acquisition counts until the next scan of the expired ones.
      */
-    int count() {
+    public int count() {
         return acquisitions.size();
     }
 

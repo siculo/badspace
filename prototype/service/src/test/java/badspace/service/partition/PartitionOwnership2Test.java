@@ -18,6 +18,8 @@ import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.WriteToken;
 import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.slots.CoordinateBufferPool;
+import badspace.service.partition.snapshot.MonotonicClock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;

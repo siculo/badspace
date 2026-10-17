@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import badspace.common.geometry.Point3;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
@@ -7,10 +8,18 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.RetentionWindow;
-import badspace.common.geometry.Point3;
 import badspace.service.index.SlotView3;
 import badspace.service.index.SpatialIndex3;
 import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.slots.CoordinateBuffer;
+import badspace.service.partition.slots.CoordinateBufferPool;
+import badspace.service.partition.slots.MutableSlots3;
+import badspace.service.partition.slots.SlotSnapshot3;
+import badspace.service.partition.snapshot.MonotonicClock;
+import badspace.service.partition.snapshot.SnapshotAcquisitions3;
+import badspace.service.partition.snapshot.SnapshotCatalog3;
+import badspace.service.partition.snapshot.SnapshotLifetime3;
+import badspace.service.partition.snapshot.StorageSnapshot3;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -78,7 +87,7 @@ import java.util.function.Function;
  * returns whether this ended the last snapshot: the scan can end it on any of these paths.
  * <p>
  * Each snapshot ends when it is out of the window, with no valid acquisitions and no admitted
- * queries (see {@link SnapshotUses}). The event that removes the last of these ends it: the
+ * queries (see {@code SnapshotUses}). The event that removes the last of these ends it: the
  * move of the tick that moves the window, the release or the removal after the timeout of the
  * last acquisition, the end of the last query. The removal of the partition goes through the
  * {@linkplain PartitionState states}. {@link #requestRemoval} is the last operation of the
@@ -231,7 +240,7 @@ final class PartitionStorage3 {
             checkOwner(generation);
             Set<Long> seen = new HashSet<>();
             for (Entity3 e : entities) {
-                if (slots.slotOf(e.id()) != SlotTable.NONE || !seen.add(e.id())) {
+                if (slots.slotOf(e.id()) != SlotSnapshot3.NONE || !seen.add(e.id())) {
                     throw new IllegalArgumentException("Duplicate entity ID: " + e.id());
                 }
                 checkLimits(e);
@@ -484,7 +493,7 @@ final class PartitionStorage3 {
         SlotSnapshot3 committed = lastCommitted.slots();
         List<Long> added = new ArrayList<>();
         for (int slot = 0; slot < slots.size(); slot++) {
-            if (committed.slotOf(slots.idAt(slot)) == SlotTable.NONE) {
+            if (committed.slotOf(slots.idAt(slot)) == SlotSnapshot3.NONE) {
                 added.add(slots.idAt(slot));
             }
         }
@@ -496,7 +505,7 @@ final class PartitionStorage3 {
             long entityId = committed.idAt(committedSlot);
             Point3 position = committed.positionAt(committedSlot);
             int slot = slots.slotOf(entityId);
-            if (slot == SlotTable.NONE) {
+            if (slot == SlotSnapshot3.NONE) {
                 insert(entityId, position);
             } else if (!slots.positionAt(slot).equals(position)) {
                 move(slot, position);
@@ -676,7 +685,7 @@ final class PartitionStorage3 {
     /** Returns the slot of an entity. Fails with NoSuchElementException if the ID is not in the slots. */
     private int existingSlot(long entityId) {
         int slot = slots.slotOf(entityId);
-        if (slot == SlotTable.NONE) {
+        if (slot == SlotSnapshot3.NONE) {
             throw new NoSuchElementException("Unknown entity ID: " + entityId);
         }
         return slot;

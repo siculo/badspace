@@ -1,5 +1,7 @@
 package badspace.service.partition;
 
+import badspace.service.partition.snapshot.MonotonicClock;
+
 /**
  * A clock for the tests that runs an action at a chosen reading, before it returns the time:
  * the test puts an event of another part of the node between two steps of an operation that

@@ -1,4 +1,4 @@
-package badspace.service.partition;
+package badspace.service.partition.slots;
 
 import badspace.common.geometry.Point2;
 import badspace.service.index.SlotView2;
@@ -25,12 +25,12 @@ import java.util.Arrays;
  * Only the writer uses the slots, while it holds the lock of the partition: the slots take no
  * lock of their own. The snapshots they make never change, so other threads can read them.
  */
-final class MutableSlots2 implements SlotView2 {
+public final class MutableSlots2 implements SlotView2 {
 
     private static final int DIMENSIONS = 2;
     private static final int INITIAL_CAPACITY = 16;
     /** The slots in a page: a commit copies the coordinates of a changed page as a whole. */
-    static final int PAGE_SLOTS = 64;
+    public static final int PAGE_SLOTS = 64;
 
     // Slot: entity ID and position. coords holds DIMENSIONS values per slot (x, y),
     // so slot i is slotEntityIds[i] and coords[DIMENSIONS * i ...]. The capacity of
@@ -49,6 +49,10 @@ final class MutableSlots2 implements SlotView2 {
     /** True after a change of the coordinates not yet in a snapshot. */
     private boolean coordinatesChanged;
 
+    /** Creates empty slots for the writer. */
+    public MutableSlots2() {
+    }
+
     @Override
     public int size() {
         return size;
@@ -65,23 +69,23 @@ final class MutableSlots2 implements SlotView2 {
         return new Point2(coords[base], coords[base + 1]);
     }
 
-    /** Returns the slot of the ID, or {@link SlotTable#NONE} if the ID is not in the slots. */
-    int slotOf(long entityId) {
+    /** Returns the slot of the ID, or {@link SlotSnapshot2#NONE} if the ID is not in the slots. */
+    public int slotOf(long entityId) {
         return slotById.get(entityId);
     }
 
     /** Returns true if there are writes after the last snapshot. */
-    boolean hasChanges() {
+    public boolean hasChanges() {
         return idsChanged || coordinatesChanged;
     }
 
     /** Returns true if the coordinates changed after the last snapshot. */
-    boolean coordinatesChanged() {
+    public boolean coordinatesChanged() {
         return coordinatesChanged;
     }
 
     /** Makes room for at least needed slots, so the next insertions do not grow the arrays. */
-    void ensureCapacity(int needed) {
+    public void ensureCapacity(int needed) {
         if (needed <= slotEntityIds.length) {
             return;
         }
@@ -98,7 +102,7 @@ final class MutableSlots2 implements SlotView2 {
      * Adds an entity, whose ID must not be in the slots, in a new slot after the last one and
      * returns the slot. The commit is the one that confirms the change.
      */
-    int insert(long entityId, Point2 position, long commit) {
+    public int insert(long entityId, Point2 position, long commit) {
         ensureCapacity(size + 1);
         int slot = size++;
         slotEntityIds[slot] = entityId;
@@ -109,7 +113,7 @@ final class MutableSlots2 implements SlotView2 {
     }
 
     /** Sets the position in a slot. The commit is the one that confirms the change. */
-    void write(int slot, Point2 position, long commit) {
+    public void write(int slot, Point2 position, long commit) {
         changed(slot, commit);
         int base = slot * DIMENSIONS;
         coords[base] = position.x();
@@ -121,7 +125,7 @@ final class MutableSlots2 implements SlotView2 {
      * entity of the last slot moves into it: then that slot has a new ID and position, and the
      * last slot is free. The commit is the one that confirms the change.
      */
-    void remove(long entityId, long commit) {
+    public void remove(long entityId, long commit) {
         int slot = slotById.remove(entityId);
         idsChanged = true;
         int last = size - 1;
@@ -141,7 +145,7 @@ final class MutableSlots2 implements SlotView2 {
      * gets all the pages. The slots that the buffer did not have were inserted after its
      * commit, so their pages are changed too.
      */
-    CoordinateBuffer copyChangedPages(CoordinateBufferPool pool, long commit) {
+    public CoordinateBuffer copyChangedPages(CoordinateBufferPool pool, long commit) {
         CoordinateBuffer buffer = pool.take(size * DIMENSIONS, coords.length);
         double[] values = buffer.values();
         long held = buffer.commitSequence();
@@ -163,7 +167,7 @@ final class MutableSlots2 implements SlotView2 {
      * slots have no changes after it. Without insertions or removals after the last snapshot,
      * the new one shares its IDs and its table.
      */
-    SlotSnapshot2 snapshot(CoordinateBuffer coordinates, SlotSnapshot2 last) {
+    public SlotSnapshot2 snapshot(CoordinateBuffer coordinates, SlotSnapshot2 last) {
         SlotSnapshot2 snapshot = idsChanged
                 ? new SlotSnapshot2(Arrays.copyOf(slotEntityIds, size), coordinates, slotById.copy())
                 : last.withCoordinates(coordinates);
@@ -173,7 +177,7 @@ final class MutableSlots2 implements SlotView2 {
     }
 
     /** Returns the number of pages that the snapshots copied into the buffers since the creation. */
-    long copiedPageCount() {
+    public long copiedPageCount() {
         return copiedPages;
     }
 

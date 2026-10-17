@@ -1,4 +1,4 @@
-package badspace.service.partition;
+package badspace.service.partition.slots;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * share the same buffer: it counts the snapshots that use it, and goes back to the pool when
  * the last of them ends.
  */
-final class CoordinateBuffer {
+public final class CoordinateBuffer {
 
     /** The commit sequence of a buffer that holds no state yet: a commit copies all its pages. */
     static final long NO_COMMIT = 0;
@@ -30,6 +30,11 @@ final class CoordinateBuffer {
         return values;
     }
 
+    /** Returns the number of coordinates that fit in this buffer. Any thread can call it. */
+    public int length() {
+        return values.length;
+    }
+
     long commitSequence() {
         return commitSequence;
     }
@@ -48,7 +53,7 @@ final class CoordinateBuffer {
      * Removes a snapshot that used the buffer. Returns true if it was the last one: then
      * nobody reads the buffer, and it can go back to the pool.
      */
-    boolean removeUser() {
+    public boolean removeUser() {
         int left = users.decrementAndGet();
         if (left < 0) {
             throw new IllegalStateException("Coordinate buffer has no users to remove");

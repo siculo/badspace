@@ -1,11 +1,11 @@
-package badspace.service.partition;
+package badspace.service.partition.snapshot;
 
 /**
  * The monotonic clock of the node, which measures the timeouts of the acquisitions.
  * Only the difference between two readings has a meaning. The tests replace it with
  * a clock that moves only when they say.
  */
-interface MonotonicClock {
+public interface MonotonicClock {
 
     /** The clock of the system. */
     MonotonicClock SYSTEM = System::nanoTime;

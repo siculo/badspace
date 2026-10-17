@@ -1,8 +1,8 @@
 package badspace.service.partition;
 
-import static badspace.service.partition.Owners.owner;
-import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.geometry.Point2.point;
+import static badspace.common.partition.AcquireOptions.defaultTimeout;
+import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -18,9 +18,13 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
-import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
+import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.slots.CoordinateBufferPool;
+import badspace.service.partition.snapshot.MonotonicClock;
+import badspace.service.partition.snapshot.SnapshotCatalog2;
+import badspace.service.partition.snapshot.StorageSnapshot2;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -119,14 +123,14 @@ class AcquisitionConcurrency2Test {
                 storage.removeAll(owner(storage), new long[] {10});
                 publish(storage);
                 assertEquals(0, storage.acquisitionCount());
-                assertFalse(snapshot.uses().isEnded(), config + ": the snapshot ended during the query");
+                assertFalse(snapshot.isEnded(), config + ": the snapshot ended during the query");
 
             } finally {
                 gate.open();
                 join(query);
             }
             query.check(List.of(new Entity2(10, A)), config.toString());
-            assertTrue(snapshot.uses().isEnded(), config + ": the snapshot did not end with the query");
+            assertTrue(snapshot.isEnded(), config + ": the snapshot did not end with the query");
             assertEquals(1, storage.liveSnapshotCount());
         }
     }

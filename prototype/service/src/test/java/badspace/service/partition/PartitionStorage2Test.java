@@ -11,12 +11,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.common.geometry.Box2;
+import badspace.common.geometry.Point2;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
-import badspace.common.geometry.Point2;
 import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.slots.CoordinateBuffer;
+import badspace.service.partition.slots.CoordinateBufferPool;
+import badspace.service.partition.slots.MutableSlots2;
+import badspace.service.partition.slots.SlotSnapshot2;
+import badspace.service.partition.snapshot.MonotonicClock;
+import badspace.service.partition.snapshot.SnapshotCatalog2;
+import badspace.service.partition.snapshot.StorageSnapshot2;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -252,7 +259,7 @@ class PartitionStorage2Test {
         assertEquals(1, storage.acquisitionCount());
         storage.release(second);
         publish(storage);
-        assertTrue(snapshot.uses().isEnded());
+        assertTrue(snapshot.isEnded());
         assertEquals(0, storage.acquisitionCount());
     }
 
@@ -264,7 +271,7 @@ class PartitionStorage2Test {
         assertAdmission(storage, acquisitionId, 0, snapshot);
         storage.release(acquisitionId);
         publish(storage);
-        assertTrue(snapshot.uses().isEnded());
+        assertTrue(snapshot.isEnded());
     }
 
     @Test
@@ -340,12 +347,12 @@ class PartitionStorage2Test {
         StorageSnapshot2 empty = publish(kept);
         publish(kept);
         assertEquals(2, kept.liveSnapshotCount());
-        assertFalse(empty.uses().isEnded());
+        assertFalse(empty.isEnded());
         StorageSnapshot2 last = publish(kept);
         // The window has the ticks 1 and 2: the snapshot of tick 0 left it.
-        assertTrue(empty.uses().isEnded());
+        assertTrue(empty.isEnded());
         assertEquals(2, kept.liveSnapshotCount());
-        assertFalse(last.uses().isEnded());
+        assertFalse(last.isEnded());
     }
 
     @Test
@@ -357,9 +364,9 @@ class PartitionStorage2Test {
         kept.setTick(4);
         kept.commit(owner(kept));
         kept.setTick(5);
-        assertFalse(empty.uses().isEnded());
+        assertFalse(empty.isEnded());
         kept.setTick(6);
-        assertTrue(empty.uses().isEnded());
+        assertTrue(empty.isEnded());
         assertEquals(1, kept.liveSnapshotCount());
     }
 
@@ -368,9 +375,9 @@ class PartitionStorage2Test {
         StorageSnapshot2 snapshot = publish(storage);
         long acquisitionId = storage.acquire(snapshot, 0);
         storage.release(acquisitionId);
-        assertFalse(snapshot.uses().isEnded());
+        assertFalse(snapshot.isEnded());
         publish(storage);
-        assertTrue(snapshot.uses().isEnded());
+        assertTrue(snapshot.isEnded());
         assertEquals(1, storage.liveSnapshotCount());
     }
 
@@ -382,9 +389,9 @@ class PartitionStorage2Test {
         publish(storage);
         assertEquals(2, storage.liveSnapshotCount());
         storage.release(first);
-        assertFalse(snapshot.uses().isEnded());
+        assertFalse(snapshot.isEnded());
         storage.release(second);
-        assertTrue(snapshot.uses().isEnded());
+        assertTrue(snapshot.isEnded());
         assertEquals(1, storage.liveSnapshotCount());
         // A release again does not end it twice.
         storage.release(second);
@@ -400,9 +407,9 @@ class PartitionStorage2Test {
         clock.advance(TIMEOUT);
         // The expiry alone is not an event: the commit finds it, and the move of the tick
         // moves the window.
-        assertFalse(snapshot.uses().isEnded());
+        assertFalse(snapshot.isEnded());
         publish(timed);
-        assertTrue(snapshot.uses().isEnded());
+        assertTrue(snapshot.isEnded());
         assertEquals(1, timed.liveSnapshotCount());
         // The release after the removal does not end it twice.
         timed.release(acquisitionId);
@@ -416,10 +423,10 @@ class PartitionStorage2Test {
         StorageSnapshot2 queried = storage.admit(acquisitionId, 0);
         storage.release(acquisitionId);
         publish(storage);
-        assertFalse(snapshot.uses().isEnded());
+        assertFalse(snapshot.isEnded());
         assertEquals(2, storage.liveSnapshotCount());
         storage.endQuery(queried);
-        assertTrue(snapshot.uses().isEnded());
+        assertTrue(snapshot.isEnded());
         assertEquals(1, storage.liveSnapshotCount());
     }
 
@@ -555,7 +562,7 @@ class PartitionStorage2Test {
         long acquisitionId = storage.acquire(snapshot, 0);
         publish(storage);
         assertFalse(storage.release(acquisitionId));
-        assertTrue(snapshot.uses().isEnded());
+        assertTrue(snapshot.isEnded());
         assertEquals(1, storage.liveSnapshotCount());
     }
 
@@ -569,7 +576,7 @@ class PartitionStorage2Test {
         storage.release(current);
         storage.release(kept);
         assertEquals(PartitionStorage2.NOT_ACQUIRED, storage.acquire(snapshot, 0));
-        assertTrue(snapshot.uses().isEnded());
+        assertTrue(snapshot.isEnded());
         assertEquals(0, storage.acquisitionCount());
         assertEquals(1, storage.liveSnapshotCount());
     }
@@ -656,7 +663,7 @@ class PartitionStorage2Test {
         storage.updateAll(owner(storage), List.of(new Entity2(10, B)));
         publish(storage);
         // With one retained tick the first snapshot left the window, with no uses.
-        assertTrue(first.uses().isEnded());
+        assertTrue(first.isEnded());
         assertEquals(1, storage.pooledBufferCount());
 
         storage.updateAll(owner(storage), List.of(new Entity2(10, C)));
@@ -706,7 +713,7 @@ class PartitionStorage2Test {
         checkSnapshot(kept, List.of(new Entity2(10, A)), "acquired");
 
         storage.release(acquisitionId);
-        assertTrue(kept.uses().isEnded());
+        assertTrue(kept.isEnded());
         assertEquals(1, storage.pooledBufferCount());
     }
 
@@ -725,7 +732,7 @@ class PartitionStorage2Test {
         assertNotSame(snapshot.slots().coordinateBuffer(), later.slots().coordinateBuffer());
         checkSnapshot(admitted, List.of(new Entity2(10, A)), "in a query");
         storage.endQuery(admitted);
-        assertTrue(snapshot.uses().isEnded());
+        assertTrue(snapshot.isEnded());
         assertEquals(1, storage.pooledBufferCount());
     }
 
@@ -753,7 +760,7 @@ class PartitionStorage2Test {
 
         // More entities than the capacity of the buffer of the first snapshot.
         List<Entity2> many = new ArrayList<>();
-        int count = small.slots().coordinateBuffer().values().length + 1;
+        int count = small.slots().coordinateBuffer().length() + 1;
         for (int i = 0; i < count; i++) {
             many.add(new Entity2(100 + i, B));
         }
@@ -820,7 +827,7 @@ class PartitionStorage2Test {
             if (failure.get() != null) {
                 throw new AssertionError("The reader failed", failure.get());
             }
-            assertTrue(first.uses().isEnded());
+            assertTrue(first.isEnded());
             boolean reused = committed.slots().coordinateBuffer() == first.slots().coordinateBuffer();
             assertEquals(reused ? 0 : 1, raced.pooledBufferCount(), "round " + round);
             raced.setTick(raced.tick() + 1);
@@ -1017,7 +1024,7 @@ class PartitionStorage2Test {
         publish(storage);
 
         // The second snapshot ended, the first one is out of the window but acquired.
-        assertTrue(second.uses().isEnded());
+        assertTrue(second.isEnded());
         assertEquals(0, storage.pooledBufferCount());
         checkSnapshot(first, List.of(new Entity2(10, A)), "acquired");
         storage.release(acquisitionId);
