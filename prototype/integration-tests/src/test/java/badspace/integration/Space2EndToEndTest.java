@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
+import badspace.api.PartitionWriter2;
 import badspace.api.RemovalPolicy;
 import badspace.api.Space2;
 import badspace.api.SpaceConfig;
@@ -14,14 +15,19 @@ import badspace.common.geometry.Box2;
 import badspace.common.geometry.Point2;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.Ownership;
+import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
+import badspace.common.partition.WriteToken;
 import badspace.service.partition.LocalPartitionNode2;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CyclicBarrier;
@@ -47,13 +53,15 @@ class Space2EndToEndTest {
     private static final Box2 ALL = new Box2(new Point2(-100, -100), new Point2(100, 100));
 
     private final Space2 space = new Space2(config);
+    // The writer handles of the partitions, made by writer(partition). Used only by the test thread.
+    private final Map<Partition2, PartitionWriter2> writers = new IdentityHashMap<>();
 
     @Test
     void readerSeesACommitOnlyAfterTheMoveOfTheTick() {
         Partition2 partition = space.createPartition(new LocalPartitionNode2());
-        long a = partition.insert(1, 2);
-        long b = partition.insert(5, 5);
-        partition.commit();
+        long a = writer(partition).insert(1, 2);
+        long b = writer(partition).insert(5, 5);
+        writer(partition).commit();
         assertReason(Reason.NOT_YET_PUBLISHED, partition::acquireLatest);
 
         space.setTick(1);
@@ -70,10 +78,10 @@ class Space2EndToEndTest {
     void snapshotsOfTheWindowKeepTheStateOfTheirTick() {
         Partition2 partition = space.createPartition(new LocalPartitionNode2(),
                 PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)).withRetainedTicks(3));
-        long id = partition.insert(0, 0);
+        long id = writer(partition).insert(0, 0);
         for (int tick = 0; tick < 5; tick++) {
-            partition.update(id, new Point2(tick, 0));
-            partition.commit();
+            writer(partition).update(id, new Point2(tick, 0));
+            writer(partition).commit();
             space.setTick(tick + 1);
         }
         // At tick 5 with k = 3: the snapshots of the ticks 2, 3 and 4.
@@ -85,7 +93,7 @@ class Space2EndToEndTest {
         assertReason(Reason.OUT_OF_RETENTION, () -> partition.acquire(1));
         assertReason(Reason.NOT_YET_PUBLISHED, () -> partition.acquire(5));
         // The writes not yet published are not in any snapshot, also for the writer.
-        partition.update(id, new Point2(9, 9));
+        writer(partition).update(id, new Point2(9, 9));
         try (AcquiredSnapshot2 latest = partition.acquireLatest()) {
             assertEquals(new Point2(4, 0), latest.get(id).orElseThrow());
         }
@@ -94,12 +102,12 @@ class Space2EndToEndTest {
     @Test
     void acquiredSnapshotStaysReadableAfterItLeavesTheWindow() {
         Partition2 partition = space.createPartition(new LocalPartitionNode2());
-        long id = partition.insert(1, 1);
-        partition.commit();
+        long id = writer(partition).insert(1, 1);
+        writer(partition).commit();
         space.setTick(1);
         try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
-            partition.remove(id);
-            partition.commit();
+            writer(partition).remove(id);
+            writer(partition).commit();
             space.setTick(5);
             assertReason(Reason.OUT_OF_RETENTION, () -> partition.acquire(0));
             assertEquals(1, snapshot.size());
@@ -133,13 +141,13 @@ class Space2EndToEndTest {
     void removedPartitionGivesItsTicksUntilItIsDestroyed() {
         Partition2 partition = space.createPartition(new LocalPartitionNode2(),
                 PartitionConfig.defaults().withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES).withRetainedTicks(2));
-        partition.insert(1, 1);
-        partition.commit();
+        writer(partition).insert(1, 1);
+        writer(partition).commit();
         space.setTick(1);
-        partition.insert(2, 2);
-        space.removePartition(partition);
-        assertThrows(IllegalStateException.class, () -> partition.insert(3, 3));
-        assertThrows(IllegalStateException.class, partition::commit);
+        writer(partition).insert(2, 2);
+        writer(partition).removePartition();
+        assertThrows(IllegalStateException.class, () -> writer(partition).insert(3, 3));
+        assertThrows(IllegalStateException.class, writer(partition)::commit);
 
         // The removal is effective at tick 2: the writes not committed were discarded.
         space.setTick(2);
@@ -161,14 +169,14 @@ class Space2EndToEndTest {
     @Test
     void removalThatRequiresEmptyLooksAtTheLastCommit() {
         Partition2 partition = space.createPartition(new LocalPartitionNode2());
-        long id = partition.insert(1, 1);
-        partition.commit();
-        assertThrows(IllegalStateException.class, () -> space.removePartition(partition));
-        partition.remove(id);
-        assertThrows(IllegalStateException.class, () -> space.removePartition(partition),
+        long id = writer(partition).insert(1, 1);
+        writer(partition).commit();
+        assertThrows(IllegalStateException.class, () -> writer(partition).removePartition());
+        writer(partition).remove(id);
+        assertThrows(IllegalStateException.class, () -> writer(partition).removePartition(),
                 "the removal of the entity is not committed");
-        partition.commit();
-        space.removePartition(partition);
+        writer(partition).commit();
+        writer(partition).removePartition();
         space.setTick(1);
         try (AcquiredSnapshot2 last = partition.acquireLatest()) {
             assertEquals(0, last.size());
@@ -178,23 +186,23 @@ class Space2EndToEndTest {
     @Test
     void getUpdateAndRemoveUseTheEntityId() {
         Partition2 p = space.createPartition(new LocalPartitionNode2());
-        long[] ids = p.insertAll(List.of(new Point2(1, 1), new Point2(2, 2)));
+        long[] ids = writer(p).insertAll(List.of(new Point2(1, 1), new Point2(2, 2)));
         try (AcquiredSnapshot2 snapshot = publish(p)) {
             assertEquals(Optional.of(new Point2(1, 1)), snapshot.get(ids[0]));
         }
 
-        p.update(ids[0], new Point2(5, 5));
-        p.updateAll(List.of(new Entity2(ids[1], new Point2(6, 6))));
+        writer(p).update(ids[0], new Point2(5, 5));
+        writer(p).updateAll(List.of(new Entity2(ids[1], new Point2(6, 6))));
         try (AcquiredSnapshot2 snapshot = publish(p)) {
             assertEquals(List.of(new Entity2(ids[1], new Point2(6, 6)), new Entity2(ids[0], new Point2(5, 5))),
                     snapshot.getAll(new long[] {ids[1], ids[0]}));
         }
 
-        p.remove(ids[0]);
+        writer(p).remove(ids[0]);
         try (AcquiredSnapshot2 snapshot = publish(p)) {
             assertEquals(Optional.empty(), snapshot.get(ids[0]));
         }
-        p.removeAll(new long[] {ids[1]});
+        writer(p).removeAll(new long[] {ids[1]});
         try (AcquiredSnapshot2 snapshot = publish(p)) {
             assertEquals(0, snapshot.size());
         }
@@ -203,8 +211,8 @@ class Space2EndToEndTest {
     @Test
     void removalDiscardsUncommittedInsertionsWhenTheLastCommitIsEmpty() {
         Partition2 partition = space.createPartition(new LocalPartitionNode2());
-        partition.insert(new Point2(1, 2));
-        space.removePartition(partition);
+        writer(partition).insert(new Point2(1, 2));
+        writer(partition).removePartition();
         space.setTick(1);
         try (var snapshot = partition.acquireLatest()) {
             assertEquals(0, snapshot.size());
@@ -220,7 +228,7 @@ class Space2EndToEndTest {
         snapshot.close();
         assertThrows(IllegalStateException.class, snapshot::size);
         assertEquals(0, snapshot.tick());
-        space.removePartition(partition);
+        writer(partition).removePartition();
         space.setTick(2);
         space.setTick(3);
         assertThrows(IllegalArgumentException.class, partition::tick);
@@ -235,8 +243,8 @@ class Space2EndToEndTest {
         LocalPartitionNode2 second = new LocalPartitionNode2();
         Partition2 a = new Space2(config).createPartition(first);
         Partition2 b = new Space2(config).createPartition(second);
-        assertEquals(1, a.insert(new Point2(1, 2)));
-        assertEquals(2, b.insert(new Point2(1, 2)));
+        assertEquals(1, writer(a).insert(new Point2(1, 2)));
+        assertEquals(2, writer(b).insert(new Point2(1, 2)));
         assertEquals(0, first.creationTick(new PartitionId(1)));
         assertEquals(0, second.creationTick(new PartitionId(2)));
     }
@@ -248,10 +256,10 @@ class Space2EndToEndTest {
         Partition2 sameNode = space.createPartition(node);
         Partition2 otherNode = space.createPartition(new LocalPartitionNode2());
         Point2 position = new Point2(1, 2);
-        long id = first.insert(position);
+        long id = writer(first).insert(position);
         Box2 region = new Box2(position, position);
         for (Partition2 partition : List.of(first, sameNode, otherNode)) {
-            partition.commit();
+            writer(partition).commit();
         }
         space.setTick(1);
         try (AcquiredSnapshot2 snapshot = first.acquireLatest()) {
@@ -271,8 +279,8 @@ class Space2EndToEndTest {
         assertEquals(0, space.tick());
         Partition2 partition = space.createPartition(new LocalPartitionNode2());
         space.setTick(4);
-        partition.insert(new Point2(1, 2));
-        partition.commit();
+        writer(partition).insert(new Point2(1, 2));
+        writer(partition).commit();
         space.setTick(4);
         assertEquals(4, space.tick());
         try (var snapshot = partition.acquireLatest()) {
@@ -303,7 +311,7 @@ class Space2EndToEndTest {
         try {
             List<Future<long[]>> results = new ArrayList<>();
             for (int w = 0; w < partitions.size(); w++) {
-                Partition2 partition = partitions.get(w);
+                PartitionWriter2 partitionWriter = writer(partitions.get(w));
                 int writer = w;
                 results.add(writers.submit(() -> {
                     start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
@@ -313,8 +321,8 @@ class Space2EndToEndTest {
                         for (int i = 0; i < batchSize; i++) {
                             positions.add(new Point2(writer, i));
                         }
-                        System.arraycopy(partition.insertAll(positions), 0, ids, b * batchSize, batchSize);
-                        partition.commit();
+                        System.arraycopy(partitionWriter.insertAll(positions), 0, ids, b * batchSize, batchSize);
+                        partitionWriter.commit();
                     }
                     return ids;
                 }));
@@ -342,6 +350,93 @@ class Space2EndToEndTest {
         assertEquals(partitions.size() * batches * batchSize, allIds.size());
     }
 
+    @Test
+    void newPartitionHasNoOwnerUntilAWriterClaimsIt() {
+        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        assertEquals(new Ownership(0, false), partition.ownership());
+        WriteToken token = partition.claim(0).orElseThrow();
+        assertEquals(new Ownership(1, true), partition.ownership());
+        assertEquals(Optional.empty(), partition.claim(0), "the generation is not 0 any more");
+        try (PartitionWriter2 writer = partition.writer(token)) {
+            writer.insert(new Point2(1, 1));
+            writer.commit();
+        }
+        assertEquals(new Ownership(2, false), partition.ownership());
+    }
+
+    @Test
+    void ownerPassesTheOwnershipWithATokenThatTheNextWriterUses() {
+        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        PartitionWriter2 first = partition.writer(partition.claim(0).orElseThrow());
+        long a = first.insert(new Point2(1, 1));
+        first.commit();
+        // The owner claims with the generation of its own token and sends the new token on.
+        WriteToken sent = partition.claim(first.token().generation()).orElseThrow();
+        try (PartitionWriter2 next = partition.writer(sent)) {
+            assertThrows(OwnershipChangedException.class, () -> first.insert(new Point2(2, 2)));
+            assertThrows(OwnershipChangedException.class, first::commit);
+            long b = next.insert(new Point2(3, 3));
+            try (AcquiredSnapshot2 snapshot = publish(partition, next)) {
+                assertEquals(Optional.of(new Point2(1, 1)), snapshot.get(a));
+                assertEquals(Optional.of(new Point2(3, 3)), snapshot.get(b));
+                assertEquals(2, snapshot.size());
+            }
+        }
+        // The old handle names a token that is not current: its close does nothing.
+        first.close();
+        assertEquals(new Ownership(3, false), partition.ownership());
+    }
+
+    @Test
+    void coordinatorTakesTheOwnershipAwayAndTheWritesNotCommittedAreLost() {
+        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        PartitionWriter2 slow = partition.writer(partition.claim(0).orElseThrow());
+        long kept = slow.insert(new Point2(1, 1));
+        slow.commit();
+        long lost = slow.insert(new Point2(2, 2));
+        // The coordinator does not have the token of the slow writer: it reads the generation.
+        WriteToken taken = partition.claim(partition.ownership().generation()).orElseThrow();
+        assertThrows(OwnershipChangedException.class, slow::commit);
+        try (PartitionWriter2 next = partition.writer(taken);
+                AcquiredSnapshot2 snapshot = publish(partition, next)) {
+            assertEquals(Optional.of(new Point2(1, 1)), snapshot.get(kept));
+            assertEquals(Optional.empty(), snapshot.get(lost));
+        }
+    }
+
+    @Test
+    void closeAfterAnExceptionDiscardsTheWritesNotCommitted() {
+        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        long[] ids = new long[2];
+        assertThrows(IllegalStateException.class, () -> {
+            try (PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow())) {
+                ids[0] = writer.insert(new Point2(1, 1));
+                writer.commit();
+                ids[1] = writer.insert(new Point2(2, 2));
+                throw new IllegalStateException("the writer fails before its commit");
+            }
+        });
+        assertEquals(new Ownership(2, false), partition.ownership());
+        try (PartitionWriter2 writer = partition.writer(partition.claim(2).orElseThrow());
+                AcquiredSnapshot2 snapshot = publish(partition, writer)) {
+            assertEquals(Optional.of(new Point2(1, 1)), snapshot.get(ids[0]));
+            assertEquals(Optional.empty(), snapshot.get(ids[1]));
+        }
+    }
+
+    @Test
+    void closeAfterTheDestructionOfThePartitionDoesNothing() {
+        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow());
+        writer.removePartition();
+        writer.close();
+        space.setTick(1);
+        space.setTick(2);
+        assertThrows(IllegalArgumentException.class, partition::ownership);
+        writer.close();
+        writer.close();
+    }
+
     /** Checks that the acquisition fails as not available, for the given reason. */
     private static void assertReason(Reason reason, Executable acquisition) {
         assertEquals(reason, assertThrows(SnapshotNotAvailableException.class, acquisition).reason());
@@ -349,8 +444,24 @@ class Space2EndToEndTest {
 
     /** Commits the writes of a partition, moves the tick by one and acquires the snapshot just published. */
     private AcquiredSnapshot2 publish(Partition2 partition) {
-        partition.commit();
+        return publish(partition, writer(partition));
+    }
+
+    /**
+     * Commits the writes of the handle of a partition, moves the tick by one and acquires the
+     * snapshot just published.
+     */
+    private AcquiredSnapshot2 publish(Partition2 partition, PartitionWriter2 writer) {
+        writer.commit();
         space.setTick(space.tick() + 1);
         return partition.acquireLatest();
+    }
+
+    /**
+     * Returns the writer handle of a partition for the tests that are not about the ownership:
+     * the first call claims the new partition, the next calls give the same handle.
+     */
+    private PartitionWriter2 writer(Partition2 partition) {
+        return writers.computeIfAbsent(partition, created -> created.writer(created.claim(0).orElseThrow()));
     }
 }

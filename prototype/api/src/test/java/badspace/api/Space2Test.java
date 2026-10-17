@@ -5,11 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -21,6 +22,7 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.SnapshotNotAvailableException;
@@ -29,13 +31,12 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /** Checks API decisions and delegation without implementing the node contract again. */
 class Space2Test {
     private static final PartitionId PARTITION_ID = new PartitionId(101);
-    /** The token that the space takes when it creates the partition, from the node below. */
+    /** A token of the partition, as the node gives it to the first owner. */
     private static final WriteToken TOKEN = new WriteToken(PARTITION_ID, 1);
     private final AtomicLong entityIds = new AtomicLong(10);
     private final AtomicLong partitionIds = new AtomicLong(100);
@@ -43,11 +44,6 @@ class Space2Test {
     private final Space2 space = new Space2(config);
     private final PartitionNode2 node = mock(PartitionNode2.class);
 
-    @BeforeEach
-    void setUp() {
-        // Like a real node, the first claim of a new partition gives the token of generation 1.
-        when(node.claim(any(), eq(0L))).thenAnswer(call -> Optional.of(new WriteToken(call.getArgument(0), 1)));
-    }
     private static final Point2 A = new Point2(1, 2);
     private static final Point2 B = new Point2(5, 6);
 
@@ -59,7 +55,6 @@ class Space2Test {
         var order = inOrder(node);
         order.verify(node).setTick(0);
         order.verify(node).createPartition(PARTITION_ID, chosen.index(), 3);
-        order.verify(node).claim(PARTITION_ID, 0);
         order.verifyNoMoreInteractions();
     }
 
@@ -72,9 +67,9 @@ class Space2Test {
 
     @Test
     void insertAllMakesOneBatchWithGeneratedIdsInPositionOrder() {
-        Partition2 partition = space.createPartition(node);
+        PartitionWriter2 writer = space.createPartition(node).writer(TOKEN);
         clearInvocations(node);
-        assertArrayEquals(new long[] {11, 12}, partition.insertAll(List.of(A, B)));
+        assertArrayEquals(new long[] {11, 12}, writer.insertAll(List.of(A, B)));
         verify(node).insertAll(TOKEN, List.of(new Entity2(11, A), new Entity2(12, B)));
         verifyNoMoreInteractions(node);
     }
@@ -85,7 +80,7 @@ class Space2Test {
             Partition2 partition = space.createPartition(node, PartitionConfig.defaults().withRemovalPolicy(policy));
             PartitionId id = new PartitionId(partitionIds.get());
             clearInvocations(node);
-            space.removePartition(partition);
+            partition.writer(new WriteToken(id, 1)).removePartition();
             if (policy == RemovalPolicy.REQUIRE_EMPTY) {
                 verify(node).removePartition(new WriteToken(id, 1));
             } else {
@@ -96,39 +91,15 @@ class Space2Test {
     }
 
     @Test
-    void failedRemovalLeavesTheProxyUsable() {
-        Partition2 partition = space.createPartition(node);
+    void failedRemovalLeavesTheWriterUsable() {
+        PartitionWriter2 writer = space.createPartition(node).writer(TOKEN);
         doThrow(new IllegalStateException("Partition is not empty")).when(node).removePartition(TOKEN);
-        assertThrows(IllegalStateException.class, () -> space.removePartition(partition));
-        partition.insert(A);
+        assertThrows(IllegalStateException.class, writer::removePartition);
+        writer.insert(A);
         verify(node).insertAll(TOKEN, List.of(new Entity2(11, A)));
     }
 
-    @Test
-    void removedProxyRejectsEveryWriterOperationBeforeCallingTheNode() {
-        Partition2 partition = space.createPartition(node);
-        space.removePartition(partition);
-        clearInvocations(node);
-        assertThrows(IllegalStateException.class, () -> partition.insert(A));
-        assertThrows(IllegalStateException.class, () -> partition.insertAll(List.of(A)));
-        assertThrows(IllegalStateException.class, () -> partition.update(1, B));
-        assertThrows(IllegalStateException.class, () -> partition.updateAll(List.of(new Entity2(1, B))));
-        assertThrows(IllegalStateException.class, () -> partition.remove(1));
-        assertThrows(IllegalStateException.class, () -> partition.removeAll(new long[] {1}));
-        assertThrows(IllegalStateException.class, partition::limits);
-        assertThrows(IllegalStateException.class, partition::commit);
-        assertThrows(IllegalStateException.class, () -> space.removePartition(partition));
-        verifyNoInteractions(node);
-    }
 
-    @Test
-    void partitionOfAnotherSpaceIsRejectedBeforeCallingTheNode() {
-        Partition2 partition = space.createPartition(node);
-        clearInvocations(node);
-        Space2 other = new Space2(config);
-        assertThrows(IllegalArgumentException.class, () -> other.removePartition(partition));
-        verifyNoInteractions(node);
-    }
 
     @Test
     void acquisitionsPassDefaultAndExplicitTimeouts() {
@@ -175,7 +146,6 @@ class Space2Test {
     @Test
     void setTickReachesEachNodeOnceEvenWithSeveralPartitions() {
         PartitionNode2 other = mock(PartitionNode2.class);
-        when(other.claim(any(), eq(0L))).thenAnswer(call -> Optional.of(new WriteToken(call.getArgument(0), 1)));
         space.createPartition(node);
         space.createPartition(node);
         space.createPartition(other);
@@ -207,12 +177,54 @@ class Space2Test {
     }
 
     @Test
-    void limitsAndCommitPassThePartitionId() {
+    void limitsPassThePartitionId() {
         Partition2 partition = space.createPartition(node);
         when(node.limits(PARTITION_ID)).thenReturn(IndexConfig.uniformGrid(4).limits());
         assertEquals(IndexConfig.uniformGrid(4).limits(), partition.limits());
-        partition.commit();
-        verify(node).commit(TOKEN);
+    }
+
+    @Test
+    void newPartitionIsNotClaimedByTheSpace() {
+        space.createPartition(node);
+        verify(node, never()).claim(any(), anyLong());
+    }
+
+    @Test
+    void ownershipAndClaimPassThePartitionId() {
+        Partition2 partition = space.createPartition(node);
+        when(node.ownership(PARTITION_ID)).thenReturn(new Ownership(3, true));
+        when(node.claim(PARTITION_ID, 3)).thenReturn(Optional.of(new WriteToken(PARTITION_ID, 4)));
+        assertEquals(new Ownership(3, true), partition.ownership());
+        assertEquals(Optional.of(new WriteToken(PARTITION_ID, 4)), partition.claim(3));
+    }
+
+    @Test
+    void writerPassesItsTokenInEveryOperation() {
+        PartitionWriter2 writer = space.createPartition(node).writer(TOKEN);
+        clearInvocations(node);
+        assertSame(TOKEN, writer.token());
+        long entityId = writer.insert(A);
+        writer.update(entityId, B);
+        writer.remove(entityId);
+        writer.commit();
+        writer.removePartition();
+        writer.close();
+        var order = inOrder(node);
+        order.verify(node).insertAll(TOKEN, List.of(new Entity2(entityId, A)));
+        order.verify(node).updateAll(TOKEN, List.of(new Entity2(entityId, B)));
+        order.verify(node).removeAll(TOKEN, new long[] {entityId});
+        order.verify(node).commit(TOKEN);
+        order.verify(node).removePartition(TOKEN);
+        order.verify(node).release(TOKEN);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    void writerOfATokenOfAnotherPartitionIsRejectedWithoutCallingTheNode() {
+        Partition2 partition = space.createPartition(node);
+        clearInvocations(node);
+        assertThrows(IllegalArgumentException.class, () -> partition.writer(new WriteToken(new PartitionId(999), 1)));
+        verifyNoInteractions(node);
     }
 
     @Test

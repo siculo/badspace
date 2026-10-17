@@ -1,9 +1,7 @@
 package badspace.api;
 
-import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
-import badspace.common.partition.WriteToken;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Objects;
@@ -52,9 +50,7 @@ public final class Space2 implements Space<PartitionNode2, Partition2> {
             }
             PartitionId id = new PartitionId(this.config.partitionIds().nextId());
             node.createPartition(id, config.index(), config.retainedTicks());
-            // The proxy is the owner of the new partition, which nobody else knows yet.
-            WriteToken token = node.claim(id, Ownership.INITIAL.generation()).orElseThrow();
-            return new Partition2(this, node, token, config);
+            return new Partition2(this, node, id, config);
         } finally {
             tickLock.unlock();
         }
@@ -79,14 +75,6 @@ public final class Space2 implements Space<PartitionNode2, Partition2> {
     @Override
     public long tick() {
         return tick;
-    }
-
-    @Override
-    public void removePartition(Partition2 partition) {
-        if (partition.space() != this) {
-            throw new IllegalArgumentException("Partition belongs to another space");
-        }
-        partition.removeFromNode();
     }
 
     long nextEntityId() {

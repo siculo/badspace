@@ -4,7 +4,7 @@ title: Proprietà della partizione
 description: Ogni partizione ha al più un writer; la proprietà ha una generazione che cresce a ogni cambio, si legge con ownership(p), si prende con claim(p, expectedGeneration), un compare-and-set sulla generazione, e si lascia con release(token); scritture, commit e remove() portano il token (fencing token), e la partizione rifiuta quelli di una generazione vecchia, scartando le scritture non confermate a ogni cambio. Sopra la primitiva si costruiscono schemi diversi di gestione della proprietà.
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T17:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T19:00:00Z }
 ---
 
 # Primitiva
@@ -137,10 +137,12 @@ posseduta) e `WriteToken` (ID della partizione, generazione ≥ 1) sono in
 `claim(PartitionId, long)`, che restituisce `Optional<WriteToken>`, e
 `release(WriteToken)`. Le scritture, `commit` e le due operazioni di
 rimozione ricevono il `WriteToken` al posto dell'ID della partizione.
-L'API non ha ancora l'handle del writer: per ora il proxy della
-partizione prende la proprietà quando lo spazio crea la partizione, e
-porta quel token (vedi [differenze nel codice
-attuale](/decisions/api-surface.md#differenze-nel-codice-attuale)).
+Nell'API la partizione ha `ownership()`, `claim(long)` e
+`writer(WriteToken)`, e l'handle `PartitionWriter2`/`PartitionWriter3`
+porta il token in ogni scrittura, commit e rimozione, con `close()` che
+lo rilascia (vedi [proprietà e handle del
+writer](/decisions/api-surface.md#proprietà-e-handle-del-writer)). Lo
+spazio crea le partizioni senza proprietario.
 
 - **Stato.** Lo storage della partizione tiene un `Ownership` in un
   campo `volatile`: `claim` e `release` lo sostituiscono sotto il lock
@@ -187,7 +189,13 @@ concorrenti sulla stessa generazione ne vince uno solo; un `release`
 durante le scritture lascia esattamente l'ultimo commit finito;
 `claim` e avanzamenti del tick concorrenti lasciano coerenti
 generazione e tick. Gli altri test del service prendono la proprietà
-con un helper prima della prima scrittura.
+con un helper prima della prima scrittura. I test dell'API controllano
+che l'handle passi il suo token in ogni operazione e che rifiuti il
+token di un'altra partizione; i test di integrazione verificano la
+partizione nuova senza proprietario, il passaggio cooperativo con il
+vecchio handle rifiutato, la revoca da un coordinatore che perde le
+scritture non confermate, `close()` dopo un'eccezione come rollback e
+`close()` dopo la distruzione.
 
 # Punti aperti
 
