@@ -4,10 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -19,22 +22,28 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.WriteToken;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
 /** Checks API decisions and delegation without implementing the node contract again. */
 class Space3Test {
     private static final PartitionId PARTITION_ID = new PartitionId(101);
+    /** A token of the partition, as the node gives it to the first owner. */
+    private static final WriteToken TOKEN = new WriteToken(PARTITION_ID, 1);
     private final AtomicLong entityIds = new AtomicLong(10);
     private final AtomicLong partitionIds = new AtomicLong(100);
     private final SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
     private final Space3 space = new Space3(config);
     private final PartitionNode3 node = mock(PartitionNode3.class);
+
     private static final Point3 A = new Point3(1, 2, 3);
     private static final Point3 B = new Point3(5, 6, 7);
 
@@ -58,10 +67,10 @@ class Space3Test {
 
     @Test
     void insertAllMakesOneBatchWithGeneratedIdsInPositionOrder() {
-        Partition3 partition = space.createPartition(node);
+        PartitionWriter3 writer = space.createPartition(node).writer(TOKEN);
         clearInvocations(node);
-        assertArrayEquals(new long[] {11, 12}, partition.insertAll(List.of(A, B)));
-        verify(node).insertAll(PARTITION_ID, List.of(new Entity3(11, A), new Entity3(12, B)));
+        assertArrayEquals(new long[] {11, 12}, writer.insertAll(List.of(A, B)));
+        verify(node).insertAll(TOKEN, List.of(new Entity3(11, A), new Entity3(12, B)));
         verifyNoMoreInteractions(node);
     }
 
@@ -71,55 +80,26 @@ class Space3Test {
             Partition3 partition = space.createPartition(node, PartitionConfig.defaults().withRemovalPolicy(policy));
             PartitionId id = new PartitionId(partitionIds.get());
             clearInvocations(node);
-            space.removePartition(partition);
+            partition.writer(new WriteToken(id, 1)).removePartition();
             if (policy == RemovalPolicy.REQUIRE_EMPTY) {
-                verify(node).removePartition(id);
+                verify(node).removePartition(new WriteToken(id, 1));
             } else {
-                verify(node).dropPartition(id);
+                verify(node).dropPartition(new WriteToken(id, 1));
             }
             verifyNoMoreInteractions(node);
         }
     }
 
     @Test
-    void failedRemovalLeavesTheProxyUsable() {
-        Partition3 partition = space.createPartition(node);
-        doThrow(new IllegalStateException("Partition is not empty")).when(node).removePartition(PARTITION_ID);
-        assertThrows(IllegalStateException.class, () -> space.removePartition(partition));
-        partition.insert(A);
-        verify(node).insertAll(PARTITION_ID, List.of(new Entity3(11, A)));
+    void failedRemovalLeavesTheWriterUsable() {
+        PartitionWriter3 writer = space.createPartition(node).writer(TOKEN);
+        doThrow(new IllegalStateException("Partition is not empty")).when(node).removePartition(TOKEN);
+        assertThrows(IllegalStateException.class, writer::removePartition);
+        writer.insert(A);
+        verify(node).insertAll(TOKEN, List.of(new Entity3(11, A)));
     }
 
-    @Test
-    void removedProxyRejectsEveryWriterOperationBeforeCallingTheNode() {
-        Partition3 partition = space.createPartition(node);
-        space.removePartition(partition);
-        clearInvocations(node);
-        assertThrows(IllegalStateException.class, () -> partition.insert(A));
-        assertThrows(IllegalStateException.class, () -> partition.insertAll(List.of(A)));
-        assertThrows(IllegalStateException.class, () -> partition.get(1));
-        assertThrows(IllegalStateException.class, () -> partition.getAll(new long[] {1}));
-        assertThrows(IllegalStateException.class, () -> partition.update(1, B));
-        assertThrows(IllegalStateException.class, () -> partition.updateAll(List.of(new Entity3(1, B))));
-        assertThrows(IllegalStateException.class, () -> partition.remove(1));
-        assertThrows(IllegalStateException.class, () -> partition.removeAll(new long[] {1}));
-        assertThrows(IllegalStateException.class, partition::size);
-        assertThrows(IllegalStateException.class, partition::limits);
-        assertThrows(IllegalStateException.class, partition::commit);
-        assertThrows(IllegalStateException.class, () -> partition.findInRegion(new Box3(A, B)));
-        assertThrows(IllegalStateException.class, () -> partition.findNearest(A, 1));
-        assertThrows(IllegalStateException.class, () -> space.removePartition(partition));
-        verifyNoInteractions(node);
-    }
 
-    @Test
-    void partitionOfAnotherSpaceIsRejectedBeforeCallingTheNode() {
-        Partition3 partition = space.createPartition(node);
-        clearInvocations(node);
-        Space3 other = new Space3(config);
-        assertThrows(IllegalArgumentException.class, () -> other.removePartition(partition));
-        verifyNoInteractions(node);
-    }
 
     @Test
     void acquisitionsPassDefaultAndExplicitTimeouts() {
@@ -197,23 +177,54 @@ class Space3Test {
     }
 
     @Test
-    void writerQueriesPassThePartitionIdAndArguments() {
+    void limitsPassThePartitionId() {
         Partition3 partition = space.createPartition(node);
-        long[] ids = {8, 3};
-        List<Entity3> found = List.of(new Entity3(8, B), new Entity3(3, A));
-        Box3 region = new Box3(A, B);
-        when(node.getAll(PARTITION_ID, ids)).thenReturn(found);
-        when(node.findInRegion(PARTITION_ID, region)).thenReturn(found);
-        when(node.findNearest(PARTITION_ID, B, 2)).thenReturn(found);
-        when(node.size(PARTITION_ID)).thenReturn(2);
         when(node.limits(PARTITION_ID)).thenReturn(IndexConfig.uniformGrid(4).limits());
-        assertSame(found, partition.getAll(ids));
-        assertSame(found, partition.findInRegion(region));
-        assertSame(found, partition.findNearest(B, 2));
-        assertEquals(2, partition.size());
         assertEquals(IndexConfig.uniformGrid(4).limits(), partition.limits());
-        partition.commit();
-        verify(node).commit(PARTITION_ID);
+    }
+
+    @Test
+    void newPartitionIsNotClaimedByTheSpace() {
+        space.createPartition(node);
+        verify(node, never()).claim(any(), anyLong());
+    }
+
+    @Test
+    void ownershipAndClaimPassThePartitionId() {
+        Partition3 partition = space.createPartition(node);
+        when(node.ownership(PARTITION_ID)).thenReturn(new Ownership(3, true));
+        when(node.claim(PARTITION_ID, 3)).thenReturn(Optional.of(new WriteToken(PARTITION_ID, 4)));
+        assertEquals(new Ownership(3, true), partition.ownership());
+        assertEquals(Optional.of(new WriteToken(PARTITION_ID, 4)), partition.claim(3));
+    }
+
+    @Test
+    void writerPassesItsTokenInEveryOperation() {
+        PartitionWriter3 writer = space.createPartition(node).writer(TOKEN);
+        clearInvocations(node);
+        assertSame(TOKEN, writer.token());
+        long entityId = writer.insert(A);
+        writer.update(entityId, B);
+        writer.remove(entityId);
+        writer.commit();
+        writer.removePartition();
+        writer.close();
+        var order = inOrder(node);
+        order.verify(node).insertAll(TOKEN, List.of(new Entity3(entityId, A)));
+        order.verify(node).updateAll(TOKEN, List.of(new Entity3(entityId, B)));
+        order.verify(node).removeAll(TOKEN, new long[] {entityId});
+        order.verify(node).commit(TOKEN);
+        order.verify(node).removePartition(TOKEN);
+        order.verify(node).release(TOKEN);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    void writerOfATokenOfAnotherPartitionIsRejectedWithoutCallingTheNode() {
+        Partition3 partition = space.createPartition(node);
+        clearInvocations(node);
+        assertThrows(IllegalArgumentException.class, () -> partition.writer(new WriteToken(new PartitionId(999), 1)));
+        verifyNoInteractions(node);
     }
 
     @Test

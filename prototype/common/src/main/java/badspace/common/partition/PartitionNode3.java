@@ -3,6 +3,7 @@ package badspace.common.partition;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Contract of a node that hosts partitions of a 3-dimensional space.
@@ -12,11 +13,10 @@ import java.util.List;
  * Write operations work on many entities in one call, to reduce the number of
  * remote calls. Each write is all or nothing: if it fails, the partition does not change.
  * <p>
- * The reads of a partition by ID or by position see the state of its writer,
- * with the writes not yet committed, and only the writer of the partition can
- * call them. The other threads read the snapshots of the ticks: they
- * {@linkplain #acquire acquire} a snapshot, read it through the
- * {@link Acquisition} and then {@linkplain #release release} it.
+ * Partitions are read only through the snapshots of the ticks, also by their writer:
+ * a reader {@linkplain #acquire acquires} a snapshot, reads it through the
+ * {@link Acquisition} and then {@linkplain #release releases} it. Nobody reads the
+ * state of the writer, so the writes not yet published are in no read.
  * <p>
  * The snapshot of tick n is the state confirmed by the last {@linkplain #commit commit}
  * of tick n, or the state of the tick before if tick n has no commit. It is published
@@ -30,7 +30,7 @@ import java.util.List;
  * through them and the release are thread-safe.
  * <p>
  * {@link #removePartition} and {@link #dropPartition} are the last operation of the
- * writer: after them the writes, the commits and the reads of the writer fail with
+ * writer: after them the writes and the commits fail with
  * IllegalStateException, and the writes not committed are discarded. The next move of
  * the tick makes the removal effective at the new tick, the removal tick R: the partition
  * exists for the ticks before R. Readers can still acquire the snapshots of the ticks
@@ -38,6 +38,20 @@ import java.util.List;
  * readable until they are released or expire. When no tick of the partition is in the
  * window and nobody uses its snapshots, the node destroys the partition. Until then its
  * ID stays in use on the node.
+ * <p>
+ * A partition has at most one owner, its writer. The {@link Ownership} of a partition has a
+ * generation that grows at each change; a new partition has no owner, at generation 0.
+ * {@link #claim} is a compare-and-set on the generation and the only way to become the owner:
+ * it takes a free partition, passes the ownership to another writer and takes it away from
+ * the owner, and the caller chooses which one with the generation it gives. The owner gets a
+ * {@link WriteToken} and leaves the ownership with {@link #release(WriteToken)}. At each change
+ * of the generation the writes not committed are discarded, and the commits stay. The node
+ * does not check who calls these operations: the software decides who owns a partition.
+ * The writes, the commits and the removals take the token of the owner, and the partition
+ * checks it in the same step as the operation: with a token that is not current they fail
+ * with {@link OwnershipChangedException} and the partition does not change, so a writer that
+ * lost the ownership cannot change the partition even if it does not know it yet. The moves
+ * of the tick and the reads take no token.
  * <p>
  * Partition IDs are never used again, so the node cannot tell an unknown partition from
  * a destroyed one: the operations of the partition fail with IllegalArgumentException,
@@ -103,60 +117,76 @@ public interface PartitionNode3 {
     /**
      * Removes a partition whose last commit has no entities: the removal becomes effective at
      * the next move of the tick, and the writes not committed are discarded. Fails with
-     * IllegalArgumentException if the ID is unknown, and with IllegalStateException if the
-     * last commit has entities or the removal was already requested; in these cases the
+     * IllegalArgumentException if the partition of the token is unknown, and with
+     * IllegalStateException if the last commit has entities or the removal was already requested; in these cases the
      * partition does not change.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void removePartition(PartitionId partitionId);
+    void removePartition(WriteToken token);
 
     /**
      * Removes a partition together with its entities: the removal becomes effective at the
      * next move of the tick, and the writes not committed are discarded. Fails with
-     * IllegalArgumentException if the ID is unknown, and with IllegalStateException if the
-     * removal was already requested.
+     * IllegalArgumentException if the partition of the token is unknown, and with
+     * IllegalStateException if the removal was already requested.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void dropPartition(PartitionId partitionId);
+    void dropPartition(WriteToken token);
+
+    /**
+     * Returns the state of the ownership of a partition: its generation and whether it has
+     * an owner. It is only a read: the node tells nobody about the changes. Any thread can
+     * call it, also after the removal of the partition, until it is destroyed. Fails with
+     * IllegalArgumentException if the ID is unknown.
+     */
+    Ownership ownership(PartitionId partitionId);
+
+    /**
+     * Makes the caller the owner of a partition if the generation of its ownership is still
+     * expectedGeneration: the generation grows by one, the writes not committed are
+     * discarded, and the result is the token of the new generation. Otherwise the result is
+     * empty and nothing changes. With the generation of a free partition it takes the
+     * partition; with the generation of the token of the owner it passes the ownership to a
+     * new token, or takes it away from the owner. Fails with IllegalArgumentException if
+     * expectedGeneration is negative or the ID is unknown, and with IllegalStateException
+     * after the removal of the partition was requested. Any thread can call it: it waits for
+     * a write or a commit that is running.
+     */
+    Optional<WriteToken> claim(PartitionId partitionId, long expectedGeneration);
+
+    /**
+     * Leaves the ownership of a partition if the token is the current one: the generation
+     * grows by one, the partition has no owner, and the writes not committed are discarded.
+     * Otherwise it does nothing: also if the ownership has already changed, after the removal
+     * of the partition was requested, and if the partition is unknown or destroyed. Any thread
+     * can call it.
+     */
+    void release(WriteToken token);
 
     /**
      * Adds new entities to a partition. The API generates the entity IDs, which must
      * not be used anywhere else. Fails with IllegalArgumentException if an ID is
      * already in the partition or appears twice in the list, or if a position is
      * outside the {@linkplain #limits limits} of the partition.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void insertAll(PartitionId partitionId, List<Entity3> entities);
-
-    /**
-     * Returns the entities with the given IDs, in the same order.
-     * IDs that are not in the partition are skipped.
-     */
-    List<Entity3> getAll(PartitionId partitionId, long[] entityIds);
+    void insertAll(WriteToken token, List<Entity3> entities);
 
     /**
      * Sets the position of existing entities. Fails with NoSuchElementException
      * if an ID is not in the partition, and with IllegalArgumentException if a
      * position is outside the {@linkplain #limits limits} of the partition.
      * If an ID appears more than once, the last position wins.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void updateAll(PartitionId partitionId, List<Entity3> entities);
+    void updateAll(WriteToken token, List<Entity3> entities);
 
     /**
      * Removes entities from a partition. Fails with NoSuchElementException if an ID
      * is not in the partition, and with IllegalArgumentException if an ID appears twice.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void removeAll(PartitionId partitionId, long[] entityIds);
-
-    /**
-     * Returns the entities of a partition that are inside the region or on its border.
-     * The order of the result is not defined.
-     */
-    List<Entity3> findInRegion(PartitionId partitionId, Region3 region);
-
-    /**
-     * Returns the entities of a partition that are nearest to a point, at most count of them.
-     * The result is sorted by distance from the point; entities at the same distance are
-     * sorted by ID. Fails with IllegalArgumentException if count is negative.
-     */
-    List<Entity3> findNearest(PartitionId partitionId, Point3 point, int count);
+    void removeAll(WriteToken token, long[] entityIds);
 
     /**
      * Confirms the writes of a partition in its current tick: the snapshot of the tick will
@@ -168,8 +198,9 @@ public interface PartitionNode3 {
      * This call does not advance the tick, wait for the next tick or stop further writes
      * in the same tick. The writer decides whether to wait before writing again.
      * The snapshot becomes acquirable when the tick of the partition moves forward.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void commit(PartitionId partitionId);
+    void commit(WriteToken token);
 
     /**
      * Acquires the snapshot of the given tick of a partition: it must be in the retention
@@ -223,9 +254,6 @@ public interface PartitionNode3 {
      * {@link #size(Acquisition)}, and with IllegalArgumentException if count is negative.
      */
     List<Entity3> findNearest(Acquisition acquisition, Point3 point, int count);
-
-    /** Returns the number of entities in a partition. */
-    int size(PartitionId partitionId);
 
     /**
      * Returns the coordinates that the entities of a partition can have. The

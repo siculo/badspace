@@ -1,7 +1,8 @@
 package badspace.service.partition;
 
-import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.geometry.Point2.point;
+import static badspace.common.partition.AcquireOptions.defaultTimeout;
+import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -17,14 +18,17 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
-import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
+import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.slots.CoordinateBufferPool;
+import badspace.service.partition.snapshot.MonotonicClock;
+import badspace.service.partition.snapshot.SnapshotCatalog2;
+import badspace.service.partition.snapshot.StorageSnapshot2;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -67,7 +71,7 @@ class AcquisitionConcurrency2Test {
         for (IndexConfig config : CONFIGS) {
             GatedIndex2[] index = new GatedIndex2[1];
             PartitionStorage2 storage = gatedStorage(config, index, 1);
-            storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B)));
+            storage.insertAll(owner(storage), List.of(new Entity2(10, A), new Entity2(20, B)));
             long acquisitionId = storage.acquire(publish(storage), 0);
             Gate gate = new Gate();
             index[0].gate = gate;
@@ -79,11 +83,11 @@ class AcquisitionConcurrency2Test {
                 // The query is stopped in the index. The writer changes the slots and the
                 // index, commits and moves the tick twice: it must not wait for the query.
                 assertTimeoutPreemptively(TIMEOUT, () -> {
-                    storage.updateAll(List.of(new Entity2(10, C)));
-                    storage.removeAll(new long[] {20});
-                    storage.insertAll(List.of(new Entity2(30, D)));
+                    storage.updateAll(owner(storage), List.of(new Entity2(10, C)));
+                    storage.removeAll(owner(storage), new long[] {20});
+                    storage.insertAll(owner(storage), List.of(new Entity2(30, D)));
                     publish(storage);
-                    storage.updateAll(List.of(new Entity2(30, A)));
+                    storage.updateAll(owner(storage), List.of(new Entity2(30, A)));
                     publish(storage);
                     }, config + ": the writer waited for a query");
                 assertEquals(3, storage.tick());
@@ -103,7 +107,7 @@ class AcquisitionConcurrency2Test {
         for (IndexConfig config : CONFIGS) {
             GatedIndex2[] index = new GatedIndex2[1];
             PartitionStorage2 storage = gatedStorage(config, index, 1);
-            storage.insertAll(List.of(new Entity2(10, A)));
+            storage.insertAll(owner(storage), List.of(new Entity2(10, A)));
             StorageSnapshot2 snapshot = publish(storage);
             long acquisitionId = storage.acquire(snapshot, 0);
             Gate gate = new Gate();
@@ -116,17 +120,17 @@ class AcquisitionConcurrency2Test {
                 storage.release(acquisitionId);
                 assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId, 0));
                 // The snapshot leaves the window too: only the query still holds it.
-                storage.removeAll(new long[] {10});
+                storage.removeAll(owner(storage), new long[] {10});
                 publish(storage);
                 assertEquals(0, storage.acquisitionCount());
-                assertFalse(snapshot.uses().isEnded(), config + ": the snapshot ended during the query");
+                assertFalse(snapshot.isEnded(), config + ": the snapshot ended during the query");
 
             } finally {
                 gate.open();
                 join(query);
             }
             query.check(List.of(new Entity2(10, A)), config.toString());
-            assertTrue(snapshot.uses().isEnded(), config + ": the snapshot did not end with the query");
+            assertTrue(snapshot.isEnded(), config + ": the snapshot did not end with the query");
             assertEquals(1, storage.liveSnapshotCount());
         }
     }
@@ -143,7 +147,7 @@ class AcquisitionConcurrency2Test {
             GatedIndex2[] index = new GatedIndex2[1];
             PartitionStorage2 storage = new PartitionStorage2(config.limits(),
                     slots -> index[0] = new GatedIndex2(SpatialIndexes.create(config, slots)), 1, clock);
-            storage.insertAll(List.of(new Entity2(10, A)));
+            storage.insertAll(owner(storage), List.of(new Entity2(10, A)));
             StorageSnapshot2 snapshot = publish(storage);
             long acquisitionA = storage.acquire(snapshot, 0, AcquireOptions.timeout(TIMEOUT));
             Gate gate = new Gate();
@@ -156,6 +160,8 @@ class AcquisitionConcurrency2Test {
 
                 clock.advance(TIMEOUT);
                 acquisitionB = storage.acquire(snapshot, 0, AcquireOptions.timeout(TIMEOUT));
+                // Like the node, which removes the expired acquisitions after each acquisition.
+                storage.removeExpired();
                 assertEquals(1, storage.acquisitionCount(), config + ": the expired acquisition was not removed");
                 assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionA, 0));
 
@@ -192,7 +198,7 @@ class AcquisitionConcurrency2Test {
                 entityIds[i] = i + 1;
                 entities.add(new Entity2(entityIds[i], positionAt(0, entityIds[i])));
             }
-            node.insertAll(P1, entities);
+            node.insertAll(owner(node, P1), entities);
 
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -249,8 +255,8 @@ class AcquisitionConcurrency2Test {
                     for (long id : entityIds) {
                         moved.add(new Entity2(id, positionAt(tick, id)));
                     }
-                    node.updateAll(P1, moved);
-                    node.commit(P1);
+                    node.updateAll(owner(node, P1), moved);
+                    node.commit(owner(node, P1));
                     if (tick == 2) {
                         await(observed);
                     }
@@ -276,7 +282,7 @@ class AcquisitionConcurrency2Test {
                 }
             }
             // The queries of the node gave back their uses: only the window stays (k = 2).
-            node.dropPartition(P1);
+            node.dropPartition(owner(node, P1));
             node.setTick(TICKS + 2);
             node.setTick(TICKS + 4);
             assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
@@ -294,8 +300,8 @@ class AcquisitionConcurrency2Test {
     void racingAcquisitionsQueriesAndReleasesEndEachSnapshotOnce() throws Exception {
         for (IndexConfig config : CONFIGS) {
             PartitionStorage2 storage = new PartitionStorage2(config, 2);
-            storage.insertAll(List.of(new Entity2(10, A), new Entity2(20, B)));
-            storage.commit();
+            storage.insertAll(owner(storage), List.of(new Entity2(10, A), new Entity2(20, B)));
+            storage.commit(owner(storage));
             storage.setTick(2);
             CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
@@ -372,7 +378,7 @@ class AcquisitionConcurrency2Test {
             try {
                 start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                 for (long tick = 3; tick <= TICKS; tick++) {
-                    storage.commit();
+                    storage.commit(owner(storage));
                     storage.setTick(tick);
                     if (tick == 3) {
                         await(observed);
@@ -405,7 +411,7 @@ class AcquisitionConcurrency2Test {
         for (IndexConfig config : CONFIGS) {
             LocalPartitionNode2 node = new LocalPartitionNode2();
             node.createPartition(P1, config, 1);
-            node.insertAll(P1, List.of(new Entity2(10, A), new Entity2(20, B)));
+            node.insertAll(owner(node, P1), List.of(new Entity2(10, A), new Entity2(20, B)));
             CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -457,12 +463,12 @@ class AcquisitionConcurrency2Test {
                 start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                 for (long tick = 1; tick <= TICKS; tick++) {
                     node.setTick(tick);
-                    node.commit(P1);
+                    node.commit(owner(node, P1));
                     if (tick == 2) {
                         await(observed);
                     }
                 }
-                node.dropPartition(P1);
+                node.dropPartition(owner(node, P1));
                 // The removal tick, and then the first tick with no tick of the partition in
                 // the window (k = 1).
                 node.setTick(TICKS + 1);
@@ -492,12 +498,13 @@ class AcquisitionConcurrency2Test {
             ObservedLock lock = new ObservedLock();
             PartitionStorage2 storage = new PartitionStorage2(config.limits(),
                     slots -> index[0] = new GatedIndex2(SpatialIndexes.create(config, slots)), 2,
-                    MonotonicClock.SYSTEM, 0, lock, new ConcurrentLinkedDeque<>());
-            storage.insertAll(List.of(new Entity2(10, A)));
+                    MonotonicClock.SYSTEM, 0, lock, new CoordinateBufferPool());
+            storage.insertAll(owner(storage), List.of(new Entity2(10, A)));
             Gate gate = new Gate();
             index[0].commitGate = gate;
             AtomicReference<Throwable> failure = new AtomicReference<>();
-            Thread writer = worker(storage::commit, failure);
+            long generation = owner(storage);
+            Thread writer = worker(() -> storage.commit(generation), failure);
             Thread mover = worker(() -> storage.setTick(1), failure);
             writer.start();
             try {
@@ -538,7 +545,7 @@ class AcquisitionConcurrency2Test {
                 entityIds[i] = i + 1;
                 entities.add(new Entity2(entityIds[i], positionAt(0, entityIds[i])));
             }
-            node.insertAll(P1, entities);
+            node.insertAll(owner(node, P1), entities);
 
             CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
@@ -590,9 +597,9 @@ class AcquisitionConcurrency2Test {
                             moved.add(new Entity2(id, positionAt(version, id)));
                         }
                         // Two calls, so the state of the writer between them is mixed.
-                        node.updateAll(P1, moved.subList(0, ENTITIES / 2));
-                        node.updateAll(P1, moved.subList(ENTITIES / 2, ENTITIES));
-                        node.commit(P1);
+                        node.updateAll(owner(node, P1), moved.subList(0, ENTITIES / 2));
+                        node.updateAll(owner(node, P1), moved.subList(ENTITIES / 2, ENTITIES));
+                        node.commit(owner(node, P1));
                         if (version == VERSIONS / 2) {
                             await(observed);
                         }
@@ -638,7 +645,7 @@ class AcquisitionConcurrency2Test {
             Acquisition latest = node.acquireLatest(P1, defaultTimeout());
             assertEquals(VERSIONS, versionOf(node, latest, entityIds), config + ": the last commit was lost");
             node.release(latest);
-            node.dropPartition(P1);
+            node.dropPartition(owner(node, P1));
             node.setTick(lastTick.get() + 2);
             node.setTick(lastTick.get() + 4);
             assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
@@ -702,7 +709,7 @@ class AcquisitionConcurrency2Test {
      * published snapshot, which is the one of the tick before the new tick.
      */
     private static StorageSnapshot2 publish(PartitionStorage2 storage) {
-        StorageSnapshot2 snapshot = storage.commit();
+        StorageSnapshot2 snapshot = storage.commit(owner(storage));
         storage.setTick(storage.tick() + 1);
         return snapshot;
     }

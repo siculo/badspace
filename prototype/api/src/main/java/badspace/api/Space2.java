@@ -77,14 +77,6 @@ public final class Space2 implements Space<PartitionNode2, Partition2> {
         return tick;
     }
 
-    @Override
-    public void removePartition(Partition2 partition) {
-        if (partition.space() != this) {
-            throw new IllegalArgumentException("Partition belongs to another space");
-        }
-        partition.removeFromNode();
-    }
-
     long nextEntityId() {
         return config.entityIds().nextId();
     }

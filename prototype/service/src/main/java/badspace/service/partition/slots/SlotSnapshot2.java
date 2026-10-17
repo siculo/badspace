@@ -1,4 +1,4 @@
-package badspace.service.partition;
+package badspace.service.partition.slots;
 
 import badspace.common.geometry.Point2;
 import badspace.service.index.SlotView2;
@@ -15,7 +15,15 @@ import badspace.service.index.SlotView2;
  * slot change only with insertions and removals, so a commit without them
  * shares the arrays and the table of the snapshot before it.
  */
-final class SlotSnapshot2 implements SlotView2 {
+public final class SlotSnapshot2 implements SlotView2 {
+
+    /** The result when an entity ID is not in the slots. */
+    public static final int NONE = SlotTable.NONE;
+
+    /** Returns empty slots with their own coordinate buffer. */
+    public static SlotSnapshot2 empty() {
+        return new SlotSnapshot2(new long[0], new CoordinateBuffer(0), new SlotTable());
+    }
 
     private static final int DIMENSIONS = 2;
 
@@ -42,7 +50,7 @@ final class SlotSnapshot2 implements SlotView2 {
      * Returns the buffer of the coordinates, so the storage can share it with the next
      * snapshot, or put it back in its pool when the last snapshot that uses it ends.
      */
-    CoordinateBuffer coordinateBuffer() {
+    public CoordinateBuffer coordinateBuffer() {
         return coordinateBuffer;
     }
 
@@ -52,7 +60,7 @@ final class SlotSnapshot2 implements SlotView2 {
     }
 
     /** Returns the slot of the ID, or {@link SlotTable#NONE} if the ID is not in the snapshot. */
-    int slotOf(long entityId) {
+    public int slotOf(long entityId) {
         return slotById.get(entityId);
     }
 

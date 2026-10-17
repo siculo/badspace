@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` senza numero, nel tick corrente) e delle letture dei reader (acquisizione al tick con scadenza obbligatoria, lettura e rilascio degli snapshot conservati), con il codice ancora nella forma precedente, mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` senza numero, nel tick corrente), della proprietà della partizione (`ownership`, `claim` con la generazione attesa, handle del writer `AutoCloseable` con il token per scritture, commit e rimozione) e delle letture (solo attraverso l'acquisizione degli snapshot, al tick con scadenza obbligatoria), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-16T10:08:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T19:00:00Z }
 ---
 
 # Stato
@@ -14,8 +14,8 @@ posizione, query di range, k-nearest, raycasting e le operazioni su
 metadati, partizioni e commit). Il prototipo definisce la forma delle
 operazioni di scrittura e lettura per ID sulle entità, delle query di
 range e k-nearest su una partizione, della creazione e rimozione delle
-partizioni, del tick, del commit e delle letture dei reader sugli
-snapshot conservati (vedi [Forma delle chiamate nel
+partizioni, del tick, del commit, della proprietà della partizione e
+delle letture sugli snapshot conservati (vedi [Forma delle chiamate nel
 prototipo](#forma-delle-chiamate-nel-prototipo)), che resta
 rivalutabile; la forma delle altre operazioni, raycast compreso, è
 ancora da definire.
@@ -29,12 +29,12 @@ evolvere aggiungendo il supporto a ulteriori meccanismi.
 | Ambito | Operazione | Note |
 |---|---|---|
 | Entità | Creazione, modifica e rimozione | Su una o più entità per chiamata; gli [ID](/decisions/entity-ids.md) li genera l'API |
-| Entità | Lettura per ID | Uno o più ID; la partizione la indica il software, che tiene la mappa ID → partizione |
-| Entità | Ricerche per posizione | Range, k-nearest, raycast, su una o più partizioni (vedi [aggregazione](/mechanisms/query-aggregation.md)) |
+| Entità | Lettura per ID | Uno o più ID, su uno snapshot acquisito; la partizione la indica il software, che tiene la mappa ID → partizione |
+| Entità | Ricerche per posizione | Range, k-nearest, raycast, su snapshot acquisiti di una o più partizioni (vedi [aggregazione](/mechanisms/query-aggregation.md)) |
 | Metadati | Lettura e modifica | [Metadati](/architecture/entity-metadata.md) applicativi; quelli di sistema sono in sola lettura |
 | Metadati | Scritture condizionate | Compare-and-set; sostituiscono le transazioni tra partizioni |
 | Partizioni | Creazione e rimozione dinamica | Con scelta dell'indice e di k; è la base della scalabilità; la rimozione diventa effettiva al tick successivo (vedi [rimozione della partizione](/architecture/partition-removal.md)) |
-| Partizioni | Proprietà | Acquisire, rilasciare e trasferire l'esclusività di scrittura con il [fencing token](/architecture/partition-ownership.md) |
+| Partizioni | Proprietà | Leggere lo stato, prendere la proprietà con la generazione attesa (anche per passarla o revocarla) e rilasciarla; le scritture portano il [fencing token](/architecture/partition-ownership.md) (vedi [proprietà e handle del writer](#proprietà-e-handle-del-writer)) |
 | Tick | `setTick(t)` | Fa avanzare il [tick logico](/architecture/logical-time.md) dello spazio, dei suoi nodi e delle loro partizioni; pubblica gli snapshot dei tick completati |
 | Commit | `commit()` | Conferma le scritture nel tick corrente della partizione (vedi [commit](/architecture/partition-commit.md)); per un server a frame, alla fine del lavoro del tick |
 | Commit | Ultimo tick persistito | [Durabilità osservabile](/architecture/observable-durability.md) |
@@ -80,16 +80,21 @@ ogni coordinata senza cambiare il resto.
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Inserimento | `insert(Point)`, `insertAll(List<Point>)` | Restituisce gli ID generati, nello stesso ordine delle posizioni; `insert(x, y[, z])` è una scorciatoia |
-| Lettura per ID | `get(id)`, `getAll(long[])` | `get` restituisce un `Optional`; `getAll` restituisce le entità nell'ordine degli ID e salta quelli assenti |
-| Aggiornamento | `update(id, Point)`, `updateAll(List<Entity>)` | Cambia la posizione; se un ID compare più volte vale l'ultima posizione |
-| Rimozione | `remove(id)`, `removeAll(long[])` | Nell'interfaccia comune `Partition`, insieme a `size()` |
+| Inserimento | `insert(Point)`, `insertAll(List<Point>)` | Sull'handle del writer; restituisce gli ID generati, nello stesso ordine delle posizioni; `insert(x, y[, z])` è una scorciatoia |
+| Lettura per ID | `get(id)`, `getAll(long[])` | Sulla view dello snapshot; `get` restituisce un `Optional`; `getAll` restituisce le entità nell'ordine degli ID e salta quelli assenti |
+| Aggiornamento | `update(id, Point)`, `updateAll(List<Entity>)` | Sull'handle del writer; cambia la posizione; se un ID compare più volte vale l'ultima posizione |
+| Rimozione | `remove(id)`, `removeAll(long[])` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter` |
+| Numero di entità | `size()` | Sulla view dello snapshot |
 | Limiti | `limits()` | Nell'interfaccia comune `Partition`: le coordinate ammesse per le entità, fissate dall'indice (vedi [limiti delle coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate)) |
-| Query di range | `findInRegion(Region)` | Restituisce le entità dentro la regione o sul suo bordo, in ordine non definito |
-| Query k-nearest | `findNearest(Point, count)` | Restituisce al più `count` entità, ordinate per distanza dal punto e a parità di distanza per ID |
+| Query di range | `findInRegion(Region)` | Sulla view dello snapshot; restituisce le entità dentro la regione o sul suo bordo, in ordine non definito |
+| Query k-nearest | `findNearest(Point, count)` | Sulla view dello snapshot; restituisce al più `count` entità, ordinate per distanza dal punto e a parità di distanza per ID |
 
-`Point`/`Entity`/`Region` stanno per `Point2`/`Entity2`/`Region2` in
-`Partition2` e per `Point3`/`Entity3`/`Region3` in `Partition3`.
+Le scritture stanno sull'[handle del
+writer](#proprietà-e-handle-del-writer) (`PartitionWriter2`/`PartitionWriter3`),
+le letture solo sulla view dello [snapshot
+acquisito](#acquisizione-degli-snapshot) (`AcquiredSnapshot2`/`AcquiredSnapshot3`).
+`Point`/`Entity`/`Region` stanno per `Point2`/`Entity2`/`Region2` nei
+tipi 2D e per `Point3`/`Entity3`/`Region3` nei tipi 3D.
 
 ## Query su una partizione
 
@@ -164,7 +169,7 @@ altre impostazioni dello spazio.
 | Operazione | Forma | Note |
 |---|---|---|
 | Creazione | `createPartition(node)`, `createPartition(node, PartitionConfig)` | Crea una partizione vuota sul [nodo](/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio, al tick corrente: `creationTick()` della partizione; senza configurazione vale quella di default |
-| Rimozione | `removePartition(partition)` | La chiama il writer della partizione, come ultima operazione (vedi [Rimozione della partizione](/architecture/partition-removal.md)) |
+| Rimozione | `removePartition()` sull'handle del writer | Ultima operazione del writer, con il token corrente (vedi [Rimozione della partizione](/architecture/partition-removal.md)) |
 
 La **configurazione della partizione** (`PartitionConfig`) si sceglie
 alla creazione e poi non cambia; la partizione la restituisce con
@@ -198,15 +203,14 @@ confermate si scartano. Al primo avanzamento del tick la partizione
 diventa **ritirata**, con `removalTick`: gli snapshot dei tick
 precedenti restano acquisibili finché sono nella finestra. Poi la
 partizione si distrugge (vedi [Rimozione della
-partizione](/architecture/partition-removal.md)). Il proxy non sa quando
-avvengono il ritiro e la distruzione: lo stato lo conosce il nodo, e il
-proxy gli passa le chiamate.
+partizione](/architecture/partition-removal.md)). Il proxy e l'handle
+non sanno quando avvengono il ritiro e la distruzione: lo stato lo
+conosce il nodo, e gli passano le chiamate.
 
 | Errore | Eccezione |
 |---|---|
 | Stato confermato non vuoto con `REQUIRE_EMPTY` (la partizione non cambia), o rimozione già chiesta | `IllegalStateException` |
 | Scrittura o commit dopo la rimozione | `IllegalStateException` |
-| Partizione di un altro spazio | `IllegalArgumentException` |
 | k minore di 1 nella configurazione | `IllegalArgumentException` |
 
 Nel contratto del nodo la creazione riceve l'ID della partizione, la
@@ -218,12 +222,57 @@ rimozione ha due operazioni, una per le partizioni con lo stato
 confermato vuoto e una che scarta anche le entità. Dopo la distruzione
 l'ID è sconosciuto, e le operazioni falliscono con un errore generico,
 senza distinguere una partizione mai esistita da una distrutta.
-L'API passa al nodo l'indice e k della configurazione.
+L'API passa al nodo l'indice e k della configurazione. Le due
+operazioni di rimozione ricevono il token di scrittura.
+
+## Proprietà e handle del writer
+
+La semantica è nella [proprietà della
+partizione](/architecture/partition-ownership.md). La partizione nasce
+senza proprietario, alla generazione 0.
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Stato | `ownership()` sulla partizione | Il record `Ownership`: generazione e se la partizione ha un proprietario |
+| Presa | `claim(long expectedGeneration)` sulla partizione | Restituisce `Optional<WriteToken>`: vuoto se la generazione non è più quella attesa; serve anche a passare e revocare la proprietà |
+| Handle | `writer(WriteToken)` sulla partizione | Crea l'handle del writer per un token, anche ricevuto da un altro writer o da un coordinatore; non controlla la generazione, lo fa il nodo alla prima operazione |
+| Token | `token()` sull'handle | Il token dell'handle |
+| Rilascio | `close()` sull'handle; `release` nel contratto del nodo | Scarta le scritture non confermate; idempotente, non fa niente se la proprietà è già passata ad altri o la partizione è distrutta, quindi `close()` non fallisce mai |
+
+L'**handle del writer** (`PartitionWriter2`/`PartitionWriter3`, con
+l'interfaccia comune `PartitionWriter`) è `AutoCloseable` e porta il
+token: ha le [scritture sulle entità](#operazioni-sulle-entità),
+`commit()` e `removePartition()`. In un `try`-with-resources, se il
+writer esce per un'eccezione prima del commit, `close()` scarta le sue
+scritture come un rollback. Le letture non sono sull'handle: il writer
+legge come ogni reader, con le [acquisizioni](#acquisizione-degli-snapshot).
+
+`claim` restituisce il token e non l'handle, perché nei passaggi di
+proprietà chi chiama `claim` spesso non è chi scriverà: nel passaggio
+cooperativo A chiama `claim` con la generazione del suo token e manda il
+token nuovo a B, che crea l'handle con `writer(token)`. Se `claim`
+restituisse l'handle, chiuderlo per errore rilascerebbe la proprietà
+appena passata.
+
+**Locale e remoto.** Nel contratto del nodo il token è il record
+serializzabile `WriteToken`, con l'ID della partizione e la generazione,
+in `common` come `Acquisition`; lo stato è il record `Ownership`. Le
+operazioni sono `ownership(PartitionId)`, `claim(PartitionId, long)` e
+`release(WriteToken)`, e le scritture, `commit` e le due operazioni di
+rimozione ricevono il token al posto dell'ID della partizione.
+
+| Errore | Eccezione |
+|---|---|
+| Scrittura, commit o rimozione con un token che non è quello corrente | `OwnershipChangedException`, eccezione di dominio dedicata; la partizione non cambia |
+| `claim` dalla rimozione in poi | `IllegalStateException` |
+| Generazione attesa negativa | `IllegalArgumentException` |
+| `writer(token)` con il token di un'altra partizione | `IllegalArgumentException` |
+| Operazione su una partizione distrutta o mai esistita | Errore generico, come per le acquisizioni |
 
 ## Commit
 
 Il [commit](/architecture/partition-commit.md) si chiude con
-`commit()`, nell'interfaccia comune `Partition`, senza numero: conferma
+`commit()`, sull'handle del writer, senza numero: conferma
 le scritture fatte fino a quel momento nel tick corrente della
 partizione. Più commit nello stesso tick sono ammessi, e l'ultimo
 definisce lo snapshot del tick; le scritture non confermate passano al
@@ -239,9 +288,9 @@ l’esempio in [Commit e tick](/architecture/partition-commit.md#commit-e-tick))
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Commit | `commit()` | Conferma lo stato del writer nel tick corrente; un commit senza scritture è valido |
-| Tick corrente | `tick()` | Il tick della partizione; sostituisce `lastCommit()` |
-| Tick di creazione | `creationTick()` | Il tick in cui la partizione è stata creata: il primo snapshot è `S(creationTick)` |
+| Commit | `commit()` sull'handle | Conferma lo stato del writer nel tick corrente; un commit senza scritture è valido |
+| Tick corrente | `tick()` sulla partizione | Il tick della partizione; sostituisce `lastCommit()` |
+| Tick di creazione | `creationTick()` sulla partizione | Il tick in cui la partizione è stata creata: il primo snapshot è `S(creationTick)` |
 
 | Errore | Eccezione |
 |---|---|
@@ -254,25 +303,32 @@ Scelte di dettaglio:
 - **Rimozione con scritture non confermate**: è permessa, e le scritture
   si scartano; la politica di rimozione guarda lo stato confermato del
   tick corrente.
-- **Contratto del nodo**: `commit(PartitionId)`, `tick(PartitionId)` e
+- **Contratto del nodo**: `commit(WriteToken)`, `tick(PartitionId)` e
   `creationTick(PartitionId)`. Il commit di più partizioni in una sola
   chiamata, per ridurre le chiamate remote, è rimandato ai gruppi di
   partizioni o al nodo gRPC.
 
-Il [fencing token](/architecture/partition-ownership.md), quando
-arriva, si aggiunge al commit come alle altre scritture.
-
-### Letture del writer e dei reader
+### Letture
 
 Il commit prepara lo snapshot del tick, e l'avanzamento del tick lo
 pubblica (vedi [isolamento delle
-letture](/decisions/read-isolation.md#il-commit)). Le letture sono di
-due tipi:
+letture](/decisions/read-isolation.md#il-commit)). Le letture passano
+**solo** dalle [acquisizioni](#acquisizione-degli-snapshot) degli
+snapshot, su `Partition2`/`Partition3` e nel contratto del nodo, per
+tutti: anche il writer legge così. Uno snapshot acquisito è immutabile
+e leggibile da ogni thread; prima del primo avanzamento dopo la
+creazione non c'è niente da acquisire.
 
-| Lettura | Forma | Note |
-|---|---|---|
-| Del writer | `getAll`, `findInRegion`, `findNearest` sul proxy della partizione | Leggono lo stato del writer, scritture non confermate comprese; le chiama solo il writer |
-| Dei reader | Le [acquisizioni](#acquisizione-degli-snapshot) su `Partition2`/`Partition3` e nel contratto del nodo | Uno snapshot acquisito è immutabile e leggibile da ogni thread; prima del primo avanzamento dopo la creazione non c'è niente da acquisire |
+Non ci sono letture dello stato non confermato: il writer non vede con
+una query le proprie scritture, né i propri commit del tick corrente,
+finché l'avanzamento del tick non li pubblica. Se deve ricordarsi dei
+cambiamenti che sta facendo, tiene un suo stato per il tempo necessario
+a completare la scrittura. Con il modello a tick è il doppio buffer
+tipico delle simulazioni: la logica del tick T legge `S(T − 1)` e scrive
+il tick T, e il risultato non dipende dall'ordine delle scritture dentro
+il tick. Così c'è una sola semantica di lettura, le letture non
+richiedono il token, e un writer in ritardo non legge mai le scritture
+non confermate di un altro writer.
 
 Tutte le letture di uno snapshot acquisito vedono lo stesso tick; due
 acquisizioni dell'ultimo snapshot possono invece dare tick diversi.
@@ -356,7 +412,7 @@ Scelte di dettaglio:
 ## Differenze nel codice attuale
 
 Nessuna: il codice segue la forma descritta sopra per tick, commit,
-acquisizioni e rimozione delle partizioni.
+proprietà e handle del writer, letture e rimozione delle partizioni.
 
 ## Contratto del nodo
 

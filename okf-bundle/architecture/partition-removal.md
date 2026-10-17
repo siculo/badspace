@@ -4,7 +4,7 @@ title: Rimozione della partizione
 description: La rimozione di una partizione passa per quattro stati (attiva, in rimozione, ritirata, distrutta); remove() è l'ultima operazione del writer, la rimozione diventa effettiva al primo avanzamento del tick (removalTick), gli snapshot dei tick precedenti restano acquisibili finché sono nella finestra, e la partizione si distrugge quando nessun tick in cui esisteva è più nella finestra e nessuno usa i suoi snapshot.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T19:00:00Z }
 ---
 
 # Primitiva
@@ -27,10 +27,13 @@ La partizione attraversa quattro stati:
 # Richiesta di rimozione
 
 `remove()` porta la partizione nello stato **in rimozione**. È l'ultima
-operazione del writer:
+operazione del writer, e come le scritture richiede il token di
+scrittura corrente (vedi [proprietà della
+partizione](/architecture/partition-ownership.md)):
 
 - dopo `remove()` non si possono più fare scritture né commit, e un
-  secondo `remove()` fallisce con `IllegalStateException`;
+  secondo `remove()` fallisce con `IllegalStateException`; anche
+  `claim` è rifiutato, quindi nessuno può più prendere la proprietà;
 - `remove()` **scarta le scritture non confermate**: l'ultimo snapshot
   contiene solo l'ultimo stato confermato da `commit()`;
 - con la [politica di
@@ -148,10 +151,13 @@ stato in un campo `volatile`.
   nodo. Il nodo non ha più la mappa delle partizioni segnate: ogni
   `setTick` arriva a tutte le partizioni, anche a quelle ritirate, e
   cerca le loro acquisizioni scadute.
-- **API.** Il proxy della partizione blocca da solo le operazioni del
-  writer dopo la rimozione; acquisizioni, `tick()` e `creationTick()`
-  vanno sempre al nodo, che risponde finché la partizione non è
-  distrutta e poi fallisce con `IllegalArgumentException`.
+- **API.** La rimozione si chiede con `removePartition()` sull'handle
+  del writer, che porta il token. Né l'handle né il proxy tengono lo
+  stato della partizione: passano ogni chiamata al nodo, che rifiuta le
+  operazioni del writer dopo la rimozione con `IllegalStateException`;
+  acquisizioni, `tick()`, `creationTick()` e `ownership()` rispondono
+  finché la partizione non è distrutta e poi falliscono con
+  `IllegalArgumentException`.
 
 I test verificano gli esempi di questa pagina (rimozione chiesta al
 tick 102 e primo avanzamento a 105; con k = 5 al tick 109 resta

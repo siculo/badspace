@@ -1,9 +1,10 @@
-package badspace.service.partition;
+package badspace.service.partition.snapshot;
 
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.partition.Entity3;
 import badspace.service.index.IndexSnapshot3;
+import badspace.service.partition.slots.SlotSnapshot3;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -18,24 +19,26 @@ import java.util.List;
  * of its coordinates goes to a later commit, so a thread reads it only while it holds a
  * use, an acquisition or an admitted query.
  */
-final class StorageSnapshot3 {
+public final class StorageSnapshot3 {
 
     private final SlotSnapshot3 slots;
     private final IndexSnapshot3 index;
     private final SnapshotUses uses = new SnapshotUses();
 
-    StorageSnapshot3(SlotSnapshot3 slots, IndexSnapshot3 index) {
+    /** Creates a snapshot from the slots and index of the same commit. */
+    public StorageSnapshot3(SlotSnapshot3 slots, IndexSnapshot3 index) {
         this.slots = slots;
         this.index = index;
     }
 
     /** Returns the empty snapshot of a new partition, before the first commit. */
-    static StorageSnapshot3 empty() {
-        SlotSnapshot3 slots = new SlotSnapshot3(new long[0], new CoordinateBuffer(0), new SlotTable());
+    public static StorageSnapshot3 empty() {
+        SlotSnapshot3 slots = SlotSnapshot3.empty();
         return new StorageSnapshot3(slots, IndexSnapshot3.empty());
     }
 
-    SlotSnapshot3 slots() {
+    /** Returns the slots. The caller must hold a use while it reads them. */
+    public SlotSnapshot3 slots() {
         return slots;
     }
 
@@ -48,6 +51,11 @@ final class StorageSnapshot3 {
         return uses;
     }
 
+    /** Returns whether the snapshot ended. Any thread can call it. */
+    public boolean isEnded() {
+        return uses.isEnded();
+    }
+
     public int size() {
         return slots.size();
     }
@@ -56,7 +64,7 @@ final class StorageSnapshot3 {
         List<Entity3> result = new ArrayList<>(entityIds.length);
         for (long id : entityIds) {
             int slot = slots.slotOf(id);
-            if (slot != SlotTable.NONE) {
+            if (slot != SlotSnapshot3.NONE) {
                 result.add(new Entity3(id, slots.positionAt(slot)));
             }
         }

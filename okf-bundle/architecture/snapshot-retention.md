@@ -4,7 +4,7 @@ title: Conservazione degli snapshot
 description: Ogni partizione ha uno snapshot logico S(n) per ogni tick completato dalla creazione alla rimozione, con contenuto condiviso tra tick senza commit, e conserva acquisibili quelli degli ultimi k tick (max(T − k, C) ≤ n ≤ T − 1, k ≥ 1, default 1); i reader acquisiscono uno snapshot, lo leggono e lo rilasciano, con una scadenza obbligatoria, e uno snapshot uscito dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni snapshot.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-16T10:49:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T10:00:00Z }
 ---
 
 # Primitiva
@@ -258,6 +258,41 @@ tollerare per un momento tick diversi.
 Il codice segue la semantica di questa pagina e quella della
 [rimozione della partizione](/architecture/partition-removal.md).
 
+Lo storage della partizione (`PartitionStorage2`/`PartitionStorage3`)
+coordina writer, avanzamento del tick e reader, e tiene i protocolli
+che coinvolgono più parti: il lock, la proprietà, lo stato della
+rimozione, il catalogo, l'ultimo commit e lo snapshot in attesa, la
+sequenza dei commit, l'ordine delle notifiche all'indice e il
+ripristino dell'ultimo commit. I dettagli stanno in componenti che non
+conoscono lo storage:
+
+- gli **slot del writer** (`MutableSlots2`/`MutableSlots3`): array
+  primitivi, tabella ID → slot, pagine cambiate e snapshot degli slot;
+  l'indice li legge attraverso la sua vista, e lo storage passa a ogni
+  modifica il commit che la conferma, perché la sequenza dei commit è
+  una sola;
+- le **acquisizioni** (`SnapshotAcquisitions2`/`SnapshotAcquisitions3`):
+  mappa, numeri, scadenze e ammissione delle query, sullo snapshot e
+  sul tick scelti dal chiamante;
+- la **vita degli snapshot** (`SnapshotLifetime2`/`SnapshotLifetime3`),
+  condivisa da storage e acquisizioni: il conteggio degli snapshot
+  pubblicati non finiti e la restituzione dei buffer;
+- il **pool dei buffer** (`CoordinateBufferPool`), comune a 2D e 3D
+  (vedi [isolamento delle letture](/decisions/read-isolation.md#gli-slot)).
+
+Gli slot lavorano sotto il lock della partizione, gli altri componenti
+con le operazioni atomiche descritte sotto, e nessuno prende un lock
+proprio. La fine dell'ultimo snapshot torna allo storage come
+risultato del metodo che la provoca, e lo storage segna la distruzione
+e lo restituisce al nodo, che toglie la partizione dalla sua mappa.
+Ogni rimozione delle acquisizioni scadute può far finire l'ultimo
+snapshot, quindi restituisce sempre l'esito: dopo ogni acquisizione e
+ogni commit è il nodo a chiamarla, perché l'acquisizione appena fatta
+può essere già scaduta e, dopo il commit, altri thread possono aver
+preso la proprietà, rimosso la partizione e fatto avanzare il tick. Due
+test lo verificano con un clock dei test che mette un avanzamento del
+tick tra i passi dell'operazione, senza sleep.
+
 Il writer e il thread che fa avanzare il tick lavorano insieme: un
 `ReentrantLock` per partizione, nello storage, ordina scritture,
 `commit()`, richiesta di rimozione e `setTick`. Dentro il lock stanno solo
@@ -316,8 +351,8 @@ leggono tick e snapshot da un solo catalogo pubblicato, quindi sono
 atomiche rispetto all'avanzamento del tick. Se il tick non è nella
 finestra, `SnapshotNotAvailableException` dice il motivo:
 `NOT_YET_PUBLISHED`, `OUT_OF_RETENTION` o `BEFORE_CREATION`. Le acquisizioni le
-tiene lo storage della partizione in una mappa concorrente dal numero
-dell'acquisizione allo snapshot: uno snapshot uscito dalla finestra
+tiene la partizione, nel componente delle acquisizioni, in una mappa
+concorrente dal numero dell'acquisizione allo snapshot: uno snapshot uscito dalla finestra
 resta raggiungibile da lì finché ha acquisizioni, e il rilascio toglie
 solo la sua voce. L'ammissione di una query è la lettura della voce
 nella mappa, e la query tiene il riferimento allo snapshot finché non
@@ -339,9 +374,11 @@ anche quando la query fallisce. L'avanzamento del tick fa uscire gli
 snapshot dopo aver pubblicato il catalogo nuovo, e conta come non finiti
 solo gli snapshot pubblicati; rilascio e scadenza tolgono la voce dalla
 mappa con un'operazione che riesce a un solo thread, e solo quel thread
-toglie l'utilizzo. Lo storage conta gli snapshot non finiti: il punto
-in cui uno snapshot finisce è un solo metodo, che decrementa quel
-conteggio.
+toglie l'utilizzo. La vita degli snapshot conta gli snapshot
+pubblicati non finiti: il punto in cui uno snapshot pubblicato finisce
+è un solo metodo, che restituisce il buffer e poi decrementa quel
+conteggio; lo snapshot sostituito prima della pubblicazione
+restituisce solo il buffer, perché non è mai stato contato.
 
 I test di concorrenza fermano una query a metà con un cancello
 nell'indice, senza sleep: commit e avanzamenti del tick durante la

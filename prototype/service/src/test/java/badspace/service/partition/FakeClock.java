@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import badspace.service.partition.snapshot.MonotonicClock;
 import java.time.Duration;
 
 /** A clock that moves only when the test says. The start is near the overflow of the value. */

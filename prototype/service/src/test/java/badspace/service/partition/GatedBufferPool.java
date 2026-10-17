@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import badspace.service.partition.slots.CoordinateBuffer;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 

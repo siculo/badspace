@@ -1,10 +1,10 @@
 ---
 type: Glossary
 title: Glossario
-description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, stati della partizione, gruppo di partizioni, generatore di ID, generatorId, commit, sequenza dei commit, tick, setTick, creationTick, removalTick, gTick, snapshot, finestra di conservazione, catalogo degli snapshot, pool dei buffer degli snapshot, pagina degli slot, acquisizione, rilascio, pin, snapshot eliminabile, scadenza, slot, copy-on-write e transient, fencing token, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
+description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, stati della partizione, gruppo di partizioni, generatore di ID, generatorId, commit, sequenza dei commit, tick, setTick, creationTick, removalTick, gTick, snapshot, finestra di conservazione, catalogo degli snapshot, pool dei buffer degli snapshot, pagina degli slot, acquisizione, rilascio, pin, snapshot eliminabile, scadenza, slot, copy-on-write e transient, fencing token, generazione, claim, handle del writer, epoca, tombstone, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
 ---
 
 # Termini
@@ -32,7 +32,10 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
 | Slot | Posizione di un'entità negli array dello storage di una partizione; gli indici parlano di slot, non di ID. Lo slot di un'entità può cambiare quando si rimuovono altre entità. Vedi [isolamento delle letture](/decisions/read-isolation.md#gli-slot). |
 | Copy-on-write | Modo di creare una nuova versione di una struttura copiando solo le parti che cambiano e condividendo le altre con le versioni precedenti; una struttura fatta così si dice *persistente*. Vedi [isolamento delle letture](/decisions/read-isolation.md#gli-indici). |
 | Transient | Versione modificabile di una struttura persistente, usata dal writer durante un commit: una parte si copia alla prima modifica del commit, e le modifiche successive vanno sulla copia. Al commit diventa immutabile. Vedi [isolamento delle letture](/decisions/read-isolation.md#il-commit). |
-| Fencing token | Numero di generazione che invalida le scritture di un writer non più proprietario. Vedi [proprietà della partizione](/architecture/partition-ownership.md). |
+| Fencing token | Token di scrittura di una partizione: la coppia (ID della partizione, generazione). Scritture, commit e rimozione lo portano, e la partizione rifiuta quelli di una generazione vecchia, così un writer non più proprietario non può scrivere. Non torna mai valido. Nel codice `WriteToken`. Vedi [proprietà della partizione](/architecture/partition-ownership.md). |
+| Generazione | Contatore dello stato di proprietà di una partizione: parte da 0, con la partizione senza proprietario, e cresce di 1 a ogni cambio (presa, passaggio, revoca, rilascio). Vedi [proprietà della partizione](/architecture/partition-ownership.md#stato-di-proprietà). |
+| claim | Operazione che dà la proprietà di una partizione: compare-and-set sulla generazione, che riesce solo se la generazione è ancora quella attesa. Serve a prendere una partizione libera, a passarla a un altro writer e a revocarla. Vedi [proprietà della partizione](/architecture/partition-ownership.md#operazioni). |
+| Handle del writer | Oggetto dell'API, `AutoCloseable`, che porta il token di scrittura e offre scritture, commit e rimozione della partizione; `close()` rilascia la proprietà. Nel codice `PartitionWriter2`/`PartitionWriter3`. Vedi [API da esporre](/decisions/api-surface.md#proprietà-e-handle-del-writer). |
 | Epoca | Contatore di sistema che cresce a ogni migrazione e stabilisce quale copia è valida. Vedi [metadati delle entità](/architecture/entity-metadata.md). |
 | Tombstone | Metadati di sistema che restano dopo la rimozione e impediscono le resurrezioni. Vedi [tombstone](/architecture/tombstones.md). |
 | Scrittura condizionata | Scrittura applicata solo se una condizione sui metadati è vera (compare-and-set). |

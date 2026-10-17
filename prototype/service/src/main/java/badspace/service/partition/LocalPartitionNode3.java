@@ -1,20 +1,26 @@
 package badspace.service.partition;
 
+import badspace.common.geometry.Point3;
+import badspace.common.geometry.Region3;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
 import badspace.common.partition.RetentionWindow;
-import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
-import badspace.common.geometry.Point3;
-import badspace.common.geometry.Region3;
+import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.WriteToken;
+import badspace.service.partition.snapshot.MonotonicClock;
+import badspace.service.partition.snapshot.SnapshotCatalog3;
+import badspace.service.partition.snapshot.StorageSnapshot3;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
@@ -129,48 +135,63 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
-    public void removePartition(PartitionId partitionId) {
-        find(partitionId).requestRemoval(true);
+    public void removePartition(WriteToken token) {
+        find(token.partitionId()).requestRemoval(token.generation(), true);
     }
 
     @Override
-    public void dropPartition(PartitionId partitionId) {
-        find(partitionId).requestRemoval(false);
+    public void dropPartition(WriteToken token) {
+        find(token.partitionId()).requestRemoval(token.generation(), false);
     }
 
     @Override
-    public void insertAll(PartitionId partitionId, List<Entity3> entities) {
-        find(partitionId).insertAll(entities);
+    public Ownership ownership(PartitionId partitionId) {
+        return findAny(partitionId).ownership();
     }
 
     @Override
-    public List<Entity3> getAll(PartitionId partitionId, long[] entityIds) {
-        return find(partitionId).getAll(entityIds);
+    public Optional<WriteToken> claim(PartitionId partitionId, long expectedGeneration) {
+        if (expectedGeneration < 0) {
+            throw new IllegalArgumentException("Negative generation: " + expectedGeneration);
+        }
+        long generation = findAny(partitionId).claimOwnership(expectedGeneration);
+        if (generation == PartitionStorage3.NOT_CLAIMED) {
+            return Optional.empty();
+        }
+        return Optional.of(new WriteToken(partitionId, generation));
     }
 
     @Override
-    public void updateAll(PartitionId partitionId, List<Entity3> entities) {
-        find(partitionId).updateAll(entities);
+    public void release(WriteToken token) {
+        PartitionStorage3 storage = partitions.get(token.partitionId());
+        // A destroyed partition has no owner: the release does nothing.
+        if (storage != null) {
+            storage.releaseOwnership(token.generation());
+        }
     }
 
     @Override
-    public void removeAll(PartitionId partitionId, long[] entityIds) {
-        find(partitionId).removeAll(entityIds);
+    public void insertAll(WriteToken token, List<Entity3> entities) {
+        find(token.partitionId()).insertAll(token.generation(), entities);
     }
 
     @Override
-    public List<Entity3> findInRegion(PartitionId partitionId, Region3 region) {
-        return find(partitionId).findInRegion(region);
+    public void updateAll(WriteToken token, List<Entity3> entities) {
+        find(token.partitionId()).updateAll(token.generation(), entities);
     }
 
     @Override
-    public List<Entity3> findNearest(PartitionId partitionId, Point3 point, int count) {
-        return find(partitionId).findNearest(point, count);
+    public void removeAll(WriteToken token, long[] entityIds) {
+        find(token.partitionId()).removeAll(token.generation(), entityIds);
     }
 
     @Override
-    public void commit(PartitionId partitionId) {
-        find(partitionId).commit();
+    public void commit(WriteToken token) {
+        PartitionStorage3 storage = find(token.partitionId());
+        storage.commit(token.generation());
+        // After the commit releases the lock of the partition, the partition can be removed and
+        // retired by other threads: the scan can end its last snapshot.
+        removeExpired(token.partitionId(), storage);
     }
 
     @Override
@@ -218,11 +239,6 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
-    public int size(PartitionId partitionId) {
-        return find(partitionId).size();
-    }
-
-    @Override
     public CoordinateLimits limits(PartitionId partitionId) {
         return find(partitionId).limits();
     }
@@ -251,6 +267,8 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
             }
             long acquisitionId = storage.acquire(snapshot, chosen, options);
             if (acquisitionId != PartitionStorage3.NOT_ACQUIRED) {
+                // The new acquisition can already be expired: the scan can end the last snapshot.
+                removeExpired(partitionId, storage);
                 return new Acquisition(partitionId, acquisitionId, chosen);
             }
         }
@@ -275,6 +293,16 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
             if (storage.endQuery(snapshot)) {
                 finish(acquisition.partitionId(), storage);
             }
+        }
+    }
+
+    /**
+     * Removes the expired acquisitions of a partition, and removes the partition from the node
+     * if this ended its last snapshot.
+     */
+    private void removeExpired(PartitionId partitionId, PartitionStorage3 storage) {
+        if (storage.removeExpired()) {
+            finish(partitionId, storage);
         }
     }
 

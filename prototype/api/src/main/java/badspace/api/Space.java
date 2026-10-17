@@ -19,21 +19,11 @@ public interface Space<N, P extends Partition> {
     /**
      * Creates a partition on the given node, with the given configuration, at the tick of the space.
      * The node must serve only this space. If the space has no partition on the node yet, the space
-     * first moves the node to its tick.
+     * first moves the node to its tick. The new partition has no owner: the writer takes it with
+     * {@link Partition#claim(long)} and writes through the handle of the token. The writer
+     * removes the partition with {@link PartitionWriter#removePartition()}.
      */
     P createPartition(N node, PartitionConfig config);
-
-    /**
-     * Removes a partition from its node, following its removal policy: the last operation of the
-     * writer, which must call it. After this call the writer can no longer use the partition, and
-     * the writes not committed are discarded. The removal becomes effective at the next move of
-     * the tick; readers can still acquire the snapshots of the ticks before it while they are in
-     * the retention window. Fails with IllegalStateException if the policy is REQUIRE_EMPTY and
-     * the last commit has entities (in this case the partition does not change), or if the
-     * partition was already removed. Fails with IllegalArgumentException if the partition belongs
-     * to another space.
-     */
-    void removePartition(P partition);
 
     /**
      * Moves the tick of the space forward to the given tick, and then the tick of each node on

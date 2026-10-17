@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import badspace.common.geometry.Box2;
+import badspace.common.partition.AcquireOptions;
+import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.geometry.Point2;
 import java.util.Comparator;
@@ -27,10 +29,26 @@ class PartitionBenchmarkTest {
         return state;
     }
 
+    /**
+     * Returns the entities of the partition, sorted by ID. It commits the writes and moves the
+     * tick, then reads the published snapshot.
+     */
     private static List<Entity2> content(PartitionBenchmark.PartitionState s) {
-        return s.node.findInRegion(WorkloadState.PARTITION_ID, WORLD).stream()
-                .sorted(Comparator.comparingLong(Entity2::id))
-                .toList();
+        s.node.commit(WorkloadState.WRITE_TOKEN);
+        s.node.setTick(s.node.tick() + 1);
+        Acquisition acquisition = s.node.acquireLatest(WorkloadState.PARTITION_ID, AcquireOptions.defaultTimeout());
+        try {
+            return s.node.findInRegion(acquisition, WORLD).stream()
+                    .sorted(Comparator.comparingLong(Entity2::id))
+                    .toList();
+        } finally {
+            s.node.release(acquisition);
+        }
+    }
+
+    private static <S extends PartitionBenchmark.QueryState> S acquire(S state) {
+        setUp(state).acquire();
+        return state;
     }
 
     @Test
@@ -41,7 +59,7 @@ class PartitionBenchmarkTest {
         List<Entity2> before = content(s);
         for (int i = 0; i < 2 * PartitionBenchmark.BATCH_COUNT; i++) {
             benchmark.insert(s);
-            assertEquals(SIZE + 100, s.node.size(WorkloadState.PARTITION_ID));
+            assertEquals(SIZE + 100, content(s).size());
             s.removeInserted();
         }
         assertEquals(before, content(s));
@@ -55,7 +73,7 @@ class PartitionBenchmarkTest {
         List<Entity2> before = content(s);
         for (int i = 0; i < 2 * PartitionBenchmark.BATCH_COUNT; i++) {
             benchmark.remove(s);
-            assertEquals(SIZE - 100, s.node.size(WorkloadState.PARTITION_ID));
+            assertEquals(SIZE - 100, content(s).size());
             s.insertRemoved();
         }
         assertEquals(before, content(s));
@@ -88,18 +106,18 @@ class PartitionBenchmarkTest {
         range.selectivity = 0.01;
         range.queryCenter = QueryCenter.UNIFORM;
         range.shape = RegionShape.CIRCLE;
-        setUp(range);
+        acquire(range);
         assertEquals(10, benchmark.findInRegion(range).size());
 
         PartitionBenchmark.NearestState nearest = new PartitionBenchmark.NearestState();
         nearest.k = 10;
         nearest.queryCenter = QueryCenter.DATA;
-        setUp(nearest);
+        acquire(nearest);
         assertEquals(10, benchmark.findNearest(nearest).size());
 
         PartitionBenchmark.GetState get = new PartitionBenchmark.GetState();
         get.batchSize = 100;
-        setUp(get);
+        acquire(get);
         assertEquals(100, benchmark.get(get).size());
     }
 }

@@ -35,9 +35,10 @@ class CommitBenchmarkTest {
         return state;
     }
 
-    /** The state of the writer, with the moves not committed. */
-    private static List<Entity2> content(CommitBenchmark.SnapshotState s) {
-        return sorted(s.node.findInRegion(WorkloadState.PARTITION_ID, WORLD));
+    /** Commits the moves of the writer and moves the tick, so the next snapshot has them. */
+    private static void commitAndPublish(CommitBenchmark.SnapshotState s) {
+        s.node.commit(WorkloadState.WRITE_TOKEN);
+        s.node.setTick(s.node.tick() + 1);
     }
 
     /** The latest published snapshot. */
@@ -61,18 +62,14 @@ class CommitBenchmarkTest {
         s.movingFraction = 0.1;
         setUp(s, 0);
         try {
-            List<Entity2> before = content(s);
-            assertEquals(before, published(s));
+            List<Entity2> before = published(s);
             assertEquals(100, s.moved.size());
 
             benchmark.commitTick(s);
-            List<Entity2> moved = content(s);
-            assertNotEquals(before, moved);
-            assertEquals(moved, published(s));
+            assertNotEquals(before, published(s));
             assertEquals(2, s.node.tick(WorkloadState.PARTITION_ID));
 
             benchmark.commitTick(s);
-            assertEquals(before, content(s));
             assertEquals(before, published(s));
         } finally {
             s.stopReaders();
@@ -85,12 +82,14 @@ class CommitBenchmarkTest {
         s.movingFraction = 1;
         setUp(s, 0);
         try {
-            List<Entity2> before = content(s);
+            List<Entity2> before = published(s);
             benchmark.movesWithoutCommit(s);
-            assertNotEquals(before, content(s));
             assertEquals(before, published(s));
+            commitAndPublish(s);
+            assertNotEquals(before, published(s));
             benchmark.movesWithoutCommit(s);
-            assertEquals(before, content(s));
+            commitAndPublish(s);
+            assertEquals(before, published(s));
         } finally {
             s.stopReaders();
         }
@@ -102,7 +101,7 @@ class CommitBenchmarkTest {
         s.movingFraction = 0;
         setUp(s, 0);
         try {
-            List<Entity2> before = content(s);
+            List<Entity2> before = published(s);
             benchmark.commitTick(s);
             assertEquals(before, published(s));
             assertEquals(2, s.node.tick(WorkloadState.PARTITION_ID));

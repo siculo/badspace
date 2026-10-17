@@ -2,26 +2,26 @@ package badspace.api;
 
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
-import badspace.common.partition.Entity2;
+import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
-import badspace.common.geometry.Point2;
-import badspace.common.geometry.Region2;
-import java.util.ArrayList;
-import java.util.List;
+import badspace.common.partition.WriteToken;
 import java.util.Optional;
 
 /**
- * Proxy of a 2D partition that lives on a node. It has a single writer and is not thread-safe,
- * except {@link #tick()} and the acquisitions. The reads of the proxy see the writes
- * not yet committed; the other threads {@linkplain #acquireLatest() acquire} the snapshot of
- * a completed tick and read it.
- * Single-entity operations are batches of one entity: to write many entities,
- * the batch operations make fewer calls to the node.
- * After the space removes the partition, the operations of the writer fail with
- * IllegalStateException; the acquisitions, {@link #tick()} and {@link #creationTick()} still
- * go to the node, which gives the snapshots of the ticks before the removal while they are
- * in the retention window.
+ * Proxy of a 2D partition that lives on a node: it gives the information about the partition,
+ * its ownership, the writer handles and the acquisitions of the snapshots. Any thread can use
+ * it. The writes go through a {@link PartitionWriter2} made with {@link #writer(WriteToken)}
+ * from the token of the owner. Everyone, the writer too, reads by
+ * {@linkplain #acquireLatest() acquiring} the snapshot of a completed tick: the writer does not
+ * see its own writes before the tick that has them moves forward, and if it must remember them,
+ * it keeps its own state.
+ * <p>
+ * The proxy keeps no state of the partition: the node knows the ownership and the state of
+ * the removal. After the removal the acquisitions, {@link #tick()}, {@link #creationTick()}
+ * and {@link #ownership()} still go to the node, which gives the snapshots of the ticks before
+ * the removal while they are in the retention window; after the destruction they fail like for
+ * an unknown partition.
  */
 public final class Partition2 implements Partition {
 
@@ -29,9 +29,6 @@ public final class Partition2 implements Partition {
     private final PartitionNode2 node;
     private final PartitionId partitionId;
     private final PartitionConfig config;
-    // Written only by the writer, when the space removes the partition, and read only by
-    // the writer: it stops the operations of the writer without a call to the node.
-    private boolean removed;
 
     Partition2(Space2 space, PartitionNode2 node, PartitionId partitionId, PartitionConfig config) {
         this.space = space;
@@ -40,120 +37,28 @@ public final class Partition2 implements Partition {
         this.config = config;
     }
 
-    Space2 space() {
-        return space;
-    }
-
-    /** Removes the partition from its node, following its removal policy. */
-    void removeFromNode() {
-        checkNotRemoved();
-        switch (config.removalPolicy()) {
-            case REQUIRE_EMPTY -> node.removePartition(partitionId);
-            case DISCARD_ENTITIES -> node.dropPartition(partitionId);
-        }
-        removed = true;
-    }
-
-    private void checkNotRemoved() {
-        if (removed) {
-            throw new IllegalStateException("Partition was removed: " + partitionId);
-        }
-    }
-
-    /** Adds a new entity and returns its ID. */
-    public long insert(double x, double y) {
-        return insert(new Point2(x, y));
-    }
-
-    /** Adds a new entity and returns its ID. */
-    public long insert(Point2 position) {
-        return insertAll(List.of(position))[0];
-    }
-
-    /**
-     * Adds many entities in one call and returns their IDs, in the same order as the positions.
-     * Fails with IllegalArgumentException if a position is outside the {@linkplain #limits() limits};
-     * in this case no entity is added.
-     */
-    public long[] insertAll(List<Point2> positions) {
-        checkNotRemoved();
-        long[] entityIds = new long[positions.size()];
-        List<Entity2> entities = new ArrayList<>(positions.size());
-        for (int i = 0; i < entityIds.length; i++) {
-            entityIds[i] = space.nextEntityId();
-            entities.add(new Entity2(entityIds[i], positions.get(i)));
-        }
-        node.insertAll(partitionId, entities);
-        return entityIds;
-    }
-
-    /** Returns the position of an entity, or empty if the ID is not in the partition. */
-    public Optional<Point2> get(long entityId) {
-        checkNotRemoved();
-        List<Entity2> found = node.getAll(partitionId, new long[] {entityId});
-        return found.stream().findFirst().map(Entity2::position);
-    }
-
-    /**
-     * Returns the entities with the given IDs, in the same order.
-     * IDs that are not in the partition are skipped.
-     */
-    public List<Entity2> getAll(long[] entityIds) {
-        checkNotRemoved();
-        return node.getAll(partitionId, entityIds);
-    }
-
-    /**
-     * Moves an entity. Fails with NoSuchElementException if the ID is not in the partition,
-     * and with IllegalArgumentException if the position is outside the {@linkplain #limits() limits}.
-     */
-    public void update(long entityId, Point2 position) {
-        updateAll(List.of(new Entity2(entityId, position)));
-    }
-
-    /**
-     * Moves many entities in one call. Fails with NoSuchElementException if an ID is not
-     * in the partition, and with IllegalArgumentException if a position is outside the
-     * {@linkplain #limits() limits}; in these cases no entity moves.
-     */
-    public void updateAll(List<Entity2> entities) {
-        checkNotRemoved();
-        node.updateAll(partitionId, entities);
-    }
-
-    /**
-     * Returns the entities that are inside the region or on its border.
-     * The order of the result is not defined.
-     */
-    public List<Entity2> findInRegion(Region2 region) {
-        checkNotRemoved();
-        return node.findInRegion(partitionId, region);
-    }
-
-    /**
-     * Returns the entities nearest to a point, at most count of them, sorted by distance
-     * from the point and then by ID. Fails with IllegalArgumentException if count is negative.
-     */
-    public List<Entity2> findNearest(Point2 point, int count) {
-        checkNotRemoved();
-        return node.findNearest(partitionId, point, count);
+    @Override
+    public Ownership ownership() {
+        return node.ownership(partitionId);
     }
 
     @Override
-    public void remove(long entityId) {
-        removeAll(new long[] {entityId});
+    public Optional<WriteToken> claim(long expectedGeneration) {
+        return node.claim(partitionId, expectedGeneration);
     }
 
-    @Override
-    public void removeAll(long[] entityIds) {
-        checkNotRemoved();
-        node.removeAll(partitionId, entityIds);
-    }
-
-    @Override
-    public void commit() {
-        checkNotRemoved();
-        node.commit(partitionId);
+    /**
+     * Returns the writer handle of a token of this partition, also of a token that another
+     * writer or a coordinator sent. It does not check the generation: the node checks it at
+     * each operation of the handle. Fails with IllegalArgumentException if the token is of
+     * another partition.
+     */
+    public PartitionWriter2 writer(WriteToken token) {
+        if (!token.partitionId().equals(partitionId)) {
+            throw new IllegalArgumentException("Token of partition " + token.partitionId()
+                    + " is not of partition " + partitionId);
+        }
+        return new PartitionWriter2(space, node, token, config);
     }
 
     /** Acquires the snapshot of a tick with the default timeout, like {@link #acquire(long, AcquireOptions)}. */
@@ -204,14 +109,7 @@ public final class Partition2 implements Partition {
     }
 
     @Override
-    public int size() {
-        checkNotRemoved();
-        return node.size(partitionId);
-    }
-
-    @Override
     public CoordinateLimits limits() {
-        checkNotRemoved();
         return node.limits(partitionId);
     }
 }

@@ -2,6 +2,7 @@ package badspace.service.partition;
 
 import static badspace.common.geometry.Point3.point;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
+import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -14,11 +15,12 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.slots.CoordinateBufferPool;
+import badspace.service.partition.snapshot.MonotonicClock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -69,15 +71,15 @@ class PartitionWriters3Test {
                     GatedIndex3 gated = new GatedIndex3(SpatialIndexes.create(index, slots));
                     indexes.add(gated);
                     return gated;
-                }, retainedTicks, clock, tick, lock, new ConcurrentLinkedDeque<>());
+                }, retainedTicks, clock, tick, lock, new CoordinateBufferPool());
             });
             node.createPartition(P1, config, 1);
             node.createPartition(P2, config, 1);
-            node.insertAll(P1, List.of(new Entity3(10, A)));
+            node.insertAll(owner(node, P1), List.of(new Entity3(10, A)));
             Gate gate = new Gate();
             indexes.getFirst().commitGate = gate;
             AtomicReference<Throwable> failure = new AtomicReference<>();
-            Thread writer = worker(() -> node.commit(P1), failure);
+            Thread writer = worker(() -> node.commit(owner(node, P1)), failure);
             Thread mover = worker(() -> node.setTick(1), failure);
             writer.start();
             try {
@@ -87,10 +89,9 @@ class PartitionWriters3Test {
                 locks.getFirst().awaitWaiting();
 
                 assertTimeoutPreemptively(TIMEOUT, () -> {
-                    node.insertAll(P2, List.of(new Entity3(20, B)));
-                    node.updateAll(P2, List.of(new Entity3(20, C)));
-                    node.commit(P2);
-                    assertEquals(List.of(new Entity3(20, C)), node.getAll(P2, new long[] {20}));
+                    node.insertAll(owner(node, P2), List.of(new Entity3(20, B)));
+                    node.updateAll(owner(node, P2), List.of(new Entity3(20, C)));
+                    node.commit(owner(node, P2));
                 }, config + ": the writer of P2 waited for P1");
 
             } finally {
@@ -128,7 +129,7 @@ class PartitionWriters3Test {
         for (int w = 0; w < WRITERS; w++) {
             partitionIds[w] = new PartitionId(w + 1);
             node.createPartition(partitionIds[w], CONFIGS.get(w % CONFIGS.size()), 2);
-            node.insertAll(partitionIds[w], entitiesAt(w, 0, entityIds));
+            node.insertAll(owner(node, partitionIds[w]), entitiesAt(w, 0, entityIds));
         }
 
         CountDownLatch observed = new CountDownLatch(READERS);
@@ -150,15 +151,15 @@ class PartitionWriters3Test {
                         List<Entity3> moved = entitiesAt(partition, version, entityIds);
                         if (version % 2 == 0) {
                             // A removal and an insertion: the IDs change in this commit.
-                            node.removeAll(partitionId, new long[] {entityIds[ENTITIES - 1]});
-                            node.insertAll(partitionId, moved.subList(ENTITIES - 1, ENTITIES));
-                            node.updateAll(partitionId, moved.subList(0, ENTITIES - 1));
+                            node.removeAll(owner(node, partitionId), new long[] {entityIds[ENTITIES - 1]});
+                            node.insertAll(owner(node, partitionId), moved.subList(ENTITIES - 1, ENTITIES));
+                            node.updateAll(owner(node, partitionId), moved.subList(0, ENTITIES - 1));
                         } else {
                             // Two calls, so the state of the writer between them is mixed.
-                            node.updateAll(partitionId, moved.subList(0, ENTITIES / 2));
-                            node.updateAll(partitionId, moved.subList(ENTITIES / 2, ENTITIES));
+                            node.updateAll(owner(node, partitionId), moved.subList(0, ENTITIES / 2));
+                            node.updateAll(owner(node, partitionId), moved.subList(ENTITIES / 2, ENTITIES));
                         }
-                        node.commit(partitionId);
+                        node.commit(owner(node, partitionId));
                         if (version == VERSIONS / 2) {
                             middle.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                             await(observed);

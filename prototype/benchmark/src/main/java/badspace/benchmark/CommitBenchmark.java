@@ -65,7 +65,7 @@ public class CommitBenchmark {
         void prepare() {
             prepareMoves();
             // The readers need a published snapshot.
-            node.commit(PARTITION_ID);
+            node.commit(WRITE_TOKEN);
             node.setTick(++tick);
             concurrentReaders = new ConcurrentReaders(node, readers, workload.entities().getFirst().position());
         }
@@ -118,7 +118,7 @@ public class CommitBenchmark {
     @Benchmark
     public void commitTick(TickState s) {
         move(s);
-        s.node.commit(WorkloadState.PARTITION_ID);
+        s.node.commit(WorkloadState.WRITE_TOKEN);
         s.node.setTick(++s.tick);
     }
 
@@ -139,7 +139,7 @@ public class CommitBenchmark {
     private static void move(TickState s) {
         List<Entity2> moves = s.nextMoves();
         if (!moves.isEmpty()) {
-            s.node.updateAll(WorkloadState.PARTITION_ID, moves);
+            s.node.updateAll(WorkloadState.WRITE_TOKEN, moves);
         }
     }
 
