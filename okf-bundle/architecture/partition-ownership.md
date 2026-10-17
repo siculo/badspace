@@ -1,30 +1,143 @@
 ---
 type: Architecture Primitive
 title: Proprietà della partizione
-description: Ogni partizione ha un solo writer; l'esclusività si acquisisce, rilascia e trasferisce con un numero di generazione (fencing token) che blocca i writer non più proprietari.
+description: Ogni partizione ha al più un writer; la proprietà ha una generazione che cresce a ogni cambio, si legge con ownership(p), si prende con claim(p, expectedGeneration), un compare-and-set sulla generazione, e si lascia con release(token); scritture, commit e remove() portano il token (fencing token), e la partizione rifiuta quelli di una generazione vecchia, scartando le scritture non confermate a ogni cambio. Sopra la primitiva si costruiscono schemi diversi di gestione della proprietà.
 tags: [badspace, architecture, partitioning, concurrency]
-status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:48:33Z }
+status: draft
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
 ---
 
 # Primitiva
 
-Ogni partizione ha un solo writer e più reader. L'esclusività di
-scrittura si può **acquisire, rilasciare e trasferire**.
+Ogni partizione ha **al più un writer** e più reader. La partizione non
+sceglie chi scrive: offre una primitiva piccola, e lo schema con cui la
+proprietà passa da un writer all'altro lo decide il software (vedi
+[schemi costruiti sopra](#schemi-costruiti-sopra)).
 
-Ogni passaggio incrementa un **numero di generazione** (fencing
-token): la partizione rifiuta le scritture che portano una generazione
-vecchia. Senza questo, un writer rallentato che ha perso la proprietà
-potrebbe ancora scrivere.
+Senza questa primitiva un writer rallentato che ha perso la proprietà
+potrebbe ancora scrivere: per esempio un writer fermo per una pausa del
+GC, o dietro una rete lenta verso un nodo remoto, che riprende quando la
+partizione è già passata a un altro writer. Con il **fencing token** è
+la partizione a rifiutare le sue scritture, anche se lui non sa ancora
+di aver perso la proprietà.
+
+# Stato di proprietà
+
+Ogni partizione ha uno stato di proprietà con due parti:
+
+- la **generazione**, un contatore che cresce di 1 a **ogni** cambio di
+  stato: presa della proprietà, passaggio a un altro writer, revoca,
+  rilascio;
+- il segno che dice se la partizione **ha un proprietario**.
+
+La partizione nasce **senza proprietario**, alla generazione 0. Dato che
+ogni cambio incrementa la generazione, una generazione identifica un
+solo stato di proprietà.
+
+Il **token di scrittura** (fencing token) è la coppia (ID della
+partizione, generazione). Gli [ID delle
+partizioni](/decisions/entity-ids.md#id-delle-partizioni) non si
+riusano e la generazione cresce soltanto, quindi un token non torna mai
+valido.
+
+# Operazioni
+
+| Operazione | Effetto |
+|---|---|
+| `ownership(p)` | Legge lo stato: la generazione e se la partizione ha un proprietario. È solo una lettura: la partizione non avvisa nessuno dei cambi. |
+| `claim(p, expectedGeneration)` | Se la generazione è ancora `expectedGeneration`, la porta a quella successiva con un proprietario e restituisce il token nuovo; altrimenti fallisce e lo stato non cambia. |
+| `release(token)` | Se il token è quello corrente, porta la generazione a quella successiva senza proprietario; altrimenti non fa niente (idempotente). |
+
+`claim` è un **compare-and-set sulla generazione**: chi lo chiama dice
+quale stato di proprietà vuole sostituire, e se nel frattempo lo stato
+è cambiato la sua operazione fallisce invece di fare danni. È l'unica
+operazione che dà la proprietà: prendere una partizione libera, passarla
+a un altro writer e revocarla al proprietario sono la stessa chiamata, e
+cambia solo chi la fa e quale generazione passa:
+
+| Caso | Chi chiama | Generazione passata |
+|---|---|---|
+| Prendere una partizione libera | Il writer che la vuole | Quella dello stato libero, letta con `ownership(p)` |
+| Passare la proprietà da A a B | A | La propria, dal suo token; A manda a B il token nuovo |
+| Revocare la proprietà ad A | Un coordinatore | Quella attuale, letta con `ownership(p)` |
+
+Non servono operazioni separate per questi casi: controlli come "solo se
+la partizione è libera" o "solo il proprietario può passarla" sono
+politiche, e chi chiama li fa già scegliendo la generazione. La
+partizione non controlla chi chiama `claim` (vedi
+[accesso](/decisions/tool-type.md#accesso)).
+
+# Scritture con il token
+
+Le scritture, `commit()` e `remove()` portano il token. La partizione
+lo confronta con la generazione corrente **sotto il lock della
+partizione**, lo stesso che ordina scritture, commit e avanzamento del
+tick (vedi [concorrenza](/decisions/concurrency.md)): se il token non è
+quello corrente, l'operazione è rifiutata con un errore dedicato e la
+partizione non cambia.
+
+Restano fuori dal fencing:
+
+- l'avanzamento del [tick](/architecture/logical-time.md), che arriva
+  dal software e non è un'operazione del writer;
+- le letture, che passano tutte dalle
+  [acquisizioni](/architecture/snapshot-retention.md#acquisizione-e-rilascio)
+  degli snapshot: un writer, aggiornato o in ritardo, che acquisisce uno
+  snapshot vede solo commit pubblicati, come ogni reader, e non vede mai
+  le scritture non confermate di un altro writer.
+
+# Cambio di proprietà
+
+- **Il confine è il commit.** A ogni cambio di generazione (`claim` o
+  `release`) le scritture non confermate si scartano. Un commit fatto
+  prima del cambio resta confermato, anche se lo snapshot del suo tick
+  non è ancora pubblicato: il nuovo proprietario parte da quello stato,
+  e i suoi commit nello stesso tick si aggiungono, con l'ultimo che
+  definisce lo snapshot del tick (vedi [commit](/architecture/partition-commit.md#commit-e-tick)).
+- **Rilascio senza commit.** Un writer può decidere di non confermare le
+  sue scritture e rilasciare il token: le scritture si scartano.
+- **Nessuna via di mezzo.** Grazie al lock, ogni operazione del vecchio
+  writer avviene tutta prima del cambio oppure è rifiutata: il writer sa
+  con esattezza quali dei suoi commit sono entrati.
+- **Il vecchio writer lo scopre alla prossima operazione**, che viene
+  rifiutata; può anche controllare `ownership(p)`.
+- **Rimozione.** `remove()` richiede il token corrente: chi vuole
+  rimuovere una partizione di cui non è proprietario fa prima `claim`.
+  Dalla [rimozione](/architecture/partition-removal.md) in poi `claim`
+  è rifiutato.
+
+# Schemi costruiti sopra
+
+| Schema | Come si realizza |
+|---|---|
+| **Owner fisso** | Il writer, per esempio il game loop, fa `claim(p, 0)` alla creazione e tiene il token per sempre. |
+| **Cooperativo** | Il proprietario A chiama `claim` con la generazione del suo token e manda a B il token nuovo: in nessun momento ci sono due token validi. |
+| **Coordinatore** | I writer non chiamano mai `claim`: il coordinatore legge `ownership(p)`, chiama `claim` e consegna il token al writer scelto. Con due coordinatori in corsa, per esempio durante un failover, vince al massimo uno per generazione. |
+| **Coordinatore che aspetta il writer** | Il coordinatore chiede ad A di finire, con un canale del software; A fa l'ultimo commit e chiama `release`; il coordinatore vede con `ownership(p)` la partizione libera, oppure riceve la generazione da A, e chiama `claim`. In alternativa A restituisce il token al coordinatore, che chiama `claim` con la sua generazione: la partizione non resta mai senza proprietario. |
+| **Presa forzata** | Se A non risponde, il coordinatore chiama `claim` con la generazione di A, senza il suo token: le scritture non confermate di A si scartano e le sue operazioni successive sono rifiutate. Con l'attesa dello schema precedente dà un passaggio ordinato con una scadenza. |
+| **Worker in competizione** | Un worker legge lo stato e, se la partizione è libera, chiama `claim` con quella generazione; se un altro l'ha presa prima, la generazione è cambiata e `claim` fallisce. |
+| **Lease** | Heartbeat e scadenza stanno nel coordinatore, che revoca con `claim`: la partizione non ha bisogno di orologi, e la sicurezza viene dal fencing. |
+| **Split e ribilanciamento** | Vedi [ribilanciamento e split](/mechanisms/rebalancing-and-split.md): per lo split si crea una partizione libera, la si prende, la si riempie e la si passa a un altro writer; per il ribilanciamento basta un `claim` sulla partizione. |
 
 # Uso
 
 - Base della decisione sulla [concorrenza](/decisions/concurrency.md).
-- Il trasferimento dell'esclusività serve alle operazioni in blocco
+- Il passaggio della proprietà serve alle operazioni in blocco
   ([ribilanciamento e split](/mechanisms/rebalancing-and-split.md)),
   non alle migrazioni di routine, che usano la
   [migrazione](/mechanisms/entity-migration.md).
+- La forma nell'API e nel contratto del nodo è in [API da
+  esporre](/decisions/api-surface.md#proprietà-e-handle-del-writer).
+
+# Punti aperti
+
+- **Persistenza della generazione.** Con la
+  [persistenza](/decisions/persistence.md) la generazione va salvata
+  con la partizione: dopo un riavvio un token vecchio non deve tornare
+  valido.
 
 # Correlati
 
 - [Architettura minima](/architecture/minimal-core.md) — primitiva 1.
+- [Tipo di strumento](/decisions/tool-type.md#accesso) — il fencing
+  protegge da errori e ritardi, non da chiamanti malevoli.

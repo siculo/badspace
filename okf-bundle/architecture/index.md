@@ -5,7 +5,7 @@
 
 # Primitive del livello base
 
-* [Proprietà della partizione](./partition-ownership.md) - un solo writer per partizione, esclusività trasferibile con fencing token.
+* [Proprietà della partizione](./partition-ownership.md) - al più un writer per partizione; generazione, ownership, claim (compare-and-set sulla generazione) e release; scritture con il fencing token; schemi di gestione della proprietà costruiti sopra.
 * [Commit della partizione](./partition-commit.md) - commit atomici nel tick corrente, senza numero visibile, unica transazione del sistema; lo snapshot del tick diventa visibile all'avanzamento del tick.
 * [Metadati delle entità](./entity-metadata.md) - metadati di sistema e applicativi, scritture condizionate, API dei metadati.
 * [Tombstone](./tombstones.md) - metadati che sopravvivono alla rimozione e impediscono le resurrezioni.

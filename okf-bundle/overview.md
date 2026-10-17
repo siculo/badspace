@@ -4,7 +4,7 @@ title: Panoramica di BADSPACE
 description: Panoramica di progettazione di BADSPACE, un database real-time per entità in uno spazio 2D o 3D, base per software di simulazione, monitoraggio o gaming, e delle sue decisioni architetturali principali.
 tags: [badspace, design]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T20:26:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
 ---
 
 # Cos'è BADSPACE
@@ -46,7 +46,8 @@ partizione: quasi tutte le altre decisioni ne discendono.
 - [Tipo di strumento](/decisions/tool-type.md) — libreria embedded in
   prima battuta, pensata per evolvere in seguito verso un servizio gRPC;
   la superficie di rete è il contratto dei nodi che ospitano le
-  partizioni.
+  partizioni. BADSPACE non controlla gli accessi: il suo unico
+  utilizzatore è il software, che filtra i client esterni.
 - [Linguaggio](/decisions/language.md) — prototipi in Java, linguaggio
   finale ancora aperto tra C11, C++ e Rust; il [confronto tra C e
   Rust](/decisions/c-vs-rust.md) è in corso e la decisione non è ancora

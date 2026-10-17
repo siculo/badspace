@@ -4,7 +4,7 @@ title: Rimozione della partizione
 description: La rimozione di una partizione passa per quattro stati (attiva, in rimozione, ritirata, distrutta); remove() è l'ultima operazione del writer, la rimozione diventa effettiva al primo avanzamento del tick (removalTick), gli snapshot dei tick precedenti restano acquisibili finché sono nella finestra, e la partizione si distrugge quando nessun tick in cui esisteva è più nella finestra e nessuno usa i suoi snapshot.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
 ---
 
 # Primitiva
@@ -27,10 +27,13 @@ La partizione attraversa quattro stati:
 # Richiesta di rimozione
 
 `remove()` porta la partizione nello stato **in rimozione**. È l'ultima
-operazione del writer:
+operazione del writer, e come le scritture richiede il token di
+scrittura corrente (vedi [proprietà della
+partizione](/architecture/partition-ownership.md)):
 
 - dopo `remove()` non si possono più fare scritture né commit, e un
-  secondo `remove()` fallisce con `IllegalStateException`;
+  secondo `remove()` fallisce con `IllegalStateException`; anche
+  `claim` è rifiutato, quindi nessuno può più prendere la proprietà;
 - `remove()` **scarta le scritture non confermate**: l'ultimo snapshot
   contiene solo l'ultimo stato confermato da `commit()`;
 - con la [politica di

@@ -1,6 +1,6 @@
 # Decisioni di progetto
 
-* [Tipo di strumento](./tool-type.md) - libreria embedded in prima battuta, pensata per evolvere verso nodi di partizioni esposti via gRPC; l'API resta una libreria.
+* [Tipo di strumento](./tool-type.md) - libreria embedded in prima battuta, pensata per evolvere verso nodi di partizioni esposti via gRPC; l'API resta una libreria; nessun controllo degli accessi, che spetta al software.
 * [Linguaggio](./language.md) - prototipi in Java, linguaggio finale aperto tra C11, C++ e Rust.
 * [Confronto tra C e Rust](./c-vs-rust.md) - overflow degli interi, coordinate generiche, astrazione su 2D/3D e complessità delle strutture degli indici (arena con indici e borrow checker).
 * [Partizionamento del DB](./partitioning.md) - partizioni indipendenti, single-writer e con indice proprio, create e rimosse dinamicamente; strategia scelta dal software.
@@ -11,5 +11,5 @@
 * [Entità statiche vs dinamiche](./static-vs-dynamic-entities.md) - strutture dati separate, query di prossimità unificate; caso particolare di partizionamento.
 * [Concorrenza](./concurrency.md) - un solo writer per partizione, più reader.
 * [Isolamento delle letture](./read-isolation.md) - snapshot preparati a ogni commit e pubblicati all'avanzamento del tick: slot copiati per intero, indici persistenti copy-on-write; i reader non si bloccano e non bloccano il writer, e leggono solo attraverso un'acquisizione; ogni dato delle entità entra nello snapshot.
-* [API da esporre](./api-surface.md) - operazioni di base individuate; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, batch, tutto-o-niente) della creazione e rimozione delle partizioni (politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` nel tick corrente) e delle letture dei reader (acquisizione e rilascio degli snapshot); il partizionamento ne fissa già alcuni elementi.
+* [API da esporre](./api-surface.md) - operazioni di base individuate; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, batch, tutto-o-niente) della creazione e rimozione delle partizioni (politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` nel tick corrente), della proprietà (`claim`, handle del writer con il token) e delle letture (solo attraverso l'acquisizione degli snapshot); il partizionamento ne fissa già alcuni elementi.
 * [Persistenza](./persistence.md) - snapshot per partizione e ultimo tick persistito esposto; nel prototipo il meccanismo si implementa dopo i metadati e si estende man mano, la strategia di dettaglio è aperta.

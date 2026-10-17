@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot preparati a ogni commit, pubblicati con una scrittura atomica all'avanzamento del tick e letti attraverso un'acquisizione controllata; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
 ---
 
 # Problema
@@ -20,8 +20,9 @@ Vincoli:
   scritture dello stesso commit diventano visibili insieme.
 - **Il writer è il ciclo principale del software** (il game loop): un
   reader lento non deve poter ritardare il tick.
-- **Il writer legge le proprie scritture** durante il commit, per
-  esempio per fare query sullo stato appena modificato.
+- **Il writer non legge lo stato non confermato.** Legge come ogni
+  reader, dagli snapshot acquisiti; se deve ricordarsi delle scritture
+  che sta facendo, tiene un suo stato (vedi [letture](/decisions/api-surface.md#letture)).
 
 # Decisione
 
@@ -64,7 +65,8 @@ Slot e indici cambiano con frequenze molto diverse.
 1. Il writer scrive sui suoi array mutabili degli slot e su una versione
    **transient** dell'indice: un nodo si copia alla prima modifica del
    commit, le modifiche successive dello stesso commit vanno sulla
-   copia. Il writer vede così le proprie scritture.
+   copia. Lo stato del writer serve solo a preparare il commit: nessuno
+   lo interroga.
 2. Al commit gli array degli slot si copiano in un buffer per lo
    snapshot, e i nodi copiati nel commit diventano immutabili.
 3. La nuova radice si pubblica con una scrittura atomica
@@ -93,10 +95,10 @@ snapshot](/architecture/snapshot-retention.md#nel-prototipo)). Anche il
 tick della partizione si legge dal catalogo pubblicato, quindi da ogni
 thread. Una partizione nuova pubblica al primo avanzamento uno snapshot
 vuoto, con l'indice vuoto della scansione lineare, che con slot vuoti
-vale per ogni indice. Il writer legge il proprio stato, i reader gli
-snapshot pubblicati attraverso le acquisizioni, con una view controllata
-(vedi [API da
-esporre](/decisions/api-surface.md#letture-del-writer-e-dei-reader) e
+vale per ogni indice. Tutti leggono gli snapshot pubblicati attraverso
+le acquisizioni, con una view controllata; oggi il writer legge anche il
+proprio stato, che la forma decisa toglie (vedi [API da
+esporre](/decisions/api-surface.md#letture) e
 [Accesso dei reader](#accesso-dei-reader)): lo snapshot interno non
 esce dal nodo. La partizione rileva quando uno snapshot finisce (vedi
 [Vita di uno snapshot](/architecture/snapshot-retention.md#vita-di-uno-snapshot));
@@ -122,8 +124,7 @@ Dopo l'ammissione la query non tiene lock: legge lo snapshot immutabile
 come prima, e se il rilascio o la scadenza arrivano nel frattempo la
 query finisce e il suo risultato è valido.
 
-Restano invariati la pubblicazione atomica, il copy-on-write e la
-lettura delle proprie scritture da parte del writer. Dopo la rimozione
+Restano invariati la pubblicazione atomica e il copy-on-write. Dopo la rimozione
 della partizione le acquisizioni già fatte restano leggibili (vedi
 [conservazione degli
 snapshot](/architecture/snapshot-retention.md#rimozione-della-partizione)).

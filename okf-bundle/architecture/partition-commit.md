@@ -4,7 +4,7 @@ title: Commit della partizione
 description: Le scritture del writer sono confermate da commit atomici, unica transazione del sistema; il commit non ha un numero visibile e avviene nel tick corrente della partizione, l'ultimo commit del tick definisce lo snapshot del tick, le scritture non confermate passano al tick successivo, e lo snapshot diventa visibile all'avanzamento del tick.
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-16T10:08:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
 ---
 
 # Primitiva
@@ -95,9 +95,10 @@ snapshot](/architecture/snapshot-retention.md#nel-prototipo)). Ogni
 commit ha un numero nella sequenza dei commit, interno allo storage,
 che va a `commit(n)` degli indici. I lettori leggono lo snapshot
 attraverso un'[acquisizione](/architecture/snapshot-retention.md#acquisizione-e-rilascio),
-e vedono solo commit completi; il writer vede le proprie scritture anche
-prima del commit (vedi [letture del writer e dei
-reader](/decisions/api-surface.md#letture-del-writer-e-dei-reader)).
+e vedono solo commit completi. Anche il writer legge così: non
+interroga il proprio stato non confermato (vedi
+[letture](/decisions/api-surface.md#letture)); oggi il codice ha ancora
+le letture del writer.
 
 # Correlati
 

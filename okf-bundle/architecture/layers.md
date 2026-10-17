@@ -4,7 +4,7 @@ title: Architettura a livelli
 description: I tre livelli di BADSPACE partizionato — software, API comune di supporto, layer delle partizioni ospitato dai nodi — chi decide cosa e dove passa il futuro confine di rete.
 tags: [badspace, architecture, partitioning, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
 ---
 
 # Livelli
@@ -60,7 +60,11 @@ ogni partizione.
   [acquisizioni degli snapshot](/architecture/snapshot-retention.md#acquisizione-e-rilascio)
   passano come identificatori, e le tiene il nodo.
 - **Proxy nell'API.** L'oggetto partizione visto dal software è un
-  proxy che conosce il proprio nodo e l'ID della propria partizione.
+  proxy che conosce il proprio nodo e l'ID della propria partizione, e
+  offre le acquisizioni e la proprietà; le scritture passano da un
+  handle del writer che porta il [token di
+  scrittura](/architecture/partition-ownership.md), anche questo un
+  identificatore nel contratto dei nodi.
 - **Il nodo si fida degli ID.** Gli ID di entità e partizioni li genera
   l'API; il nodo non li genera né verifica che siano unici altrove. Gli
   [ID delle partizioni](/decisions/entity-ids.md#id-delle-partizioni)
