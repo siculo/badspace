@@ -84,9 +84,11 @@ class Space2EndToEndTest {
         }
         assertReason(Reason.OUT_OF_RETENTION, () -> partition.acquire(1));
         assertReason(Reason.NOT_YET_PUBLISHED, () -> partition.acquire(5));
-        // The writer reads its own state, also the writes not committed.
+        // The writes not yet published are not in any snapshot, also for the writer.
         partition.update(id, new Point2(9, 9));
-        assertEquals(new Point2(9, 9), partition.get(id).orElseThrow());
+        try (AcquiredSnapshot2 latest = partition.acquireLatest()) {
+            assertEquals(new Point2(4, 0), latest.get(id).orElseThrow());
+        }
     }
 
     @Test
@@ -177,17 +179,25 @@ class Space2EndToEndTest {
     void getUpdateAndRemoveUseTheEntityId() {
         Partition2 p = space.createPartition(new LocalPartitionNode2());
         long[] ids = p.insertAll(List.of(new Point2(1, 1), new Point2(2, 2)));
-        assertEquals(Optional.of(new Point2(1, 1)), p.get(ids[0]));
+        try (AcquiredSnapshot2 snapshot = publish(p)) {
+            assertEquals(Optional.of(new Point2(1, 1)), snapshot.get(ids[0]));
+        }
 
         p.update(ids[0], new Point2(5, 5));
         p.updateAll(List.of(new Entity2(ids[1], new Point2(6, 6))));
-        assertEquals(List.of(new Entity2(ids[1], new Point2(6, 6)), new Entity2(ids[0], new Point2(5, 5))),
-                p.getAll(new long[] {ids[1], ids[0]}));
+        try (AcquiredSnapshot2 snapshot = publish(p)) {
+            assertEquals(List.of(new Entity2(ids[1], new Point2(6, 6)), new Entity2(ids[0], new Point2(5, 5))),
+                    snapshot.getAll(new long[] {ids[1], ids[0]}));
+        }
 
         p.remove(ids[0]);
-        assertEquals(Optional.empty(), p.get(ids[0]));
+        try (AcquiredSnapshot2 snapshot = publish(p)) {
+            assertEquals(Optional.empty(), snapshot.get(ids[0]));
+        }
         p.removeAll(new long[] {ids[1]});
-        assertEquals(0, p.size());
+        try (AcquiredSnapshot2 snapshot = publish(p)) {
+            assertEquals(0, snapshot.size());
+        }
     }
 
     @Test
@@ -240,12 +250,20 @@ class Space2EndToEndTest {
         Point2 position = new Point2(1, 2);
         long id = first.insert(position);
         Box2 region = new Box2(position, position);
-        assertEquals(List.of(new Entity2(id, position)), first.findInRegion(region));
-        assertEquals(List.of(new Entity2(id, position)), first.findNearest(position, 1));
-        assertEquals(0, sameNode.size());
-        assertEquals(0, otherNode.size());
-        assertEquals(Optional.empty(), sameNode.get(id));
-        assertEquals(Optional.empty(), otherNode.get(id));
+        for (Partition2 partition : List.of(first, sameNode, otherNode)) {
+            partition.commit();
+        }
+        space.setTick(1);
+        try (AcquiredSnapshot2 snapshot = first.acquireLatest()) {
+            assertEquals(List.of(new Entity2(id, position)), snapshot.findInRegion(region));
+            assertEquals(List.of(new Entity2(id, position)), snapshot.findNearest(position, 1));
+        }
+        for (Partition2 partition : List.of(sameNode, otherNode)) {
+            try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
+                assertEquals(0, snapshot.size());
+                assertEquals(Optional.empty(), snapshot.get(id));
+            }
+        }
     }
 
     @Test
@@ -327,5 +345,12 @@ class Space2EndToEndTest {
     /** Checks that the acquisition fails as not available, for the given reason. */
     private static void assertReason(Reason reason, Executable acquisition) {
         assertEquals(reason, assertThrows(SnapshotNotAvailableException.class, acquisition).reason());
+    }
+
+    /** Commits the writes of a partition, moves the tick by one and acquires the snapshot just published. */
+    private AcquiredSnapshot2 publish(Partition2 partition) {
+        partition.commit();
+        space.setTick(space.tick() + 1);
+        return partition.acquireLatest();
     }
 }

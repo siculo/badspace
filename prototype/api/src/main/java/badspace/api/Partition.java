@@ -4,7 +4,8 @@ import badspace.common.partition.CoordinateLimits;
 
 /**
  * Operations shared by 2D and 3D partitions. Operations that depend on the
- * number of dimensions, like insert, get and update, are only in Partition2 and Partition3.
+ * number of dimensions, like insert and update, and the acquisitions are only in Partition2
+ * and Partition3.
  */
 public interface Partition {
 
@@ -45,9 +46,6 @@ public interface Partition {
 
     /** Returns the configuration chosen when the partition was created. */
     PartitionConfig config();
-
-    /** Returns the number of entities in the partition. */
-    int size();
 
     /**
      * Returns the coordinates that the entities of the partition can have.

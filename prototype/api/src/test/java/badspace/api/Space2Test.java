@@ -97,17 +97,12 @@ class Space2Test {
         clearInvocations(node);
         assertThrows(IllegalStateException.class, () -> partition.insert(A));
         assertThrows(IllegalStateException.class, () -> partition.insertAll(List.of(A)));
-        assertThrows(IllegalStateException.class, () -> partition.get(1));
-        assertThrows(IllegalStateException.class, () -> partition.getAll(new long[] {1}));
         assertThrows(IllegalStateException.class, () -> partition.update(1, B));
         assertThrows(IllegalStateException.class, () -> partition.updateAll(List.of(new Entity2(1, B))));
         assertThrows(IllegalStateException.class, () -> partition.remove(1));
         assertThrows(IllegalStateException.class, () -> partition.removeAll(new long[] {1}));
-        assertThrows(IllegalStateException.class, partition::size);
         assertThrows(IllegalStateException.class, partition::limits);
         assertThrows(IllegalStateException.class, partition::commit);
-        assertThrows(IllegalStateException.class, () -> partition.findInRegion(new Box2(A, B)));
-        assertThrows(IllegalStateException.class, () -> partition.findNearest(A, 1));
         assertThrows(IllegalStateException.class, () -> space.removePartition(partition));
         verifyNoInteractions(node);
     }
@@ -197,20 +192,9 @@ class Space2Test {
     }
 
     @Test
-    void writerQueriesPassThePartitionIdAndArguments() {
+    void limitsAndCommitPassThePartitionId() {
         Partition2 partition = space.createPartition(node);
-        long[] ids = {8, 3};
-        List<Entity2> found = List.of(new Entity2(8, B), new Entity2(3, A));
-        Box2 region = new Box2(A, B);
-        when(node.getAll(PARTITION_ID, ids)).thenReturn(found);
-        when(node.findInRegion(PARTITION_ID, region)).thenReturn(found);
-        when(node.findNearest(PARTITION_ID, B, 2)).thenReturn(found);
-        when(node.size(PARTITION_ID)).thenReturn(2);
         when(node.limits(PARTITION_ID)).thenReturn(IndexConfig.uniformGrid(4).limits());
-        assertSame(found, partition.getAll(ids));
-        assertSame(found, partition.findInRegion(region));
-        assertSame(found, partition.findNearest(B, 2));
-        assertEquals(2, partition.size());
         assertEquals(IndexConfig.uniformGrid(4).limits(), partition.limits());
         partition.commit();
         verify(node).commit(PARTITION_ID);

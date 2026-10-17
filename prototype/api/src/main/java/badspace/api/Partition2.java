@@ -6,16 +6,15 @@ import badspace.common.partition.Entity2;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.geometry.Point2;
-import badspace.common.geometry.Region2;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Proxy of a 2D partition that lives on a node. It has a single writer and is not thread-safe,
- * except {@link #tick()} and the acquisitions. The reads of the proxy see the writes
- * not yet committed; the other threads {@linkplain #acquireLatest() acquire} the snapshot of
- * a completed tick and read it.
+ * except {@link #tick()} and the acquisitions. The proxy has only writes: everyone, the writer
+ * too, reads by {@linkplain #acquireLatest() acquiring} the snapshot of a completed tick. The
+ * writer does not see its own writes before the tick that has them moves forward: if it must
+ * remember them, it keeps its own state.
  * Single-entity operations are batches of one entity: to write many entities,
  * the batch operations make fewer calls to the node.
  * After the space removes the partition, the operations of the writer fail with
@@ -87,22 +86,6 @@ public final class Partition2 implements Partition {
         return entityIds;
     }
 
-    /** Returns the position of an entity, or empty if the ID is not in the partition. */
-    public Optional<Point2> get(long entityId) {
-        checkNotRemoved();
-        List<Entity2> found = node.getAll(partitionId, new long[] {entityId});
-        return found.stream().findFirst().map(Entity2::position);
-    }
-
-    /**
-     * Returns the entities with the given IDs, in the same order.
-     * IDs that are not in the partition are skipped.
-     */
-    public List<Entity2> getAll(long[] entityIds) {
-        checkNotRemoved();
-        return node.getAll(partitionId, entityIds);
-    }
-
     /**
      * Moves an entity. Fails with NoSuchElementException if the ID is not in the partition,
      * and with IllegalArgumentException if the position is outside the {@linkplain #limits() limits}.
@@ -119,24 +102,6 @@ public final class Partition2 implements Partition {
     public void updateAll(List<Entity2> entities) {
         checkNotRemoved();
         node.updateAll(partitionId, entities);
-    }
-
-    /**
-     * Returns the entities that are inside the region or on its border.
-     * The order of the result is not defined.
-     */
-    public List<Entity2> findInRegion(Region2 region) {
-        checkNotRemoved();
-        return node.findInRegion(partitionId, region);
-    }
-
-    /**
-     * Returns the entities nearest to a point, at most count of them, sorted by distance
-     * from the point and then by ID. Fails with IllegalArgumentException if count is negative.
-     */
-    public List<Entity2> findNearest(Point2 point, int count) {
-        checkNotRemoved();
-        return node.findNearest(partitionId, point, count);
     }
 
     @Override
@@ -201,12 +166,6 @@ public final class Partition2 implements Partition {
     @Override
     public PartitionConfig config() {
         return config;
-    }
-
-    @Override
-    public int size() {
-        checkNotRemoved();
-        return node.size(partitionId);
     }
 
     @Override

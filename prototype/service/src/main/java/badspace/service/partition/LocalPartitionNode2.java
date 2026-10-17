@@ -144,11 +144,6 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
-    public List<Entity2> getAll(PartitionId partitionId, long[] entityIds) {
-        return find(partitionId).getAll(entityIds);
-    }
-
-    @Override
     public void updateAll(PartitionId partitionId, List<Entity2> entities) {
         find(partitionId).updateAll(entities);
     }
@@ -156,16 +151,6 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public void removeAll(PartitionId partitionId, long[] entityIds) {
         find(partitionId).removeAll(entityIds);
-    }
-
-    @Override
-    public List<Entity2> findInRegion(PartitionId partitionId, Region2 region) {
-        return find(partitionId).findInRegion(region);
-    }
-
-    @Override
-    public List<Entity2> findNearest(PartitionId partitionId, Point2 point, int count) {
-        return find(partitionId).findNearest(point, count);
     }
 
     @Override
@@ -215,11 +200,6 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public List<Entity2> findNearest(Acquisition acquisition, Point2 point, int count) {
         return query(acquisition, snapshot -> snapshot.findNearest(point, count));
-    }
-
-    @Override
-    public int size(PartitionId partitionId) {
-        return find(partitionId).size();
     }
 
     @Override

@@ -12,11 +12,10 @@ import java.util.List;
  * Write operations work on many entities in one call, to reduce the number of
  * remote calls. Each write is all or nothing: if it fails, the partition does not change.
  * <p>
- * The reads of a partition by ID or by position see the state of its writer,
- * with the writes not yet committed, and only the writer of the partition can
- * call them. The other threads read the snapshots of the ticks: they
- * {@linkplain #acquire acquire} a snapshot, read it through the
- * {@link Acquisition} and then {@linkplain #release release} it.
+ * Partitions are read only through the snapshots of the ticks, also by their writer:
+ * a reader {@linkplain #acquire acquires} a snapshot, reads it through the
+ * {@link Acquisition} and then {@linkplain #release releases} it. Nobody reads the
+ * state of the writer, so the writes not yet published are in no read.
  * <p>
  * The snapshot of tick n is the state confirmed by the last {@linkplain #commit commit}
  * of tick n, or the state of the tick before if tick n has no commit. It is published
@@ -30,7 +29,7 @@ import java.util.List;
  * through them and the release are thread-safe.
  * <p>
  * {@link #removePartition} and {@link #dropPartition} are the last operation of the
- * writer: after them the writes, the commits and the reads of the writer fail with
+ * writer: after them the writes and the commits fail with
  * IllegalStateException, and the writes not committed are discarded. The next move of
  * the tick makes the removal effective at the new tick, the removal tick R: the partition
  * exists for the ticks before R. Readers can still acquire the snapshots of the ticks
@@ -126,12 +125,6 @@ public interface PartitionNode3 {
     void insertAll(PartitionId partitionId, List<Entity3> entities);
 
     /**
-     * Returns the entities with the given IDs, in the same order.
-     * IDs that are not in the partition are skipped.
-     */
-    List<Entity3> getAll(PartitionId partitionId, long[] entityIds);
-
-    /**
      * Sets the position of existing entities. Fails with NoSuchElementException
      * if an ID is not in the partition, and with IllegalArgumentException if a
      * position is outside the {@linkplain #limits limits} of the partition.
@@ -144,19 +137,6 @@ public interface PartitionNode3 {
      * is not in the partition, and with IllegalArgumentException if an ID appears twice.
      */
     void removeAll(PartitionId partitionId, long[] entityIds);
-
-    /**
-     * Returns the entities of a partition that are inside the region or on its border.
-     * The order of the result is not defined.
-     */
-    List<Entity3> findInRegion(PartitionId partitionId, Region3 region);
-
-    /**
-     * Returns the entities of a partition that are nearest to a point, at most count of them.
-     * The result is sorted by distance from the point; entities at the same distance are
-     * sorted by ID. Fails with IllegalArgumentException if count is negative.
-     */
-    List<Entity3> findNearest(PartitionId partitionId, Point3 point, int count);
 
     /**
      * Confirms the writes of a partition in its current tick: the snapshot of the tick will
@@ -223,9 +203,6 @@ public interface PartitionNode3 {
      * {@link #size(Acquisition)}, and with IllegalArgumentException if count is negative.
      */
     List<Entity3> findNearest(Acquisition acquisition, Point3 point, int count);
-
-    /** Returns the number of entities in a partition. */
-    int size(PartitionId partitionId);
 
     /**
      * Returns the coordinates that the entities of a partition can have. The

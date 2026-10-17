@@ -90,7 +90,6 @@ class PartitionWriters2Test {
                     node.insertAll(P2, List.of(new Entity2(20, B)));
                     node.updateAll(P2, List.of(new Entity2(20, C)));
                     node.commit(P2);
-                    assertEquals(List.of(new Entity2(20, C)), node.getAll(P2, new long[] {20}));
                 }, config + ": the writer of P2 waited for P1");
 
             } finally {

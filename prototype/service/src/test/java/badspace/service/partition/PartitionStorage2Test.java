@@ -129,7 +129,7 @@ class PartitionStorage2Test {
             String where = config.toString();
             checkSnapshot(first, List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)), where);
             checkSnapshot(second, List.of(new Entity2(40, A), new Entity2(20, B), new Entity2(30, D)), where);
-            assertEquals(List.of(new Entity2(30, D), new Entity2(40, B)), configured.getAll(ALL_IDS), where);
+            assertEquals(List.of(new Entity2(30, D), new Entity2(40, B)), configured.commit().getAll(ALL_IDS), where);
         }
     }
 
@@ -215,7 +215,6 @@ class PartitionStorage2Test {
         assertEquals(List.of(), empty.findNearest(A, 1));
 
         storage.insertAll(List.of(new Entity2(10, A)));
-        assertEquals(List.of(new Entity2(10, A)), storage.getAll(ALL_IDS));
         StorageSnapshot2 committed = storage.commit();
         // Committed, but not published until the tick moves.
         assertSame(empty, storage.catalog().latest());
@@ -226,7 +225,6 @@ class PartitionStorage2Test {
         // A tick without a commit keeps the snapshot before.
         storage.updateAll(List.of(new Entity2(10, B)));
         storage.setTick(3);
-        assertEquals(List.of(new Entity2(10, B)), storage.getAll(ALL_IDS));
         assertSame(committed, storage.catalog().latest());
         assertSame(committed, storage.catalog().at(2));
     }

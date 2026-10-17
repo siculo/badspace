@@ -4,7 +4,7 @@ title: Approccio di sviluppo
 description: BADSPACE viene sviluppato per prototipi minimali, verificati da test di integrazione e accompagnati da client d'esempio costruiti man mano, per validare le decisioni di progettazione sul campo; lo sviluppo è incrementale, ogni concetto nuovo porta con sé le estensioni che richiede e i meccanismi si implementano una volta e si estendono quando servono nuovi dati; i test partono dalla semantica, preferiscono componenti reali e verificano effetti, risorse e concorrenza; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
 tags: [badspace, methodology, prototyping]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-16T11:36:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T14:00:00Z }
 ---
 
 # Approccio
@@ -89,7 +89,9 @@ spaziali](/indices/), si prendono sulla base di misure:
 
 - **Strumento.** Un modulo di benchmark con JMH misura velocità e
   memoria attraverso il contratto del nodo, quindi anche il costo dello
-  storage e non solo quello dell'indice.
+  storage e non solo quello dell'indice. Le query si misurano su uno
+  snapshot acquisito, l'unico modo di leggere una partizione; le
+  scritture senza commit, così i nodi dell'indice cambiano sul posto.
 - **Misure relative.** Il prototipo Java non dà tempi rappresentativi
   dell'implementazione finale, quindi ogni indice si confronta con un
   riferimento, la [scansione lineare](/indices/linear-scan.md), e si

@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot preparati a ogni commit, pubblicati con una scrittura atomica all'avanzamento del tick e letti attraverso un'acquisizione controllata; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T14:00:00Z }
 ---
 
 # Problema
@@ -96,8 +96,7 @@ tick della partizione si legge dal catalogo pubblicato, quindi da ogni
 thread. Una partizione nuova pubblica al primo avanzamento uno snapshot
 vuoto, con l'indice vuoto della scansione lineare, che con slot vuoti
 vale per ogni indice. Tutti leggono gli snapshot pubblicati attraverso
-le acquisizioni, con una view controllata; oggi il writer legge anche il
-proprio stato, che la forma decisa toglie (vedi [API da
+le acquisizioni, con una view controllata, anche il writer (vedi [API da
 esporre](/decisions/api-surface.md#letture) e
 [Accesso dei reader](#accesso-dei-reader)): lo snapshot interno non
 esce dal nodo. La partizione rileva quando uno snapshot finisce (vedi

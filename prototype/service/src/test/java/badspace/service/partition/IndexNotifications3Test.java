@@ -47,7 +47,7 @@ class IndexNotifications3Test {
         order.verify(index).inserted(1, B);
         order.verify(index).moved(1, B, C);
         order.verifyNoMoreInteractions();
-        assertEquals(List.of(new Entity3(20, C)), storage.findNearest(C, 1));
+        assertEquals(List.of(new Entity3(20, C)), storage.commit().findNearest(C, 1));
     }
 
     @Test
@@ -61,7 +61,7 @@ class IndexNotifications3Test {
         order.verify(index).removed(0, C);
         order.verify(index).relocated(1, 0, B);
         order.verifyNoMoreInteractions();
-        assertEquals(List.of(new Entity3(20, B)), storage.findNearest(A, 3));
+        assertEquals(List.of(new Entity3(20, B)), storage.commit().findNearest(A, 3));
     }
 
     @Test
@@ -93,9 +93,8 @@ class IndexNotifications3Test {
                 () -> storage.updateAll(List.of(new Entity3(10, B), new Entity3(10, outside))));
         verifyNoInteractions(index);
         List<Entity3> expected = List.of(new Entity3(10, A));
-        assertEquals(expected, storage.getAll(new long[] {10, 20, 30}));
-        assertEquals(expected, storage.findNearest(B, 3));
         StorageSnapshot3 snapshot = storage.commit();
+        assertEquals(expected, snapshot.getAll(new long[] {10, 20, 30}));
         assertEquals(expected, snapshot.findNearest(B, 3));
     }
 
@@ -110,13 +109,5 @@ class IndexNotifications3Test {
         order.verify(index).commit(2);
         order.verify(index).commit(3);
         order.verifyNoMoreInteractions();
-    }
-
-    @Test
-    void zeroNearestCountReturnsEmptyWithoutCallingTheIndex() {
-        storage.insertAll(List.of(new Entity3(10, A)));
-        clearInvocations(index);
-        assertEquals(List.of(), storage.findNearest(A, 0));
-        verifyNoInteractions(index);
     }
 }

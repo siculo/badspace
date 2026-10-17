@@ -6,11 +6,9 @@ import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.RetentionWindow;
 import badspace.common.geometry.Point3;
-import badspace.common.geometry.Region3;
 import badspace.service.index.SlotView3;
 import badspace.service.index.SpatialIndex3;
 import badspace.service.index.SpatialIndexes;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -34,8 +32,8 @@ import java.util.function.Function;
  * and the order of the entities can change.
  * Each write first checks all the input, then applies it, so a failed write
  * does not change the partition.
- * Queries go to the spatial index of the partition, which the storage informs
- * of each change. The index finds the slots and the storage builds the entities.
+ * The storage informs the spatial index of the partition of each change. Nobody queries
+ * the state of the writer: queries read the snapshots, through the acquisitions.
  * The positions of the entities must be in the limits of the index: writes
  * outside them fail, so the indices never see them.
  * Writes are grouped in commits. Each commit makes a {@link StorageSnapshot3}: a snapshot of the slots and the snapshot of the
@@ -67,9 +65,8 @@ import java.util.function.Function;
  * The catalog holds the same snapshots, not copies, for the ticks of the
  * retention window.
  * <p>
- * The reads of the storage see the state of the writer, with the writes not
- * yet committed, and only the writer can call them. The other threads read
- * the {@linkplain #catalog() catalog}: the move of the tick publishes it with a
+ * Everyone, the writer too, reads the snapshots of the
+ * {@linkplain #catalog() catalog}: the move of the tick publishes it with a
  * single write of a volatile field, so a reader sees either the catalog before
  * or the whole new catalog, never a new tick with an old window.
  * <p>
@@ -281,17 +278,6 @@ final class PartitionStorage3 implements SlotView3 {
         }
     }
 
-    List<Entity3> getAll(long[] entityIds) {
-        List<Entity3> result = new ArrayList<>(entityIds.length);
-        for (long id : entityIds) {
-            int slot = slotById.get(id);
-            if (slot != SlotTable.NONE) {
-                result.add(new Entity3(id, positionAt(slot)));
-            }
-        }
-        return result;
-    }
-
     void updateAll(List<Entity3> entities) {
         writerLock.lock();
         try {
@@ -326,20 +312,6 @@ final class PartitionStorage3 implements SlotView3 {
         } finally {
             writerLock.unlock();
         }
-    }
-
-    List<Entity3> findInRegion(Region3 region) {
-        return entitiesAt(index.findInRegion(region));
-    }
-
-    List<Entity3> findNearest(Point3 point, int count) {
-        if (count < 0) {
-            throw new IllegalArgumentException("Negative count: " + count);
-        }
-        if (count == 0) {
-            return List.of();
-        }
-        return entitiesAt(index.findNearest(point, count));
     }
 
     @Override
@@ -763,14 +735,6 @@ final class PartitionStorage3 implements SlotView3 {
             throw new IllegalArgumentException("Position of entity " + e.id() + " is outside the limits "
                     + limits.min() + ", " + limits.max() + ": " + e.position());
         }
-    }
-
-    private List<Entity3> entitiesAt(int[] slots) {
-        List<Entity3> result = new ArrayList<>(slots.length);
-        for (int slot : slots) {
-            result.add(new Entity3(slotEntityIds[slot], positionAt(slot)));
-        }
-        return result;
     }
 
     private int slotOf(long entityId) {

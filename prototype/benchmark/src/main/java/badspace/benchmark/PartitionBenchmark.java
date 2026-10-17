@@ -1,5 +1,7 @@
 package badspace.benchmark;
 
+import badspace.common.partition.AcquireOptions;
+import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.geometry.Point2;
@@ -16,6 +18,7 @@ import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 
@@ -26,7 +29,12 @@ import org.openjdk.jmh.annotations.TearDown;
  * The partition must stay the same during a trial, otherwise later calls
  * would measure a different partition. So writes are undone: insert and
  * remove are undone after each call, outside the measured time; updates move
- * the entities and then move them back.
+ * the entities and then move them back. The writes are never committed, as before
+ * the snapshots: the nodes of the index stay in the current commit and change in place.
+ * <p>
+ * Queries read a snapshot, the only way to read a partition: the partition commits
+ * its entities and moves to the next tick once for each trial, and each iteration
+ * acquires the published snapshot and releases it at the end.
  * <p>
  * The inputs are prepared before the trial, in a ring that the calls go
  * through, so the benchmarks do not measure the creation of the inputs.
@@ -68,6 +76,30 @@ public class PartitionBenchmark {
         /** Returns the number of batches that fit in the partition, so that batches do not share entities. */
         int disjointBatchCount(int batchSize) {
             return Math.max(1, Math.min(BATCH_COUNT, size / batchSize));
+        }
+    }
+
+    /** A partition that publishes the snapshot of its entities, for the query benchmarks. */
+    public abstract static class QueryState extends PartitionState {
+
+        Acquisition acquisition;
+
+        @Override
+        void afterWorkload() {
+            super.afterWorkload();
+            node.commit(PARTITION_ID);
+            node.setTick(1);
+        }
+
+        // With the longest timeout, the acquisition lasts for the whole iteration.
+        @Setup(Level.Iteration)
+        public void acquire() {
+            acquisition = node.acquireLatest(PARTITION_ID, AcquireOptions.timeout(AcquireOptions.MAX_TIMEOUT));
+        }
+
+        @TearDown(Level.Iteration)
+        public void release() {
+            node.release(acquisition);
         }
     }
 
@@ -191,7 +223,7 @@ public class PartitionBenchmark {
     }
 
     @State(Scope.Thread)
-    public static class GetState extends PartitionState {
+    public static class GetState extends QueryState {
 
         @Param({"1", "100"})
         public int batchSize;
@@ -217,7 +249,7 @@ public class PartitionBenchmark {
     }
 
     @State(Scope.Thread)
-    public static class RangeState extends PartitionState {
+    public static class RangeState extends QueryState {
 
         /** Share of the entities that each query finds. */
         @Param({"0.001", "0.01"})
@@ -251,7 +283,7 @@ public class PartitionBenchmark {
     }
 
     @State(Scope.Thread)
-    public static class NearestState extends PartitionState {
+    public static class NearestState extends QueryState {
 
         @Param({"1", "10"})
         public int k;
@@ -294,16 +326,16 @@ public class PartitionBenchmark {
 
     @Benchmark
     public List<Entity2> get(GetState s) {
-        return s.node.getAll(WorkloadState.PARTITION_ID, s.nextBatch());
+        return s.node.getAll(s.acquisition, s.nextBatch());
     }
 
     @Benchmark
     public List<Entity2> findInRegion(RangeState s) {
-        return s.node.findInRegion(WorkloadState.PARTITION_ID, s.nextRegion());
+        return s.node.findInRegion(s.acquisition, s.nextRegion());
     }
 
     @Benchmark
     public List<Entity2> findNearest(NearestState s) {
-        return s.node.findNearest(WorkloadState.PARTITION_ID, s.nextPoint(), s.k);
+        return s.node.findNearest(s.acquisition, s.nextPoint(), s.k);
     }
 }
