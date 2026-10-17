@@ -8,8 +8,10 @@ L'obiettivo è uno strumento flessibile, che i programmatori possono adattare al
 
 Il progetto è in fase prototipale: il prototipo in Java (`prototype/`) serve a validare le decisioni di progetto, documentate nel [bundle OKF](okf-bundle/index.md). Stato attuale:
 
-- **Fatto:** libreria embedded con spazi 2D e 3D, partizioni su nodi locali, indici spaziali scelti alla creazione della partizione, inserimento, lettura, aggiornamento e rimozione delle entità.
-- **In corso:** commit della partizione, con un writer e più reader concorrenti sulla stessa partizione.
+- **Fatto:** libreria embedded con spazi 2D e 3D, partizioni su nodi locali, indici spaziali scelti alla creazione della partizione, inserimento, aggiornamento e rimozione delle entità. Commit della partizione, con un writer e più reader concorrenti sulla stessa partizione: i reader acquisiscono lo snapshot di un tick completo, e gli snapshot degli ultimi tick sono conservati. Proprietà della partizione con fencing token, così un writer può passarla a un altro o un coordinatore può toglierla. Rimozione della partizione mentre i reader usano ancora i suoi snapshot.
+- **Prossimo passo:** metadati di sistema e applicativi delle entità.
+
+Gli [esempi](prototype/samples/README-it.md) mostrano come usare l'API, nell'ordine necessario per capirla.
 
 ## Configurazione per gli agenti
 

@@ -8,8 +8,10 @@ The goal is a flexible tool that developers can adapt to their own needs. The de
 
 The project is at the prototype stage: the Java prototype (`prototype/`) is used to validate the design decisions, documented in the [OKF bundle](okf-bundle/index.md). Current status:
 
-- **Done:** embedded library with 2D and 3D spaces, partitions on local nodes, spatial indexes chosen when a partition is created, insert, read, update and removal of entities.
-- **In progress:** partition commit, with one writer and many concurrent readers on the same partition.
+- **Done:** embedded library with 2D and 3D spaces, partitions on local nodes, spatial indexes chosen when a partition is created, insert, update and removal of entities. Partition commit, with one writer and many concurrent readers on the same partition: readers acquire the snapshot of a completed tick, and the snapshots of the last ticks are retained. Ownership of a partition with a fencing token, so that a writer can pass it to another one or a coordinator can take it away. Removal of a partition while readers still use its snapshots.
+- **Next:** system and application metadata of the entities.
+
+The [samples](prototype/samples/README.md) show how to use the API, in the order needed to understand it.
 
 > **Note on language:** the documentation is currently in Italian, while the code is in English. English documentation will be written when the project is more mature.
 

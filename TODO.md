@@ -77,6 +77,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 - [x] Client di test di base
 - [x] Run configuration di IntelliJ
 - [x] Modulo `integration-tests` con i test dell'API insieme ai nodi locali e moduli dei client d'esempio in `samples` (`api-tour`, `random-updater`), al posto del modulo client
+- [x] Esempi in `samples`, un modulo per ogni aspetto dell'API (`spaces-and-partitions`, `writes-and-commits`, `snapshot-reads`, `ticks-and-retention`, `acquisition-timeouts`, `ownership-handoff`, `partition-removal`) e per ogni caso d'uso (`random-updater`, `multi-writer`, `writer-failover`, `lagged-reader`), al posto di `api-tour`
 
 <a id="fare-basi"></a>
 ### Basi [↑](#blocchi)

@@ -1,0 +1,15 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="SpacesAndPartitions" type="Application" factoryName="Application" nameIsGenerated="true">
+    <option name="MAIN_CLASS_NAME" value="badspace.samples.spacesandpartitions.SpacesAndPartitions" />
+    <module name="badspace-sample-spaces-and-partitions" />
+    <extension name="coverage">
+      <pattern>
+        <option name="PATTERN" value="badspace.samples.spacesandpartitions.*" />
+        <option name="ENABLED" value="true" />
+      </pattern>
+    </extension>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

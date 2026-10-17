@@ -1,0 +1,15 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="OwnershipHandoff" type="Application" factoryName="Application" nameIsGenerated="true">
+    <option name="MAIN_CLASS_NAME" value="badspace.samples.ownershiphandoff.OwnershipHandoff" />
+    <module name="badspace-sample-ownership-handoff" />
+    <extension name="coverage">
+      <pattern>
+        <option name="PATTERN" value="badspace.samples.ownershiphandoff.*" />
+        <option name="ENABLED" value="true" />
+      </pattern>
+    </extension>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

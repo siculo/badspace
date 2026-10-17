@@ -1,0 +1,67 @@
+# Esempi
+
+*[English](README.md)*
+
+Piccoli client che mostrano come usare BADSPACE come libreria embedded, con
+nodi locali. Ogni esempio è un modulo con una classe `main`. I primi mostrano
+ognuno una parte dell'API; gli ultimi sono piccoli programmi per un caso
+d'uso, con più thread.
+
+Vanno letti in questo ordine: ogni esempio usa solo quello che spiegano gli
+esempi prima.
+
+## Eseguire un esempio
+
+Da `prototype`:
+
+```
+mvn install -DskipTests
+mvn -pl samples/<nome> exec:java
+```
+
+In IntelliJ IDEA ogni esempio ha una run configuration con il nome della sua
+classe.
+
+## Parti dell'API
+
+1. [`spaces-and-partitions`](spaces-and-partitions) (`SpacesAndPartitions`):
+   i generatori degli ID, condivisi da tutti gli spazi del processo; spazi 2D
+   e 3D; partizioni su nodi locali e la loro configurazione (indice, politica
+   di rimozione, tick conservati); i limiti delle coordinate; le operazioni
+   comuni a 2D e 3D.
+2. [`writes-and-commits`](writes-and-commits) (`WritesAndCommits`): il writer
+   prende la proprietà di una partizione e scrive con l'handle del suo token;
+   scritture singole e batch; un batch che fallisce non cambia niente; il
+   commit conferma le scritture nel tick corrente e l'avanzamento del tick le
+   pubblica.
+3. [`snapshot-reads`](snapshot-reads) (`SnapshotReads`): letture per ID e
+   query (box, cerchio, entità più vicine) su uno snapshot acquisito, che non
+   vede i commit successivi.
+4. [`ticks-and-retention`](ticks-and-retention) (`TicksAndRetention`): la
+   finestra di conservazione, gli snapshot dei tick passati, i tick saltati e
+   i motivi per cui uno snapshot non è disponibile.
+5. [`acquisition-timeouts`](acquisition-timeouts) (`AcquisitionTimeouts`): il
+   rilascio di un'acquisizione e la sua scadenza.
+6. [`ownership-handoff`](ownership-handoff) (`OwnershipHandoff`): le
+   generazioni della proprietà, il passaggio a un altro writer, la revoca da
+   parte di un coordinatore e il rilascio che scarta le scritture non
+   confermate.
+7. [`partition-removal`](partition-removal) (`PartitionRemoval`): le due
+   politiche di rimozione, i reader dopo la rimozione e la distruzione della
+   partizione quando non resta nessuno snapshot.
+
+## Casi d'uso
+
+8. [`random-updater`](random-updater) (`RandomUpdater`): un writer e un reader
+   su due thread; il writer muove le entità a caso a ogni tick, il reader
+   mostra l'ultimo snapshot.
+9. [`multi-writer`](multi-writer) (`MultiWriter`): più partizioni su un nodo,
+   ognuna con il writer sul suo thread, e un tick comune a tutte, come il
+   ciclo di un server di gioco.
+10. [`lagged-reader`](lagged-reader) (`LaggedReader`): un reader che disegna
+    più frame dei tick, un po' nel passato, tra gli snapshot di due tick
+    conservati, come un client di gioco.
+11. [`writer-failover`](writer-failover) (`WriterFailover`): un coordinatore
+    toglie la proprietà a un writer bloccato e la dà a uno nuovo, che riparte
+    dall'ultimo snapshot; il fencing token rifiuta il vecchio writer quando si
+    sveglia.

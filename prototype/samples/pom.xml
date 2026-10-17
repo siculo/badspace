@@ -13,14 +13,23 @@
     <artifactId>badspace-samples</artifactId>
     <packaging>pom</packaging>
     <name>BADSPACE prototype - samples</name>
-    <description>Sample clients that show how to use BADSPACE, one for each module.</description>
+    <description>Sample clients that show how to use BADSPACE: one module for each aspect of the API and for each use case.</description>
 
     <!-- To run a sample, from the prototype directory:
          mvn install -DskipTests
          mvn -pl samples/<name> exec:java -->
 
     <modules>
-        <module>api-tour</module>
+        <module>spaces-and-partitions</module>
+        <module>writes-and-commits</module>
+        <module>snapshot-reads</module>
+        <module>ticks-and-retention</module>
+        <module>acquisition-timeouts</module>
+        <module>ownership-handoff</module>
+        <module>partition-removal</module>
+        <module>multi-writer</module>
+        <module>writer-failover</module>
+        <module>lagged-reader</module>
         <module>random-updater</module>
     </modules>
 
