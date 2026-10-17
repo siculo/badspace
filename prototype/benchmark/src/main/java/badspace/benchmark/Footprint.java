@@ -1,5 +1,6 @@
 package badspace.benchmark;
 
+import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionNode2;
 import badspace.service.partition.LocalPartitionNode2;
 import java.lang.management.ManagementFactory;
@@ -123,7 +124,8 @@ final class Footprint {
             long before = usedHeap();
             PartitionNode2 node = new LocalPartitionNode2();
             node.createPartition(WorkloadState.PARTITION_ID, IndexNames.parse(index));
-            node.insertAll(WorkloadState.PARTITION_ID, workload.entities());
+            node.claim(WorkloadState.PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
+            node.insertAll(WorkloadState.WRITE_TOKEN, workload.entities());
             long after = usedHeap();
             Reference.reachabilityFence(node);
             samples[r] = (double) (after - before) / workload.entities().size();

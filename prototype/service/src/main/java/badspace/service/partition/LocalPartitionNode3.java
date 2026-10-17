@@ -132,13 +132,13 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
-    public void removePartition(PartitionId partitionId) {
-        find(partitionId).requestRemoval(true);
+    public void removePartition(WriteToken token) {
+        find(token.partitionId()).requestRemoval(token.generation(), true);
     }
 
     @Override
-    public void dropPartition(PartitionId partitionId) {
-        find(partitionId).requestRemoval(false);
+    public void dropPartition(WriteToken token) {
+        find(token.partitionId()).requestRemoval(token.generation(), false);
     }
 
     @Override
@@ -168,23 +168,23 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
-    public void insertAll(PartitionId partitionId, List<Entity3> entities) {
-        find(partitionId).insertAll(entities);
+    public void insertAll(WriteToken token, List<Entity3> entities) {
+        find(token.partitionId()).insertAll(token.generation(), entities);
     }
 
     @Override
-    public void updateAll(PartitionId partitionId, List<Entity3> entities) {
-        find(partitionId).updateAll(entities);
+    public void updateAll(WriteToken token, List<Entity3> entities) {
+        find(token.partitionId()).updateAll(token.generation(), entities);
     }
 
     @Override
-    public void removeAll(PartitionId partitionId, long[] entityIds) {
-        find(partitionId).removeAll(entityIds);
+    public void removeAll(WriteToken token, long[] entityIds) {
+        find(token.partitionId()).removeAll(token.generation(), entityIds);
     }
 
     @Override
-    public void commit(PartitionId partitionId) {
-        find(partitionId).commit();
+    public void commit(WriteToken token) {
+        find(token.partitionId()).commit(token.generation());
     }
 
     @Override

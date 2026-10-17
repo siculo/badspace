@@ -5,6 +5,7 @@ import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
+import badspace.common.partition.WriteToken;
 import badspace.common.geometry.Point3;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,15 +28,19 @@ public final class Partition3 implements Partition {
     private final Space3 space;
     private final PartitionNode3 node;
     private final PartitionId partitionId;
+    // The token of the ownership, which the space takes when it creates the partition: the
+    // writes, the commits and the removal of the proxy carry it.
+    private final WriteToken token;
     private final PartitionConfig config;
     // Written only by the writer, when the space removes the partition, and read only by
     // the writer: it stops the operations of the writer without a call to the node.
     private boolean removed;
 
-    Partition3(Space3 space, PartitionNode3 node, PartitionId partitionId, PartitionConfig config) {
+    Partition3(Space3 space, PartitionNode3 node, WriteToken token, PartitionConfig config) {
         this.space = space;
         this.node = node;
-        this.partitionId = partitionId;
+        this.partitionId = token.partitionId();
+        this.token = token;
         this.config = config;
     }
 
@@ -47,8 +52,8 @@ public final class Partition3 implements Partition {
     void removeFromNode() {
         checkNotRemoved();
         switch (config.removalPolicy()) {
-            case REQUIRE_EMPTY -> node.removePartition(partitionId);
-            case DISCARD_ENTITIES -> node.dropPartition(partitionId);
+            case REQUIRE_EMPTY -> node.removePartition(token);
+            case DISCARD_ENTITIES -> node.dropPartition(token);
         }
         removed = true;
     }
@@ -82,7 +87,7 @@ public final class Partition3 implements Partition {
             entityIds[i] = space.nextEntityId();
             entities.add(new Entity3(entityIds[i], positions.get(i)));
         }
-        node.insertAll(partitionId, entities);
+        node.insertAll(token, entities);
         return entityIds;
     }
 
@@ -101,7 +106,7 @@ public final class Partition3 implements Partition {
      */
     public void updateAll(List<Entity3> entities) {
         checkNotRemoved();
-        node.updateAll(partitionId, entities);
+        node.updateAll(token, entities);
     }
 
     @Override
@@ -112,13 +117,13 @@ public final class Partition3 implements Partition {
     @Override
     public void removeAll(long[] entityIds) {
         checkNotRemoved();
-        node.removeAll(partitionId, entityIds);
+        node.removeAll(token, entityIds);
     }
 
     @Override
     public void commit() {
         checkNotRemoved();
-        node.commit(partitionId);
+        node.commit(token);
     }
 
     /** Acquires the snapshot of a tick with the default timeout, like {@link #acquire(long, AcquireOptions)}. */

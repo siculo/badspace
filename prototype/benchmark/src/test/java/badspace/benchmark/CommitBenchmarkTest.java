@@ -37,7 +37,7 @@ class CommitBenchmarkTest {
 
     /** Commits the moves of the writer and moves the tick, so the next snapshot has them. */
     private static void commitAndPublish(CommitBenchmark.SnapshotState s) {
-        s.node.commit(WorkloadState.PARTITION_ID);
+        s.node.commit(WorkloadState.WRITE_TOKEN);
         s.node.setTick(s.node.tick() + 1);
     }
 

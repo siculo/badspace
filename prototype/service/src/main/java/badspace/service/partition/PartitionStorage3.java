@@ -5,6 +5,7 @@ import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.Ownership;
+import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.RetentionWindow;
 import badspace.common.geometry.Point3;
 import badspace.service.index.SlotView3;
@@ -32,7 +33,9 @@ import java.util.function.Function;
  * coords[3*i], coords[3*i+1], coords[3*i+2]. A {@link SlotTable} gives the slot of each ID.
  * Removal moves the last entity into the free slot, so the arrays stay compact
  * and the order of the entities can change.
- * Each write first checks all the input, then applies it, so a failed write
+ * Each write, commit and request of removal takes the generation of the owner and first
+ * checks it, under the lock of the writer, together with all the input; then it applies
+ * the write. So a failed write, or one with a generation that is not current,
  * does not change the partition.
  * The storage informs the spatial index of the partition of each change. Nobody queries
  * the state of the writer: queries read the snapshots, through the acquisitions.
@@ -261,9 +264,10 @@ final class PartitionStorage3 implements SlotView3 {
         this.pending = lastCommitted;
     }
 
-    void insertAll(List<Entity3> entities) {
+    void insertAll(long generation, List<Entity3> entities) {
         writerLock.lock();
         try {
+            checkOwner(generation);
             Set<Long> seen = new HashSet<>();
             for (Entity3 e : entities) {
                 if (slotById.contains(e.id()) || !seen.add(e.id())) {
@@ -280,9 +284,10 @@ final class PartitionStorage3 implements SlotView3 {
         }
     }
 
-    void updateAll(List<Entity3> entities) {
+    void updateAll(long generation, List<Entity3> entities) {
         writerLock.lock();
         try {
+            checkOwner(generation);
             for (Entity3 e : entities) {
                 slotOf(e.id());
                 checkLimits(e);
@@ -295,9 +300,10 @@ final class PartitionStorage3 implements SlotView3 {
         }
     }
 
-    void removeAll(long[] entityIds) {
+    void removeAll(long generation, long[] entityIds) {
         writerLock.lock();
         try {
+            checkOwner(generation);
             Set<Long> seen = new HashSet<>();
             for (long id : entityIds) {
                 slotOf(id);
@@ -337,12 +343,14 @@ final class PartitionStorage3 implements SlotView3 {
      * move of the tick publishes it, unless a later commit in the same tick replaces it: then
      * the returned snapshot must not be read any more, because its buffer can go to a later
      * commit.
-     * It also removes the expired acquisitions. Only the writer can call it.
+     * It also removes the expired acquisitions. Only the writer can call it. Fails with
+     * OwnershipChangedException if generation is not the one of the owner.
      */
-    StorageSnapshot3 commit() {
+    StorageSnapshot3 commit(long generation) {
         StorageSnapshot3 snapshot;
         writerLock.lock();
         try {
+            checkOwner(generation);
             commitSequence++;
             // Replaced before the move of the tick, if not null: no reader ever saw it.
             StorageSnapshot3 replaced = pending;
@@ -431,20 +439,34 @@ final class PartitionStorage3 implements SlotView3 {
      * snapshot is the state of the last commit. The next move of the tick makes the removal
      * effective. Fails with IllegalStateException if the removal was already requested, or if
      * requireEmpty is true and the state of the last commit has entities; in these cases
-     * nothing changes. Only the writer can call it.
+     * nothing changes. Fails with OwnershipChangedException if generation is not the one of
+     * the owner. Only the writer can call it.
      */
-    void requestRemoval(boolean requireEmpty) {
+    void requestRemoval(long generation, boolean requireEmpty) {
         writerLock.lock();
         try {
             if (state != PartitionState.ACTIVE) {
                 throw new IllegalStateException("Removal was already requested");
             }
+            checkOwner(generation);
             if (requireEmpty && lastCommitted.size() > 0) {
                 throw new IllegalStateException("Committed state is not empty: " + lastCommitted.size() + " entities");
             }
             state = PartitionState.REMOVAL_PENDING;
         } finally {
             writerLock.unlock();
+        }
+    }
+
+    /**
+     * Fails with OwnershipChangedException if the generation is not the one of the current
+     * owner. The caller holds writerLock, so the ownership cannot change until it ends.
+     */
+    private void checkOwner(long generation) {
+        Ownership current = ownership;
+        if (!current.owned() || current.generation() != generation) {
+            throw new OwnershipChangedException("Token of generation " + generation
+                    + " is not current: the ownership is " + current);
         }
     }
 

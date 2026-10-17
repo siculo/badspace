@@ -47,6 +47,11 @@ import java.util.Optional;
  * {@link WriteToken} and leaves the ownership with {@link #release(WriteToken)}. At each change
  * of the generation the writes not committed are discarded, and the commits stay. The node
  * does not check who calls these operations: the software decides who owns a partition.
+ * The writes, the commits and the removals take the token of the owner, and the partition
+ * checks it in the same step as the operation: with a token that is not current they fail
+ * with {@link OwnershipChangedException} and the partition does not change, so a writer that
+ * lost the ownership cannot change the partition even if it does not know it yet. The moves
+ * of the tick and the reads take no token.
  * <p>
  * Partition IDs are never used again, so the node cannot tell an unknown partition from
  * a destroyed one: the operations of the partition fail with IllegalArgumentException,
@@ -112,19 +117,21 @@ public interface PartitionNode2 {
     /**
      * Removes a partition whose last commit has no entities: the removal becomes effective at
      * the next move of the tick, and the writes not committed are discarded. Fails with
-     * IllegalArgumentException if the ID is unknown, and with IllegalStateException if the
-     * last commit has entities or the removal was already requested; in these cases the
+     * IllegalArgumentException if the partition of the token is unknown, and with
+     * IllegalStateException if the last commit has entities or the removal was already requested; in these cases the
      * partition does not change.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void removePartition(PartitionId partitionId);
+    void removePartition(WriteToken token);
 
     /**
      * Removes a partition together with its entities: the removal becomes effective at the
      * next move of the tick, and the writes not committed are discarded. Fails with
-     * IllegalArgumentException if the ID is unknown, and with IllegalStateException if the
-     * removal was already requested.
+     * IllegalArgumentException if the partition of the token is unknown, and with
+     * IllegalStateException if the removal was already requested.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void dropPartition(PartitionId partitionId);
+    void dropPartition(WriteToken token);
 
     /**
      * Returns the state of the ownership of a partition: its generation and whether it has
@@ -161,22 +168,25 @@ public interface PartitionNode2 {
      * not be used anywhere else. Fails with IllegalArgumentException if an ID is
      * already in the partition or appears twice in the list, or if a position is
      * outside the {@linkplain #limits limits} of the partition.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void insertAll(PartitionId partitionId, List<Entity2> entities);
+    void insertAll(WriteToken token, List<Entity2> entities);
 
     /**
      * Sets the position of existing entities. Fails with NoSuchElementException
      * if an ID is not in the partition, and with IllegalArgumentException if a
      * position is outside the {@linkplain #limits limits} of the partition.
      * If an ID appears more than once, the last position wins.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void updateAll(PartitionId partitionId, List<Entity2> entities);
+    void updateAll(WriteToken token, List<Entity2> entities);
 
     /**
      * Removes entities from a partition. Fails with NoSuchElementException if an ID
      * is not in the partition, and with IllegalArgumentException if an ID appears twice.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void removeAll(PartitionId partitionId, long[] entityIds);
+    void removeAll(WriteToken token, long[] entityIds);
 
     /**
      * Confirms the writes of a partition in its current tick: the snapshot of the tick will
@@ -188,8 +198,9 @@ public interface PartitionNode2 {
      * This call does not advance the tick, wait for the next tick or stop further writes
      * in the same tick. The writer decides whether to wait before writing again.
      * The snapshot becomes acquirable when the tick of the partition moves forward.
+     * Fails with OwnershipChangedException if the token is not the current one.
      */
-    void commit(PartitionId partitionId);
+    void commit(WriteToken token);
 
     /**
      * Acquires the snapshot of the given tick of a partition: it must be in the retention

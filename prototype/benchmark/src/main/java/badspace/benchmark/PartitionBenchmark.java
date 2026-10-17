@@ -58,7 +58,7 @@ public class PartitionBenchmark {
         @Override
         void afterWorkload() {
             node = newNode();
-            node.insertAll(PARTITION_ID, workload.entities());
+            node.insertAll(WRITE_TOKEN, workload.entities());
             random = new SplittableRandom(SEED + 1);
             prepare();
         }
@@ -87,7 +87,7 @@ public class PartitionBenchmark {
         @Override
         void afterWorkload() {
             super.afterWorkload();
-            node.commit(PARTITION_ID);
+            node.commit(WRITE_TOKEN);
             node.setTick(1);
         }
 
@@ -142,7 +142,7 @@ public class PartitionBenchmark {
 
         @TearDown(Level.Invocation)
         public void removeInserted() {
-            node.removeAll(PARTITION_ID, current.entityIds());
+            node.removeAll(WRITE_TOKEN, current.entityIds());
         }
     }
 
@@ -173,7 +173,7 @@ public class PartitionBenchmark {
 
         @TearDown(Level.Invocation)
         public void insertRemoved() {
-            node.insertAll(PARTITION_ID, current.entities());
+            node.insertAll(WRITE_TOKEN, current.entities());
         }
     }
 
@@ -311,17 +311,17 @@ public class PartitionBenchmark {
 
     @Benchmark
     public void insert(InsertState s) {
-        s.node.insertAll(WorkloadState.PARTITION_ID, s.nextBatch().entities());
+        s.node.insertAll(WorkloadState.WRITE_TOKEN, s.nextBatch().entities());
     }
 
     @Benchmark
     public void remove(RemoveState s) {
-        s.node.removeAll(WorkloadState.PARTITION_ID, s.nextBatch().entityIds());
+        s.node.removeAll(WorkloadState.WRITE_TOKEN, s.nextBatch().entityIds());
     }
 
     @Benchmark
     public void update(UpdateState s) {
-        s.node.updateAll(WorkloadState.PARTITION_ID, s.nextBatch());
+        s.node.updateAll(WorkloadState.WRITE_TOKEN, s.nextBatch());
     }
 
     @Benchmark

@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -22,19 +24,30 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.WriteToken;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /** Checks API decisions and delegation without implementing the node contract again. */
 class Space3Test {
     private static final PartitionId PARTITION_ID = new PartitionId(101);
+    /** The token that the space takes when it creates the partition, from the node below. */
+    private static final WriteToken TOKEN = new WriteToken(PARTITION_ID, 1);
     private final AtomicLong entityIds = new AtomicLong(10);
     private final AtomicLong partitionIds = new AtomicLong(100);
     private final SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
     private final Space3 space = new Space3(config);
     private final PartitionNode3 node = mock(PartitionNode3.class);
+
+    @BeforeEach
+    void setUp() {
+        // Like a real node, the first claim of a new partition gives the token of generation 1.
+        when(node.claim(any(), eq(0L))).thenAnswer(call -> Optional.of(new WriteToken(call.getArgument(0), 1)));
+    }
     private static final Point3 A = new Point3(1, 2, 3);
     private static final Point3 B = new Point3(5, 6, 7);
 
@@ -46,6 +59,7 @@ class Space3Test {
         var order = inOrder(node);
         order.verify(node).setTick(0);
         order.verify(node).createPartition(PARTITION_ID, chosen.index(), 3);
+        order.verify(node).claim(PARTITION_ID, 0);
         order.verifyNoMoreInteractions();
     }
 
@@ -61,7 +75,7 @@ class Space3Test {
         Partition3 partition = space.createPartition(node);
         clearInvocations(node);
         assertArrayEquals(new long[] {11, 12}, partition.insertAll(List.of(A, B)));
-        verify(node).insertAll(PARTITION_ID, List.of(new Entity3(11, A), new Entity3(12, B)));
+        verify(node).insertAll(TOKEN, List.of(new Entity3(11, A), new Entity3(12, B)));
         verifyNoMoreInteractions(node);
     }
 
@@ -73,9 +87,9 @@ class Space3Test {
             clearInvocations(node);
             space.removePartition(partition);
             if (policy == RemovalPolicy.REQUIRE_EMPTY) {
-                verify(node).removePartition(id);
+                verify(node).removePartition(new WriteToken(id, 1));
             } else {
-                verify(node).dropPartition(id);
+                verify(node).dropPartition(new WriteToken(id, 1));
             }
             verifyNoMoreInteractions(node);
         }
@@ -84,10 +98,10 @@ class Space3Test {
     @Test
     void failedRemovalLeavesTheProxyUsable() {
         Partition3 partition = space.createPartition(node);
-        doThrow(new IllegalStateException("Partition is not empty")).when(node).removePartition(PARTITION_ID);
+        doThrow(new IllegalStateException("Partition is not empty")).when(node).removePartition(TOKEN);
         assertThrows(IllegalStateException.class, () -> space.removePartition(partition));
         partition.insert(A);
-        verify(node).insertAll(PARTITION_ID, List.of(new Entity3(11, A)));
+        verify(node).insertAll(TOKEN, List.of(new Entity3(11, A)));
     }
 
     @Test
@@ -161,6 +175,7 @@ class Space3Test {
     @Test
     void setTickReachesEachNodeOnceEvenWithSeveralPartitions() {
         PartitionNode3 other = mock(PartitionNode3.class);
+        when(other.claim(any(), eq(0L))).thenAnswer(call -> Optional.of(new WriteToken(call.getArgument(0), 1)));
         space.createPartition(node);
         space.createPartition(node);
         space.createPartition(other);
@@ -197,7 +212,7 @@ class Space3Test {
         when(node.limits(PARTITION_ID)).thenReturn(IndexConfig.uniformGrid(4).limits());
         assertEquals(IndexConfig.uniformGrid(4).limits(), partition.limits());
         partition.commit();
-        verify(node).commit(PARTITION_ID);
+        verify(node).commit(TOKEN);
     }
 
     @Test

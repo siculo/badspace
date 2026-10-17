@@ -4,7 +4,7 @@ title: Proprietà della partizione
 description: Ogni partizione ha al più un writer; la proprietà ha una generazione che cresce a ogni cambio, si legge con ownership(p), si prende con claim(p, expectedGeneration), un compare-and-set sulla generazione, e si lascia con release(token); scritture, commit e remove() portano il token (fencing token), e la partizione rifiuta quelli di una generazione vecchia, scartando le scritture non confermate a ogni cambio. Sopra la primitiva si costruiscono schemi diversi di gestione della proprietà.
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T15:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T17:00:00Z }
 ---
 
 # Primitiva
@@ -135,8 +135,11 @@ Lo stato di proprietà è nel nodo: i record `Ownership` (generazione,
 posseduta) e `WriteToken` (ID della partizione, generazione ≥ 1) sono in
 `common`, e il contratto del nodo ha `ownership(PartitionId)`,
 `claim(PartitionId, long)`, che restituisce `Optional<WriteToken>`, e
-`release(WriteToken)`. Le scritture non usano ancora il token, e l'API
-non ha ancora l'handle del writer (vedi [differenze nel codice
+`release(WriteToken)`. Le scritture, `commit` e le due operazioni di
+rimozione ricevono il `WriteToken` al posto dell'ID della partizione.
+L'API non ha ancora l'handle del writer: per ora il proxy della
+partizione prende la proprietà quando lo spazio crea la partizione, e
+porta quel token (vedi [differenze nel codice
 attuale](/decisions/api-surface.md#differenze-nel-codice-attuale)).
 
 - **Stato.** Lo storage della partizione tiene un `Ownership` in un
@@ -152,6 +155,15 @@ attuale](/decisions/api-surface.md#differenze-nel-codice-attuale)).
   slot possono finire in un ordine diverso da quello del commit, e il
   commit successivo copia quello che è cambiato. Senza scritture dopo
   l'ultimo commit non fa niente.
+- **Controllo del token.** Ogni scrittura, commit e richiesta di
+  rimozione dello storage riceve la generazione e la confronta con lo
+  stato di proprietà subito dopo aver preso il lock della partizione,
+  insieme agli altri controlli dell'input: con una generazione che non
+  è del proprietario attuale, o senza proprietario, fallisce con
+  `OwnershipChangedException` (in `common`) e la partizione non cambia.
+  Il nodo controlla prima lo stato della partizione, quindi dopo la
+  richiesta di rimozione un'operazione del writer fallisce con
+  `IllegalStateException` anche con un token vecchio.
 - **Rimozione e distruzione.** Dalla richiesta di rimozione `claim`
   fallisce con `IllegalStateException` e `release` non fa niente;
   `ownership` risponde finché la partizione non è distrutta. Dopo la
@@ -166,7 +178,16 @@ precedenti confermati (anche prima del primo commit e nello stesso
 tick), sequenze casuali di scritture scartate con lo stato e l'indice
 uguali all'ultimo commit per la scansione lineare, la grid uniforme e
 la griglia di quadtree, la generazione negativa, la rimozione e la
-partizione distrutta.
+partizione distrutta. Per il token verificano che scritture, commit e
+rimozioni con un token vecchio o senza proprietario siano rifiutati
+senza cambiare la partizione, e, con latch e barriere, senza sleep: un
+commit in corso quando arriva `claim` resta confermato, perché `claim`
+aspetta il lock, e dopo il token vecchio è rifiutato; di più `claim`
+concorrenti sulla stessa generazione ne vince uno solo; un `release`
+durante le scritture lascia esattamente l'ultimo commit finito;
+`claim` e avanzamenti del tick concorrenti lasciano coerenti
+generazione e tick. Gli altri test del service prendono la proprietà
+con un helper prima della prima scrittura.
 
 # Punti aperti
 

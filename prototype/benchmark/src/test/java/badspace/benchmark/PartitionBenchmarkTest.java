@@ -34,7 +34,7 @@ class PartitionBenchmarkTest {
      * tick, then reads the published snapshot.
      */
     private static List<Entity2> content(PartitionBenchmark.PartitionState s) {
-        s.node.commit(WorkloadState.PARTITION_ID);
+        s.node.commit(WorkloadState.WRITE_TOKEN);
         s.node.setTick(s.node.tick() + 1);
         Acquisition acquisition = s.node.acquireLatest(WorkloadState.PARTITION_ID, AcquireOptions.defaultTimeout());
         try {
