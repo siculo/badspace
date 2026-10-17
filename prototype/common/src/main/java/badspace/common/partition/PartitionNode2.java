@@ -3,6 +3,7 @@ package badspace.common.partition;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Contract of a node that hosts partitions of a 2-dimensional space.
@@ -37,6 +38,15 @@ import java.util.List;
  * readable until they are released or expire. When no tick of the partition is in the
  * window and nobody uses its snapshots, the node destroys the partition. Until then its
  * ID stays in use on the node.
+ * <p>
+ * A partition has at most one owner, its writer. The {@link Ownership} of a partition has a
+ * generation that grows at each change; a new partition has no owner, at generation 0.
+ * {@link #claim} is a compare-and-set on the generation and the only way to become the owner:
+ * it takes a free partition, passes the ownership to another writer and takes it away from
+ * the owner, and the caller chooses which one with the generation it gives. The owner gets a
+ * {@link WriteToken} and leaves the ownership with {@link #release(WriteToken)}. At each change
+ * of the generation the writes not committed are discarded, and the commits stay. The node
+ * does not check who calls these operations: the software decides who owns a partition.
  * <p>
  * Partition IDs are never used again, so the node cannot tell an unknown partition from
  * a destroyed one: the operations of the partition fail with IllegalArgumentException,
@@ -115,6 +125,36 @@ public interface PartitionNode2 {
      * removal was already requested.
      */
     void dropPartition(PartitionId partitionId);
+
+    /**
+     * Returns the state of the ownership of a partition: its generation and whether it has
+     * an owner. It is only a read: the node tells nobody about the changes. Any thread can
+     * call it, also after the removal of the partition, until it is destroyed. Fails with
+     * IllegalArgumentException if the ID is unknown.
+     */
+    Ownership ownership(PartitionId partitionId);
+
+    /**
+     * Makes the caller the owner of a partition if the generation of its ownership is still
+     * expectedGeneration: the generation grows by one, the writes not committed are
+     * discarded, and the result is the token of the new generation. Otherwise the result is
+     * empty and nothing changes. With the generation of a free partition it takes the
+     * partition; with the generation of the token of the owner it passes the ownership to a
+     * new token, or takes it away from the owner. Fails with IllegalArgumentException if
+     * expectedGeneration is negative or the ID is unknown, and with IllegalStateException
+     * after the removal of the partition was requested. Any thread can call it: it waits for
+     * a write or a commit that is running.
+     */
+    Optional<WriteToken> claim(PartitionId partitionId, long expectedGeneration);
+
+    /**
+     * Leaves the ownership of a partition if the token is the current one: the generation
+     * grows by one, the partition has no owner, and the writes not committed are discarded.
+     * Otherwise it does nothing: also if the ownership has already changed, after the removal
+     * of the partition was requested, and if the partition is unknown or destroyed. Any thread
+     * can call it.
+     */
+    void release(WriteToken token);
 
     /**
      * Adds new entities to a partition. The API generates the entity IDs, which must

@@ -5,16 +5,19 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.RetentionWindow;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
+import badspace.common.partition.WriteToken;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
@@ -136,6 +139,32 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public void dropPartition(PartitionId partitionId) {
         find(partitionId).requestRemoval(false);
+    }
+
+    @Override
+    public Ownership ownership(PartitionId partitionId) {
+        return findAny(partitionId).ownership();
+    }
+
+    @Override
+    public Optional<WriteToken> claim(PartitionId partitionId, long expectedGeneration) {
+        if (expectedGeneration < 0) {
+            throw new IllegalArgumentException("Negative generation: " + expectedGeneration);
+        }
+        long generation = findAny(partitionId).claimOwnership(expectedGeneration);
+        if (generation == PartitionStorage2.NOT_CLAIMED) {
+            return Optional.empty();
+        }
+        return Optional.of(new WriteToken(partitionId, generation));
+    }
+
+    @Override
+    public void release(WriteToken token) {
+        PartitionStorage2 storage = partitions.get(token.partitionId());
+        // A destroyed partition has no owner: the release does nothing.
+        if (storage != null) {
+            storage.releaseOwnership(token.generation());
+        }
     }
 
     @Override

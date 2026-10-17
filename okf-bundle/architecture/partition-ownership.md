@@ -4,7 +4,7 @@ title: Proprietà della partizione
 description: Ogni partizione ha al più un writer; la proprietà ha una generazione che cresce a ogni cambio, si legge con ownership(p), si prende con claim(p, expectedGeneration), un compare-and-set sulla generazione, e si lascia con release(token); scritture, commit e remove() portano il token (fencing token), e la partizione rifiuta quelli di una generazione vecchia, scartando le scritture non confermate a ogni cambio. Sopra la primitiva si costruiscono schemi diversi di gestione della proprietà.
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T15:00:00Z }
 ---
 
 # Primitiva
@@ -128,6 +128,45 @@ Restano fuori dal fencing:
   [migrazione](/mechanisms/entity-migration.md).
 - La forma nell'API e nel contratto del nodo è in [API da
   esporre](/decisions/api-surface.md#proprietà-e-handle-del-writer).
+
+# Nel prototipo
+
+Lo stato di proprietà è nel nodo: i record `Ownership` (generazione,
+posseduta) e `WriteToken` (ID della partizione, generazione ≥ 1) sono in
+`common`, e il contratto del nodo ha `ownership(PartitionId)`,
+`claim(PartitionId, long)`, che restituisce `Optional<WriteToken>`, e
+`release(WriteToken)`. Le scritture non usano ancora il token, e l'API
+non ha ancora l'handle del writer (vedi [differenze nel codice
+attuale](/decisions/api-surface.md#differenze-nel-codice-attuale)).
+
+- **Stato.** Lo storage della partizione tiene un `Ownership` in un
+  campo `volatile`: `claim` e `release` lo sostituiscono sotto il lock
+  della partizione, e `ownership(p)` lo legge da ogni thread senza
+  lock, con generazione e proprietario sempre insieme.
+- **Scritture scartate.** A ogni cambio di generazione lo storage
+  riporta lo stato del writer all'ultimo commit con le stesse
+  operazioni delle scritture: toglie le entità che il commit non ha,
+  rimette quelle che ha tolto e riporta le altre alla posizione del
+  commit. L'indice riceve le notifiche come per ogni scrittura, quindi
+  il meccanismo vale per tutti gli indici senza operazioni nuove; gli
+  slot possono finire in un ordine diverso da quello del commit, e il
+  commit successivo copia quello che è cambiato. Senza scritture dopo
+  l'ultimo commit non fa niente.
+- **Rimozione e distruzione.** Dalla richiesta di rimozione `claim`
+  fallisce con `IllegalStateException` e `release` non fa niente;
+  `ownership` risponde finché la partizione non è distrutta. Dopo la
+  distruzione `ownership` e `claim` falliscono con l'errore generico,
+  come per un ID sconosciuto, e `release` non fa niente.
+
+I test verificano la generazione iniziale, `claim` con la generazione
+giusta, vecchia e futura, il passaggio con il vecchio token che non
+vale più, `release` ripetuto e con un token non corrente, le scritture
+non confermate scartate a `claim` e a `release` con i commit
+precedenti confermati (anche prima del primo commit e nello stesso
+tick), sequenze casuali di scritture scartate con lo stato e l'indice
+uguali all'ultimo commit per la scansione lineare, la grid uniforme e
+la griglia di quadtree, la generazione negativa, la rimozione e la
+partizione distrutta.
 
 # Punti aperti
 

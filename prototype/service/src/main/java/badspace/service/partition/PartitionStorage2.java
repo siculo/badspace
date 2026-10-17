@@ -4,11 +4,13 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.Ownership;
 import badspace.common.partition.RetentionWindow;
 import badspace.common.geometry.Point2;
 import badspace.service.index.SlotView2;
 import badspace.service.index.SpatialIndex2;
 import badspace.service.index.SpatialIndexes;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -105,6 +107,8 @@ final class PartitionStorage2 implements SlotView2 {
     static final int PAGE_SLOTS = 64;
     /** The value that {@code acquire} returns when the snapshot left the window. */
     static final long NOT_ACQUIRED = 0;
+    /** The value that {@code claimOwnership} returns when the generation is not the expected one. */
+    static final long NOT_CLAIMED = -1;
 
     // Slot: entity ID and position. coords holds DIMENSIONS values per slot (x, y),
     // so slot i is slotEntityIds[i] and coords[DIMENSIONS * i ...]. The capacity of
@@ -149,6 +153,9 @@ final class PartitionStorage2 implements SlotView2 {
     private long[] pageChanges = new long[pageCount(INITIAL_CAPACITY)];
     // The pages that the commits copied into a buffer since the creation. Only the writer uses it.
     private long copiedPages;
+    // The state of the ownership. Written by claim and release while holding writerLock, read
+    // by any thread: the volatile write publishes the generation and the owner together.
+    private volatile Ownership ownership = Ownership.INITIAL;
     // The state of the removal. Written while holding writerLock: by the request of removal,
     // by the move of the tick that makes it effective, and by the end of the last snapshot
     // (which needs no lock: nothing else changes the state after RETIRED). Read by any thread.
@@ -266,12 +273,7 @@ final class PartitionStorage2 implements SlotView2 {
             }
             ensureCapacity(size + entities.size());
             for (Entity2 e : entities) {
-                int slot = size++;
-                slotEntityIds[slot] = e.id();
-                write(slot, e.position());
-                slotById.put(e.id(), slot);
-                idsChanged = true;
-                index.inserted(slot, e.position());
+                insert(e.id(), e.position());
             }
         } finally {
             writerLock.unlock();
@@ -286,10 +288,7 @@ final class PartitionStorage2 implements SlotView2 {
                 checkLimits(e);
             }
             for (Entity2 e : entities) {
-                int slot = slotById.get(e.id());
-                Point2 from = positionAt(slot);
-                write(slot, e.position());
-                index.moved(slot, from, e.position());
+                move(slotById.get(e.id()), e.position());
             }
         } finally {
             writerLock.unlock();
@@ -444,6 +443,55 @@ final class PartitionStorage2 implements SlotView2 {
                 throw new IllegalStateException("Committed state is not empty: " + lastCommitted.size() + " entities");
             }
             state = PartitionState.REMOVAL_PENDING;
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
+    /** Returns the state of the ownership. Any thread can call it. */
+    Ownership ownership() {
+        return ownership;
+    }
+
+    /**
+     * Makes the caller the owner if the generation is still expectedGeneration: the generation
+     * grows by one and the writes not committed are discarded. Returns the new generation, or
+     * NOT_CLAIMED if the generation is not the expected one; in this case nothing changes.
+     * Fails with IllegalStateException after the removal was requested. Any thread can call
+     * it: it waits for a write, a commit or a move of the tick that is running.
+     */
+    long claimOwnership(long expectedGeneration) {
+        writerLock.lock();
+        try {
+            if (state != PartitionState.ACTIVE) {
+                throw new IllegalStateException("Removal was requested: the partition has no more owners");
+            }
+            Ownership current = ownership;
+            if (current.generation() != expectedGeneration) {
+                return NOT_CLAIMED;
+            }
+            discardUncommittedWrites();
+            ownership = new Ownership(current.generation() + 1, true);
+            return current.generation() + 1;
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
+    /**
+     * Leaves the ownership if the generation is the one of the current owner: the generation
+     * grows by one, the partition has no owner and the writes not committed are discarded.
+     * Otherwise, and after the removal was requested, it does nothing. Any thread can call it.
+     */
+    void releaseOwnership(long generation) {
+        writerLock.lock();
+        try {
+            Ownership current = ownership;
+            if (state != PartitionState.ACTIVE || !current.owned() || current.generation() != generation) {
+                return;
+            }
+            discardUncommittedWrites();
+            ownership = new Ownership(current.generation() + 1, false);
         } finally {
             writerLock.unlock();
         }
@@ -710,6 +758,56 @@ final class PartitionStorage2 implements SlotView2 {
     /** Returns true if this storage made the acquisition: its number was given by acquire. */
     private boolean isMade(long acquisitionId) {
         return acquisitionId >= 1 && acquisitionId <= lastAcquisitionId.get();
+    }
+
+    private void insert(long entityId, Point2 position) {
+        int slot = size++;
+        slotEntityIds[slot] = entityId;
+        write(slot, position);
+        slotById.put(entityId, slot);
+        idsChanged = true;
+        index.inserted(slot, position);
+    }
+
+    private void move(int slot, Point2 to) {
+        Point2 from = positionAt(slot);
+        write(slot, to);
+        index.moved(slot, from, to);
+    }
+
+    /**
+     * Brings the state of the writer back to the last commit: removes the entities that the
+     * commit does not have, inserts again the ones it has and moves the others back to their
+     * positions in it. It uses the same steps as the writes, so the index learns each change
+     * like for any write; the slots can end in a different order than in the commit. The next
+     * commit copies what changed, as after any write. It does nothing if there are no writes
+     * after the last commit.
+     */
+    private void discardUncommittedWrites() {
+        if (!idsChanged && !coordinatesChanged) {
+            return;
+        }
+        SlotSnapshot2 committed = lastCommitted.slots();
+        List<Long> added = new ArrayList<>();
+        for (int slot = 0; slot < size; slot++) {
+            if (committed.slotOf(slotEntityIds[slot]) == SlotTable.NONE) {
+                added.add(slotEntityIds[slot]);
+            }
+        }
+        for (long entityId : added) {
+            remove(entityId);
+        }
+        ensureCapacity(committed.size());
+        for (int committedSlot = 0; committedSlot < committed.size(); committedSlot++) {
+            long entityId = committed.idAt(committedSlot);
+            Point2 position = committed.positionAt(committedSlot);
+            int slot = slotById.get(entityId);
+            if (slot == SlotTable.NONE) {
+                insert(entityId, position);
+            } else if (!positionAt(slot).equals(position)) {
+                move(slot, position);
+            }
+        }
     }
 
     private void remove(long entityId) {

@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` senza numero, nel tick corrente), della proprietà della partizione (`ownership`, `claim` con la generazione attesa, handle del writer `AutoCloseable` con il token per scritture, commit e rimozione) e delle letture (solo attraverso l'acquisizione degli snapshot, al tick con scadenza obbligatoria), con il codice ancora senza proprietà, mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T15:00:00Z }
 ---
 
 # Stato
@@ -414,10 +414,13 @@ Scelte di dettaglio:
 Il codice segue la forma descritta sopra per tick, commit e
 acquisizioni. Restano queste differenze:
 
-- **Proprietà.** Non c'è ancora: non ci sono `ownership`, `claim`, i
-  token né l'handle del writer. Le scritture e `commit()` sono su
-  `Partition2`/`Partition3`, e nel contratto del nodo ricevono l'ID
-  della partizione.
+- **Proprietà.** Il contratto del nodo ha `ownership`, `claim` e
+  `release` con i record `Ownership` e `WriteToken` (vedi [proprietà
+  della partizione](/architecture/partition-ownership.md#nel-prototipo)),
+  ma le scritture non usano ancora il token: nel contratto del nodo
+  ricevono l'ID della partizione, e nell'API sono su
+  `Partition2`/`Partition3` con `commit()`, senza l'handle del writer.
+  Nell'API non ci sono ancora `ownership()`, `claim` e `writer(token)`.
 - **Rimozione.** Si chiede con `removePartition(partition)` sullo
   spazio, che rifiuta con `IllegalArgumentException` la partizione di un
   altro spazio.
