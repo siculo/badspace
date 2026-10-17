@@ -184,7 +184,11 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
 
     @Override
     public void commit(WriteToken token) {
-        find(token.partitionId()).commit(token.generation());
+        PartitionStorage3 storage = find(token.partitionId());
+        storage.commit(token.generation());
+        // After the commit releases the lock of the partition, the partition can be removed and
+        // retired by other threads: the scan can end its last snapshot.
+        removeExpired(token.partitionId(), storage);
     }
 
     @Override
@@ -260,6 +264,8 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
             }
             long acquisitionId = storage.acquire(snapshot, chosen, options);
             if (acquisitionId != PartitionStorage3.NOT_ACQUIRED) {
+                // The new acquisition can already be expired: the scan can end the last snapshot.
+                removeExpired(partitionId, storage);
                 return new Acquisition(partitionId, acquisitionId, chosen);
             }
         }
@@ -284,6 +290,16 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
             if (storage.endQuery(snapshot)) {
                 finish(acquisition.partitionId(), storage);
             }
+        }
+    }
+
+    /**
+     * Removes the expired acquisitions of a partition, and removes the partition from the node
+     * if this ended its last snapshot.
+     */
+    private void removeExpired(PartitionId partitionId, PartitionStorage3 storage) {
+        if (storage.removeExpired()) {
+            finish(partitionId, storage);
         }
     }
 

@@ -292,29 +292,29 @@ class PartitionStorage2Test {
         AcquireOptions options = AcquireOptions.timeout(TIMEOUT);
         timed.setTick(1);
 
-        // The commit removes them.
-        timed.acquire(timed.catalog().latest(), 0, options);
+        // The node removes them after a commit.
+        acquireLikeTheNode(timed, timed.catalog().latest(), 0, options);
         clock.advance(TIMEOUT);
         assertEquals(1, timed.acquisitionCount());
-        timed.commit(owner(timed));
+        commitLikeTheNode(timed);
         assertEquals(0, timed.acquisitionCount());
 
         // The move of the tick removes them.
-        timed.acquire(timed.catalog().latest(), 0, options);
+        acquireLikeTheNode(timed, timed.catalog().latest(), 0, options);
         clock.advance(TIMEOUT);
         timed.setTick(2);
         assertEquals(0, timed.acquisitionCount());
 
-        // An acquisition removes them, and keeps the new one.
-        timed.acquire(timed.catalog().latest(), 1, options);
+        // The node removes them after an acquisition, and keeps the new one.
+        acquireLikeTheNode(timed, timed.catalog().latest(), 1, options);
         clock.advance(TIMEOUT);
-        long fresh = timed.acquire(timed.catalog().latest(), 1, options);
+        long fresh = acquireLikeTheNode(timed, timed.catalog().latest(), 1, options);
         assertEquals(1, timed.acquisitionCount());
 
         // The release of another acquisition removes them.
-        long kept = timed.acquire(timed.catalog().latest(), 1);
+        long kept = acquireLikeTheNode(timed, timed.catalog().latest(), 1);
         clock.advance(TIMEOUT);
-        long released = timed.acquire(timed.catalog().latest(), 1);
+        long released = acquireLikeTheNode(timed, timed.catalog().latest(), 1);
         timed.release(released);
         assertEquals(1, timed.acquisitionCount());
         assertThrows(IllegalStateException.class, () -> timed.admit(fresh, 1));
@@ -838,7 +838,7 @@ class PartitionStorage2Test {
     void bufferGivenBackDuringTheDestructionDoesNotStayInThePool() throws Exception {
         GatedBufferPool pool = new GatedBufferPool();
         PartitionStorage2 retired = new PartitionStorage2(LIMITS, s -> SpatialIndexes.create(IndexConfig.linearScan(), s),
-                1, MonotonicClock.SYSTEM, 0, new ReentrantLock(), pool);
+                1, MonotonicClock.SYSTEM, 0, new ReentrantLock(), new CoordinateBufferPool(pool));
         retired.insertAll(owner(retired), List.of(new Entity2(10, A)));
         StorageSnapshot2 first = publish(retired);
         long acquisitionA = retired.acquire(first, 0);
@@ -906,7 +906,7 @@ class PartitionStorage2Test {
                 int operation = rnd.nextInt(10);
                 if (operation < 3 || ids.isEmpty()) {
                     List<Entity2> inserted = new ArrayList<>();
-                    for (int i = rnd.nextInt(PartitionStorage2.PAGE_SLOTS / 2) + 1; i > 0; i--) {
+                    for (int i = rnd.nextInt(MutableSlots2.PAGE_SLOTS / 2) + 1; i > 0; i--) {
                         Entity2 e = new Entity2(nextId++, randomPoint(rnd));
                         inserted.add(e);
                         written.put(e.id(), e.position());
@@ -965,7 +965,7 @@ class PartitionStorage2Test {
     void fewMovingEntitiesCopyOnlyTheirPages() {
         int pages = 10;
         List<Entity2> entities = new ArrayList<>();
-        for (int i = 0; i < pages * PartitionStorage2.PAGE_SLOTS; i++) {
+        for (int i = 0; i < pages * MutableSlots2.PAGE_SLOTS; i++) {
             entities.add(new Entity2(i + 1, A));
         }
         storage.insertAll(owner(storage), entities);
@@ -985,13 +985,13 @@ class PartitionStorage2Test {
         storage.setTick(storage.tick() + 1);
         assertEquals(List.of(new Entity2(1, A), new Entity2(idInPage(3), B), new Entity2(idInPage(7), C)),
                 third.getAll(new long[] {1, idInPage(3), idInPage(7)}));
-        assertEquals(pages * PartitionStorage2.PAGE_SLOTS, third.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX)).size());
+        assertEquals(pages * MutableSlots2.PAGE_SLOTS, third.findInRegion(new Box2(LIMITS_MIN, LIMITS_MAX)).size());
     }
 
     @Test
     void partitionWithoutMovementsCopiesNothing() {
         List<Entity2> entities = new ArrayList<>();
-        for (int i = 0; i < 2 * PartitionStorage2.PAGE_SLOTS; i++) {
+        for (int i = 0; i < 2 * MutableSlots2.PAGE_SLOTS; i++) {
             entities.add(new Entity2(i + 1, A));
         }
         storage.insertAll(owner(storage), entities);
@@ -1146,7 +1146,7 @@ class PartitionStorage2Test {
 
     /** The ID of an entity in the given page, when the entities are inserted with IDs from 1 in order. */
     private static long idInPage(int page) {
-        return page * PartitionStorage2.PAGE_SLOTS + 6;
+        return page * MutableSlots2.PAGE_SLOTS + 6;
     }
 
     /** The number of entities at the tick: 0 at tick 0, then from 0 to 22. */
@@ -1160,4 +1160,23 @@ class PartitionStorage2Test {
         return new Point2(base + (entityId % 10) * 0.25, -base - (entityId / 10 % 10) * 0.25);
     }
 
+
+    /** Acquires like the node: the acquisition, then the removal of the expired acquisitions. */
+    private static long acquireLikeTheNode(PartitionStorage2 storage, StorageSnapshot2 snapshot, long tick,
+            AcquireOptions options) {
+        long acquisitionId = storage.acquire(snapshot, tick, options);
+        storage.removeExpired();
+        return acquisitionId;
+    }
+
+    /** Like {@link #acquireLikeTheNode(PartitionStorage2, StorageSnapshot2, long, AcquireOptions)}, with the default timeout. */
+    private static long acquireLikeTheNode(PartitionStorage2 storage, StorageSnapshot2 snapshot, long tick) {
+        return acquireLikeTheNode(storage, snapshot, tick, AcquireOptions.defaultTimeout());
+    }
+
+    /** Commits like the node: the commit, then the removal of the expired acquisitions. */
+    private static void commitLikeTheNode(PartitionStorage2 storage) {
+        storage.commit(owner(storage));
+        storage.removeExpired();
+    }
 }

@@ -19,6 +19,7 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
+import badspace.common.partition.WriteToken;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Sphere3;
 import java.time.Duration;
@@ -851,6 +852,74 @@ class LocalPartitionNode3Test {
     /** Checks that the acquisition fails as not available, for the given reason. */
     private static void assertReason(Reason reason, Executable acquisition) {
         assertEquals(reason, assertThrows(SnapshotNotAvailableException.class, acquisition).reason());
+    }
+
+    @Test
+    void expiryFoundByTheScanAfterAnAcquisitionDestroysTheRetiredPartition() {
+        SteppingClock clock = new SteppingClock();
+        PartitionStorage3[] storage = new PartitionStorage3[1];
+        LocalPartitionNode3 timed = nodeWithClock(clock, storage);
+        timed.createPartition(P1, IndexConfig.linearScan(), 1);
+        WriteToken token = timed.claim(P1, 0).orElseThrow();
+        timed.setTick(1);
+        timed.removePartition(token);
+        // Retired at tick 2: the snapshot of tick 1 is still in the window.
+        timed.setTick(2);
+        // The acquisition reads the clock to register, then the node reads it to remove the
+        // expired acquisitions. Between the two readings the tick moves, so the snapshot leaves
+        // the window and only the new acquisition keeps it; then the acquisition expires.
+        clock.atReading(2, () -> {
+            timed.setTick(3);
+            clock.set(10);
+        });
+        Acquisition acquisition = timed.acquire(P1, 1, AcquireOptions.timeout(Duration.ofNanos(1)));
+        assertDestroyed(timed, storage[0], acquisition);
+    }
+
+    @Test
+    void expiryFoundByTheScanAfterACommitDestroysThePartitionRetiredInTheMeantime() {
+        SteppingClock clock = new SteppingClock();
+        PartitionStorage3[] storage = new PartitionStorage3[1];
+        LocalPartitionNode3 timed = nodeWithClock(clock, storage);
+        timed.createPartition(P1, IndexConfig.linearScan(), 1);
+        WriteToken first = timed.claim(P1, 0).orElseThrow();
+        timed.insertAll(first, List.of(entity(1, 1, 1, 1)));
+        timed.commit(first);
+        timed.setTick(1);
+        Acquisition acquisition = timed.acquire(P1, 0, AcquireOptions.timeout(Duration.ofNanos(1)));
+        // The commit releases the lock of the partition, then the node reads the clock to
+        // remove the expired acquisitions. Between the two, another owner takes the partition
+        // and removes it, and the ticks move until no snapshot is in the window: only the
+        // acquisition keeps one, and then it expires.
+        clock.atReading(1, () -> {
+            WriteToken second = timed.claim(P1, first.generation()).orElseThrow();
+            timed.dropPartition(second);
+            timed.setTick(2);
+            timed.setTick(3);
+            clock.set(10);
+        });
+        timed.commit(first);
+        assertDestroyed(timed, storage[0], acquisition);
+    }
+
+    /** Returns a node with the given clock, which puts the storage of its partition in storage[0]. */
+    private static LocalPartitionNode3 nodeWithClock(MonotonicClock clock, PartitionStorage3[] storage) {
+        return new LocalPartitionNode3(clock, (index, retainedTicks, partitionClock, creationTick) ->
+                storage[0] = new PartitionStorage3(index, retainedTicks, partitionClock, creationTick));
+    }
+
+    /**
+     * Checks that the end of the last snapshot destroyed the partition: the storage has no
+     * snapshots, acquisitions or buffers left, and the node no longer knows the partition.
+     */
+    private static void assertDestroyed(LocalPartitionNode3 node, PartitionStorage3 storage, Acquisition acquisition) {
+        assertEquals(PartitionState.DESTROYED, storage.state());
+        assertEquals(0, storage.liveSnapshotCount());
+        assertEquals(0, storage.acquisitionCount());
+        assertEquals(0, storage.pooledBufferCount());
+        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
+        assertThrows(IllegalStateException.class, () -> node.size(acquisition));
+        node.setTick(node.tick() + 1);
     }
 
     /**

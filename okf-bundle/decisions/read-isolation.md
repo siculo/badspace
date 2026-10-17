@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot preparati a ogni commit, pubblicati con una scrittura atomica all'avanzamento del tick e letti attraverso un'acquisizione controllata; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T10:00:00Z }
 ---
 
 # Problema
@@ -195,6 +195,11 @@ della stessa partizione. È una pila che non blocca: il thread che fa
 finire l'ultimo snapshot di un buffer, uno qualsiasi, lo rimette in
 cima, e il writer prende dalla cima, cioè il buffer tornato per ultimo,
 che di solito ha lo stato più recente e quindi meno pagine da copiare.
+Il pool è `CoordinateBufferPool`, comune a 2D e 3D perché conta
+coordinate e non slot: lo usano il commit, attraverso gli slot del
+writer (`MutableSlots2`/`MutableSlots3`) che copiano le pagine, e la
+vita degli snapshot, che restituisce i buffer (vedi [nel
+prototipo](/architecture/snapshot-retention.md#nel-prototipo)).
 
 - **Pagine.** Gli slot sono divisi in pagine di 64 slot (`PAGE_SLOTS`).
   Il writer tiene per ogni pagina la sequenza del commit che conferma
@@ -228,8 +233,9 @@ commit viene scartato. La distruzione della partizione svuota il pool:
 il buffer di uno snapshot torna nel pool prima che scenda il conteggio
 degli snapshot non finiti, così il thread che porta il conteggio a zero
 svuota il pool dopo tutte le restituzioni, e nessun buffer vi rientra
-dopo. Un test ferma un reader mentre restituisce il buffer, con un pool
-dei test passato allo storage alla creazione come il lock, e fa finire
+dopo. Un test ferma un reader mentre restituisce il buffer, con una
+coda dei test dietro il pool passato allo storage alla creazione come
+il lock, e fa finire
 l'ultimo snapshot da un altro reader.
 Una conseguenza: uno snapshot si legge solo con un utilizzo
 (un'acquisizione o una query ammessa), perché dopo la sua fine il buffer

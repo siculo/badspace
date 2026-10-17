@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -473,7 +472,7 @@ class PartitionOwnership3Test {
         return new LocalPartitionNode3(MonotonicClock.SYSTEM,
                 (indexConfig, retainedTicks, clock, tick) -> new PartitionStorage3(indexConfig.limits(),
                         slots -> index[0] = new GatedIndex3(SpatialIndexes.create(indexConfig, slots)),
-                        retainedTicks, clock, tick, lock, new ConcurrentLinkedDeque<>()));
+                        retainedTicks, clock, tick, lock, new CoordinateBufferPool()));
     }
 
     /**
