@@ -4,7 +4,7 @@ title: Proprietà della partizione
 description: Ogni partizione ha al più un writer; la proprietà ha una generazione che cresce a ogni cambio, si legge con ownership(p), si prende con claim(p, expectedGeneration), un compare-and-set sulla generazione, e si lascia con release(token); scritture, commit e remove() portano il token (fencing token), e la partizione rifiuta quelli di una generazione vecchia, scartando le scritture non confermate a ogni cambio. Sopra la primitiva si costruiscono schemi diversi di gestione della proprietà.
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T20:00:00Z }
 ---
 
 # Primitiva
@@ -183,12 +183,16 @@ la griglia di quadtree, la generazione negativa, la rimozione e la
 partizione distrutta. Per il token verificano che scritture, commit e
 rimozioni con un token vecchio o senza proprietario siano rifiutati
 senza cambiare la partizione, e, con latch e barriere, senza sleep: un
-commit in corso quando arriva `claim` resta confermato, perché `claim`
-aspetta il lock, e dopo il token vecchio è rifiutato; di più `claim`
+commit in corso quando arriva `claim` o `release` resta confermato,
+perché tutti e due aspettano il lock, e dopo il token vecchio è
+rifiutato; di più `claim`
 concorrenti sulla stessa generazione ne vince uno solo; un `release`
 durante le scritture lascia esattamente l'ultimo commit finito;
 `claim` e avanzamenti del tick concorrenti lasciano coerenti
-generazione e tick. Gli altri test del service prendono la proprietà
+generazione e tick. Uno snapshot acquisito prima del cambio di
+proprietario mantiene contenuto e risultati delle query durante il
+ripristino e i commit del nuovo proprietario, anche dopo essere uscito
+dalla finestra, per `claim` e per `release` sui tre indici. Gli altri test del service prendono la proprietà
 con un helper prima della prima scrittura. I test dell'API controllano
 che l'handle passi il suo token in ogni operazione e che rifiuti il
 token di un'altra partizione; i test di integrazione verificano la

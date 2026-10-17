@@ -15,6 +15,7 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.WriteToken;
 import badspace.service.index.SpatialIndexes;
 import java.time.Duration;
@@ -259,10 +260,7 @@ class PartitionOwnership2Test {
         for (IndexConfig config : CONFIGS) {
             GatedIndex2[] index = new GatedIndex2[1];
             ObservedLock lock = new ObservedLock();
-            LocalPartitionNode2 gated = new LocalPartitionNode2(MonotonicClock.SYSTEM,
-                    (indexConfig, retainedTicks, clock, tick) -> new PartitionStorage2(indexConfig.limits(),
-                            slots -> index[0] = new GatedIndex2(SpatialIndexes.create(indexConfig, slots)),
-                            retainedTicks, clock, tick, lock, new ConcurrentLinkedDeque<>()));
+            LocalPartitionNode2 gated = gatedNode(index, lock);
             gated.createPartition(P1, config, 1);
             WriteToken old = gated.claim(P1, 0).orElseThrow();
             gated.insertAll(old, List.of(entity(1, 1, 1)));
@@ -387,6 +385,95 @@ class PartitionOwnership2Test {
         assertEquals(new Ownership(101, true), node.ownership(P1));
         assertEquals(100, node.tick(P1));
         assertEquals(List.of(entity(1, 1, 1)), content(publish(last.get())));
+    }
+
+    @Test
+    void releaseThatArrivesDuringACommitWaitsAndTheCommitIsConfirmed() throws Exception {
+        for (IndexConfig config : CONFIGS) {
+            GatedIndex2[] index = new GatedIndex2[1];
+            ObservedLock lock = new ObservedLock();
+            LocalPartitionNode2 gated = gatedNode(index, lock);
+            gated.createPartition(P1, config, 1);
+            WriteToken old = gated.claim(P1, 0).orElseThrow();
+            gated.insertAll(old, List.of(entity(1, 1, 1)));
+            Gate gate = new Gate();
+            index[0].commitGate = gate;
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            Thread writer = worker(() -> gated.commit(old), failure);
+            Thread releaser = worker(() -> gated.release(old), failure);
+            writer.start();
+            try {
+                gate.awaitEntered();
+                releaser.start();
+                // The release waits for the lock of the partition, which the commit holds.
+                lock.awaitWaiting();
+                assertEquals(new Ownership(1, true), gated.ownership(P1), config.toString());
+            } finally {
+                gate.open();
+                join(writer);
+                join(releaser);
+            }
+            if (failure.get() != null) {
+                throw new AssertionError(config + ": commit or release failed", failure.get());
+            }
+            // The commit ended before the release: its write stays, and the old token is rejected.
+            assertEquals(new Ownership(2, false), gated.ownership(P1), config.toString());
+            assertOwnershipChanged(() -> gated.commit(old));
+            WriteToken next = gated.claim(P1, 2).orElseThrow();
+            gated.commit(next);
+            gated.setTick(1);
+            assertEquals(List.of(entity(1, 1, 1)),
+                    gated.getAll(gated.acquireLatest(P1, defaultTimeout()), new long[] {1}), config.toString());
+        }
+    }
+
+    @Test
+    void snapshotAcquiredBeforeTheChangeOfOwnerKeepsItsContent() {
+        for (boolean release : new boolean[] {false, true}) {
+            for (IndexConfig config : CONFIGS) {
+                setUp();
+                node.createPartition(P2, config);
+                WriteToken first = node.claim(P2, 0).orElseThrow();
+                Random random = new Random(7);
+                Map<Long, Entity2> model = new LinkedHashMap<>();
+                long nextId = writeRandomly(first, random, model, 1, 200);
+                Acquisition before = publish(first);
+                List<Entity2> expected = sorted(model.values());
+                List<Entity2> nearest = node.findNearest(before, new Point2(0, 0), 10);
+                // Writes not committed, which the change of owner discards.
+                nextId = writeRandomly(first, random, new LinkedHashMap<>(model), nextId, 100);
+                WriteToken second;
+                if (release) {
+                    node.release(first);
+                    second = node.claim(P2, node.ownership(P2).generation()).orElseThrow();
+                } else {
+                    second = node.claim(P2, first.generation()).orElseThrow();
+                }
+                // The new owner writes and publishes some ticks: with k = 1 the old snapshot leaves
+                // the window, and the snapshots that end give their buffers back for the next commits.
+                for (int tick = 0; tick < 3; tick++) {
+                    nextId = writeRandomly(second, random, model, nextId, 100);
+                    node.release(publish(second));
+                }
+                String where = config + (release ? ", release" : ", claim");
+                assertThrows(SnapshotNotAvailableException.class,
+                        () -> node.acquire(P2, before.tick(), defaultTimeout()), where);
+                assertEquals(expected, content(before), where);
+                assertEquals(expected, sorted(node.findInRegion(before, EVERYWHERE)), where);
+                assertEquals(nearest, node.findNearest(before, new Point2(0, 0), 10), where);
+            }
+        }
+    }
+
+    /**
+     * Returns a node whose partitions have the index behind a gate, put in index[0], and the
+     * given lock, which tells the test when a thread waits for it.
+     */
+    private static LocalPartitionNode2 gatedNode(GatedIndex2[] index, ObservedLock lock) {
+        return new LocalPartitionNode2(MonotonicClock.SYSTEM,
+                (indexConfig, retainedTicks, clock, tick) -> new PartitionStorage2(indexConfig.limits(),
+                        slots -> index[0] = new GatedIndex2(SpatialIndexes.create(indexConfig, slots)),
+                        retainedTicks, clock, tick, lock, new ConcurrentLinkedDeque<>()));
     }
 
     /**
