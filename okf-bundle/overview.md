@@ -1,21 +1,29 @@
 ---
 type: Reference
 title: Panoramica di BADSPACE
-description: Panoramica di progettazione di BADSPACE, un database real-time per entità in uno spazio 2D o 3D, base per software di simulazione, monitoraggio o gaming, e delle sue decisioni architetturali principali.
+description: Panoramica di BADSPACE, un framework con cui gli sviluppatori costruiscono lo strato di gestione di una base dati real-time per entità in uno spazio 2D o 3D del proprio software, e delle sue decisioni architetturali principali.
 tags: [badspace, design]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
+generated: { by: codex/gpt-6, at: 2026-10-18T09:35:42Z }
 ---
 
 # Cos'è BADSPACE
 
-BADSPACE è un database real-time per entità collocate in uno spazio a 2
-o 3 dimensioni, pensato per server e applicazioni che devono fare
-ricerche per posizione. Tiene traccia della posizione delle entità e
-risponde a query di prossimità mentre il software che lo usa lavora sui
-dati. È pensato come base su cui costruire soluzioni software di tipo
-diverso, per esempio di simulazione, monitoraggio o gaming (nel bundle,
-semplicemente "software"; vedi il [glossario](/glossary.md)).
+BADSPACE è un **framework con cui gli sviluppatori costruiscono lo
+strato che gestisce la base dati del proprio software**. Fornisce il
+supporto per realizzare un tipo particolare di base dati: entità
+collocate in uno spazio a 2 o 3 dimensioni, aggiornate in tempo reale e
+ricercabili per posizione. Si rivolge, per esempio, a software di
+simulazione, monitoraggio o gaming (nel bundle, semplicemente
+"software"; vedi il [glossario](/glossary.md)).
+
+Il framework offre primitive e meccanismi da comporre attraverso la
+sua API. Gli sviluppatori costruiscono lo strato di gestione della
+base dati scegliendo le politiche e il coordinamento adatti al
+software: come dividere il mondo in partizioni, dove ospitarle, quando
+aggiornare e confermare i dati, quali query eseguire e quando migrare
+le entità. La ripartizione delle responsabilità è descritta
+nell'[architettura a livelli](/architecture/layers.md).
 
 Supporta la creazione, la cancellazione e l'aggiornamento delle entità
 e le ricerche per posizione: range (tutto ciò che sta in un'area),

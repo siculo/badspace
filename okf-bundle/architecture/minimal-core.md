@@ -4,7 +4,7 @@ title: Architettura minima del layer delle partizioni
 description: Le sei primitive minime del layer delle partizioni, i principi che le reggono e come i meccanismi (migrazione, letture coerenti, aggregazione, ribilanciamento) si costruiscono sopra di esse.
 tags: [badspace, architecture, partitioning]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
+generated: { by: codex/gpt-6, at: 2026-10-18T09:29:21Z }
 ---
 
 # Obiettivo
@@ -54,8 +54,9 @@ Quattro principi reggono l'insieme:
    single-writer con token di proprietà (fencing).
 2. [Commit della partizione](/architecture/partition-commit.md) —
    commit atomico nel tick corrente, senza numero visibile.
-3. [Metadati delle entità](/architecture/entity-metadata.md) — metadati
-   di sistema e applicativi, scritture condizionate, con le
+3. [Metadati delle entità](/architecture/entity-metadata.md) — supporto
+   comune per metadati di sistema e applicativi, distinti nell'API,
+   con verifica e applicazione atomica delle scritture condizionate e le
    [tombstone](/architecture/tombstones.md).
 4. [Durabilità osservabile](/architecture/observable-durability.md) —
    ultimo tick persistito.

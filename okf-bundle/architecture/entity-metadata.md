@@ -1,15 +1,16 @@
 ---
 type: Architecture Primitive
 title: Metadati delle entità
-description: Ogni entità ha metadati di sistema (epoca, stato, destinazione) in sola lettura e metadati applicativi liberi; le scritture condizionate sui metadati sostituiscono le transazioni tra partizioni.
+description: L'API distingue metadati di sistema (epoca, stato, destinazione) in sola lettura e metadati applicativi liberi; il nodo offre un supporto comune, con condizioni e scritture applicate atomicamente nella partizione; le scritture condizionate sostituiscono le transazioni tra partizioni.
 tags: [badspace, architecture, partitioning, metadata, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T07:45:42Z }
+generated: { by: codex/gpt-6, at: 2026-10-18T09:29:21Z }
 ---
 
 # Primitiva
 
-Ogni entità ha, accanto ai dati, dei metadati divisi in due spazi.
+Ogni entità ha, accanto ai dati, dei metadati che l'API distingue in
+due spazi.
 
 **Metadati di sistema**, in sola lettura per il software:
 
@@ -23,17 +24,38 @@ Cambiano solo attraverso le operazioni dei protocolli (per esempio la
 dipendono le garanzie: se il software potesse scrivere
 l'epoca, potrebbe rompere il protocollo senza accorgersene.
 
-I metadati di sistema li gestisce il **layer delle partizioni** (nel
-prototipo il modulo service), non l'[API comune](/architecture/layers.md):
-le regole su cui si basano le garanzie (sola lettura per il software,
-entità congelate durante la migrazione, inserimento con confronto
-dell'epoca) devono valere per ogni scrittura che arriva alla
-partizione.
-
 **Metadati applicativi**: slot liberi per il software,
 leggibili e scrivibili.
 
-Proprietà comuni:
+## Responsabilità dei livelli
+
+Il punto di accesso degli sviluppatori è l'[API
+comune](/architecture/layers.md), che distingue i due spazi: espone la
+lettura di entrambi e la scrittura diretta dei soli metadati
+applicativi. I metadati di sistema cambiano attraverso le operazioni
+dei protocolli implementati sopra le primitive della partizione.
+
+Il **nodo offre un supporto comune** per memorizzare e aggiornare i
+metadati, includerli negli snapshot e applicare scritture condizionate.
+Non duplica le restrizioni dell'API per proteggere da chiamate dirette
+alle interfacce sottostanti, che sono interne al sistema. Questo non
+impone una sola mappa generica o una particolare rappresentazione
+fisica dei due spazi.
+
+Le regole dei protocolli, come il congelamento delle entità in uscita,
+si applicano nell'API che esegue le transizioni. Nella partizione resta
+ciò che richiede **accesso atomico allo stato**: per esempio confrontare
+l'epoca e applicare l'inserimento in un'unica operazione, oppure
+rimuovere solo se stato, epoca e destinazione sono ancora quelli
+attesi. Una verifica nell'API seguita da una scrittura incondizionata
+non sostituisce una scrittura condizionata nella partizione.
+
+La collocazione dei controlli segue la [fiducia negli
+sviluppatori](/process/development-approach.md#fiducia-negli-sviluppatori):
+ogni controllo risponde a un errore concreto da prevenire o a una
+garanzia dell'operazione.
+
+## Proprietà comuni
 
 - dati e metadati cambiano nello stesso
   [commit](/architecture/partition-commit.md), in modo atomico;

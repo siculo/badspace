@@ -1,11 +1,25 @@
 ---
 type: Design Decision
 title: Tipo di strumento
-description: Decisione di costruire BADSPACE come libreria embedded, per la massima velocità in-process, pensata per evolvere in seguito verso nodi di partizioni esposti via gRPC, mentre l'API resta una libreria nel processo del software; BADSPACE non controlla gli accessi, perché ha un solo utilizzatore, il software, che filtra i client esterni.
+description: BADSPACE è un framework per costruire lo strato di gestione di una base dati spaziale real-time del proprio software; si parte da una libreria embedded, pensata per evolvere verso nodi esposti via gRPC, mentre l'API resta nel processo del software; il controllo degli accessi spetta al software.
 tags: [badspace, design, architecture]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T09:00:00Z }
+generated: { by: codex/gpt-6, at: 2026-10-18T09:35:42Z }
 ---
+
+# Ruolo del framework
+
+BADSPACE è un **framework per costruire lo strato di gestione della
+base dati del proprio software**. Offre il supporto per basi dati
+real-time di entità spaziali in 2D o 3D: primitive delle partizioni e
+meccanismi comuni, accessibili attraverso l'API. Gli sviluppatori li
+compongono e decidono le politiche e il coordinamento necessari al
+proprio caso d'uso, come descritto nell'[architettura a
+livelli](/architecture/layers.md).
+
+Questo ruolo è distinto dalla forma di distribuzione: libreria
+embedded e nodi remoti sono modi di realizzare e distribuire i
+componenti del framework.
 
 # Opzioni considerate
 

@@ -1,13 +1,22 @@
 ---
 type: Playbook
 title: Approccio di sviluppo
-description: BADSPACE viene sviluppato per prototipi minimali, verificati da test di integrazione e accompagnati da client d'esempio costruiti man mano, per validare le decisioni di progettazione sul campo; lo sviluppo è incrementale, ogni concetto nuovo porta con sé le estensioni che richiede e i meccanismi si implementano una volta e si estendono quando servono nuovi dati; i test partono dalla semantica, preferiscono componenti reali e verificano effetti, risorse e concorrenza; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
+description: BADSPACE viene sviluppato per prototipi minimali, verificati da test di integrazione e accompagnati da client d'esempio costruiti man mano, per validare le decisioni di progettazione sul campo; si assume che gli sviluppatori sappiano quello che fanno e i controlli li aiutano a prevenire errori; lo sviluppo è incrementale, ogni concetto nuovo porta con sé le estensioni che richiede e i meccanismi si implementano una volta e si estendono quando servono nuovi dati; i test partono dalla semantica, preferiscono componenti reali e verificano effetti, risorse e concorrenza; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
 tags: [badspace, methodology, prototyping]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T14:00:00Z }
+generated: { by: codex/gpt-6, at: 2026-10-18T09:35:42Z }
 ---
 
 # Approccio
+
+BADSPACE si sviluppa come **framework per costruire lo strato di
+gestione della base dati del software che lo usa**, dedicato a entità
+spaziali aggiornate in tempo reale. Si introducono primitive e
+meccanismi componibili attraverso l'API, lasciando agli sviluppatori
+le politiche e il coordinamento del proprio software secondo
+l'[architettura a livelli](/architecture/layers.md). Questo ruolo guida
+la scelta di cosa offrire come supporto comune e cosa lasciare al
+software.
 
 Procedere per **prototipi minimali** su cui ragionare e rivalutare le
 scelte fatte, invece di progettare tutto a priori. Ogni prototipo è
@@ -17,6 +26,39 @@ I client non devono essere necessariamente un gioco.
 
 Ogni decisione resta rivalutabile quando un prototipo porta
 informazioni nuove.
+
+# Fiducia negli sviluppatori
+
+BADSPACE è un componente integrato nel software che lo usa. Si parte
+dal principio che gli sviluppatori **sappiano quello che fanno** e
+conoscano le conseguenze delle operazioni che richiedono. Il modello
+d'uso è quello di un unico software, anche con più processi e writer,
+come descritto in [Accesso](/decisions/tool-type.md#accesso).
+
+L'isolamento tra utenti indipendenti che usano un DB per ambiti diversi,
+proteggendo ciascuno dalle attività degli altri e il sistema nel suo
+complesso, è fuori da questo modello d'uso.
+
+Gli eventuali **meccanismi di controllo aiutano gli sviluppatori a
+prevenire e individuare errori**. Si scelgono in base agli errori
+concreti che intercettano, al costo e alla complessità che introducono.
+La progettazione privilegia contratti chiari e meccanismi semplici;
+ogni controllo va motivato rispetto all'uso previsto, senza aggiungere
+restrizioni solo per difendersi da qualsiasi uso improprio possibile.
+
+Il **punto di accesso degli sviluppatori è l'API comune**. Il contratto
+del nodo e lo storage sono interfacce interne: non si duplicano nei
+livelli sottostanti le restrizioni dell'API per proteggere da chiamate
+dirette. I controlli si collocano dove servono a prevenire l'errore o a
+garantire la correttezza dell'operazione. Per esempio, l'API distingue
+i [metadati](/architecture/entity-metadata.md) applicativi da quelli di
+sistema, mentre verifica e applicazione di una scrittura condizionata
+avvengono atomicamente nella partizione.
+
+Le garanzie di correttezza documentate
+restano parte del contratto: per esempio commit atomici, snapshot
+immutabili e gestione della proprietà della partizione risolvono
+problemi concreti anche tra chiamanti affidabili.
 
 # Sviluppo incrementale
 

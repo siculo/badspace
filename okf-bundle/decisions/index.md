@@ -1,6 +1,6 @@
 # Decisioni di progetto
 
-* [Tipo di strumento](./tool-type.md) - libreria embedded in prima battuta, pensata per evolvere verso nodi di partizioni esposti via gRPC; l'API resta una libreria; nessun controllo degli accessi, che spetta al software.
+* [Tipo di strumento](./tool-type.md) - framework per costruire lo strato di gestione della base dati del proprio software; distribuito inizialmente come libreria embedded, con futura evoluzione verso nodi esposti via gRPC; l'API resta una libreria; il controllo degli accessi spetta al software.
 * [Linguaggio](./language.md) - prototipi in Java, linguaggio finale aperto tra C11, C++ e Rust.
 * [Confronto tra C e Rust](./c-vs-rust.md) - overflow degli interi, coordinate generiche, astrazione su 2D/3D e complessità delle strutture degli indici (arena con indici e borrow checker).
 * [Partizionamento del DB](./partitioning.md) - partizioni indipendenti, single-writer e con indice proprio, create e rimosse dinamicamente; strategia scelta dal software.
