@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot preparati a ogni commit, pubblicati con una scrittura atomica all'avanzamento del tick e letti attraverso un'acquisizione controllata; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T10:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T10:01:00Z }
 ---
 
 # Problema
@@ -146,14 +146,17 @@ le strutture che servono alle scritture e che nessuna query legge (vedi
 
 # Gli slot
 
-Oggi lo storage ha tre parti (i metadati e le tombstone, quando ci
-saranno, seguono la stessa regola):
+Oggi lo storage ha tre parti; i [metadati
+applicativi](/architecture/entity-metadata.md#nel-prototipo) ne
+aggiungono una quarta, e le tombstone, quando ci saranno, seguono la
+stessa regola:
 
 | Struttura | Cambia con | Nello snapshot |
 |---|---|---|
 | coordinate | ogni movimento | copia delle pagine cambiate in un buffer riusato; condivise con lo snapshot precedente se il commit non ha movimenti |
 | ID | solo inserimenti e rimozioni | copia solo se il commit ha inserimenti o rimozioni, altrimenti condivisa con lo snapshot precedente |
 | mappa ID → slot | solo inserimenti e rimozioni | come gli ID: una tabella hash ad indirizzamento aperto su array primitivi si copia come gli slot; in alternativa una mappa hash persistente (HAMT) |
+| metadati applicativi | scritture dei metadati e rimozioni delle entità | mappa persistente copy-on-write (`HashTrie`, una HAMT): si copiano solo i nodi cambiati; condivisa con lo snapshot precedente se il commit non cambia metadati |
 
 **Nel prototipo** la mappa ID → slot è una tabella ad indirizzamento
 aperto (`SlotTable`): un array di ID e uno di slot, sondaggio lineare,

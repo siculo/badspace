@@ -1,10 +1,10 @@
 ---
 type: Architecture Primitive
 title: Metadati delle entità
-description: L'API distingue metadati di sistema (epoca, stato, destinazione) in sola lettura e metadati applicativi liberi; il nodo offre un supporto comune, con condizioni e scritture applicate atomicamente nella partizione; le scritture condizionate sostituiscono le transazioni tra partizioni.
+description: L'API distingue metadati di sistema (epoca, stato, destinazione) in sola lettura e metadati applicativi liberi, con chiavi stringa e valori long; il nodo offre un supporto comune, con condizioni e scritture applicate atomicamente nella partizione; le scritture condizionate sono batch tutto-o-niente in cui una condizione falsa è un esito e non un errore, e sostituiscono le transazioni tra partizioni.
 tags: [badspace, architecture, partitioning, metadata, api]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-18T09:29:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T10:01:00Z }
 ---
 
 # Primitiva
@@ -65,6 +65,37 @@ garanzia dell'operazione.
   ogni dato delle entità (vedi [isolamento delle
   letture](/decisions/read-isolation.md#tutti-i-dati-delle-entità)).
 
+## Metadati applicativi
+
+I metadati applicativi di un'entità sono coppie chiave → valore, con
+**chiavi stringa e valori `long`**. Bastano per tutti i casi d'uso
+noti: una versione, una riserva come ID del processo, un tag di
+responsabilità come ID, una scadenza come tick. Altri tipi di valore si
+aggiungono solo quando un caso concreto li richiede.
+
+Per ora **non ci sono limiti** sul numero di chiavi di un'entità né
+sulla lunghezza delle chiavi: nessuna garanzia del sistema ne dipende,
+e il costo di molte chiavi lo paga solo chi le usa. I limiti arriveranno
+con un concetto che ne dà uno vero, per esempio la dimensione massima
+di un messaggio gRPC o di un blocco di persistenza.
+
+La rimozione di un'entità ne cancella i metadati applicativi. La
+possibilità di tenerli nella [tombstone](/architecture/tombstones.md)
+arriva con le tombstone.
+
+## Nel prototipo
+
+- **Storage.** La partizione tiene una mappa persistente copy-on-write
+  ID dell'entità → metadati applicativi: la `HashTrie` (una HAMT), oggi
+  nel package degli indici, da spostare in un package comune. I
+  metadati cambiano di rado, quindi il copy-on-write costa meno della
+  copia completa; uno snapshot di un commit senza modifiche ai metadati
+  condivide la versione di quello precedente.
+- **Lettura.** I metadati si leggono per ID con una lettura separata da
+  quella delle entità: `Entity2`/`Entity3` restano ID e posizione, così
+  le query spaziali non pagano i metadati. Come ogni lettura, passa per
+  uno snapshot acquisito.
+
 # Scritture condizionate
 
 Le scritture possono essere **condizionate** sui metadati, di sistema o
@@ -75,6 +106,25 @@ applicativi, per esempio:
 - "applica se la versione applicativa è ancora v".
 
 Le scritture condizionate sostituiscono le transazioni tra partizioni.
+
+## Forma
+
+Una scrittura condizionata è un **batch** che contiene:
+
+- le condizioni, ciascuna su una chiave di un'entità: "la chiave ha il
+  valore v" oppure "la chiave è assente";
+- le scritture da applicare: metadati e posizioni.
+
+Il batch è **tutto-o-niente**, come ogni scrittura (vedi [scritture
+tutto-o-niente](/decisions/api-surface.md#scritture-tutto-o-niente)):
+si applica solo se tutte le condizioni sono vere. Per le riserve a due
+serve proprio questo; chi vuole proposte indipendenti manda batch
+separati.
+
+Una condizione falsa **non è un errore** ma un esito atteso: la
+chiamata non cambia la partizione e restituisce le condizioni fallite.
+Le eccezioni restano per gli errori, per esempio un ID che non è nella
+partizione.
 
 Quando un'entità viene rimossa, i suoi metadati di sistema
 sopravvivono come [tombstone](/architecture/tombstones.md). I metadati
@@ -105,13 +155,14 @@ implementate dal software, quindi hanno un'API propria:
   se spostarla, distinto dal writer della partizione.
 - **Scadenze.** Un'entità scade dopo un certo tick, come un proiettile.
 - **Filtri nelle query**, per esempio escludere le copie in uscita o
-  selezionare per tag. Richiedono indici sui metadati: da tenere fuori
-  dal livello base, almeno all'inizio.
+  selezionare per tag. Richiedono indici sui metadati: fuori dal livello
+  base, e rimandati insieme a quegli indici; eventualmente si
+  realizzano dopo.
 
 # Punti aperti
 
-- Struttura dei metadati applicativi: slot a schema libero o tipizzati,
-  e limiti di dimensione.
+- Nomi e firme delle chiamate dell'API dei metadati: si definiscono con
+  lo sviluppo del prototipo.
 
 # Correlati
 

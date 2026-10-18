@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` senza numero, nel tick corrente), della proprietà della partizione (`ownership`, `claim` con la generazione attesa, handle del writer `AutoCloseable` con il token per scritture, commit e rimozione) e delle letture (solo attraverso l'acquisizione degli snapshot, al tick con scadenza obbligatoria), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T10:01:00Z }
 ---
 
 # Stato
@@ -438,6 +438,12 @@ della partizione.
 Le coordinate `NaN` o infinite sono rifiutate già alla costruzione di
 `Point2`/`Point3`, e un raggio infinito alla costruzione di
 `Circle2`/`Sphere3`, con `IllegalArgumentException`.
+
+Le [scritture condizionate](/architecture/entity-metadata.md#forma)
+seguono la stessa regola: il batch si applica solo se tutte le
+condizioni sono vere. Una condizione falsa non è un errore: la
+partizione non cambia e la chiamata restituisce le condizioni fallite,
+senza eccezione.
 
 # Gruppi di partizioni
 

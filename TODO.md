@@ -17,7 +17,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Tick logico](okf-bundle/architecture/logical-time.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md), [Conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md), [Rimozione della partizione](okf-bundle/architecture/partition-removal.md).
 
-- [ ] **Metadati:** metadati applicativi delle entità, API dei metadati, scritture condizionate. I metadati di sistema arrivano con [tombstone e migrazione](#fare-migrazione). → [cose da fare](#fare-metadati) · [decisioni](#decisioni-metadati)
+- [ ] **Metadati:** metadati applicativi delle entità, API dei metadati, scritture condizionate. I metadati di sistema arrivano con [tombstone e migrazione](#fare-migrazione). → [cose da fare](#fare-metadati)
 
   Documenti: [Metadati delle entità](okf-bundle/architecture/entity-metadata.md), [Architettura minima](okf-bundle/architecture/minimal-core.md).
 
@@ -133,8 +133,7 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-metadati"></a>
 ### Metadati [↑](#blocchi)
 
-- [ ] Metadati applicativi delle entità
-- [ ] Metadati nello snapshot di ogni commit
+- [ ] Metadati applicativi delle entità: storage, snapshot di ogni commit e contratto del nodo
 - [ ] API dei metadati (lettura e scrittura dei metadati applicativi)
 - [ ] Scritture condizionate (compare-and-set) sui metadati applicativi
 
@@ -255,13 +254,8 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [x] Forma della query di range (box e cerchio/sfera, dietro un'interfaccia sealed estendibile)
 - [x] Forma delle chiamate per il commit e il tick (`commit()` senza numero, `setTick` sullo spazio, `tick()`, `creationTick()`; sostituisce `commit(n)`)
 - [x] Limiti delle coordinate fissati dall'indice: tetto globale 2^60, 2^30 celle per lato per gli indici a celle, query senza limiti, solo valori finiti (niente `NaN` né infiniti)
-
-<a id="decisioni-metadati"></a>
-### Metadati [↑](#blocchi)
-
-- [ ] Struttura dei metadati applicativi (schema libero o tipizzati, limiti di dimensione)
-- [ ] Forma delle chiamate per le scritture condizionate
-- [ ] Filtri sui metadati nelle query
+- [x] Struttura dei metadati applicativi: chiavi `String`, valori `long`, nessun limite sul numero e sulla lunghezza delle chiavi per ora; nel prototipo una `HashTrie` copy-on-write, con lettura per ID separata da quella delle entità → [Metadati delle entità](okf-bundle/architecture/entity-metadata.md#metadati-applicativi)
+- [x] Forma delle scritture condizionate: batch tutto-o-niente con condizioni "chiave = valore" o "chiave assente" e scritture di metadati e posizioni; una condizione falsa restituisce le condizioni fallite, senza eccezione → [Metadati delle entità](okf-bundle/architecture/entity-metadata.md#forma)
 
 <a id="decisioni-persistenza"></a>
 ### Persistenza [↑](#blocchi)
@@ -314,4 +308,5 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [ ] Tipo delle coordinate nell'implementazione finale
 - [ ] Divisione dei bit dell'ID (41/10/12 o 41/12/10): si può cambiare anche più avanti, purché il timestamp resti negli stessi bit
 - [ ] Linguaggio dell'implementazione finale (C11, C++, Rust)
+- [ ] Filtri sui metadati nelle query, con i relativi indici sui metadati, fuori dal livello base → [Metadati delle entità](okf-bundle/architecture/entity-metadata.md#estensioni-possibili)
 - [ ] Più indici per una partizione (non è deciso se supportarli) → [Indice per partizione](okf-bundle/decisions/spatial-indexing.md#indice-per-partizione)

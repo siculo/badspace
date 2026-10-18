@@ -7,7 +7,7 @@
 
 * [Proprietà della partizione](./partition-ownership.md) - al più un writer per partizione; generazione, ownership, claim (compare-and-set sulla generazione) e release; scritture con il fencing token; schemi di gestione della proprietà costruiti sopra.
 * [Commit della partizione](./partition-commit.md) - commit atomici nel tick corrente, senza numero visibile, unica transazione del sistema; lo snapshot del tick diventa visibile all'avanzamento del tick.
-* [Metadati delle entità](./entity-metadata.md) - distinzione tra sistema e applicativi nell'API, supporto comune nel nodo e scritture condizionate atomiche nella partizione.
+* [Metadati delle entità](./entity-metadata.md) - distinzione tra sistema e applicativi nell'API, metadati applicativi con chiavi stringa e valori long in una mappa copy-on-write, supporto comune nel nodo e scritture condizionate atomiche nella partizione, batch tutto-o-niente con le condizioni fallite come esito.
 * [Tombstone](./tombstones.md) - metadati che sopravvivono alla rimozione e impediscono le resurrezioni.
 * [Durabilità osservabile](./observable-durability.md) - ultimo tick persistito esposto dalla partizione.
 * [Conservazione degli snapshot](./snapshot-retention.md) - uno snapshot per ogni tick, acquisibili quelli degli ultimi k tick (k ≥ 1), acquisizione al tick e rilascio con scadenza, base delle letture coerenti.
