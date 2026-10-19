@@ -4,7 +4,7 @@ title: Proprietà della partizione
 description: Ogni partizione ha al più un writer; la proprietà ha una generazione che cresce a ogni cambio, si legge con ownership(p), si prende con claim(p, expectedGeneration), un compare-and-set sulla generazione, e si lascia con release(token); scritture, commit e remove() portano il token (fencing token), e la partizione rifiuta quelli di una generazione vecchia, scartando le scritture non confermate a ogni cambio. Sopra la primitiva si costruiscono schemi diversi di gestione della proprietà.
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T20:00:00Z }
+generated: { by: codex/gpt-6, at: 2026-10-19T14:17:50Z }
 ---
 
 # Primitiva
@@ -204,9 +204,11 @@ scritture non confermate, `close()` dopo un'eccezione come rollback e
 # Punti aperti
 
 - **Persistenza della generazione.** Con la
-  [persistenza](/decisions/persistence.md) la generazione va salvata
-  con la partizione: dopo un riavvio un token vecchio non deve tornare
-  valido.
+  ripresa della stessa partizione dopo un crash la generazione va
+  conservata in modo che un token vecchio non torni valido. Questo
+  requisito è rimandato al recupero coerente dei nodi: la prima
+  [persistenza](/decisions/persistence.md) carica il contenuto in una
+  nuova partizione.
 
 # Correlati
 

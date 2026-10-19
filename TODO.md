@@ -21,7 +21,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Metadati delle entità](okf-bundle/architecture/entity-metadata.md), [Architettura minima](okf-bundle/architecture/minimal-core.md).
 
-- [ ] **Persistenza:** snapshot per partizione, durabilità osservabile e copia di uno snapshot oltre la scadenza delle acquisizioni. → [cose da fare](#fare-persistenza) · [decisioni](#decisioni-persistenza)
+- [ ] **Persistenza:** salvataggio periodico e caricamento del contenuto di una singola partizione, da una copia autonoma dello snapshot; misure dei costi. → [cose da fare](#fare-persistenza) · [decisioni](#decisioni-persistenza)
 
   Documenti: [Persistenza](okf-bundle/decisions/persistence.md), [Durabilità osservabile](okf-bundle/architecture/observable-durability.md), [Conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md).
 
@@ -140,9 +140,12 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-persistenza"></a>
 ### Persistenza [↑](#blocchi)
 
-- [ ] Salvataggio e ripristino degli snapshot per partizione, senza fermare il writer
-- [ ] Durabilità osservabile (ultimo commit persistito)
-- [ ] Funzione di copia di uno snapshot, per chi deve tenerlo oltre la scadenza massima delle acquisizioni
+- [ ] Funzione di copia autonoma dello snapshot (ID, posizioni e metadati): acquisire, copiare prima della scadenza e rilasciare; la copia non dipende più dalla vita dello snapshot
+- [ ] Salvataggio periodico della copia per singola partizione, senza fermare il writer e senza timeout legati all’acquisizione
+- [ ] Caricamento in una nuova partizione: stessi ID, posizioni e metadati, indici ricostruiti dagli inserimenti e contenuto confermato prima di renderlo disponibile; tick secondo il contesto di creazione, metadati senza reinterpretazione
+- [ ] Misure separate di tempo di copia, scrittura e caricamento (ricostruzione degli indici compresa), dimensione dei dati salvati e memoria aggiuntiva della copia
+
+Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandati: questo blocco ricrea il contenuto di una singola partizione.
 
 <a id="fare-query"></a>
 ### Query su più partizioni [↑](#blocchi)
@@ -166,6 +169,8 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 - [ ] Regola di inserimento con confronto dell'epoca
 - [ ] Lettura ed eliminazione delle tombstone
 - [ ] Puntatore di inoltro nelle letture per ID
+- [ ] Durabilità osservabile (ultimo tick persistito), necessaria alle conferme della migrazione
+- [ ] Recupero coerente dei nodi dopo un crash: tempo logico, proprietà delle partizioni e coordinamento con gli altri nodi
 - [ ] Protocollo di migrazione tra partizioni
 - [ ] Entità congelate durante la migrazione
 - [ ] Reinvio, ACK, ACK "superato" e messaggio REMOVED
@@ -260,7 +265,11 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 <a id="decisioni-persistenza"></a>
 ### Persistenza [↑](#blocchi)
 
-- [ ] Strategia di persistenza (snapshot per partizione)
+- [x] Perimetro iniziale: persistenza del contenuto della singola partizione da una copia autonoma dello snapshot; caricamento in una nuova partizione, durabilità osservabile e recupero coerente dei nodi rimandati
+- [ ] Formato e destinazione dei dati persistiti
+- [ ] Frequenza e attivazione dei salvataggi periodici
+- [ ] Forma delle chiamate di copia, salvataggio e caricamento
+- [ ] Gestione dei salvataggi interrotti e conservazione dei dati salvati
 
 <a id="decisioni-query"></a>
 ### Query su più partizioni [↑](#blocchi)
