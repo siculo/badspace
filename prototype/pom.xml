@@ -18,6 +18,7 @@
         <module>integration-tests</module>
         <module>samples</module>
         <module>benchmark</module>
+        <module>benchmark-server</module>
     </modules>
 
     <properties>

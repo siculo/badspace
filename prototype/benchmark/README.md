@@ -260,14 +260,15 @@ the same entities and the same queries.
 
 The report is a single HTML file and needs no internet connection. The
 default output is next to the last results file, with the same name and the
-`.html` extension. It shows one section for each
-operation. Each section has:
+`.html` extension. Choose an operation and a data distribution to see one
+large log-log chart, with the number of entities on the x axis and the measured
+value on the y axis. All solutions are visible initially. Use the checkboxes
+in the legend to hide or show individual solutions in both the chart and table.
 
-- a log-log chart for each distribution, with the number of entities on the
-  x axis and the time on the y axis, and one line for each series;
-- a table with the values and, for each series, the ratio against the
-  baseline: green when it is at least 10% better, red when it is at least
-  10% worse.
+The table is beside the chart (below it on narrow screens), with one solution
+per row and one entity count per column. It shows only visible results and their
+ratios against a visible baseline: green when at least 10% better, red when at
+least 10% worse.
 
 A series is a pair of result file and index, for example
 `reference-linear-quick · LINEAR_SCAN`.
@@ -336,11 +337,19 @@ one more benchmark, with mode `footprint`.
 - **Each configuration runs in a new JVM** (a JMH fork), so the runs do not
   affect each other.
 
+## Remote benchmark machine
+
+The separate [benchmark server](../benchmark-server/README.md) can fetch a branch
+or tag, build this module, and run an uploaded plan on the benchmark machine.
+Its web page and REST API provide progress, cancellation, history and downloads,
+so plans and results can move between machines without Git commits.
+
 ## Results in the repository
 
-The `results/` directory is ignored by git, because the measures depend on
-the machine. To keep a measure, add the JSON file and its HTML report with
-`git add -f`.
+The repository keeps some JSON results and HTML reports in `results/`. New CLI
+results also go there unless an output path is given. The benchmark server keeps
+its files outside the clone; add a result to Git only when it needs to be kept
+with the project.
 
 The reference measures of an index are named
 `reference-<index>-<profile>.json`. The repository has

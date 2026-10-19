@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BADSPACE · Benchmarks</title>
+<style>
+  :root { color-scheme: dark; font: 15px/1.5 system-ui,sans-serif; background:#111820; color:#dfe8ef }
+  body { max-width:1150px; margin:32px auto; padding:0 24px }
+  h1 { font-size:28px; margin-bottom:4px } h2 { font-size:19px }
+  .muted { color:#9bafbf } .panel { background:#1a2631; border:1px solid #304455; border-radius:10px; padding:20px; margin:20px 0 }
+  input,select,textarea,button,a.button { font:inherit; color:inherit; background:#111820; border:1px solid #496173; border-radius:5px; padding:8px }
+  textarea { width:100%; box-sizing:border-box; font:13px/1.5 monospace; min-height:220px; margin:12px 0; resize:vertical }
+  a.button { display:inline-block; text-decoration:none }
+  button,a.button { cursor:pointer; background:#254b60 } button:hover,a.button:hover { background:#32647e } button:disabled { opacity:.5; cursor:default }
+  .row { display:flex; flex-wrap:wrap; align-items:center; gap:10px } .row input { flex:1; min-width:130px }
+  table { width:100%; border-collapse:collapse } td,th { text-align:left; padding:10px 8px; border-bottom:1px solid #304455; vertical-align:top }
+  td button,td a.button { padding:3px 8px } .scroll { overflow-x:auto } pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:420px; overflow:auto; font-size:12px }
+  #error { color:#ffb7ac; white-space:pre-wrap } a { color:#94d8ff } .badge { font:12px monospace; color:#a9d9dd }
+</style>
+<h1>BADSPACE <span class="muted">/ Benchmarks</span></h1>
+<div class="muted">One machine, one active plan. Results stay here until you download them.</div>
+<div class="panel row">
+  <label for="token">API token</label><input id="token" type="password" autocomplete="off" placeholder="Optional, from server.properties">
+  <button id="connect">Connect</button><span id="connection" class="muted" role="status">Connecting…</span>
+</div>
+<div id="error" role="alert"></div>
+<div class="panel">
+  <h2>Start a benchmark</h2>
+  <form id="launch">
+    <div class="row">
+      <select id="source" aria-label="Revision type"><option value="branch">Latest commit of branch</option><option value="tag">Tag</option></select>
+      <input id="revision" required value="main" aria-label="Branch or tag">
+      <label>Load plan <input type="file" id="file" accept=".json,application/json"></label>
+    </div>
+    <textarea id="plan" aria-label="Benchmark plan" spellcheck="false">{
+  "groups": [{
+    "profile": "quick",
+    "runs": [{
+      "name": "linear-memory",
+      "index": "LINEAR_SCAN",
+      "include": "Footprint",
+      "params": { "size": 1000, "distribution": "UNIFORM" }
+    }]
+  }]
+}</textarea>
+    <button id="start" type="submit">Fetch, build and run</button>
+    <span class="muted">Plans use the same format as the command line runner.</span>
+  </form>
+</div>
+<div class="panel">
+  <h2>Runs</h2>
+  <div class="scroll"><table><thead><tr><th>Started / source</th><th>State</th><th>Commit / progress</th><th></th></tr></thead><tbody id="runs"></tbody></table></div>
+</div>
+<div class="panel" id="details" hidden>
+  <h2 id="selected"></h2><div id="message"></div><p id="artifacts" class="row"></p>
+  <h3>Log <small class="muted">last 64 KiB · refreshes every 2 seconds</small></h3><pre id="log"></pre>
+</div>
+<script>
+  const $ = id => document.getElementById(id);
+  const finalStates = new Set(['SUCCEEDED','FAILED','CANCELLED','INTERRUPTED']);
+  let token = sessionStorage.getItem('benchmark-token') || '', selected = null, refreshing = false;
+  $('token').value = token;
+  async function api(path, options = {}) {
+    const response = await fetch('/api/runs' + path, {...options, headers:{'Authorization':'Bearer ' + token, ...options.headers}});
+    if (!response.ok) {
+      const body = await response.json();
+      throw new Error(body.error || response.statusText);
+    }
+    return response;
+  }
+  function element(tag, text, parent, className) {
+    const node = document.createElement(tag); node.textContent = text;
+    if (className) node.className = className;
+    parent.append(node); return node;
+  }
+  function artifactLink(parent, id, artifact) {
+    const html = artifact.name.endsWith('.html');
+    const link = element('a', (html ? 'Open report: ' : 'Download JSON: ') + artifact.name, parent, 'button');
+    link.href = '/api/runs/' + encodeURIComponent(id) + '/files/' + artifact.name.split('/').map(encodeURIComponent).join('/');
+    if (html) {
+      link.target = '_blank';
+      link.rel = 'noopener';
+    } else {
+      link.download = artifact.name.split('/').pop();
+    }
+  }
+  async function refresh() {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      const views = await (await api('')).json();
+      $('connection').textContent = 'Connected · ' + new Date().toLocaleTimeString();
+      $('runs').replaceChildren();
+      $('start').disabled = views.some(view => !finalStates.has(view.run.state));
+      if (!selected && views.length) selected = views[0].run.id;
+      for (const view of views) {
+        const run = view.run, row = element('tr', '', $('runs'));
+        const source = element('td', new Date(run.created).toLocaleString(), row);
+        element('div', (run.request.branch ? 'branch: ' + run.request.branch : 'tag: ' + run.request.tag), source, 'muted');
+        element('td', run.state, row, 'badge');
+        const progress = element('td', run.commit ? run.commit.slice(0,12) : '—', row);
+        element('div', view.progress || run.message, progress, 'muted');
+        const actions = element('td', '', row), open = element('button', 'Details', actions);
+        open.onclick = () => { selected = run.id; refresh(); };
+        for (const artifact of view.artifacts) {
+          if (artifact.name.endsWith('.html')) artifactLink(actions, run.id, artifact);
+        }
+        if (!finalStates.has(run.state)) {
+          const stop = element('button', 'Stop', actions); stop.disabled = run.state === 'STOPPING';
+          stop.onclick = async () => { try { await api('/' + run.id + '/cancel', {method:'POST'}); await refresh(); } catch(e) { $('error').textContent = e.message; } };
+        }
+      }
+      if (!views.length) { const row = element('tr', '', $('runs')); element('td', 'No runs yet.', row).colSpan = 4; }
+      const view = views.find(view => view.run.id === selected);
+      $('details').hidden = !view;
+      if (view) {
+        $('selected').textContent = 'Run ' + view.run.id;
+        $('message').textContent = view.run.message + (view.run.finished ? ' · ' + new Date(view.run.finished).toLocaleString() : '');
+        $('artifacts').replaceChildren();
+        for (const artifact of view.artifacts) {
+          if (artifact.name.endsWith('.html') || artifact.name.endsWith('.json')) {
+            artifactLink($('artifacts'), view.run.id, artifact);
+          }
+        }
+        $('log').textContent = await (await api('/' + selected + '/log')).text();
+      }
+    } catch (e) { $('connection').textContent = 'Disconnected'; $('error').textContent = e.message; }
+    finally { refreshing = false; }
+  }
+  $('connect').onclick = () => { token = $('token').value; sessionStorage.setItem('benchmark-token', token); $('error').textContent = ''; refresh(); };
+  $('file').onchange = async () => { if ($('file').files[0]) $('plan').value = await $('file').files[0].text(); };
+  $('launch').onsubmit = async event => {
+    event.preventDefault(); $('error').textContent = ''; $('start').disabled = true;
+    try {
+      // Let the server parse comments and trailing commas accepted by the plan format.
+      const source = JSON.stringify($('source').value) + ':' + JSON.stringify($('revision').value);
+      const body = '{' + source + ',"plan":' + $('plan').value + '\n}';
+      const run = await (await api('', {method:'POST', headers:{'Content-Type':'application/json'}, body})).json();
+      selected = run.id;
+    } catch (e) { $('error').textContent = e.message; }
+    finally { $('start').disabled = false; await refresh(); }
+  };
+  refresh(); setInterval(refresh, 2000);
+</script>
+</html>
