@@ -75,8 +75,14 @@ benchmark-service/
 
 Aprire `http://<macchina>:8080/` dalla macchina di sviluppo. La pagina permette
 di caricare un piano locale oppure incollarlo, selezionare un branch o un tag,
-avviare il lavoro, fermarlo e scaricare i file. Il piano precompilato misura
-soltanto la memoria della scansione lineare con pochi dati, per un primo controllo.
+avviare il lavoro, fermarlo e scaricare i file. Per ogni report HTML, il pulsante
+`Open report` nello storico e nei dettagli della run apre il report in una nuova
+scheda all’URL servito direttamente dal servizio. Con il token API, la
+connessione imposta anche un cookie di sessione HttpOnly valido soltanto per
+i file dei risultati. Dopo un riavvio del servizio occorre riconnettersi.
+I JSON dei risultati hanno un link di download; l’endpoint dei file espone
+soltanto HTML e JSON nella directory `results/` di ciascuna run.
+Il piano precompilato misura soltanto la memoria della scansione lineare con pochi dati, per un primo controllo.
 
 La pagina aggiorna ogni due secondi stato, commit, avanzamento e coda del log.
 Il log mostra anche la compilazione e l'output di JMH, comprese le sue stime
@@ -86,7 +92,8 @@ I report HTML scaricati funzionano senza servizio e senza connessione Internet.
 
 Il servizio è pensato per una rete locale fidata: chi avvia un benchmark fa
 compilare ed eseguire il codice di `origin`. La proprietà facoltativa `token`
-richiede `Authorization: Bearer <token>` per tutta l'API. La pagina permette
+richiede `Authorization: Bearer <token>` per l’API; i file dei risultati
+accettano anche il cookie di sessione per i risultati. La pagina permette
 di inserirlo e lo conserva nella sessione della scheda. Il servizio usa HTTP;
 il token non cifra il traffico.
 

@@ -38,14 +38,20 @@ the installed `start.sh` can be run directly:
 ```
 
 Open `http://<host>:8080/`. Load or paste a plan, choose a branch or tag, and start
-the run. The page refreshes every two seconds. Downloaded HTML reports work
+the run. Each HTML report has an Open report button in the history and run
+details. It opens the report URL served by the service in a new tab. With token
+authentication, connecting also sets an HttpOnly session cookie for result
+files only. Reconnect after restarting the service. JSON results have download
+links; the file endpoint only exposes HTML and JSON under each run’s `results/`.
+The page refreshes every two seconds. Downloaded HTML reports work
 offline. `Ctrl+C` stops the service and its active build or benchmark.
 
 Paths in the configuration are relative to its file. `repository` points to the
 clone root containing `prototype/`. `results` must be outside the clone; it
 defaults to `results/` next to the configuration. Each run gets its own directory
 with `status.json`, `plan.json`, `run.log`, and `results/` for JSON and HTML files.
-An optional `token` protects all API endpoints with bearer authentication. This
+An optional `token` protects API endpoints with bearer authentication; result
+files also accept the results session cookie. This
 is an HTTP service for a trusted local network; the token does not encrypt traffic.
 
 ## API

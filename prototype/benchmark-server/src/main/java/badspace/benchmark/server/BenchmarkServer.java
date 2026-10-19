@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -24,6 +25,8 @@ public final class BenchmarkServer implements AutoCloseable {
 
     private static final int MAX_REQUEST_BYTES = 1024 * 1024;
     private static final int DOWNLOAD_BUFFER_BYTES = 8192;
+    private static final String RESULTS_COOKIE = "benchmark_results";
+    private final String resultsSession = UUID.randomUUID().toString();
     private final ServerConfig config;
     private final RunStore runs;
     private final HttpServer server;
@@ -106,7 +109,13 @@ public final class BenchmarkServer implements AutoCloseable {
             }
             if (path.equals("/api/runs")) {
                 switch (method) {
-                    case "GET" -> json(exchange, 200, runs.list());
+                    case "GET" -> {
+                        if (!config.token().isEmpty()) {
+                            exchange.getResponseHeaders().set("Set-Cookie", RESULTS_COOKIE + "=" + resultsSession
+                                    + "; Path=/api/runs/; HttpOnly; SameSite=Strict");
+                        }
+                        json(exchange, 200, runs.list());
+                    }
                     case "POST" -> {
                         String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
                         if (contentType == null || !contentType.split(";", 2)[0].strip().equalsIgnoreCase("application/json")) {
@@ -184,8 +193,26 @@ public final class BenchmarkServer implements AutoCloseable {
             return true;
         }
         String supplied = exchange.getRequestHeaders().getFirst("Authorization");
-        return supplied != null && MessageDigest.isEqual(
-                ("Bearer " + config.token()).getBytes(StandardCharsets.UTF_8), supplied.getBytes(StandardCharsets.UTF_8));
+        if (supplied != null) {
+            return MessageDigest.isEqual(("Bearer " + config.token()).getBytes(StandardCharsets.UTF_8),
+                    supplied.getBytes(StandardCharsets.UTF_8));
+        }
+        // Browser navigation cannot send a bearer header. The cookie only grants access to result files.
+        String[] parts = exchange.getRequestURI().getPath().split("/", 6);
+        if (!exchange.getRequestMethod().equals("GET") || parts.length != 6
+                || !parts[1].equals("api") || !parts[2].equals("runs") || !parts[4].equals("files")) {
+            return false;
+        }
+        String cookies = exchange.getRequestHeaders().getFirst("Cookie");
+        if (cookies != null) {
+            for (String cookie : cookies.split(";")) {
+                if (MessageDigest.isEqual((RESULTS_COOKIE + "=" + resultsSession).getBytes(StandardCharsets.UTF_8),
+                        cookie.strip().getBytes(StandardCharsets.UTF_8))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static void methodNotAllowed(HttpExchange exchange, String allowed) throws IOException {

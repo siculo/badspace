@@ -112,6 +112,45 @@ class BenchmarkServerTest {
     }
 
     @Test
+    void servesReportsAndJsonWithAResultsCookieButKeepsOtherFilesAndApiPrivate() throws Exception {
+        String cookie;
+        String id;
+        try (BenchmarkServer server = start()) {
+            id = tree(submit(server, "branch", "main", "success")).path("id").asText();
+            awaitFinished(server, id);
+            HttpResponse<String> history = request(server, "/api/runs", "GET", null, true);
+            String setCookie = history.headers().firstValue("Set-Cookie").orElseThrow();
+            assertTrue(setCookie.contains("HttpOnly"));
+            assertTrue(setCookie.contains("SameSite=Strict"));
+            cookie = setCookie.split(";", 2)[0];
+            String files = "/api/runs/" + id + "/files/";
+            HttpResponse<String> report = cookieRequest(server, files + "results/result.html", "GET", cookie);
+            assertEquals(200, report.statusCode());
+            assertEquals("<html>Benchmark results</html>", report.body());
+            assertEquals("text/html; charset=utf-8", report.headers().firstValue("Content-Type").orElseThrow());
+            assertTrue(report.headers().firstValue("Content-Disposition").isEmpty());
+            assertTrue(report.headers().firstValue("Content-Security-Policy").orElseThrow().contains("sandbox allow-scripts"));
+            HttpResponse<String> json = cookieRequest(server, files + "results/result.json", "GET", cookie);
+            assertEquals(200, json.statusCode());
+            assertEquals("attachment", json.headers().firstValue("Content-Disposition").orElseThrow());
+            assertEquals(401, request(server, files + "results/result.html", "GET", null, false).statusCode());
+            assertEquals(401, cookieRequest(server, files + "results/result.html", "GET", "benchmark_results=invalid").statusCode());
+            assertEquals(401, cookieRequest(server, "/api/runs", "GET", cookie).statusCode());
+            assertEquals(401, cookieRequest(server, "/api/runs/" + id + "/cancel", "POST", cookie).statusCode());
+            Files.writeString(results.resolve(id).resolve("results/private.txt"), "private");
+            for (String name : List.of("plan.json", "run.log", "status.json", "results/private.txt", "results/../plan.json")) {
+                assertEquals(404, cookieRequest(server, files + name, "GET", cookie).statusCode(), name);
+            }
+            assertEquals(404, request(server, "/results/" + id + "/results/result.html", "GET", null, true).statusCode());
+            JsonNode view = tree(request(server, "/api/runs/" + id, "GET", null, true));
+            assertEquals(2, view.path("artifacts").size());
+        }
+        try (BenchmarkServer server = start()) {
+            assertEquals(401, cookieRequest(server, "/api/runs/" + id + "/files/results/result.html", "GET", cookie).statusCode());
+        }
+    }
+
+    @Test
     void measuresTheRequestedTagInsteadOfTheBranchTip() throws Exception {
         try (BenchmarkServer server = start()) {
             HttpResponse<String> accepted = submit(server, "tag", "v1", "success");
@@ -284,6 +323,13 @@ class BenchmarkServerTest {
 
     private static URI uri(BenchmarkServer server, String path) {
         return URI.create("http://127.0.0.1:" + server.port() + path);
+    }
+
+    private HttpResponse<String> cookieRequest(BenchmarkServer server, String path, String method, String cookie)
+            throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(uri(server, path)).timeout(Duration.ofSeconds(15))
+                .header("Cookie", cookie).method(method, HttpRequest.BodyPublishers.noBody()).build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private static JsonNode tree(HttpResponse<String> response) throws IOException {

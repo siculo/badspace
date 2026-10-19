@@ -189,9 +189,11 @@ final class RunStore implements AutoCloseable {
         require(id);
         Path base = directory(id);
         Path path = base.resolve(name).normalize();
-        if (!path.startsWith(base) || path.equals(base) || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+        Path output = base.resolve("results");
+        if (!path.startsWith(output) || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+                || !path.toRealPath().startsWith(output.toRealPath())
                 || !path.toRealPath().startsWith(base.toRealPath())
-                || !(name.equals("plan.json") || name.equals("run.log") || name.startsWith("results/"))) {
+                || !(name.endsWith(".html") || name.endsWith(".json"))) {
             throw new NoSuchElementException("Unknown artifact: " + name);
         }
         return path;
@@ -203,13 +205,11 @@ final class RunStore implements AutoCloseable {
         try (Stream<Path> paths = Files.walk(base.resolve("results"))) {
             for (Path path : paths.filter(p -> Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)).sorted().toList()) {
                 String name = base.relativize(path).toString().replace('\\', '/');
-                artifacts.add(new Artifact(name, Files.size(path)));
-            }
-        }
-        for (String name : List.of("plan.json", "run.log")) {
-            Path path = base.resolve(name);
-            if (Files.isRegularFile(path)) {
-                artifacts.add(new Artifact(name, Files.size(path)));
+                if ((name.endsWith(".html") || name.endsWith(".json"))
+                        && path.toRealPath().startsWith(base.resolve("results").toRealPath())
+                        && path.toRealPath().startsWith(base.toRealPath())) {
+                    artifacts.add(new Artifact(name, Files.size(path)));
+                }
             }
         }
         return List.copyOf(artifacts);
