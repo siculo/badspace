@@ -189,6 +189,30 @@ public interface PartitionNode2 {
     void removeAll(WriteToken token, long[] entityIds);
 
     /**
+     * Writes the application metadata of existing entities: each write sets or deletes one
+     * key of one entity, in the order of the list, so if more writes change the same key the
+     * last one wins. The metadata are confirmed by the same commit as the positions, and are
+     * in the same snapshot. Removing an entity deletes its metadata. Fails with
+     * NoSuchElementException if an ID is not in the partition.
+     * Fails with OwnershipChangedException if the token is not the current one.
+     */
+    void updateMetadataAll(WriteToken token, List<MetadataWrite> writes);
+
+    /**
+     * Applies a conditional write: it moves entities and writes their application metadata
+     * only if all its conditions are true on the state of the writer, with the writes not
+     * committed yet. Checking the conditions and applying the write is a single step, so no
+     * other write of the partition can come in between. Returns the false conditions, in
+     * their order, or an empty list if the write was applied; a false condition is not an
+     * error, and then the partition does not change. Fails with NoSuchElementException if an
+     * ID of the write or of a condition is not in the partition, and with
+     * IllegalArgumentException if a position is outside the {@linkplain #limits limits} of
+     * the partition; in these cases the partition does not change.
+     * Fails with OwnershipChangedException if the token is not the current one.
+     */
+    List<MetadataCondition> updateIf(WriteToken token, ConditionalWrite2 write);
+
+    /**
      * Confirms the writes of a partition in its current tick: the snapshot of the tick will
      * have them.
      * Each commit confirms the full current state, including the effects of earlier commits
@@ -241,6 +265,13 @@ public interface PartitionNode2 {
      * IDs that are not in the snapshot are skipped. Fails like {@link #size(Acquisition)}.
      */
     List<Entity2> getAll(Acquisition acquisition, long[] entityIds);
+
+    /**
+     * Returns the application metadata of the entities of the acquired snapshot with the given
+     * IDs, in the same order, with an empty map for an entity without metadata. IDs that are
+     * not in the snapshot are skipped. Fails like {@link #size(Acquisition)}.
+     */
+    List<ApplicationMetadata> getMetadataAll(Acquisition acquisition, long[] entityIds);
 
     /**
      * Returns the entities of the acquired snapshot that are inside the region or on its

@@ -3,9 +3,11 @@ package badspace.api;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.partition.Acquisition;
+import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.PartitionNode3;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -52,6 +54,23 @@ public final class AcquiredSnapshot3 implements AutoCloseable {
      */
     public List<Entity3> getAll(long[] entityIds) {
         return node.getAll(acquisition, entityIds);
+    }
+
+    /**
+     * Returns the application metadata of an entity, with an empty map if it has none, or
+     * empty if the ID is not in the snapshot.
+     */
+    public Optional<Map<String, Long>> getMetadata(long entityId) {
+        return getMetadataAll(new long[] {entityId}).stream().findFirst().map(ApplicationMetadata::values);
+    }
+
+    /**
+     * Returns the application metadata of the entities with the given IDs, in the same order,
+     * with an empty map for an entity without metadata. IDs that are not in the snapshot are
+     * skipped. The spatial queries do not read the metadata: this is a separate read.
+     */
+    public List<ApplicationMetadata> getMetadataAll(long[] entityIds) {
+        return node.getMetadataAll(acquisition, entityIds);
     }
 
     /**

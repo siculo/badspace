@@ -4,6 +4,7 @@ import badspace.common.geometry.Box3;
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.geometry.Sphere3;
+import badspace.service.persistent.HashTrie;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.PriorityQueue;

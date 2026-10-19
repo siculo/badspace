@@ -2,14 +2,16 @@ package badspace.service.partition.snapshot;
 
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
+import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.Entity3;
 import badspace.service.index.IndexSnapshot3;
+import badspace.service.partition.metadata.MetadataSnapshot;
 import badspace.service.partition.slots.SlotSnapshot3;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A 3D partition at a commit: the slots and the index of the same commit. The
+ * A 3D partition at a commit: the slots, the index and the metadata of the same commit. The
  * storage makes a snapshot at each commit, and the next move of the tick publishes
  * it to the readers as the snapshot of the tick of the commit, and of the following
  * ticks without a commit.
@@ -23,23 +25,30 @@ public final class StorageSnapshot3 {
 
     private final SlotSnapshot3 slots;
     private final IndexSnapshot3 index;
+    private final MetadataSnapshot metadata;
     private final SnapshotUses uses = new SnapshotUses();
 
-    /** Creates a snapshot from the slots and index of the same commit. */
-    public StorageSnapshot3(SlotSnapshot3 slots, IndexSnapshot3 index) {
+    /** Creates a snapshot from the slots, the index and the metadata of the same commit. */
+    public StorageSnapshot3(SlotSnapshot3 slots, IndexSnapshot3 index, MetadataSnapshot metadata) {
         this.slots = slots;
         this.index = index;
+        this.metadata = metadata;
     }
 
     /** Returns the empty snapshot of a new partition, before the first commit. */
     public static StorageSnapshot3 empty() {
         SlotSnapshot3 slots = SlotSnapshot3.empty();
-        return new StorageSnapshot3(slots, IndexSnapshot3.empty());
+        return new StorageSnapshot3(slots, IndexSnapshot3.empty(), MetadataSnapshot.empty());
     }
 
     /** Returns the slots. The caller must hold a use while it reads them. */
     public SlotSnapshot3 slots() {
         return slots;
+    }
+
+    /** Returns the application metadata, so the writer can go back to them. */
+    public MetadataSnapshot metadata() {
+        return metadata;
     }
 
     IndexSnapshot3 index() {
@@ -66,6 +75,20 @@ public final class StorageSnapshot3 {
             int slot = slots.slotOf(id);
             if (slot != SlotSnapshot3.NONE) {
                 result.add(new Entity3(id, slots.positionAt(slot)));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns the application metadata of the entities with the given IDs, in the same order.
+     * IDs that are not in the snapshot are skipped.
+     */
+    public List<ApplicationMetadata> getMetadataAll(long[] entityIds) {
+        List<ApplicationMetadata> result = new ArrayList<>(entityIds.length);
+        for (long id : entityIds) {
+            if (slots.slotOf(id) != SlotSnapshot3.NONE) {
+                result.add(metadata.metadataOf(id));
             }
         }
         return result;

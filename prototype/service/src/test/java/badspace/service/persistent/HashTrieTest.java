@@ -1,4 +1,4 @@
-package badspace.service.index;
+package badspace.service.persistent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -85,6 +85,39 @@ class HashTrieTest {
         assertEquals(11, trie.get(a));
         assertNull(trie.get(b));
         assertEquals(2, trie.size());
+    }
+
+    @Test
+    void revertToACommitLosesTheLaterWritesAndTheViewDoesNotChange() {
+        HashTrie<Key, Integer> trie = new HashTrie<>();
+        Key a = new Key(1, 1);
+        Key b = new Key(2, 1);
+        trie.put(a, 10);
+        HashTrie.View<Key, Integer> committed = trie.commit(1);
+        trie.put(a, 11);
+        trie.put(b, 20);
+        trie.revert(committed);
+        assertEquals(10, trie.get(a));
+        assertNull(trie.get(b));
+        assertEquals(1, trie.size());
+        trie.put(a, 12);
+        trie.put(b, 21);
+        assertEquals(10, committed.get(a));
+        assertNull(committed.get(b));
+        assertEquals(1, committed.size());
+    }
+
+    @Test
+    void writesAfterARevertToTheEmptyViewDoNotChangeIt() {
+        HashTrie<Key, Integer> trie = new HashTrie<>();
+        trie.put(new Key(1, 1), 10);
+        HashTrie.View<Key, Integer> empty = HashTrie.View.empty();
+        trie.revert(empty);
+        assertEquals(0, trie.size());
+        trie.put(new Key(2, 2), 20);
+        assertEquals(20, trie.get(new Key(2, 2)));
+        assertEquals(0, empty.size());
+        assertEquals(List.of(), valuesOf(empty));
     }
 
     private static void runRandomWrites(long seed, int hashes) {

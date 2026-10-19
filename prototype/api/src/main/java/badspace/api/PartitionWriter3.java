@@ -1,7 +1,10 @@
 package badspace.api;
 
 import badspace.common.geometry.Point3;
+import badspace.common.partition.ConditionalWrite3;
 import badspace.common.partition.Entity3;
+import badspace.common.partition.MetadataCondition;
+import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.PartitionNode3;
 import badspace.common.partition.WriteToken;
 import java.util.ArrayList;
@@ -85,6 +88,40 @@ public final class PartitionWriter3 implements PartitionWriter {
     @Override
     public void removeAll(long[] entityIds) {
         node.removeAll(token, entityIds);
+    }
+
+    @Override
+    public void putMetadata(long entityId, String key, long value) {
+        updateMetadataAll(List.of(MetadataWrite.put(entityId, key, value)));
+    }
+
+    @Override
+    public void deleteMetadata(long entityId, String key) {
+        updateMetadataAll(List.of(MetadataWrite.delete(entityId, key)));
+    }
+
+    @Override
+    public void updateMetadataAll(List<MetadataWrite> writes) {
+        node.updateMetadataAll(token, writes);
+    }
+
+    @Override
+    public boolean compareAndSetMetadata(long entityId, String key, long expected, long value) {
+        return updateIf(new ConditionalWrite3(List.of(MetadataCondition.valueIs(entityId, key, expected)), List.of(),
+                List.of(MetadataWrite.put(entityId, key, value)))).isEmpty();
+    }
+
+    /**
+     * Moves entities and writes their application metadata only if all the conditions of the
+     * write are true now, with the writes not committed yet; the check and the write are a
+     * single step. Returns the false conditions, in their order, or an empty list if the write
+     * was applied; with a false condition nothing changes. Fails with NoSuchElementException
+     * if an ID of the write or of a condition is not in the partition, and with
+     * IllegalArgumentException if a position is outside the {@linkplain Partition#limits()
+     * limits}; in these cases nothing changes.
+     */
+    public List<MetadataCondition> updateIf(ConditionalWrite3 write) {
+        return node.updateIf(token, write);
     }
 
     @Override

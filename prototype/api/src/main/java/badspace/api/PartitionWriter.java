@@ -1,6 +1,8 @@
 package badspace.api;
 
+import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.WriteToken;
+import java.util.List;
 
 /**
  * Operations shared by the writer handles of 2D and 3D partitions. A writer handle carries the
@@ -8,7 +10,8 @@ import badspace.common.partition.WriteToken;
  * the node with it: if the ownership changed after the token was given, they fail with
  * {@code OwnershipChangedException} and the partition does not change. The operations that
  * depend on the number of dimensions, like insert and update, are only in PartitionWriter2 and
- * PartitionWriter3. The handle has no reads: the writer reads the snapshots, like any reader.
+ * PartitionWriter3. The application metadata of the entities do not depend on them, so their
+ * writes are here. The handle has no reads: the writer reads the snapshots, like any reader.
  * <p>
  * {@link #close()} releases the ownership and discards the writes not committed, so in a
  * {@code try}-with-resources a writer that leaves with an exception before its commit loses its
@@ -28,6 +31,36 @@ public interface PartitionWriter extends AutoCloseable {
      * If it fails, no entity is removed.
      */
     void removeAll(long[] entityIds);
+
+    /**
+     * Sets a key of the application metadata of an entity to the value. Fails with
+     * NoSuchElementException if the ID is not in the partition.
+     */
+    void putMetadata(long entityId, String key, long value);
+
+    /**
+     * Deletes a key of the application metadata of an entity; if the key has no value, it does
+     * nothing. Fails with NoSuchElementException if the ID is not in the partition.
+     */
+    void deleteMetadata(long entityId, String key);
+
+    /**
+     * Writes the application metadata of many entities in one call: each write sets or deletes
+     * one key of one entity, in the order of the list, so if more writes change the same key
+     * the last one wins. The metadata are confirmed by the same commit as the positions.
+     * Removing an entity deletes its metadata. Fails with NoSuchElementException if an ID is not
+     * in the partition; in this case no metadata change.
+     */
+    void updateMetadataAll(List<MetadataWrite> writes);
+
+    /**
+     * Sets a key of the application metadata of an entity to the value only if the key has
+     * the expected value now, with the writes not committed yet: a compare-and-set. Returns
+     * whether it set the value; if the key has another value or no value, nothing changes.
+     * Fails with NoSuchElementException if the ID is not in the partition. For more conditions
+     * and writes in one batch, {@code updateIf} of PartitionWriter2 and PartitionWriter3.
+     */
+    boolean compareAndSetMetadata(long entityId, String key, long expected, long value);
 
     /**
      * Confirms the writes in the current tick of the partition: the snapshot of the tick will

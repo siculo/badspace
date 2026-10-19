@@ -4,9 +4,13 @@ import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
+import badspace.common.partition.ApplicationMetadata;
+import badspace.common.partition.ConditionalWrite3;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.MetadataCondition;
+import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
@@ -186,6 +190,16 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
+    public void updateMetadataAll(WriteToken token, List<MetadataWrite> writes) {
+        find(token.partitionId()).updateMetadataAll(token.generation(), writes);
+    }
+
+    @Override
+    public List<MetadataCondition> updateIf(WriteToken token, ConditionalWrite3 write) {
+        return find(token.partitionId()).updateIf(token.generation(), write);
+    }
+
+    @Override
     public void commit(WriteToken token) {
         PartitionStorage3 storage = find(token.partitionId());
         storage.commit(token.generation());
@@ -226,6 +240,11 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     @Override
     public List<Entity3> getAll(Acquisition acquisition, long[] entityIds) {
         return query(acquisition, snapshot -> snapshot.getAll(entityIds));
+    }
+
+    @Override
+    public List<ApplicationMetadata> getMetadataAll(Acquisition acquisition, long[] entityIds) {
+        return query(acquisition, snapshot -> snapshot.getMetadataAll(entityIds));
     }
 
     @Override

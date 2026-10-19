@@ -4,7 +4,7 @@ title: Metadati delle entità
 description: L'API distingue metadati di sistema (epoca, stato, destinazione) in sola lettura e metadati applicativi liberi, con chiavi stringa e valori long; il nodo offre un supporto comune, con condizioni e scritture applicate atomicamente nella partizione; le scritture condizionate sono batch tutto-o-niente in cui una condizione falsa è un esito e non un errore, e sostituiscono le transazioni tra partizioni.
 tags: [badspace, architecture, partitioning, metadata, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T10:01:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T12:00:00Z }
 ---
 
 # Primitiva
@@ -86,11 +86,55 @@ arriva con le tombstone.
 ## Nel prototipo
 
 - **Storage.** La partizione tiene una mappa persistente copy-on-write
-  ID dell'entità → metadati applicativi: la `HashTrie` (una HAMT), oggi
-  nel package degli indici, da spostare in un package comune. I
-  metadati cambiano di rado, quindi il copy-on-write costa meno della
-  copia completa; uno snapshot di un commit senza modifiche ai metadati
-  condivide la versione di quello precedente.
+  ID dell'entità → metadati applicativi (`MutableMetadata`): la
+  `HashTrie` (una HAMT), nel package `badspace.service.persistent`
+  comune agli indici e allo storage. Nella mappa ci sono solo le entità
+  con metadati; i metadati di un'entità sono un valore immutabile con
+  chiavi ordinate e valori in array paralleli, che una scrittura
+  sostituisce. I metadati cambiano di rado, quindi il copy-on-write
+  costa meno della copia completa; uno snapshot di un commit senza
+  modifiche ai metadati condivide la versione di quello precedente.
+- **Snapshot.** Ogni commit chiude la versione della mappa
+  (`MetadataSnapshot`) e la mette nello snapshot della partizione
+  insieme a slot e indice. Le scritture non confermate si scartano
+  riportando la mappa alla versione dell'ultimo commit, senza ripetere
+  le scritture al contrario.
+- **Contratto del nodo.** `updateMetadataAll(token, writes)` applica una
+  lista di `MetadataWrite`, ciascuna su una chiave di un'entità: `Put`
+  imposta il valore, `Delete` toglie la chiave. Le scritture valgono
+  nell'ordine della lista, quindi per la stessa chiave vince l'ultima;
+  la chiamata è tutto-o-niente e fallisce con
+  `NoSuchElementException` se un'entità non è nella partizione, anche
+  inserita e non ancora confermata. Come le altre scritture prende il
+  token del proprietario, e il cambio di proprietà scarta anche i
+  metadati non confermati. `getMetadataAll(acquisition, entityIds)`
+  restituisce un `ApplicationMetadata` (ID e mappa chiave → valore) per
+  ogni ID presente nello snapshot, nello stesso ordine, con la mappa
+  vuota per un'entità senza metadati; gli ID assenti si saltano, come
+  in `getAll`.
+- **API.** Le scritture stanno sull'handle del writer, nell'interfaccia
+  comune `PartitionWriter` perché non dipendono dalla dimensione:
+  `putMetadata(id, key, value)` e `deleteMetadata(id, key)` sono batch
+  di una scrittura, `updateMetadataAll(writes)` il batch. Le letture
+  stanno sulla view dello snapshot: `getMetadata(id)` restituisce un
+  `Optional` della mappa, vuoto se l'ID non è nello snapshot, e
+  `getMetadataAll(ids)` la lista di `ApplicationMetadata`. La forma è
+  in [API da esporre](/decisions/api-surface.md#operazioni-sulle-entità).
+- **Scritture condizionate.** Il batch è `ConditionalWrite2`/
+  `ConditionalWrite3`: condizioni `MetadataCondition` (`ValueIs`, la
+  chiave ha il valore; `Absent`, la chiave non ha valore), posizioni
+  nuove di entità esistenti e scritture dei metadati. `updateIf(token,
+  write)` nel contratto del nodo, e `updateIf(write)` sull'handle del
+  writer, controlla prima l'input (ID nella partizione, anche quelli
+  delle condizioni, e limiti delle posizioni), poi le condizioni sullo
+  stato del writer, scritture non confermate comprese, e applica
+  posizioni e metadati solo se sono tutte vere; tutto sotto il lock
+  della partizione, quindi nessun'altra scrittura si mette in mezzo.
+  Restituisce le condizioni false nel loro ordine, lista vuota se la
+  scrittura è applicata. Il caso minimo è
+  `compareAndSetMetadata(id, key, expected, value)` sull'handle, che
+  restituisce `true` se ha scritto. Un processo che non è il writer
+  propone la scrittura al writer, che la applica con il suo token.
 - **Lettura.** I metadati si leggono per ID con una lettura separata da
   quella delle entità: `Entity2`/`Entity3` restano ID e posizione, così
   le query spaziali non pagano i metadati. Come ogni lettura, passa per
@@ -161,8 +205,11 @@ implementate dal software, quindi hanno un'API propria:
 
 # Punti aperti
 
-- Nomi e firme delle chiamate dell'API dei metadati: si definiscono con
-  lo sviluppo del prototipo.
+- Nomi e firme delle chiamate dell'API dei metadati che ancora non ci
+  sono (metadati di sistema, condizioni sui metadati di sistema,
+  tombstone): si definiscono con lo sviluppo del prototipo. Lettura,
+  scrittura e scritture condizionate dei metadati applicativi sono [nel
+  prototipo](#nel-prototipo).
 
 # Correlati
 
