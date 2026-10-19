@@ -15,16 +15,23 @@ remote and non-interactive credentials. The service changes the clone's checkout
 and leaves it at the measured commit with a detached HEAD. Local changes cause
 the run to fail; the service does not delete them.
 
+Run the interactive installer from the clone (it also builds the service):
+
 ```sh
-mvn -f prototype/pom.xml -pl benchmark-server -am clean package
+./prototype/benchmark-server/install.sh
 ```
 
-Copy `target/benchmark-server.jar`, `start.sh`, and `server.properties` from this
-module into a directory **outside the repository**. Edit the properties, then:
+It asks for an installation directory outside the repository and the configuration
+values, using Enter to accept the displayed defaults. `repository` is set to the
+root of the clone containing the installer. The selected Maven executable also
+builds the service. Relative executable paths are resolved from the current
+working directory; relative results paths are resolved from the installation
+directory. Existing installation files are rejected to prevent accidental replacement.
+The configuration is readable only by its owner. Both scripts are executable;
+the installed `start.sh` can be run directly:
 
 ```sh
-chmod +x start.sh
-./start.sh
+/path/to/benchmark-service/start.sh
 ```
 
 Open `http://<host>:8080/`. Load or paste a plan, choose a branch or tag, and start

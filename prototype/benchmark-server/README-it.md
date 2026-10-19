@@ -18,33 +18,31 @@ Usare un clone **dedicato al servizio**: il servizio ne cambia il checkout e lo
 lascia sul commit misurato, con HEAD detached. Le modifiche locali, inclusi i file
 non ignorati e non tracciati, fanno fallire la richiesta senza essere cancellate.
 
-Compilare il servizio dalla radice del repository:
+Eseguire lo script interattivo dal clone, anche da una directory diversa dalla
+radice del repository:
 
 ```sh
-mvn -f prototype/pom.xml -pl benchmark-server -am clean package
+./prototype/benchmark-server/install.sh
 ```
 
-Copiare questi tre file in una directory esterna al repository, per esempio
-`/home/benchmark/benchmark-service`:
+Lo script chiede la directory di installazione, che deve essere esterna al
+repository, e i valori delle proprietà. Invio accetta il valore predefinito.
+`repository` viene impostato automaticamente alla radice del clone che contiene
+lo script. Il Maven indicato viene usato anche per compilare il servizio.
+Lo script copia jar, configurazione e `start.sh` nella directory scelta;
+se uno di questi file esiste già, termina senza sostituirlo.
+La configurazione è leggibile soltanto dal proprietario.
 
-```text
-prototype/benchmark-server/target/benchmark-server.jar
-prototype/benchmark-server/start.sh
-prototype/benchmark-server/server.properties
-```
+I percorsi relativi degli eseguibili sono risolti dalla directory corrente;
+il percorso relativo di `results` dalla directory di installazione.
+I risultati devono essere separati dal clone. `java` vuoto usa il runtime del
+servizio. `JAVA_HOME` sceglie il runtime di `start.sh`; per la compilazione Maven
+deve usare un JDK adatto al commit scelto.
 
-Modificare `server.properties`, impostando almeno `repository`, `bind` e `port`.
-Il percorso `repository` indica la radice del clone, che contiene `prototype/`.
-I percorsi relativi, incluso `results`, sono relativi al file di configurazione.
-La directory dei risultati deve essere separata dal clone. Gli eseguibili
-`git`, `maven` e `java` si possono indicare anche con percorsi assoluti;
-`java` vuoto usa il runtime del servizio. `JAVA_HOME` sceglie il runtime di
-`start.sh`; per la compilazione Maven deve usare un JDK adatto al commit scelto.
+Entrambi gli script sono eseguibili. Dopo l'installazione avviare il servizio:
 
 ```sh
-cd /home/benchmark/benchmark-service
-chmod +x start.sh
-./start.sh
+/home/benchmark/benchmark-service/start.sh
 ```
 
 Non occorre installare un daemon. `Ctrl+C` arresta il servizio e richiede
