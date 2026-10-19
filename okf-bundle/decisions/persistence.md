@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: Persistenza
-description: Persistenza periodica del contenuto di una singola partizione da una copia autonoma dello snapshot; caricamento in una nuova partizione e misure dei costi nel prototipo, con recupero coerente dei nodi e durabilità osservabile rimandati.
+description: Persistenza periodica del contenuto di una singola partizione, eseguita dal nodo che la gestisce su una destinazione configurata sul nodo, da una copia autonoma dello snapshot; l'API comanda il salvataggio e ne riceve l'esito; caricamento in una nuova partizione e misure dei costi nel prototipo, con recupero coerente dei nodi e durabilità osservabile rimandati.
 tags: [badspace, design, persistence, partitioning]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-19T14:17:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T16:00:00Z }
 ---
 
 # Perimetro attuale
@@ -26,7 +26,8 @@ persistito (vedi [approccio di sviluppo](/process/development-approach.md#meccan
 
 Lo snapshot pubblicato è immutabile e contiene solo lo stato confermato
 dell'ultimo commit del tick completato (vedi [isolamento delle
-letture](/decisions/read-isolation.md)). Il salvataggio segue questi passi:
+letture](/decisions/read-isolation.md)). Il nodo che gestisce la
+partizione esegue il salvataggio, su comando dell'API, con questi passi:
 
 1. Acquisire lo snapshot della partizione.
 2. Copiarne ID, posizioni e metadati mentre l'acquisizione è valida.
@@ -37,8 +38,47 @@ letture](/decisions/read-isolation.md)). Il salvataggio segue questi passi:
 La copia deve essere completata prima della scadenza. La scrittura
 successiva non ha quel vincolo. Il writer continua a lavorare durante
 entrambe le fasi: non ci sono scritture sincrone nel game loop.
-La funzione di copia è ancora da progettare (vedi [conservazione degli
-snapshot](/architecture/snapshot-retention.md)).
+La copia avviene dentro il nodo e non passa dall'API (vedi
+[conservazione degli snapshot](/architecture/snapshot-retention.md#copia-autonoma-per-la-persistenza)).
+Una funzione di copia esposta al software resta utile per tenere uno
+snapshot oltre la scadenza massima delle acquisizioni, ma non serve a
+questo blocco.
+
+# Destinazione
+
+I dati persistiti vanno su una **destinazione configurata sul nodo**
+che gestisce la partizione, non su un volume del software che usa
+l'API. Nel prototipo la destinazione è una directory; più avanti può
+essere un volume condiviso o un object store. L'API comanda il
+salvataggio e riceve l'esito: completamento o errore.
+
+I motivi:
+
+- **Nessun trasferimento del contenuto.** Se scrivesse il software, a
+  ogni salvataggio periodico tutto il contenuto della partizione
+  passerebbe dal nodo al software: con un nodo remoto è un traffico
+  proporzionale alla dimensione della partizione, ripetuto a ogni
+  salvataggio.
+- **Durabilità di una partizione.** La [durabilità
+  osservabile](/architecture/observable-durability.md) è una proprietà
+  della partizione: il nodo sa da solo quando un salvataggio è
+  completo, senza che il software glielo comunichi.
+- **Recupero dei nodi.** Il futuro recupero dopo un crash trova i dati
+  delle partizioni sullo storage del nodo.
+- **Forma a servizio.** È coerente con la possibile centralizzazione
+  della destinazione in una forma a servizio (vedi [tipo di
+  strumento](/decisions/tool-type.md)).
+
+Al software, secondo l'[architettura a livelli](/architecture/layers.md),
+restano le politiche: quando salvare, quali partizioni, quanti
+salvataggi conservare e da quale salvataggio caricare. Un salvataggio
+è identificato da un riferimento (partizione e tick) che il software
+usa per il caricamento.
+
+Il caricamento su un altro nodo richiede che la destinazione sia
+raggiungibile da quel nodo, cioè uno storage condiviso. Con il solo
+disco locale si carica sullo stesso nodo; lo spostamento tra nodi è un
+caso successivo.
 
 # Caricamento
 
@@ -83,7 +123,7 @@ Il salvataggio deve comunque avere un esito di completamento o errore.
 # Punti aperti
 
 - Frequenza e attivazione dei salvataggi periodici.
-- Destinazione e formato dei dati persistiti.
+- Formato dei dati persistiti.
 - Forma delle chiamate di copia, salvataggio e caricamento.
 - Gestione di salvataggi interrotti e conservazione dei dati salvati.
 

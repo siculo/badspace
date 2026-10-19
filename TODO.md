@@ -140,8 +140,8 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-persistenza"></a>
 ### Persistenza [↑](#blocchi)
 
-- [ ] Funzione di copia autonoma dello snapshot (ID, posizioni e metadati): acquisire, copiare prima della scadenza e rilasciare; la copia non dipende più dalla vita dello snapshot
-- [ ] Salvataggio periodico della copia per singola partizione, senza fermare il writer e senza timeout legati all’acquisizione
+- [ ] Copia autonoma dello snapshot dentro il nodo, per il salvataggio (ID, posizioni e metadati): acquisire, copiare prima della scadenza e rilasciare; la copia non dipende più dalla vita dello snapshot e non passa dall'API
+- [ ] Salvataggio periodico della copia per singola partizione, eseguito dal nodo su comando dell'API e con un esito (completamento o errore), su una destinazione configurata sul nodo, senza fermare il writer e senza timeout legati all’acquisizione
 - [ ] Caricamento in una nuova partizione: stessi ID, posizioni e metadati, indici ricostruiti dagli inserimenti e contenuto confermato prima di renderlo disponibile; tick secondo il contesto di creazione, metadati senza reinterpretazione
 - [ ] Misure separate di tempo di copia, scrittura e caricamento (ricostruzione degli indici compresa), dimensione dei dati salvati e memoria aggiuntiva della copia
 
@@ -218,6 +218,7 @@ Non è deciso quanti e quali client servono: si costruiscono man mano. Scenari p
 
 Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici sono nel [TODO degli indici](TODO-indices.md).
 
+- [ ] Funzione di copia autonoma di uno snapshot esposta al software, per tenerlo oltre la scadenza massima delle acquisizioni (vedi [conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md))
 - [ ] Array di oggetti negli indici sostituiti da array paralleli di primitivi, come chiedono le [linee guida](prototype/coding-guidelines.md) (principio 2): `Node[] children` in `GridQuadtreeIndex2` e `GridOctreeIndex3`, `Object[]` ed `Entry[]` in `HashTrie`. Va fatto indipendentemente dal [TODO degli indici](TODO-indices.md)
 
 
@@ -266,7 +267,8 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 ### Persistenza [↑](#blocchi)
 
 - [x] Perimetro iniziale: persistenza del contenuto della singola partizione da una copia autonoma dello snapshot; caricamento in una nuova partizione, durabilità osservabile e recupero coerente dei nodi rimandati
-- [ ] Formato e destinazione dei dati persistiti
+- [x] Destinazione dei dati persistiti: il nodo che gestisce la partizione scrive su una destinazione configurata sul nodo; l'API comanda il salvataggio e riceve l'esito
+- [ ] Formato dei dati persistiti
 - [ ] Frequenza e attivazione dei salvataggi periodici
 - [ ] Forma delle chiamate di copia, salvataggio e caricamento
 - [ ] Gestione dei salvataggi interrotti e conservazione dei dati salvati

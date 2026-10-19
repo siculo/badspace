@@ -4,7 +4,7 @@ title: Conservazione degli snapshot
 description: Ogni partizione ha uno snapshot logico S(n) per ogni tick completato dalla creazione alla rimozione, con contenuto condiviso tra tick senza commit, e conserva acquisibili quelli degli ultimi k tick (max(T − k, C) ≤ n ≤ T − 1, k ≥ 1, default 1); i reader acquisiscono uno snapshot, lo leggono e lo rilasciano, con una scadenza obbligatoria, e uno snapshot uscito dalla finestra resta leggibile finché ha acquisizioni valide; la partizione rileva la fine di ogni snapshot.
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-19T14:17:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T16:00:00Z }
 ---
 
 # Primitiva
@@ -138,11 +138,13 @@ copia, con una funzione ancora da progettare.
 ## Copia autonoma per la persistenza
 
 Il primo blocco di [persistenza](/decisions/persistence.md) usa una
-copia autonoma di ID, posizioni e metadati dello snapshot. Si acquisisce
-lo snapshot, si completa la copia mentre l’acquisizione è valida e si
-rilascia l’acquisizione; la scrittura usa poi solo la copia, senza
-dipendere dalla scadenza o dalla vita dello snapshot originale. La
-forma della funzione resta da progettare.
+copia autonoma di ID, posizioni e metadati dello snapshot, fatta dentro
+il nodo che gestisce la partizione: la copia non passa dall'API. Il nodo
+acquisisce lo snapshot, completa la copia mentre l’acquisizione è
+valida e rilascia l’acquisizione; la scrittura usa poi solo la copia,
+senza dipendere dalla scadenza o dalla vita dello snapshot originale.
+La funzione di copia esposta al software, per tenere uno snapshot oltre
+la scadenza massima, resta da progettare.
 
 # Vita di uno snapshot
 
