@@ -26,7 +26,10 @@ values, using Enter to accept the displayed defaults. `repository` is set to the
 root of the clone containing the installer. The selected Maven executable also
 builds the service. Relative executable paths are resolved from the current
 working directory; relative results paths are resolved from the installation
-directory. Existing installation files are rejected to prevent accidental replacement.
+directory. If installation files already exist, it asks whether to update the service.
+Stop the service before confirming. An update replaces the jar and `start.sh`,
+keeps configuration and results, and asks only for Maven to build the service.
+Declining leaves the installation unchanged.
 The configuration is readable only by its owner. Both scripts are executable;
 the installed `start.sh` can be run directly:
 
@@ -76,7 +79,8 @@ Locks prevent two services from using the same clone or results directory.
 The service builds only `benchmark` and its dependencies, with `clean package
 -DskipTests`. The installed service jar does not change when the measured revision
 changes. Older revisions work if they support `run --plan FILE` and the existing
-benchmark jar location. To update the service itself, stop it and replace its jar.
+benchmark jar location. To update the service itself, stop it and run the installer again with the same
+installation directory.
 
 ## Tests
 

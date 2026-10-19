@@ -30,7 +30,10 @@ repository, e i valori delle proprietà. Invio accetta il valore predefinito.
 `repository` viene impostato automaticamente alla radice del clone che contiene
 lo script. Il Maven indicato viene usato anche per compilare il servizio.
 Lo script copia jar, configurazione e `start.sh` nella directory scelta;
-se uno di questi file esiste già, termina senza sostituirlo.
+se trova file di installazione già presenti, chiede se aggiornare il servizio.
+Prima di confermare occorre arrestare il servizio. L’aggiornamento sostituisce
+jar e `start.sh`, conserva configurazione e risultati e chiede soltanto il Maven
+da usare per compilare. Rifiutando, lo script termina senza modifiche.
 La configurazione è leggibile soltanto dal proprietario.
 
 I percorsi relativi degli eseguibili sono risolti dalla directory corrente;
@@ -47,7 +50,7 @@ Entrambi gli script sono eseguibili. Dopo l'installazione avviare il servizio:
 
 Non occorre installare un daemon. `Ctrl+C` arresta il servizio e richiede
 l'arresto dell'esecuzione attiva. Per aggiornare il servizio, arrestarlo e
-sostituire il suo jar; gli aggiornamenti richiesti tramite l'API riguardano
+rieseguire lo script di installazione indicando la stessa directory; gli aggiornamenti richiesti tramite l'API riguardano
 soltanto il codice da misurare.
 
 La directory assume questa forma:
