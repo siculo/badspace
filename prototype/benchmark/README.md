@@ -336,11 +336,19 @@ one more benchmark, with mode `footprint`.
 - **Each configuration runs in a new JVM** (a JMH fork), so the runs do not
   affect each other.
 
+## Remote benchmark machine
+
+The separate [benchmark server](../benchmark-server/README.md) can fetch a branch
+or tag, build this module, and run an uploaded plan on the benchmark machine.
+Its web page and REST API provide progress, cancellation, history and downloads,
+so plans and results can move between machines without Git commits.
+
 ## Results in the repository
 
-The `results/` directory is ignored by git, because the measures depend on
-the machine. To keep a measure, add the JSON file and its HTML report with
-`git add -f`.
+The repository keeps some JSON results and HTML reports in `results/`. New CLI
+results also go there unless an output path is given. The benchmark server keeps
+its files outside the clone; add a result to Git only when it needs to be kept
+with the project.
 
 The reference measures of an index are named
 `reference-<index>-<profile>.json`. The repository has

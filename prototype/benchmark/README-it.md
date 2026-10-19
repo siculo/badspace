@@ -343,11 +343,20 @@ compare come un benchmark in più, con modalità `footprint`.
 - **Ogni configurazione gira in una JVM nuova** (un fork di JMH), così le
   esecuzioni non si influenzano a vicenda.
 
+## Macchina remota dei benchmark
+
+Il [servizio dei benchmark](../benchmark-server/README-it.md), in un modulo
+separato, può aggiornare un branch o tag, compilare questo modulo e avviare un
+piano inviato dalla macchina di sviluppo. La pagina web e l'API REST offrono
+avanzamento, arresto, storico e download, senza trasferire piani e risultati
+tramite commit Git.
+
 ## Risultati nel repository
 
-La directory `results/` è esclusa da git, perché le misure dipendono dalla
-macchina. Per conservare una misura si aggiungono il file JSON e il suo
-report HTML con `git add -f`.
+Il repository conserva alcuni risultati JSON e report HTML in `results/`.
+Anche i nuovi risultati della CLI finiscono lì, salvo un percorso di output
+esplicito. Il servizio dei benchmark li conserva fuori dal clone; si aggiunge
+un risultato a Git solo quando serve conservarlo insieme al progetto.
 
 Le misure di riferimento di un indice si chiamano
 `reference-<indice>-<profilo>.json`. Nel repository c'è
