@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: API da esporre
-description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` senza numero, nel tick corrente), della proprietà della partizione (`ownership`, `claim` con la generazione attesa, handle del writer `AutoCloseable` con il token per scritture, commit e rimozione) e delle letture (solo attraverso l'acquisizione degli snapshot, al tick con scadenza obbligatoria), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
+description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` senza numero, nel tick corrente), della proprietà della partizione (`ownership`, `claim` con la generazione attesa, handle del writer `AutoCloseable` con il token per scritture, commit e rimozione), delle letture (solo attraverso l'acquisizione degli snapshot, al tick con scadenza obbligatoria) e dei metadati applicativi (lettura per ID sulla view dello snapshot, scritture sull'handle del writer), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T10:01:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T11:00:00Z }
 ---
 
 # Stato
@@ -15,7 +15,8 @@ metadati, partizioni e commit). Il prototipo definisce la forma delle
 operazioni di scrittura e lettura per ID sulle entità, delle query di
 range e k-nearest su una partizione, della creazione e rimozione delle
 partizioni, del tick, del commit, della proprietà della partizione e
-delle letture sugli snapshot conservati (vedi [Forma delle chiamate nel
+delle letture sugli snapshot conservati, e della lettura e scrittura
+dei metadati applicativi (vedi [Forma delle chiamate nel
 prototipo](#forma-delle-chiamate-nel-prototipo)), che resta
 rivalutabile; la forma delle altre operazioni, raycast compreso, è
 ancora da definire.
@@ -88,6 +89,8 @@ ogni coordinata senza cambiare il resto.
 | Limiti | `limits()` | Nell'interfaccia comune `Partition`: le coordinate ammesse per le entità, fissate dall'indice (vedi [limiti delle coordinate](/decisions/spatial-indexing.md#limiti-delle-coordinate)) |
 | Query di range | `findInRegion(Region)` | Sulla view dello snapshot; restituisce le entità dentro la regione o sul suo bordo, in ordine non definito |
 | Query k-nearest | `findNearest(Point, count)` | Sulla view dello snapshot; restituisce al più `count` entità, ordinate per distanza dal punto e a parità di distanza per ID |
+| Lettura dei metadati applicativi | `getMetadata(id)`, `getMetadataAll(long[])` | Sulla view dello snapshot, separata dalla lettura delle entità; `getMetadata` restituisce un `Optional` della mappa chiave → valore, vuoto se l'ID non è nello snapshot; `getMetadataAll` restituisce un `ApplicationMetadata` per ID nell'ordine degli ID, con la mappa vuota per un'entità senza metadati, e salta gli ID assenti |
+| Scrittura dei metadati applicativi | `putMetadata(id, key, value)`, `deleteMetadata(id, key)`, `updateMetadataAll(List<MetadataWrite>)` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter`; `MetadataWrite` è `Put` o `Delete` su una chiave di un'entità; le scritture valgono nell'ordine della lista, quindi per la stessa chiave vince l'ultima; confermate dallo stesso commit delle posizioni; la rimozione dell'entità ne cancella i metadati |
 
 Le scritture stanno sull'[handle del
 writer](#proprietà-e-handle-del-writer) (`PartitionWriter2`/`PartitionWriter3`),
@@ -431,7 +434,7 @@ della partizione.
 
 | Errore | Eccezione |
 |---|---|
-| ID inesistente in `update`/`remove` | `NoSuchElementException` |
+| ID inesistente in `update`/`remove` o in una scrittura dei metadati | `NoSuchElementException` |
 | ID già presente o duplicato in `insert`, ID duplicato in `remove` | `IllegalArgumentException` |
 | Posizione fuori dai limiti della partizione in `insert`/`update` | `IllegalArgumentException` |
 

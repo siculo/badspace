@@ -48,19 +48,23 @@ class.
 7. [`partition-removal`](partition-removal) (`PartitionRemoval`): the two
    removal policies, the readers after the removal, and the destruction of the
    partition when no snapshot is left.
+8. [`entity-metadata`](entity-metadata) (`EntityMetadata`): the application
+   metadata of the entities, written through the handle of the writer in the
+   same commit as the positions and read by ID on an acquired snapshot; a
+   batch that fails changes nothing; removing an entity deletes its metadata.
 
 ## Use cases
 
-8. [`random-updater`](random-updater) (`RandomUpdater`): one writer and one
+9. [`random-updater`](random-updater) (`RandomUpdater`): one writer and one
    reader on two threads; the writer moves the entities at random at each
    tick, the reader shows the latest snapshot.
-9. [`multi-writer`](multi-writer) (`MultiWriter`): many partitions on one
-   node, each with its writer on its own thread, and a tick shared by all of
-   them, like the loop of a game server.
-10. [`lagged-reader`](lagged-reader) (`LaggedReader`): a reader that draws
+10. [`multi-writer`](multi-writer) (`MultiWriter`): many partitions on one
+    node, each with its writer on its own thread, and a tick shared by all of
+    them, like the loop of a game server.
+11. [`lagged-reader`](lagged-reader) (`LaggedReader`): a reader that draws
     more frames than there are ticks, a little in the past, between the
     snapshots of two retained ticks, like a game client.
-11. [`writer-failover`](writer-failover) (`WriterFailover`): a coordinator
+12. [`writer-failover`](writer-failover) (`WriterFailover`): a coordinator
     takes the ownership away from a stuck writer and gives it to a new one,
     which goes on from the latest snapshot; the fencing token rejects the old
     writer when it wakes up.

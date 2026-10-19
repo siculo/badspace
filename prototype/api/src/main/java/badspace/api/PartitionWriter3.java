@@ -2,6 +2,7 @@ package badspace.api;
 
 import badspace.common.geometry.Point3;
 import badspace.common.partition.Entity3;
+import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.PartitionNode3;
 import badspace.common.partition.WriteToken;
 import java.util.ArrayList;
@@ -85,6 +86,21 @@ public final class PartitionWriter3 implements PartitionWriter {
     @Override
     public void removeAll(long[] entityIds) {
         node.removeAll(token, entityIds);
+    }
+
+    @Override
+    public void putMetadata(long entityId, String key, long value) {
+        updateMetadataAll(List.of(MetadataWrite.put(entityId, key, value)));
+    }
+
+    @Override
+    public void deleteMetadata(long entityId, String key) {
+        updateMetadataAll(List.of(MetadataWrite.delete(entityId, key)));
+    }
+
+    @Override
+    public void updateMetadataAll(List<MetadataWrite> writes) {
+        node.updateMetadataAll(token, writes);
     }
 
     @Override

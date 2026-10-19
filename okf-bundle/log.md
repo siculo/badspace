@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-19
+* **Edit**: Riportata l'API dei metadati applicativi fatta nel prototipo. [API da esporre](/decisions/api-surface.md#operazioni-sulle-entità): `putMetadata`, `deleteMetadata` e `updateMetadataAll` sull'handle del writer, nell'interfaccia comune `PartitionWriter`; `getMetadata` e `getMetadataAll` sulla view dello snapshot; `NoSuchElementException` per un ID inesistente anche nelle scritture dei metadati. [Metadati delle entità](/architecture/entity-metadata.md#nel-prototipo) e [Architettura minima](/architecture/minimal-core.md#punti-aperti) allineati: restano aperte le chiamate delle scritture condizionate, dei metadati di sistema e delle tombstone. Nuovo client d'esempio `entity-metadata`.
 * **Edit**: Riportati i metadati applicativi fatti nel prototipo, nello storage, negli snapshot e nel contratto del nodo. [Metadati delle entità](/architecture/entity-metadata.md#nel-prototipo): `HashTrie` spostata in `badspace.service.persistent`, mappa `MutableMetadata` con solo le entità che hanno metadati, `MetadataSnapshot` in ogni snapshot della partizione, scritture non confermate scartate tornando alla versione dell'ultimo commit; `updateMetadataAll` con `MetadataWrite` (`Put`, `Delete`) e `getMetadataAll` con `ApplicationMetadata` nel contratto del nodo. Allineata [Isolamento delle letture](/decisions/read-isolation.md#gli-slot). Nuovo termine nel [Glossario](/glossary.md): metadati applicativi.
 
 ## 2026-10-18

@@ -13,8 +13,10 @@ import badspace.api.Space2;
 import badspace.api.SpaceConfig;
 import badspace.common.geometry.Box2;
 import badspace.common.geometry.Point2;
+import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionId;
@@ -28,6 +30,7 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CyclicBarrier;
@@ -205,6 +208,42 @@ class Space2EndToEndTest {
         writer(p).removeAll(new long[] {ids[1]});
         try (AcquiredSnapshot2 snapshot = publish(p)) {
             assertEquals(0, snapshot.size());
+        }
+    }
+
+    @Test
+    void metadataAreReadFromTheSnapshotOfTheCommitThatWroteThem() {
+        Partition2 p = space.createPartition(new LocalPartitionNode2());
+        long[] ids = writer(p).insertAll(List.of(new Point2(1, 1), new Point2(2, 2)));
+        writer(p).putMetadata(ids[0], "version", 1);
+        writer(p).putMetadata(ids[0], "owner", 7);
+        try (AcquiredSnapshot2 first = publish(p)) {
+            writer(p).updateMetadataAll(List.of(MetadataWrite.put(ids[0], "version", 2),
+                    MetadataWrite.put(ids[1], "version", 1)));
+            writer(p).deleteMetadata(ids[0], "owner");
+            try (AcquiredSnapshot2 second = publish(p)) {
+                assertEquals(Optional.of(Map.of("version", 1L, "owner", 7L)), first.getMetadata(ids[0]));
+                assertEquals(Optional.of(Map.of()), first.getMetadata(ids[1]));
+                assertEquals(List.of(new ApplicationMetadata(ids[1], Map.of("version", 1L)),
+                        new ApplicationMetadata(ids[0], Map.of("version", 2L))),
+                        second.getMetadataAll(new long[] {ids[1], -1, ids[0]}));
+            }
+        }
+
+        writer(p).remove(ids[0]);
+        try (AcquiredSnapshot2 snapshot = publish(p)) {
+            assertEquals(Optional.empty(), snapshot.getMetadata(ids[0]));
+        }
+    }
+
+    @Test
+    void metadataWriteOnAMissingEntityChangesNothing() {
+        Partition2 p = space.createPartition(new LocalPartitionNode2());
+        long id = writer(p).insert(new Point2(1, 1));
+        assertThrows(NoSuchElementException.class, () -> writer(p).updateMetadataAll(
+                List.of(MetadataWrite.put(id, "version", 1), MetadataWrite.put(id + 1000, "version", 1))));
+        try (AcquiredSnapshot2 snapshot = publish(p)) {
+            assertEquals(Optional.of(Map.of()), snapshot.getMetadata(id));
         }
     }
 

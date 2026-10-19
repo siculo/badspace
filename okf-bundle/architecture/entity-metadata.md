@@ -112,6 +112,14 @@ arriva con le tombstone.
   ogni ID presente nello snapshot, nello stesso ordine, con la mappa
   vuota per un'entità senza metadati; gli ID assenti si saltano, come
   in `getAll`.
+- **API.** Le scritture stanno sull'handle del writer, nell'interfaccia
+  comune `PartitionWriter` perché non dipendono dalla dimensione:
+  `putMetadata(id, key, value)` e `deleteMetadata(id, key)` sono batch
+  di una scrittura, `updateMetadataAll(writes)` il batch. Le letture
+  stanno sulla view dello snapshot: `getMetadata(id)` restituisce un
+  `Optional` della mappa, vuoto se l'ID non è nello snapshot, e
+  `getMetadataAll(ids)` la lista di `ApplicationMetadata`. La forma è
+  in [API da esporre](/decisions/api-surface.md#operazioni-sulle-entità).
 - **Lettura.** I metadati si leggono per ID con una lettura separata da
   quella delle entità: `Entity2`/`Entity3` restano ID e posizione, così
   le query spaziali non pagano i metadati. Come ogni lettura, passa per
@@ -182,8 +190,10 @@ implementate dal software, quindi hanno un'API propria:
 
 # Punti aperti
 
-- Nomi e firme delle chiamate dell'API dei metadati: si definiscono con
-  lo sviluppo del prototipo.
+- Nomi e firme delle chiamate dell'API dei metadati che ancora non ci
+  sono (scritture condizionate, metadati di sistema, tombstone): si
+  definiscono con lo sviluppo del prototipo. Lettura e scrittura dei
+  metadati applicativi sono [nel prototipo](#nel-prototipo).
 
 # Correlati
 

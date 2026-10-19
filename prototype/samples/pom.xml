@@ -27,6 +27,7 @@
         <module>acquisition-timeouts</module>
         <module>ownership-handoff</module>
         <module>partition-removal</module>
+        <module>entity-metadata</module>
         <module>multi-writer</module>
         <module>writer-failover</module>
         <module>lagged-reader</module>
