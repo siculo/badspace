@@ -1,4 +1,4 @@
-package badspace.service.index;
+package badspace.service.persistent;
 
 import java.util.Arrays;
 import java.util.function.Consumer;
@@ -22,10 +22,12 @@ import java.util.function.Consumer;
  * can see it. It has a single writer and is not thread-safe; a view can be
  * read by many threads.
  */
-final class HashTrie<K, V> {
+public final class HashTrie<K, V> {
 
     private static final int BITS = 5;
     private static final int MASK = (1 << BITS) - 1;
+    /** The commit of the nodes of {@link View#empty()}: less than every commit sequence. */
+    private static final long NO_COMMIT = -1;
 
     private Node root = new BitmapNode(0, 0, new Object[0]);
     private int size;
@@ -34,19 +36,19 @@ final class HashTrie<K, V> {
     private int sizeChange;
 
     /** Returns the value of the key, or null if the key is not in the map. */
-    V get(K key) {
+    public V get(K key) {
         return get(root, key);
     }
 
     /** Sets the value of the key. The value must not be null. */
-    void put(K key, V value) {
+    public void put(K key, V value) {
         sizeChange = 0;
         root = put(root, new Entry<>(hash(key), key, value), 0);
         size += sizeChange;
     }
 
     /** Removes the key, if it is in the map. */
-    void remove(K key) {
+    public void remove(K key) {
         sizeChange = 0;
         Object result = remove(root, hash(key), key, 0);
         root = switch (result) {
@@ -58,12 +60,12 @@ final class HashTrie<K, V> {
         size += sizeChange;
     }
 
-    int size() {
+    public int size() {
         return size;
     }
 
     /** Returns the map as it is now. The view is valid until the next write. */
-    View<K, V> view() {
+    public View<K, V> view() {
         return new View<>(root, size);
     }
 
@@ -72,14 +74,24 @@ final class HashTrie<K, V> {
      * commitSequence must be greater than the last sequence; it is not a logical tick.
      * After the commit, all the nodes are copied before they change.
      */
-    View<K, V> commit(long commitSequence) {
+    public View<K, V> commit(long commitSequence) {
         View<K, V> view = view();
         lastCommitSequence = commitSequence;
         return view;
     }
 
+    /**
+     * Brings the map back to a view of a commit: the writes after it are lost. The view
+     * must come from {@link #commit} of this map or from {@link View#empty()}: their nodes
+     * are older than the last commit, so the next writes copy them and the view does not change.
+     */
+    public void revert(View<K, V> committed) {
+        root = committed.root;
+        size = committed.size;
+    }
+
     /** A version of the map. It never changes, unless it comes from {@link #view()} and the writer goes on. */
-    static final class View<K, V> {
+    public static final class View<K, V> {
 
         private final Node root;
         private final int size;
@@ -89,16 +101,22 @@ final class HashTrie<K, V> {
             this.size = size;
         }
 
-        V get(K key) {
+        /** Returns the empty map, made by no trie. */
+        public static <K, V> View<K, V> empty() {
+            // No trie has this commit, so no trie changes the root in place.
+            return new View<>(new BitmapNode(NO_COMMIT, 0, new Object[0]), 0);
+        }
+
+        public V get(K key) {
             return HashTrie.get(root, key);
         }
 
-        int size() {
+        public int size() {
             return size;
         }
 
         /** Calls the action on each value, in any order. */
-        void forEachValue(Consumer<? super V> action) {
+        public void forEachValue(Consumer<? super V> action) {
             HashTrie.forEachValue(root, action);
         }
     }

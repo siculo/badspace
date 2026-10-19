@@ -189,6 +189,16 @@ public interface PartitionNode3 {
     void removeAll(WriteToken token, long[] entityIds);
 
     /**
+     * Writes the application metadata of existing entities: each write sets or deletes one
+     * key of one entity, in the order of the list, so if more writes change the same key the
+     * last one wins. The metadata are confirmed by the same commit as the positions, and are
+     * in the same snapshot. Removing an entity deletes its metadata. Fails with
+     * NoSuchElementException if an ID is not in the partition.
+     * Fails with OwnershipChangedException if the token is not the current one.
+     */
+    void updateMetadataAll(WriteToken token, List<MetadataWrite> writes);
+
+    /**
      * Confirms the writes of a partition in its current tick: the snapshot of the tick will
      * have them.
      * Each commit confirms the full current state, including the effects of earlier commits
@@ -241,6 +251,13 @@ public interface PartitionNode3 {
      * IDs that are not in the snapshot are skipped. Fails like {@link #size(Acquisition)}.
      */
     List<Entity3> getAll(Acquisition acquisition, long[] entityIds);
+
+    /**
+     * Returns the application metadata of the entities of the acquired snapshot with the given
+     * IDs, in the same order, with an empty map for an entity without metadata. IDs that are
+     * not in the snapshot are skipped. Fails like {@link #size(Acquisition)}.
+     */
+    List<ApplicationMetadata> getMetadataAll(Acquisition acquisition, long[] entityIds);
 
     /**
      * Returns the entities of the acquired snapshot that are inside the region or on its

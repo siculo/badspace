@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot preparati a ogni commit, pubblicati con una scrittura atomica all'avanzamento del tick e letti attraverso un'acquisizione controllata; gli slot delle entità si copiano per intero a ogni commit, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T10:01:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T10:00:00Z }
 ---
 
 # Problema
@@ -146,10 +146,9 @@ le strutture che servono alle scritture e che nessuna query legge (vedi
 
 # Gli slot
 
-Oggi lo storage ha tre parti; i [metadati
-applicativi](/architecture/entity-metadata.md#nel-prototipo) ne
-aggiungono una quarta, e le tombstone, quando ci saranno, seguono la
-stessa regola:
+Lo storage ha quattro parti, compresi i [metadati
+applicativi](/architecture/entity-metadata.md#nel-prototipo); le
+tombstone, quando ci saranno, seguono la stessa regola:
 
 | Struttura | Cambia con | Nello snapshot |
 |---|---|---|
@@ -171,9 +170,10 @@ ogni valore può essere un ID. La copia sono due array.
   condivide il buffer di quello precedente. ID e tabella si copiano
   solo se il commit ha avuto inserimenti o rimozioni, altrimenti lo
   snapshot li condivide con quello precedente.
-- Lo snapshot degli slot e quello dell'indice formano lo snapshot della
-  partizione (`StorageSnapshot`, interna al service: commit, slot e indice), con le
-  letture `getAll`, `findInRegion` e `findNearest`.
+- Lo snapshot degli slot, quello dell'indice e quello dei metadati
+  applicativi formano lo snapshot della partizione (`StorageSnapshot`,
+  interna al service: commit, slot, indice e metadati), con le letture
+  `getAll`, `getMetadataAll`, `findInRegion` e `findNearest`.
 - Le coordinate di ogni snapshot stanno in un buffer preso da un pool
   della partizione, come descritto sotto. ID e tabella ID → slot
   restano fuori dal pool: si copiano solo con inserimenti o rimozioni.

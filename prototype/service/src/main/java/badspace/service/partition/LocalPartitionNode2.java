@@ -4,9 +4,11 @@ import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
+import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
@@ -186,6 +188,11 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
+    public void updateMetadataAll(WriteToken token, List<MetadataWrite> writes) {
+        find(token.partitionId()).updateMetadataAll(token.generation(), writes);
+    }
+
+    @Override
     public void commit(WriteToken token) {
         PartitionStorage2 storage = find(token.partitionId());
         storage.commit(token.generation());
@@ -226,6 +233,11 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public List<Entity2> getAll(Acquisition acquisition, long[] entityIds) {
         return query(acquisition, snapshot -> snapshot.getAll(entityIds));
+    }
+
+    @Override
+    public List<ApplicationMetadata> getMetadataAll(Acquisition acquisition, long[] entityIds) {
+        return query(acquisition, snapshot -> snapshot.getMetadataAll(entityIds));
     }
 
     @Override

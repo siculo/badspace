@@ -133,7 +133,7 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-metadati"></a>
 ### Metadati [↑](#blocchi)
 
-- [ ] Metadati applicativi delle entità: storage, snapshot di ogni commit e contratto del nodo
+- [x] Metadati applicativi delle entità: storage, snapshot di ogni commit e contratto del nodo (`updateMetadataAll` con `MetadataWrite`, `getMetadataAll` con `ApplicationMetadata`; `HashTrie` spostata in `badspace.service.persistent`)
 - [ ] API dei metadati (lettura e scrittura dei metadati applicativi)
 - [ ] Scritture condizionate (compare-and-set) sui metadati applicativi
 

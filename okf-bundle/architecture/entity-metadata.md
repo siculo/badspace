@@ -4,7 +4,7 @@ title: Metadati delle entità
 description: L'API distingue metadati di sistema (epoca, stato, destinazione) in sola lettura e metadati applicativi liberi, con chiavi stringa e valori long; il nodo offre un supporto comune, con condizioni e scritture applicate atomicamente nella partizione; le scritture condizionate sono batch tutto-o-niente in cui una condizione falsa è un esito e non un errore, e sostituiscono le transazioni tra partizioni.
 tags: [badspace, architecture, partitioning, metadata, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T10:01:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T10:00:00Z }
 ---
 
 # Primitiva
@@ -86,11 +86,32 @@ arriva con le tombstone.
 ## Nel prototipo
 
 - **Storage.** La partizione tiene una mappa persistente copy-on-write
-  ID dell'entità → metadati applicativi: la `HashTrie` (una HAMT), oggi
-  nel package degli indici, da spostare in un package comune. I
-  metadati cambiano di rado, quindi il copy-on-write costa meno della
-  copia completa; uno snapshot di un commit senza modifiche ai metadati
-  condivide la versione di quello precedente.
+  ID dell'entità → metadati applicativi (`MutableMetadata`): la
+  `HashTrie` (una HAMT), nel package `badspace.service.persistent`
+  comune agli indici e allo storage. Nella mappa ci sono solo le entità
+  con metadati; i metadati di un'entità sono un valore immutabile con
+  chiavi ordinate e valori in array paralleli, che una scrittura
+  sostituisce. I metadati cambiano di rado, quindi il copy-on-write
+  costa meno della copia completa; uno snapshot di un commit senza
+  modifiche ai metadati condivide la versione di quello precedente.
+- **Snapshot.** Ogni commit chiude la versione della mappa
+  (`MetadataSnapshot`) e la mette nello snapshot della partizione
+  insieme a slot e indice. Le scritture non confermate si scartano
+  riportando la mappa alla versione dell'ultimo commit, senza ripetere
+  le scritture al contrario.
+- **Contratto del nodo.** `updateMetadataAll(token, writes)` applica una
+  lista di `MetadataWrite`, ciascuna su una chiave di un'entità: `Put`
+  imposta il valore, `Delete` toglie la chiave. Le scritture valgono
+  nell'ordine della lista, quindi per la stessa chiave vince l'ultima;
+  la chiamata è tutto-o-niente e fallisce con
+  `NoSuchElementException` se un'entità non è nella partizione, anche
+  inserita e non ancora confermata. Come le altre scritture prende il
+  token del proprietario, e il cambio di proprietà scarta anche i
+  metadati non confermati. `getMetadataAll(acquisition, entityIds)`
+  restituisce un `ApplicationMetadata` (ID e mappa chiave → valore) per
+  ogni ID presente nello snapshot, nello stesso ordine, con la mappa
+  vuota per un'entità senza metadati; gli ID assenti si saltano, come
+  in `getAll`.
 - **Lettura.** I metadati si leggono per ID con una lettura separata da
   quella delle entità: `Entity2`/`Entity3` restano ID e posizione, così
   le query spaziali non pagano i metadati. Come ogni lettura, passa per

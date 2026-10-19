@@ -5,12 +5,14 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.RetentionWindow;
 import badspace.service.index.SlotView3;
 import badspace.service.index.SpatialIndex3;
 import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.metadata.MutableMetadata;
 import badspace.service.partition.slots.CoordinateBuffer;
 import badspace.service.partition.slots.CoordinateBufferPool;
 import badspace.service.partition.slots.MutableSlots3;
@@ -41,6 +43,8 @@ import java.util.function.Function;
  *       snapshots of the slots;</li>
  *   <li>the spatial index, which reads the slots through their view; the partition tells it
  *       each change, after the change of the slots;</li>
+ *   <li>{@link MutableMetadata}: the application metadata of the entities, separate from
+ *       the slots and from the index;</li>
  *   <li>{@link SnapshotAcquisitions3}: the acquisitions, the queries and the timeouts;</li>
  *   <li>{@link SnapshotLifetime3}: the end of the snapshots and the count of the live ones;</li>
  *   <li>{@link CoordinateBufferPool}: the buffers of the coordinates, which the commits take
@@ -54,14 +58,15 @@ import java.util.function.Function;
  * writes outside them fail, so the indices never see them. Nobody queries the state of the
  * writer: queries read the snapshots, through the acquisitions.
  * <p>
- * Writes are grouped in commits. Each commit makes a {@link StorageSnapshot3}: the snapshot
- * of the slots and the snapshot of the index of the same commit. Each commit advances an
+ * Writes are grouped in commits. Each commit makes a {@link StorageSnapshot3}: the snapshots
+ * of the slots, of the index and of the metadata of the same commit. Each commit advances an
  * internal sequence for the copy-on-write of the index and for the pages of the slots: the
  * partition owns it, and gives the slots the commit of each change. This sequence is separate
  * from the logical tick: one tick can have many commits. The coordinates are copied only in
  * the pages changed after the commit of the buffer that the commit takes from the pool; the IDs
  * and the table from ID to slot only after insertions or removals, else the new snapshot shares
- * them with the one before. A commit without changes of the coordinates shares the buffer of
+ * them with the one before. The metadata are a persistent map, which copies only the nodes
+ * changed since the commit before. A commit without changes of the coordinates shares the buffer of
  * the snapshot before it. If the pool has no buffer large enough, the commit allocates one:
  * the writer never waits for a reader, only the memory grows.
  * <p>
@@ -111,6 +116,9 @@ final class PartitionStorage3 {
     // writerLock; the index reads it through its view of the slots.
     private final MutableSlots3 slots = new MutableSlots3();
     private final SpatialIndex3 index;
+    // The application metadata of the writer, like the slots. Changed only while holding
+    // writerLock; removing an entity deletes its metadata.
+    private final MutableMetadata metadata = new MutableMetadata();
     private final CoordinateLimits limits;
     // The number of the last commit in the sequence. Only the writer uses it.
     private long commitSequence;
@@ -270,6 +278,26 @@ final class PartitionStorage3 {
         }
     }
 
+    /**
+     * Applies the writes of the application metadata, in their order: if more writes set
+     * the same key, the last one wins. Fails with NoSuchElementException if an entity is not
+     * in the partition; in this case nothing changes.
+     */
+    void updateMetadataAll(long generation, List<MetadataWrite> writes) {
+        writerLock.lock();
+        try {
+            checkOwner(generation);
+            for (MetadataWrite write : writes) {
+                existingSlot(write.entityId());
+            }
+            for (MetadataWrite write : writes) {
+                metadata.write(write);
+            }
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
     void removeAll(long generation, long[] entityIds) {
         writerLock.lock();
         try {
@@ -320,7 +348,7 @@ final class PartitionStorage3 {
                 coordinates = lastCommitted.slots().coordinateBuffer();
             }
             snapshot = new StorageSnapshot3(slots.snapshot(coordinates, lastCommitted.slots()),
-                    index.commit(commitSequence));
+                    index.commit(commitSequence), metadata.commit(commitSequence));
             if (replaced != null) {
                 // After the new snapshot became a user of the shared buffer.
                 lifetime.replaced(replaced);
@@ -483,10 +511,12 @@ final class PartitionStorage3 {
      * commit does not have, inserts again the ones it has and moves the others back to their
      * positions in it. It uses the same steps as the writes, so the index learns each change
      * like for any write; the slots can end in a different order than in the commit. The next
-     * commit copies what changed, as after any write. It does nothing if there are no writes
-     * after the last commit. The caller holds writerLock.
+     * commit copies what changed, as after any write. The metadata go back to the ones of the
+     * last commit. It does nothing on the slots if they have no writes after the last commit.
+     * The caller holds writerLock.
      */
     private void discardUncommittedWrites() {
+        metadata.revert(lastCommitted.metadata());
         if (!slots.hasChanges()) {
             return;
         }
@@ -656,7 +686,7 @@ final class PartitionStorage3 {
     }
 
     /**
-     * Removes an entity from the slots, then tells the index that its slot is free and, if
+     * Removes an entity from the slots and deletes its metadata, then tells the index that its slot is free and, if
      * the last entity moved into that slot, where it went.
      */
     private void remove(long entityId) {
@@ -664,6 +694,7 @@ final class PartitionStorage3 {
         Point3 position = slots.positionAt(slot);
         int last = slots.size() - 1;
         slots.remove(entityId, nextCommit());
+        metadata.removeEntity(entityId);
         index.removed(slot, position);
         if (slot != last) {
             index.relocated(last, slot, slots.positionAt(slot));
