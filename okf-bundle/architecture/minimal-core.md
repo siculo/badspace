@@ -4,7 +4,7 @@ title: Architettura minima del layer delle partizioni
 description: Le sei primitive minime del layer delle partizioni, i principi che le reggono e come i meccanismi (migrazione, letture coerenti, aggregazione, ribilanciamento) si costruiscono sopra di esse.
 tags: [badspace, architecture, partitioning]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T11:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T12:00:00Z }
 ---
 
 # Obiettivo
@@ -93,8 +93,9 @@ Quattro principi reggono l'insieme:
 
 - Forma concreta delle chiamate dell'API dei metadati e della gestione
   delle tombstone (la forma del commit, la semantica delle [scritture
-  condizionate](/architecture/entity-metadata.md#forma) e la lettura e
-  scrittura dei metadati applicativi sono decise).
+  condizionate](/architecture/entity-metadata.md#forma) e le chiamate
+  dei metadati applicativi, scritture condizionate comprese, sono
+  decise).
 - Trasporto dei messaggi di migrazione: fornito dall'API o lasciato al
   software.
 - Servizio del gTick e della barriera nella forma a cluster.

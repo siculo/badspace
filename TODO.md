@@ -17,7 +17,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Commit della partizione](okf-bundle/architecture/partition-commit.md), [Tick logico](okf-bundle/architecture/logical-time.md), [Isolamento delle letture](okf-bundle/decisions/read-isolation.md), [Proprietà della partizione](okf-bundle/architecture/partition-ownership.md), [Concorrenza](okf-bundle/decisions/concurrency.md), [Conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md), [Rimozione della partizione](okf-bundle/architecture/partition-removal.md).
 
-- [ ] **Metadati:** metadati applicativi delle entità, API dei metadati, scritture condizionate. I metadati di sistema arrivano con [tombstone e migrazione](#fare-migrazione). → [cose da fare](#fare-metadati)
+- [x] **Metadati:** metadati applicativi delle entità, API dei metadati, scritture condizionate. I metadati di sistema arrivano con [tombstone e migrazione](#fare-migrazione). → [cose da fare](#fare-metadati)
 
   Documenti: [Metadati delle entità](okf-bundle/architecture/entity-metadata.md), [Architettura minima](okf-bundle/architecture/minimal-core.md).
 
@@ -135,7 +135,7 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 
 - [x] Metadati applicativi delle entità: storage, snapshot di ogni commit e contratto del nodo (`updateMetadataAll` con `MetadataWrite`, `getMetadataAll` con `ApplicationMetadata`; `HashTrie` spostata in `badspace.service.persistent`)
 - [x] API dei metadati (lettura e scrittura dei metadati applicativi): `putMetadata`, `deleteMetadata` e `updateMetadataAll` sull'handle del writer, `getMetadata` e `getMetadataAll` sulla view dello snapshot; client d'esempio `entity-metadata`
-- [ ] Scritture condizionate (compare-and-set) sui metadati applicativi
+- [x] Scritture condizionate (compare-and-set) sui metadati applicativi: `ConditionalWrite2`/`ConditionalWrite3` con `MetadataCondition` (`ValueIs`, `Absent`), `updateIf` nel contratto del nodo e sull'handle del writer, `compareAndSetMetadata` sull'handle
 
 <a id="fare-persistenza"></a>
 ### Persistenza [↑](#blocchi)

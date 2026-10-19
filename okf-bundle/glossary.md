@@ -4,7 +4,7 @@ title: Glossario
 description: Definizioni dei termini ricorrenti di BADSPACE — spazio, partizione, nodo, software, API comune, politica di rimozione, stati della partizione, gruppo di partizioni, generatore di ID, generatorId, commit, sequenza dei commit, tick, setTick, creationTick, removalTick, gTick, snapshot, finestra di conservazione, catalogo degli snapshot, pool dei buffer degli snapshot, pagina degli slot, acquisizione, rilascio, pin, snapshot eliminabile, scadenza, slot, copy-on-write e transient, fencing token, generazione, claim, handle del writer, epoca, tombstone, metadati applicativi, scrittura condizionata, k, limiti delle coordinate, cella, foglia, interfaccia.
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T10:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T12:00:00Z }
 ---
 
 # Termini
@@ -39,7 +39,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T10:00:00Z }
 | Epoca | Contatore di sistema che cresce a ogni migrazione e stabilisce quale copia è valida. Vedi [metadati delle entità](/architecture/entity-metadata.md). |
 | Tombstone | Metadati di sistema che restano dopo la rimozione e impediscono le resurrezioni. Vedi [tombstone](/architecture/tombstones.md). |
 | Metadati applicativi | Coppie chiave → valore di un'entità, con chiavi stringa e valori `long`, che il software legge e scrive liberamente; separate dalla posizione, cambiano nello stesso commit dei dati e fanno parte dello snapshot. La rimozione dell'entità le cancella. Nel codice `ApplicationMetadata`. Vedi [metadati delle entità](/architecture/entity-metadata.md#metadati-applicativi). |
-| Scrittura condizionata | Scrittura applicata solo se una condizione sui metadati è vera (compare-and-set). |
+| Scrittura condizionata | Scrittura applicata solo se una condizione sui metadati è vera (compare-and-set): un batch tutto-o-niente di condizioni e scritture di posizioni e metadati, che con una condizione falsa non cambia niente e restituisce le condizioni false. Nel codice `ConditionalWrite2`/`ConditionalWrite3` con `MetadataCondition`, `updateIf` e `compareAndSetMetadata`. Vedi [metadati delle entità](/architecture/entity-metadata.md#forma). |
 | k | Numero di tick consultabili di una partizione: con tick corrente T e creazione C si acquisiscono gli snapshot da `max(T − k, C)` a `T − 1`. k ≥ 1, default 1; con k = 1 si acquisisce solo `S(T − 1)`. Nel codice `retainedTicks`. Vedi [conservazione degli snapshot](/architecture/snapshot-retention.md). |
 | Finestra di conservazione | Gli snapshot dei tick `max(T − k, C) ≤ n ≤ T − 1` di una partizione, e per una partizione ritirata solo quelli con `n < removalTick`: i soli che ammettono nuove acquisizioni. Vedi [conservazione degli snapshot](/architecture/snapshot-retention.md#finestra-di-conservazione). |
 | Catalogo degli snapshot | Gli snapshot di una partizione tenuti dal nodo per la finestra di conservazione, con il tick da cui vale ciascuno; si pubblica tutto insieme all'avanzamento del tick. Vedi [conservazione degli snapshot](/architecture/snapshot-retention.md#nel-prototipo). |

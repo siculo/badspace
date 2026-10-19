@@ -1,6 +1,7 @@
 package badspace.integration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -14,8 +15,10 @@ import badspace.api.SpaceConfig;
 import badspace.common.geometry.Box2;
 import badspace.common.geometry.Point2;
 import badspace.common.partition.ApplicationMetadata;
+import badspace.common.partition.ConditionalWrite2;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
@@ -244,6 +247,31 @@ class Space2EndToEndTest {
                 List.of(MetadataWrite.put(id, "version", 1), MetadataWrite.put(id + 1000, "version", 1))));
         try (AcquiredSnapshot2 snapshot = publish(p)) {
             assertEquals(Optional.of(Map.of()), snapshot.getMetadata(id));
+        }
+    }
+
+    @Test
+    void conditionalWritesApplyOnlyWhenTheirConditionsAreTrue() {
+        Partition2 p = space.createPartition(new LocalPartitionNode2());
+        long[] ids = writer(p).insertAll(List.of(new Point2(1, 1), new Point2(2, 2)));
+        writer(p).putMetadata(ids[0], "version", 1);
+        assertTrue(writer(p).compareAndSetMetadata(ids[0], "version", 1, 2));
+        assertFalse(writer(p).compareAndSetMetadata(ids[0], "version", 1, 3));
+
+        // A reservation of two entities: both must be free, or nothing changes.
+        MetadataCondition firstFree = MetadataCondition.absent(ids[0], "reservedBy");
+        MetadataCondition secondFree = MetadataCondition.absent(ids[1], "reservedBy");
+        ConditionalWrite2 reserve = new ConditionalWrite2(List.of(firstFree, secondFree),
+                List.of(new Entity2(ids[0], new Point2(5, 5))),
+                List.of(MetadataWrite.put(ids[0], "reservedBy", 9), MetadataWrite.put(ids[1], "reservedBy", 9)));
+        assertEquals(List.of(), writer(p).updateIf(reserve));
+        assertEquals(List.of(firstFree, secondFree), writer(p).updateIf(reserve));
+
+        try (AcquiredSnapshot2 snapshot = publish(p)) {
+            assertEquals(Optional.of(new Point2(5, 5)), snapshot.get(ids[0]));
+            assertEquals(List.of(new ApplicationMetadata(ids[0], Map.of("version", 2L, "reservedBy", 9L)),
+                    new ApplicationMetadata(ids[1], Map.of("reservedBy", 9L))),
+                    snapshot.getMetadataAll(ids));
         }
     }
 

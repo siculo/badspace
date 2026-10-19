@@ -54,6 +54,15 @@ public interface PartitionWriter extends AutoCloseable {
     void updateMetadataAll(List<MetadataWrite> writes);
 
     /**
+     * Sets a key of the application metadata of an entity to the value only if the key has
+     * the expected value now, with the writes not committed yet: a compare-and-set. Returns
+     * whether it set the value; if the key has another value or no value, nothing changes.
+     * Fails with NoSuchElementException if the ID is not in the partition. For more conditions
+     * and writes in one batch, {@code updateIf} of PartitionWriter2 and PartitionWriter3.
+     */
+    boolean compareAndSetMetadata(long entityId, String key, long expected, long value);
+
+    /**
      * Confirms the writes in the current tick of the partition: the snapshot of the tick will
      * have them.
      * Each commit confirms the full current state, including the effects of earlier commits

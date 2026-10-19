@@ -1,5 +1,6 @@
 package badspace.service.partition.metadata;
 
+import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.service.persistent.HashTrie;
 
@@ -14,6 +15,15 @@ import badspace.service.persistent.HashTrie;
 public final class MutableMetadata {
 
     private final HashTrie<Long, MetadataValues> byEntity = new HashTrie<>();
+
+    /** Returns whether the condition is true on the metadata of the writer. */
+    public boolean holds(MetadataCondition condition) {
+        MetadataValues values = byEntity.get(condition.entityId());
+        return switch (condition) {
+            case MetadataCondition.ValueIs valueIs -> values != null && values.hasValue(valueIs.key(), valueIs.value());
+            case MetadataCondition.Absent absent -> values == null || !values.contains(absent.key());
+        };
+    }
 
     /** Applies a write to the metadata of its entity. */
     public void write(MetadataWrite write) {

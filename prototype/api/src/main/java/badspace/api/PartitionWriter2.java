@@ -1,7 +1,9 @@
 package badspace.api;
 
 import badspace.common.geometry.Point2;
+import badspace.common.partition.ConditionalWrite2;
 import badspace.common.partition.Entity2;
+import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.WriteToken;
@@ -101,6 +103,25 @@ public final class PartitionWriter2 implements PartitionWriter {
     @Override
     public void updateMetadataAll(List<MetadataWrite> writes) {
         node.updateMetadataAll(token, writes);
+    }
+
+    @Override
+    public boolean compareAndSetMetadata(long entityId, String key, long expected, long value) {
+        return updateIf(new ConditionalWrite2(List.of(MetadataCondition.valueIs(entityId, key, expected)), List.of(),
+                List.of(MetadataWrite.put(entityId, key, value)))).isEmpty();
+    }
+
+    /**
+     * Moves entities and writes their application metadata only if all the conditions of the
+     * write are true now, with the writes not committed yet; the check and the write are a
+     * single step. Returns the false conditions, in their order, or an empty list if the write
+     * was applied; with a false condition nothing changes. Fails with NoSuchElementException
+     * if an ID of the write or of a condition is not in the partition, and with
+     * IllegalArgumentException if a position is outside the {@linkplain Partition#limits()
+     * limits}; in these cases nothing changes.
+     */
+    public List<MetadataCondition> updateIf(ConditionalWrite2 write) {
+        return node.updateIf(token, write);
     }
 
     @Override

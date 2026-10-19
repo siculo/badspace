@@ -4,7 +4,7 @@ title: Metadati delle entità
 description: L'API distingue metadati di sistema (epoca, stato, destinazione) in sola lettura e metadati applicativi liberi, con chiavi stringa e valori long; il nodo offre un supporto comune, con condizioni e scritture applicate atomicamente nella partizione; le scritture condizionate sono batch tutto-o-niente in cui una condizione falsa è un esito e non un errore, e sostituiscono le transazioni tra partizioni.
 tags: [badspace, architecture, partitioning, metadata, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T10:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T12:00:00Z }
 ---
 
 # Primitiva
@@ -120,6 +120,21 @@ arriva con le tombstone.
   `Optional` della mappa, vuoto se l'ID non è nello snapshot, e
   `getMetadataAll(ids)` la lista di `ApplicationMetadata`. La forma è
   in [API da esporre](/decisions/api-surface.md#operazioni-sulle-entità).
+- **Scritture condizionate.** Il batch è `ConditionalWrite2`/
+  `ConditionalWrite3`: condizioni `MetadataCondition` (`ValueIs`, la
+  chiave ha il valore; `Absent`, la chiave non ha valore), posizioni
+  nuove di entità esistenti e scritture dei metadati. `updateIf(token,
+  write)` nel contratto del nodo, e `updateIf(write)` sull'handle del
+  writer, controlla prima l'input (ID nella partizione, anche quelli
+  delle condizioni, e limiti delle posizioni), poi le condizioni sullo
+  stato del writer, scritture non confermate comprese, e applica
+  posizioni e metadati solo se sono tutte vere; tutto sotto il lock
+  della partizione, quindi nessun'altra scrittura si mette in mezzo.
+  Restituisce le condizioni false nel loro ordine, lista vuota se la
+  scrittura è applicata. Il caso minimo è
+  `compareAndSetMetadata(id, key, expected, value)` sull'handle, che
+  restituisce `true` se ha scritto. Un processo che non è il writer
+  propone la scrittura al writer, che la applica con il suo token.
 - **Lettura.** I metadati si leggono per ID con una lettura separata da
   quella delle entità: `Entity2`/`Entity3` restano ID e posizione, così
   le query spaziali non pagano i metadati. Come ogni lettura, passa per
@@ -191,9 +206,10 @@ implementate dal software, quindi hanno un'API propria:
 # Punti aperti
 
 - Nomi e firme delle chiamate dell'API dei metadati che ancora non ci
-  sono (scritture condizionate, metadati di sistema, tombstone): si
-  definiscono con lo sviluppo del prototipo. Lettura e scrittura dei
-  metadati applicativi sono [nel prototipo](#nel-prototipo).
+  sono (metadati di sistema, condizioni sui metadati di sistema,
+  tombstone): si definiscono con lo sviluppo del prototipo. Lettura,
+  scrittura e scritture condizionate dei metadati applicativi sono [nel
+  prototipo](#nel-prototipo).
 
 # Correlati
 

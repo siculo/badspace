@@ -199,6 +199,20 @@ public interface PartitionNode2 {
     void updateMetadataAll(WriteToken token, List<MetadataWrite> writes);
 
     /**
+     * Applies a conditional write: it moves entities and writes their application metadata
+     * only if all its conditions are true on the state of the writer, with the writes not
+     * committed yet. Checking the conditions and applying the write is a single step, so no
+     * other write of the partition can come in between. Returns the false conditions, in
+     * their order, or an empty list if the write was applied; a false condition is not an
+     * error, and then the partition does not change. Fails with NoSuchElementException if an
+     * ID of the write or of a condition is not in the partition, and with
+     * IllegalArgumentException if a position is outside the {@linkplain #limits limits} of
+     * the partition; in these cases the partition does not change.
+     * Fails with OwnershipChangedException if the token is not the current one.
+     */
+    List<MetadataCondition> updateIf(WriteToken token, ConditionalWrite2 write);
+
+    /**
      * Confirms the writes of a partition in its current tick: the snapshot of the tick will
      * have them.
      * Each commit confirms the full current state, including the effects of earlier commits

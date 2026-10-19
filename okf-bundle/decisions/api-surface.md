@@ -4,7 +4,7 @@ title: API da esporre
 description: La superficie API pubblica di BADSPACE ha già un elenco di operazioni di base su entità, metadati, partizioni e commit; il prototipo definisce la forma delle operazioni sulle entità (record per le coordinate, operazioni batch, scritture tutto-o-niente), delle query di range e k-nearest su una partizione della creazione e rimozione delle partizioni con la loro configurazione (indice e politica di rimozione), del tick (`setTick` sullo spazio), del commit (`commit()` senza numero, nel tick corrente), della proprietà della partizione (`ownership`, `claim` con la generazione attesa, handle del writer `AutoCloseable` con il token per scritture, commit e rimozione), delle letture (solo attraverso l'acquisizione degli snapshot, al tick con scadenza obbligatoria) e dei metadati applicativi (lettura per ID sulla view dello snapshot, scritture sull'handle del writer), mentre il resto è da definire; il partizionamento fissa già partizioni esplicite, generazione degli ID, aggregazione, scritture condizionate e API dei metadati.
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T11:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T12:00:00Z }
 ---
 
 # Stato
@@ -90,6 +90,7 @@ ogni coordinata senza cambiare il resto.
 | Query di range | `findInRegion(Region)` | Sulla view dello snapshot; restituisce le entità dentro la regione o sul suo bordo, in ordine non definito |
 | Query k-nearest | `findNearest(Point, count)` | Sulla view dello snapshot; restituisce al più `count` entità, ordinate per distanza dal punto e a parità di distanza per ID |
 | Lettura dei metadati applicativi | `getMetadata(id)`, `getMetadataAll(long[])` | Sulla view dello snapshot, separata dalla lettura delle entità; `getMetadata` restituisce un `Optional` della mappa chiave → valore, vuoto se l'ID non è nello snapshot; `getMetadataAll` restituisce un `ApplicationMetadata` per ID nell'ordine degli ID, con la mappa vuota per un'entità senza metadati, e salta gli ID assenti |
+| Scrittura condizionata | `updateIf(ConditionalWrite)`, `compareAndSetMetadata(id, key, expected, value)` | Sull'handle del writer: `updateIf` in `PartitionWriter2`/`PartitionWriter3`, perché porta posizioni, `compareAndSetMetadata` nell'interfaccia comune. `ConditionalWrite2`/`ConditionalWrite3` contiene condizioni (`MetadataCondition`: `ValueIs` o `Absent` su una chiave di un'entità), posizioni nuove di entità esistenti e scritture dei metadati; si applica solo se tutte le condizioni sono vere sullo stato del writer, scritture non confermate comprese, in un solo passo; restituisce le condizioni false nel loro ordine, lista vuota se applicata. `compareAndSetMetadata` restituisce `true` se ha scritto |
 | Scrittura dei metadati applicativi | `putMetadata(id, key, value)`, `deleteMetadata(id, key)`, `updateMetadataAll(List<MetadataWrite>)` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter`; `MetadataWrite` è `Put` o `Delete` su una chiave di un'entità; le scritture valgono nell'ordine della lista, quindi per la stessa chiave vince l'ultima; confermate dallo stesso commit delle posizioni; la rimozione dell'entità ne cancella i metadati |
 
 Le scritture stanno sull'[handle del
@@ -434,9 +435,9 @@ della partizione.
 
 | Errore | Eccezione |
 |---|---|
-| ID inesistente in `update`/`remove` o in una scrittura dei metadati | `NoSuchElementException` |
+| ID inesistente in `update`/`remove`, in una scrittura dei metadati o in una scrittura condizionata, anche solo in una condizione | `NoSuchElementException` |
 | ID già presente o duplicato in `insert`, ID duplicato in `remove` | `IllegalArgumentException` |
-| Posizione fuori dai limiti della partizione in `insert`/`update` | `IllegalArgumentException` |
+| Posizione fuori dai limiti della partizione in `insert`/`update`/`updateIf` | `IllegalArgumentException` |
 
 Le coordinate `NaN` o infinite sono rifiutate già alla costruzione di
 `Point2`/`Point3`, e un raggio infinito alla costruzione di

@@ -51,7 +51,10 @@ class.
 8. [`entity-metadata`](entity-metadata) (`EntityMetadata`): the application
    metadata of the entities, written through the handle of the writer in the
    same commit as the positions and read by ID on an acquired snapshot; a
-   batch that fails changes nothing; removing an entity deletes its metadata.
+   batch that fails changes nothing; conditional writes, like a
+   compare-and-set or the reservation of two entities, that change nothing
+   and return the false conditions when a condition is false; removing an
+   entity deletes its metadata.
 
 ## Use cases
 

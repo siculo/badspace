@@ -52,8 +52,10 @@ classe.
 8. [`entity-metadata`](entity-metadata) (`EntityMetadata`): i metadati
    applicativi delle entità, scritti con l'handle del writer nello stesso
    commit delle posizioni e letti per ID su uno snapshot acquisito; un batch
-   che fallisce non cambia niente; la rimozione di un'entità ne cancella i
-   metadati.
+   che fallisce non cambia niente; le scritture condizionate, come un
+   compare-and-set o la prenotazione di due entità, che con una condizione
+   falsa non cambiano niente e restituiscono le condizioni false; la
+   rimozione di un'entità ne cancella i metadati.
 
 ## Casi d'uso
 

@@ -27,6 +27,17 @@ final class MetadataValues {
         return keys.length == 0;
     }
 
+    /** Returns whether the key has the value. */
+    boolean hasValue(String key, long value) {
+        int index = Arrays.binarySearch(keys, key);
+        return index >= 0 && values[index] == value;
+    }
+
+    /** Returns whether the key has a value. */
+    boolean contains(String key) {
+        return Arrays.binarySearch(keys, key) >= 0;
+    }
+
     /** Returns the metadata with the key set to the value. */
     MetadataValues with(String key, long value) {
         int index = Arrays.binarySearch(keys, key);

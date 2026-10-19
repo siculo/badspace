@@ -2,20 +2,33 @@ package badspace.service.partition;
 
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.Entity2.entity;
+import static badspace.common.partition.MetadataCondition.absent;
+import static badspace.common.partition.MetadataCondition.valueIs;
 import static badspace.common.partition.MetadataWrite.delete;
 import static badspace.common.partition.MetadataWrite.put;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.ApplicationMetadata;
+import badspace.common.partition.ConditionalWrite2;
+import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.MetadataCondition;
+import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.WriteToken;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -26,6 +39,8 @@ import org.junit.jupiter.api.Test;
 class PartitionMetadata2Test {
 
     private static final PartitionId P1 = new PartitionId(1);
+    private static final Duration TIMEOUT = Duration.ofSeconds(10);
+    private static final int THREADS = 8;
 
     private LocalPartitionNode2 node;
     private WriteToken token;
@@ -154,6 +169,122 @@ class PartitionMetadata2Test {
     void metadataWriteAfterTheRemovalIsRejected() {
         node.dropPartition(token);
         assertThrows(IllegalStateException.class, () -> node.updateMetadataAll(token, List.of(put(1, "version", 1))));
+    }
+
+    @Test
+    void conditionalWriteAppliesPositionsAndMetadataWhenAllConditionsAreTrue() {
+        node.updateMetadataAll(token, List.of(put(1, "version", 1)));
+        List<MetadataCondition> failed = node.updateIf(token, write(List.of(valueIs(1, "version", 1), absent(2, "reserved")),
+                List.of(entity(1, 5, 5)), List.of(put(1, "version", 2), put(2, "reserved", 1))));
+        assertEquals(List.of(), failed);
+        Acquisition acquisition = publish();
+        assertEquals(List.of(entity(1, 5, 5)), node.getAll(acquisition, new long[] {1}));
+        assertEquals(List.of(metadata(1, Map.of("version", 2L)), metadata(2, Map.of("reserved", 1L))),
+                node.getMetadataAll(acquisition, new long[] {1, 2}));
+    }
+
+    @Test
+    void falseConditionsAreReturnedInTheirOrderAndNothingChanges() {
+        node.updateMetadataAll(token, List.of(put(1, "version", 1), put(2, "reserved", 1)));
+        MetadataCondition wrongValue = valueIs(1, "version", 2);
+        MetadataCondition missingKey = valueIs(3, "version", 1);
+        MetadataCondition notAbsent = absent(2, "reserved");
+        List<MetadataCondition> failed = node.updateIf(token, write(
+                List.of(wrongValue, absent(3, "reserved"), missingKey, notAbsent),
+                List.of(entity(1, 5, 5)), List.of(put(1, "version", 3), delete(2, "reserved"))));
+        assertEquals(List.of(wrongValue, missingKey, notAbsent), failed);
+        Acquisition acquisition = publish();
+        assertEquals(List.of(entity(1, 1, 1)), node.getAll(acquisition, new long[] {1}));
+        assertEquals(List.of(metadata(1, Map.of("version", 1L)), metadata(2, Map.of("reserved", 1L))),
+                node.getMetadataAll(acquisition, new long[] {1, 2}));
+    }
+
+    @Test
+    void conditionsSeeTheWritesNotCommitted() {
+        node.updateMetadataAll(token, List.of(put(1, "version", 1)));
+        node.commit(token);
+        node.updateMetadataAll(token, List.of(put(1, "version", 2)));
+        assertEquals(List.of(valueIs(1, "version", 1)),
+                node.updateIf(token, write(List.of(valueIs(1, "version", 1)), List.of(), List.of(put(1, "version", 9)))));
+        assertEquals(List.of(),
+                node.updateIf(token, write(List.of(valueIs(1, "version", 2)), List.of(), List.of(put(1, "version", 3)))));
+        assertEquals(List.of(metadata(1, Map.of("version", 3L))), node.getMetadataAll(publish(), new long[] {1}));
+    }
+
+    @Test
+    void conditionalWriteWithoutConditionsIsApplied() {
+        assertEquals(List.of(), node.updateIf(token, write(List.of(), List.of(entity(3, 7, 7)), List.of(put(3, "a", 1)))));
+        Acquisition acquisition = publish();
+        assertEquals(List.of(entity(3, 7, 7)), node.getAll(acquisition, new long[] {3}));
+        assertEquals(List.of(metadata(3, Map.of("a", 1L))), node.getMetadataAll(acquisition, new long[] {3}));
+    }
+
+    @Test
+    void errorsInTheConditionalWriteFailBeforeTheConditionsAndChangeNothing() {
+        node.updateMetadataAll(token, List.of(put(1, "version", 1)));
+        assertThrows(NoSuchElementException.class, () -> node.updateIf(token,
+                write(List.of(valueIs(99, "version", 1)), List.of(), List.of(put(1, "version", 2)))));
+        assertThrows(NoSuchElementException.class, () -> node.updateIf(token,
+                write(List.of(valueIs(1, "version", 1)), List.of(), List.of(put(1, "version", 2), put(99, "a", 1)))));
+        assertThrows(NoSuchElementException.class, () -> node.updateIf(token,
+                write(List.of(valueIs(1, "version", 5)), List.of(entity(99, 1, 1)), List.of())));
+        assertThrows(IllegalArgumentException.class, () -> node.updateIf(token,
+                write(List.of(valueIs(1, "version", 1)), List.of(entity(1, 5, 5), entity(2, 0x1p61, 0)), List.of(put(1, "version", 2)))));
+        Acquisition acquisition = publish();
+        assertEquals(List.of(entity(1, 1, 1), entity(2, 2, 2)), node.getAll(acquisition, new long[] {1, 2}));
+        assertEquals(List.of(metadata(1, Map.of("version", 1L))), node.getMetadataAll(acquisition, new long[] {1}));
+    }
+
+    @Test
+    void conditionalWriteWithAnOldTokenIsRejected() {
+        node.commit(token);
+        WriteToken old = token;
+        token = node.claim(P1, old.generation()).orElseThrow();
+        assertThrows(OwnershipChangedException.class,
+                () -> node.updateIf(old, write(List.of(absent(1, "version")), List.of(), List.of(put(1, "version", 1)))));
+        assertEquals(List.of(metadata(1, Map.of())), node.getMetadataAll(publish(), new long[] {1}));
+    }
+
+    @Test
+    void ofManyCompareAndSetsFromTheSameValueOnlyOneWins() throws Exception {
+        node.updateMetadataAll(token, List.of(put(1, "version", 0)));
+        CyclicBarrier start = new CyclicBarrier(THREADS);
+        AtomicInteger winners = new AtomicInteger();
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < THREADS; i++) {
+            long value = i + 1;
+            threads.add(Thread.ofPlatform().start(() -> {
+                try {
+                    start.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+                    if (node.updateIf(token, write(List.of(valueIs(1, "version", 0)), List.of(),
+                            List.of(put(1, "version", value)))).isEmpty()) {
+                        winners.incrementAndGet();
+                    }
+                    attempts.incrementAndGet();
+                } catch (Throwable t) {
+                    failure.compareAndSet(null, t);
+                    start.reset();
+                }
+            }));
+        }
+        for (Thread thread : threads) {
+            thread.join(TIMEOUT.toMillis());
+            assertTrue(!thread.isAlive(), "Worker did not end");
+        }
+        if (failure.get() != null) {
+            throw new AssertionError(failure.get());
+        }
+        assertEquals(THREADS, attempts.get());
+        assertEquals(1, winners.get());
+        long version = node.getMetadataAll(publish(), new long[] {1}).getFirst().values().get("version");
+        assertTrue(version >= 1 && version <= THREADS, "Version of the winner: " + version);
+    }
+
+    private static ConditionalWrite2 write(List<MetadataCondition> conditions, List<Entity2> positions,
+            List<MetadataWrite> metadata) {
+        return new ConditionalWrite2(conditions, positions, metadata);
     }
 
     private static ApplicationMetadata metadata(long entityId, Map<String, Long> values) {
