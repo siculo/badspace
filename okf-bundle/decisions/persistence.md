@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: Persistenza
-description: Persistenza periodica del contenuto di una singola partizione, eseguita dal nodo che la gestisce su una destinazione configurata sul nodo, da una copia autonoma dello snapshot; l'API comanda il salvataggio e ne riceve l'esito; caricamento in una nuova partizione e misure dei costi nel prototipo, con recupero coerente dei nodi e durabilità osservabile rimandati.
+description: Persistenza periodica del contenuto di una singola partizione, eseguita dal nodo che la gestisce su una destinazione configurata sul nodo, da una copia autonoma dello snapshot; l'API comanda il salvataggio con una chiamata sincrona e ne riceve l'esito, mentre la periodicità e la conservazione dei salvataggi sono del software; formato binario con file scritti in modo atomico; caricamento in una nuova partizione creata con il contenuto salvato e misure dei costi nel prototipo, con recupero coerente dei nodi e durabilità osservabile rimandati.
 tags: [badspace, design, persistence, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T17:00:00Z }
 ---
 
 # Perimetro attuale
@@ -27,7 +27,9 @@ persistito (vedi [approccio di sviluppo](/process/development-approach.md#meccan
 Lo snapshot pubblicato è immutabile e contiene solo lo stato confermato
 dell'ultimo commit del tick completato (vedi [isolamento delle
 letture](/decisions/read-isolation.md)). Il nodo che gestisce la
-partizione esegue il salvataggio, su comando dell'API, con questi passi:
+partizione esegue il salvataggio, su comando dell'API, come un reader
+interno: usa le stesse acquisizioni degli altri reader, con la finestra e
+la scadenza, senza regole speciali. I passi sono:
 
 1. Acquisire lo snapshot della partizione.
 2. Copiarne ID, posizioni e metadati mentre l'acquisizione è valida.
@@ -43,6 +45,63 @@ La copia avviene dentro il nodo e non passa dall'API (vedi
 Una funzione di copia esposta al software resta utile per tenere uno
 snapshot oltre la scadenza massima delle acquisizioni, ma non serve a
 questo blocco.
+
+## Chiamate
+
+La partizione dell'API offre `save(tick)` e `saveLatest()`, come
+`acquire(tick)` e `acquireLatest()`: il primo salva lo snapshot di un
+tick della finestra, il secondo l'ultimo snapshot pubblicato, e
+falliscono come le acquisizioni corrispondenti. Salvare un tick scelto
+permette, con le [letture coerenti](/mechanisms/consistent-reads.md),
+di salvare tutte le partizioni allo stesso tick N e ottenere un
+salvataggio coerente tra partizioni senza un meccanismo apposta.
+
+Le chiamate sono **sincrone**: ritornano a scrittura finita con il
+riferimento al salvataggio (ID della partizione e tick), o falliscono
+con un errore. Bloccano solo il thread che salva, che il software
+dedica a questo; il writer e gli altri reader continuano. L'esito è il
+valore di ritorno, senza un meccanismo di notifica, e la forma si
+traduce in modo diretto in C e in Rust. Se al software serve un
+salvataggio asincrono, lo costruisce sopra con un suo executor.
+
+Un salvataggio asincrono nel contratto del nodo si valuta con il [nodo
+gRPC](/decisions/tool-type.md), dove una chiamata lunga occupa la
+chiamata remota e il suo timeout, e con la [durabilità
+osservabile](/architecture/observable-durability.md), dove serve sapere
+quando un salvataggio è finito senza aspettarlo. La forma più probabile
+è avviare il salvataggio e poi interrogarne lo stato.
+
+Due salvataggi dello stesso tick di una partizione, anche
+contemporanei, producono lo stesso file e lo stesso riferimento: la
+scrittura atomica lascia comunque un file valido.
+
+## Formato
+
+Ogni salvataggio è un file, con il nome dato dall'ID della partizione e
+dal tick, nella destinazione del nodo. Il formato è binario e semplice:
+un'intestazione (identificativo del formato, versione, numero di
+dimensioni, tick, numero di entità), gli array paralleli di ID e
+coordinate, e i metadati applicativi con una tabella delle chiavi. Un
+formato testuale sarebbe più leggibile, ma più grande e lento, e
+distorcerebbe le misure dei costi.
+
+Il file si scrive in modo atomico: prima un file temporaneo, poi la
+sincronizzazione sul disco e il rename sul nome finale. Un salvataggio
+interrotto non produce un file valido e non tocca i salvataggi
+esistenti; i file temporanei rimasti si eliminano al salvataggio
+successivo.
+
+## Periodicità e conservazione
+
+Né l'API né il nodo hanno uno scheduler: la periodicità è una politica
+del software, secondo l'[architettura a livelli](/architecture/layers.md).
+Il software dedica un thread che, per esempio ogni N tick, chiama il
+salvataggio e gestisce l'esito.
+
+Il nodo offre l'elenco dei salvataggi di una partizione e
+l'eliminazione di un salvataggio. Quanti salvataggi conservare lo
+decide il software; l'elenco serve anche a ritrovarli dopo un riavvio
+del software.
 
 # Destinazione
 
@@ -82,9 +141,19 @@ caso successivo.
 
 # Caricamento
 
-Si crea una nuova partizione e si ricreano le entità con gli stessi ID,
-posizioni e metadati, poi si conferma il contenuto prima di renderlo
-disponibile ai reader. Gli indici si ricostruiscono dagli inserimenti.
+Lo spazio dell'API offre `loadPartition(node, config, saved)`: il nodo
+crea una nuova partizione già con il contenuto di un salvataggio, cioè
+con le entità con gli stessi ID, posizioni e metadati. Il contenuto è
+confermato al tick di creazione, quindi è nello snapshot di quel tick e
+diventa acquisibile al successivo avanzamento del tick, senza stati
+intermedi visibili. La partizione nasce senza proprietario, come le
+altre. Gli indici si ricostruiscono dagli inserimenti. Indice e
+finestra degli snapshot li sceglie chi carica, non vengono dal
+salvataggio; una posizione fuori dai limiti dell'indice scelto fa
+fallire il caricamento, e la partizione non viene creata. Nel contratto
+del nodo il caricamento è una variante della creazione della
+partizione, così l'API non espone un inserimento con ID scelti dal
+chiamante.
 
 Il tick segue il contesto di creazione della nuova partizione: può
 partire da zero in una nuova esecuzione del tempo logico, mentre in uno
@@ -122,10 +191,8 @@ Il salvataggio deve comunque avere un esito di completamento o errore.
 
 # Punti aperti
 
-- Frequenza e attivazione dei salvataggi periodici.
-- Formato dei dati persistiti.
-- Forma delle chiamate di copia, salvataggio e caricamento.
-- Gestione di salvataggi interrotti e conservazione dei dati salvati.
+- Salvataggio asincrono nel contratto del nodo, con il nodo gRPC e la
+  durabilità osservabile.
 
 # Correlati
 

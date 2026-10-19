@@ -140,9 +140,12 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-persistenza"></a>
 ### Persistenza [↑](#blocchi)
 
-- [ ] Copia autonoma dello snapshot dentro il nodo, per il salvataggio (ID, posizioni e metadati): acquisire, copiare prima della scadenza e rilasciare; la copia non dipende più dalla vita dello snapshot e non passa dall'API
-- [ ] Salvataggio periodico della copia per singola partizione, eseguito dal nodo su comando dell'API e con un esito (completamento o errore), su una destinazione configurata sul nodo, senza fermare il writer e senza timeout legati all’acquisizione
-- [ ] Caricamento in una nuova partizione: stessi ID, posizioni e metadati, indici ricostruiti dagli inserimenti e contenuto confermato prima di renderlo disponibile; tick secondo il contesto di creazione, metadati senza reinterpretazione
+- [ ] Copia autonoma dello snapshot dentro il nodo, per il salvataggio (ID, posizioni e metadati): il nodo, come un reader interno, acquisisce, copia prima della scadenza e rilascia; la copia non dipende più dalla vita dello snapshot e non passa dall'API
+- [ ] Salvataggio nel nodo su una destinazione configurata (una directory): un file binario per salvataggio, nome da ID della partizione e tick, scritto con file temporaneo, sincronizzazione e rename atomico; temporanei rimasti eliminati al salvataggio successivo; salvataggi dello stesso tick che producono lo stesso file
+- [ ] Chiamate sincrone `save(tick)` e `saveLatest()` sulla partizione dell'API e nel contratto del nodo, con il riferimento al salvataggio (partizione e tick) come esito o un errore, senza fermare il writer e senza timeout legati all’acquisizione
+- [ ] Elenco ed eliminazione dei salvataggi di una partizione nel nodo e nell'API
+- [ ] Caricamento con `loadPartition(node, config, saved)`: partizione creata nel nodo già con il contenuto (stessi ID, posizioni e metadati), indici ricostruiti dagli inserimenti, contenuto confermato al tick di creazione, nessun proprietario, indice e finestra scelti da chi carica; metadati senza reinterpretazione
+- [ ] Esempio in `samples` con un thread che salva ogni N tick mentre il writer continua, conserva gli ultimi salvataggi e carica una partizione
 - [ ] Misure separate di tempo di copia, scrittura e caricamento (ricostruzione degli indici compresa), dimensione dei dati salvati e memoria aggiuntiva della copia
 
 Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandati: questo blocco ricrea il contenuto di una singola partizione.
@@ -202,6 +205,7 @@ Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandat
 ### Nodo gRPC [↑](#blocchi)
 
 - [ ] Nodo remoto via gRPC
+- [ ] Salvataggio asincrono nel contratto del nodo (avvio e poi interrogazione dello stato), se una chiamata sincrona lunga pesa sulla chiamata remota e sul suo timeout (vedi [persistenza](okf-bundle/decisions/persistence.md#chiamate))
 - [ ] Durata della scadenza nel record `Acquisition` e controllo anticipato della scadenza nella view dell'API, se serve a risparmiare chiamate remote destinate a fallire (oggi controlla solo il nodo)
 
 <a id="fare-client"></a>
@@ -268,10 +272,10 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 
 - [x] Perimetro iniziale: persistenza del contenuto della singola partizione da una copia autonoma dello snapshot; caricamento in una nuova partizione, durabilità osservabile e recupero coerente dei nodi rimandati
 - [x] Destinazione dei dati persistiti: il nodo che gestisce la partizione scrive su una destinazione configurata sul nodo; l'API comanda il salvataggio e riceve l'esito
-- [ ] Formato dei dati persistiti
-- [ ] Frequenza e attivazione dei salvataggi periodici
-- [ ] Forma delle chiamate di copia, salvataggio e caricamento
-- [ ] Gestione dei salvataggi interrotti e conservazione dei dati salvati
+- [x] Formato dei dati persistiti: binario, un file per salvataggio, scritto in modo atomico (temporaneo, sincronizzazione, rename)
+- [x] Frequenza e attivazione dei salvataggi periodici: decise dal software, senza scheduler nell'API o nel nodo
+- [x] Forma delle chiamate: il nodo salva come un reader interno; `save(tick)` e `saveLatest()` sincroni con il riferimento come esito; caricamento con `loadPartition(node, config, saved)`; asincrono rimandato al nodo gRPC e alla durabilità osservabile
+- [x] Salvataggi interrotti e conservazione: un salvataggio interrotto non lascia file validi né tocca gli altri; elenco ed eliminazione nel nodo, politica di conservazione del software
 
 <a id="decisioni-query"></a>
 ### Query su più partizioni [↑](#blocchi)
