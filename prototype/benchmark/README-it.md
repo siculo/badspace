@@ -265,14 +265,16 @@ parametri usano le stesse entità e le stesse query.
 
 Il report è un unico file HTML e non richiede una connessione a internet.
 L'output di default è accanto all'ultimo file dei risultati, con lo stesso
-nome ed estensione `.html`. Mostra una sezione per ogni
-operazione. Ogni sezione ha:
+nome ed estensione `.html`. Si scelgono un’operazione e una distribuzione dei
+dati per vedere un unico grafico log-log grande, con il numero di entità
+sull’asse x e il valore misurato sull’asse y. Inizialmente tutte le soluzioni
+sono visibili. Le caselle nella legenda permettono di nascondere o mostrare
+le singole soluzioni sia nel grafico sia nella tabella.
 
-- un grafico log-log per ogni distribuzione, con il numero di entità
-  sull'asse x, il tempo sull'asse y e una linea per ogni serie;
-- una tabella con i valori e, per ogni serie, il rapporto rispetto al
-  riferimento: verde quando è migliore di almeno il 10%, rosso quando è
-  peggiore di almeno il 10%.
+La tabella è a fianco del grafico (sotto sugli schermi stretti), con una
+soluzione per riga e una quantità di entità per colonna. Mostra soltanto i
+risultati visibili e i rapporti rispetto a un riferimento visibile: verde
+quando sono migliori di almeno il 10%, rosso quando sono peggiori di almeno il 10%.
 
 Una serie è una coppia di file di risultati e indice, per esempio
 `reference-linear-quick · LINEAR_SCAN`.

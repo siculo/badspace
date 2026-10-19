@@ -260,14 +260,15 @@ the same entities and the same queries.
 
 The report is a single HTML file and needs no internet connection. The
 default output is next to the last results file, with the same name and the
-`.html` extension. It shows one section for each
-operation. Each section has:
+`.html` extension. Choose an operation and a data distribution to see one
+large log-log chart, with the number of entities on the x axis and the measured
+value on the y axis. All solutions are visible initially. Use the checkboxes
+in the legend to hide or show individual solutions in both the chart and table.
 
-- a log-log chart for each distribution, with the number of entities on the
-  x axis and the time on the y axis, and one line for each series;
-- a table with the values and, for each series, the ratio against the
-  baseline: green when it is at least 10% better, red when it is at least
-  10% worse.
+The table is beside the chart (below it on narrow screens), with one solution
+per row and one entity count per column. It shows only visible results and their
+ratios against a visible baseline: green when at least 10% better, red when at
+least 10% worse.
 
 A series is a pair of result file and index, for example
 `reference-linear-quick · LINEAR_SCAN`.
