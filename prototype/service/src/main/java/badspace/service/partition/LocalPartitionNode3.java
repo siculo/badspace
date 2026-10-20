@@ -21,6 +21,7 @@ import badspace.common.partition.WriteToken;
 import badspace.service.partition.snapshot.MonotonicClock;
 import badspace.service.partition.snapshot.SnapshotCatalog3;
 import badspace.service.partition.snapshot.StorageSnapshot3;
+import badspace.service.persistence.PartitionCopy3;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -260,6 +261,35 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     @Override
     public CoordinateLimits limits(PartitionId partitionId) {
         return find(partitionId).limits();
+    }
+
+    /**
+     * Makes an autonomous copy of the snapshot of the given tick of a partition, for the
+     * persistence. The node acquires the snapshot like an internal reader, with the window and
+     * the default timeout, copies its IDs, positions and metadata while the acquisition is
+     * valid, and releases it: the copy does not depend on the life of the snapshot. Fails like
+     * {@link #acquire} if the snapshot is not available.
+     */
+    PartitionCopy3 copy(PartitionId partitionId, long tick) {
+        return copyOf(acquire(partitionId, tick, AcquireOptions.defaultTimeout()));
+    }
+
+    /**
+     * Makes an autonomous copy of the snapshot of the tick before the current one of a
+     * partition, like {@link #copy}. Fails like {@link #acquireLatest} if no snapshot is
+     * available.
+     */
+    PartitionCopy3 copyLatest(PartitionId partitionId) {
+        return copyOf(acquireLatest(partitionId, AcquireOptions.defaultTimeout()));
+    }
+
+    /** Copies the acquired snapshot and releases the acquisition, also if the copy fails. */
+    private PartitionCopy3 copyOf(Acquisition acquisition) {
+        try {
+            return query(acquisition, snapshot -> snapshot.copy(acquisition.tick()));
+        } finally {
+            release(acquisition);
+        }
     }
 
     /**

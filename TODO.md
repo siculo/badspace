@@ -140,7 +140,7 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-persistenza"></a>
 ### Persistenza [↑](#blocchi)
 
-- [ ] Copia autonoma dello snapshot dentro il nodo, per il salvataggio (ID, posizioni e metadati): il nodo, come un reader interno, acquisisce, copia prima della scadenza e rilascia; la copia non dipende più dalla vita dello snapshot e non passa dall'API
+- [x] Copia autonoma dello snapshot dentro il nodo, per il salvataggio (ID, posizioni e metadati): il nodo, come un reader interno, acquisisce, copia prima della scadenza e rilascia; la copia non dipende più dalla vita dello snapshot e non passa dall'API
 - [ ] Salvataggio nel nodo su una destinazione configurata (una directory): un file binario per salvataggio, nome da ID della partizione e tick, scritto con file temporaneo, sincronizzazione e rename atomico; temporanei rimasti eliminati al salvataggio successivo; salvataggi dello stesso tick che producono lo stesso file
 - [ ] Chiamate sincrone `save(tick)` e `saveLatest()` sulla partizione dell'API e nel contratto del nodo, con il riferimento al salvataggio (partizione e tick) come esito o un errore, senza fermare il writer e senza timeout legati all’acquisizione
 - [ ] Elenco ed eliminazione dei salvataggi di una partizione nel nodo e nell'API
