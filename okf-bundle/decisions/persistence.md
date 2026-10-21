@@ -77,19 +77,46 @@ scrittura atomica lascia comunque un file valido.
 
 ## Formato
 
-Ogni salvataggio è un file, con il nome dato dall'ID della partizione e
-dal tick, nella destinazione del nodo. Il formato è binario e semplice:
-un'intestazione (identificativo del formato, versione, numero di
-dimensioni, tick, numero di entità), gli array paralleli di ID e
-coordinate, e i metadati applicativi con una tabella delle chiavi. Un
-formato testuale sarebbe più leggibile, ma più grande e lento, e
+Ogni salvataggio è un file nella destinazione del nodo. La destinazione
+ha una sottodirectory `partitions`, con una directory per ogni
+partizione, che ha come nome l'ID della partizione; dentro, il file di
+un salvataggio ha come nome il tick (`partitions/<ID>/<tick>.bsave`).
+L'elenco dei salvataggi di una partizione è il contenuto della sua
+directory.
+
+Il formato è binario e semplice:
+
+1. un'intestazione: identificativo del formato, versione, numero di
+   dimensioni, ID della partizione, tick, numero di entità; l'ID della
+   partizione permette di verificare un file anche fuori dalla sua
+   directory;
+2. gli array paralleli di ID e coordinate;
+3. i metadati applicativi: una tabella delle chiavi in ordine di
+   stringa e, per ogni entità, le coppie (indice della chiave, valore)
+   in ordine di chiave;
+4. un checksum CRC32 di tutti i byte precedenti, che riconosce un file
+   corrotto.
+
+I numeri sono little-endian, l'ordine dei byte delle CPU più diffuse
+(x86, ARM, RISC-V). Gli ordini fissati di entità, chiavi e coppie fanno
+sì che due salvataggi dello stesso snapshot producano gli stessi byte.
+Un formato testuale sarebbe più leggibile, ma più grande e lento, e
 distorcerebbe le misure dei costi.
 
-Il file si scrive in modo atomico: prima un file temporaneo, poi la
-sincronizzazione sul disco e il rename sul nome finale. Un salvataggio
-interrotto non produce un file valido e non tocca i salvataggi
-esistenti; i file temporanei rimasti si eliminano al salvataggio
-successivo.
+Il file si scrive in modo atomico: prima un file temporaneo con un nome
+unico nella directory della partizione, poi la sincronizzazione sul
+disco, il rename sul nome finale, che sostituisce un file già presente,
+e la sincronizzazione della directory, che rende durevole il rename. Un
+salvataggio interrotto non produce un file valido e non tocca i
+salvataggi esistenti. Del ciclo di un salvataggio è responsabile un
+oggetto apposito, che crea il file temporaneo, ci scrive la copia dello
+snapshot, lo rinomina e lo elimina in caso di errore.
+
+I file temporanei rimasti da salvataggi interrotti, per esempio da un
+crash, li elimina una funzione di pulizia del nodo, che li cerca nelle
+directory di tutte le partizioni. Il nodo non tiene traccia dei
+temporanei: la pulizia va chiamata quando nessun salvataggio è in
+corso, per esempio dopo l'avvio del nodo.
 
 ## Periodicità e conservazione
 
@@ -193,6 +220,14 @@ Il salvataggio deve comunque avere un esito di completamento o errore.
 
 - Salvataggio asincrono nel contratto del nodo, con il nodo gRPC e la
   durabilità osservabile.
+- Durabilità del salvataggio secondo la piattaforma. Il nodo sincronizza
+  file e directory sul disco, ma la garanzia dipende da sistema
+  operativo, filesystem e disco: su macOS la sincronizzazione non svuota
+  la cache del disco (serve `F_FULLFSYNC`), su Windows la directory non
+  si sincronizza, e alcuni dischi ignorano il flush. Va rivista con
+  l'implementazione finale e con destinazioni diverse da una directory
+  locale (volume condiviso, object store), dove le garanzie cambiano; il
+  nodo dovrà probabilmente dichiarare il livello di durabilità che offre.
 
 # Correlati
 

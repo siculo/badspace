@@ -22,6 +22,11 @@ import badspace.service.partition.snapshot.MonotonicClock;
 import badspace.service.partition.snapshot.SnapshotCatalog2;
 import badspace.service.partition.snapshot.StorageSnapshot2;
 import badspace.service.persistence.PartitionCopy2;
+import badspace.service.persistence.PartitionSave2;
+import badspace.service.persistence.SaveDirectory;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,6 +55,10 @@ import java.util.function.Function;
  * own lock and its own sequence of commits, and the writes and the commits do not take the
  * lock of the node: a writer waits only for a move of the tick of its own partition, never
  * for the writers of the other partitions.
+ * <p>
+ * A node created with a save directory saves the snapshots of its partitions there, each in
+ * its own file (see {2link SaveDirectory}). Saves of different partitions, and of the same
+ * partition, can run at the same time on different threads, while the writers work.
  */
 public final class LocalPartitionNode2 implements PartitionNode2 {
 
@@ -61,14 +70,30 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     private final MonotonicClock clock;
     // Makes the storage of each new partition.
     private final StorageFactory storageFactory;
+    // The destination of the saves, or null if the node cannot save.
+    private final SaveDirectory saveDirectory;
     // Orders setTick and createPartition: both run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
     // The tick of the node. Written by setTick while holding tickLock, read by any thread.
     private volatile long tick;
 
-    /** Creates a node that measures the timeouts of the acquisitions with the clock of the system. */
+    /**
+     * Creates a node that measures the timeouts of the acquisitions with the clock of the system,
+     * without a save directory: it cannot save.
+     */
     public LocalPartitionNode2() {
         this(MonotonicClock.SYSTEM);
+    }
+
+    /**
+     * Creates a node that measures the timeouts of the acquisitions with the clock of the system
+     * and saves the snapshots in the given directory, which must exist.
+     *
+     * 2throws IllegalArgumentException if the directory does not exist
+     * 2throws UncheckedIOException if the node cannot prepare the directory for the saves
+     */
+    public LocalPartitionNode2(Path saveDirectory) {
+        this(MonotonicClock.SYSTEM, PartitionStorage2::new, openSaveDirectory(saveDirectory));
     }
 
     /** Creates a node that measures the timeouts of the acquisitions with the given clock. */
@@ -82,8 +107,21 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
      * partition, and to know when a move of the tick waits for the lock of a partition.
      */
     LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory) {
+        this(clock, storageFactory, null);
+    }
+
+    private LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory, SaveDirectory saveDirectory) {
         this.clock = clock;
         this.storageFactory = storageFactory;
+        this.saveDirectory = saveDirectory;
+    }
+
+    private static SaveDirectory openSaveDirectory(Path directory) {
+        try {
+            return new SaveDirectory(directory);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot prepare the save directory: " + directory, e);
+        }
     }
 
     @Override
@@ -281,6 +319,62 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
      */
     PartitionCopy2 copyLatest(PartitionId partitionId) {
         return copyOf(acquireLatest(partitionId, AcquireOptions.defaultTimeout()));
+    }
+
+    /**
+     * Saves the snapshot of the given tick of a partition in the save directory and returns
+     * its file. The node makes an {2linkplain #copy autonomous copy} of the snapshot and
+     * writes it; the writer of the partition continues meanwhile, and the write does not
+     * depend on the timeout of the acquisition. A save of a tick already saved replaces the
+     * file with the same bytes. Fails like {2link #copy} if the snapshot is not available.
+     *
+     * 2throws IllegalStateException if the node has no save directory
+     * 2throws UncheckedIOException if the file cannot be written; the saves already there do
+     *     not change
+     */
+    Path save(PartitionId partitionId, long tick) {
+        requireSaveDirectory();
+        return write(partitionId, copy(partitionId, tick));
+    }
+
+    /**
+     * Saves the snapshot of the tick before the current one of a partition, like
+     * {2link #save}. Fails like {2link #copyLatest} if no snapshot is available.
+     */
+    Path saveLatest(PartitionId partitionId) {
+        requireSaveDirectory();
+        return write(partitionId, copyLatest(partitionId));
+    }
+
+    /**
+     * Removes the temporary files of interrupted saves, for example after a crash, in the
+     * save directory. It must run when no save of the node is in progress, for example after
+     * the node starts: it would also remove the file of a save in progress, which would fail.
+     *
+     * 2throws IllegalStateException if the node has no save directory
+     * 2throws UncheckedIOException if a file cannot be removed
+     */
+    void removeTemporaryFiles() {
+        requireSaveDirectory();
+        try {
+            saveDirectory.removeTemporaryFiles();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot remove the temporary files of the saves", e);
+        }
+    }
+
+    private void requireSaveDirectory() {
+        if (saveDirectory == null) {
+            throw new IllegalStateException("Node without a save directory: it cannot save");
+        }
+    }
+
+    private Path write(PartitionId partitionId, PartitionCopy2 copy) {
+        try {
+            return new PartitionSave2(saveDirectory, partitionId, copy).write();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot save partition " + partitionId + " at tick " + copy.tick(), e);
+        }
     }
 
     /** Copies the acquired snapshot and releases the acquisition, also if the copy fails. */
