@@ -26,8 +26,8 @@ classe.
 
 1. [`spaces-and-partitions`](spaces-and-partitions) (`SpacesAndPartitions`):
    i generatori degli ID, condivisi da tutti gli spazi del processo; spazi 2D
-   e 3D; partizioni su nodi locali e la loro configurazione (indice, politica
-   di rimozione, tick conservati); i limiti delle coordinate; le operazioni
+   e 3D; partizioni su nodi locali, con il nome che il software dà loro e la
+   loro configurazione (indice, politica di rimozione, tick conservati); i limiti delle coordinate; le operazioni
    comuni a 2D e 3D.
 2. [`writes-and-commits`](writes-and-commits) (`WritesAndCommits`): il writer
    prende la proprietà di una partizione e scrive con l'handle del suo token;
@@ -58,8 +58,9 @@ classe.
    rimozione di un'entità ne cancella i metadati.
 9. [`partition-saves`](partition-saves) (`PartitionSaves`): i salvataggi di
    tre partizioni di un nodo a due tick, con le chiamate sincrone
-   `saveLatest()` e `save(tick)` e il riferimento che restituiscono; i file
-   nella directory dei salvataggi del nodo, uno per partizione e tick; cosa
+   `saveLatest()` e `save(tick)` e il riferimento che restituiscono, con il
+   nome della partizione e il tick; i file nella directory dei salvataggi del
+   nodo, uno per nome della partizione e tick; cosa
    trova un nuovo nodo sulla stessa directory dopo un riavvio. Con una
    directory come argomento i salvataggi restano lì.
 

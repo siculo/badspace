@@ -213,6 +213,12 @@ come fa con l'ID, anche se la partizione è ritirata; l'unicità tra nodi
 diversi la garantisce il software, che sceglie i nomi (vedi [fiducia
 negli sviluppatori](/process/development-approach.md#fiducia-negli-sviluppatori)).
 
+Nel prototipo il nome è il record `PartitionName` in `common`, che
+controlla le regole nel costruttore, con `partitionName(String)` per
+l'`import static`. La creazione nell'API e nel contratto del nodo lo
+riceve, la partizione dell'API lo restituisce con `name()`, e il nodo
+lo tiene accanto all'ID e lo usa solo per i salvataggi.
+
 Ogni riferimento persistito a una partizione usa il nome, mai l'ID: per
 esempio la destinazione di un'entità migrata nei [metadati di
 sistema](/architecture/entity-metadata.md), che sta negli snapshot

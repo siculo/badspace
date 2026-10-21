@@ -2,6 +2,7 @@ package badspace.service.partition;
 
 import static badspace.common.partition.Entity2.entity;
 import static badspace.common.partition.MetadataWrite.put;
+import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,23 +52,23 @@ class PartitionSave2Test {
     @BeforeEach
     void setUp() {
         node = new LocalPartitionNode2(directory);
-        node.createPartition(P1, IndexConfig.uniformGrid(4));
+        node.createPartition(P1, nameOf(P1), IndexConfig.uniformGrid(4));
     }
 
     @Test
     void saveReturnsTheReferenceOfThePartitionAndTheTick() {
-        node.createPartition(P2, IndexConfig.linearScan(), 5);
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
         node.setTick(1);
         node.setTick(2);
-        assertEquals(new SavedPartition(P2, 1), node.saveLatest(P2));
-        assertEquals(new SavedPartition(P2, 0), node.save(P2, 0));
+        assertEquals(new SavedPartition(nameOf(P2), 1), node.saveLatest(P2));
+        assertEquals(new SavedPartition(nameOf(P2), 0), node.save(P2, 0));
     }
 
     @Test
     void saveWritesTheFileOfTheTickInTheDirectoryOfThePartition() throws IOException {
         node.setTick(1);
         node.saveLatest(P1);
-        assertEquals(List.of(directory.resolve("partitions").resolve("1").resolve("0.bsave")), filesOf(P1));
+        assertEquals(List.of(directory.resolve("partitions").resolve("p1").resolve("0.bsave")), filesOf(P1));
     }
 
     @Test
@@ -76,7 +77,7 @@ class PartitionSave2Test {
         node.updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
         node.commit(owner(node, P1));
         node.setTick(1);
-        PartitionCopy2 saved = PartitionSave2.read(fileOf(node.saveLatest(P1)), P1);
+        PartitionCopy2 saved = PartitionSave2.read(fileOf(node.saveLatest(P1)), nameOf(P1));
         assertEquals(0, saved.tick());
         assertEquals(2, saved.size());
         assertEquals(Map.of(1L, new Point2(1, 2), 2L, new Point2(3, 4)), positionsById(saved));
@@ -86,22 +87,22 @@ class PartitionSave2Test {
     @Test
     void saveOfAnEmptySnapshotHasNoEntities() throws IOException {
         node.setTick(1);
-        PartitionCopy2 saved = PartitionSave2.read(fileOf(node.saveLatest(P1)), P1);
+        PartitionCopy2 saved = PartitionSave2.read(fileOf(node.saveLatest(P1)), nameOf(P1));
         assertEquals(0, saved.tick());
         assertEquals(0, saved.size());
     }
 
     @Test
     void saveAtATickChoosesThatSnapshot() throws IOException {
-        node.createPartition(P2, IndexConfig.linearScan(), 5);
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
         node.insertAll(owner(node, P2), List.of(entity(1, 1, 1)));
         node.commit(owner(node, P2));
         node.setTick(1);
         node.insertAll(owner(node, P2), List.of(entity(2, 2, 2)));
         node.commit(owner(node, P2));
         node.setTick(2);
-        assertEquals(1, PartitionSave2.read(fileOf(node.save(P2, 0)), P2).size());
-        assertEquals(2, PartitionSave2.read(fileOf(node.save(P2, 1)), P2).size());
+        assertEquals(1, PartitionSave2.read(fileOf(node.save(P2, 0)), nameOf(P2)).size());
+        assertEquals(2, PartitionSave2.read(fileOf(node.save(P2, 1)), nameOf(P2)).size());
         assertEquals(2, filesOf(P2).size());
     }
 
@@ -140,7 +141,7 @@ class PartitionSave2Test {
         }
         List<Path> files = filesOf(P1);
         assertEquals(1, files.size());
-        assertEquals(1000, PartitionSave2.read(files.get(0), P1).size());
+        assertEquals(1000, PartitionSave2.read(files.get(0), nameOf(P1)).size());
     }
 
     @Test
@@ -159,7 +160,7 @@ class PartitionSave2Test {
     @Test
     void nodeWithoutASaveDirectoryCannotSave() {
         LocalPartitionNode2 other = new LocalPartitionNode2();
-        other.createPartition(P1, IndexConfig.linearScan());
+        other.createPartition(P1, nameOf(P1), IndexConfig.linearScan());
         other.setTick(1);
         assertThrows(IllegalStateException.class, () -> other.saveLatest(P1));
         assertThrows(IllegalStateException.class, other::removeTemporaryFiles);
@@ -172,7 +173,7 @@ class PartitionSave2Test {
 
     @Test
     void removeTemporaryFilesKeepsTheSaves() throws IOException {
-        node.createPartition(P2, IndexConfig.linearScan());
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan());
         node.setTick(1);
         Path save1 = fileOf(node.saveLatest(P1));
         Path save2 = fileOf(node.saveLatest(P2));
@@ -198,27 +199,26 @@ class PartitionSave2Test {
         // the pairs of the entity (an int) and the CRC32 (an int).
         changed[changed.length - 20] ^= 1;
         Files.write(file, changed);
-        assertThrows(IOException.class, () -> PartitionSave2.read(file, P1));
+        assertThrows(IOException.class, () -> PartitionSave2.read(file, nameOf(P1)));
         Files.write(file, Arrays.copyOf(bytes, bytes.length - 1));
-        assertThrows(IOException.class, () -> PartitionSave2.read(file, P1));
+        assertThrows(IOException.class, () -> PartitionSave2.read(file, nameOf(P1)));
     }
 
     @Test
     void readRejectsTheSaveOfAnotherPartition() throws IOException {
         node.setTick(1);
         Path file = fileOf(node.saveLatest(P1));
-        assertThrows(IOException.class, () -> PartitionSave2.read(file, P2));
+        assertThrows(IOException.class, () -> PartitionSave2.read(file, nameOf(P2)));
     }
 
     /** Returns the file of a save in the save directory of the node. */
     private Path fileOf(SavedPartition saved) {
-        return directory.resolve("partitions").resolve(Long.toString(saved.partitionId().value()))
-                .resolve(saved.tick() + ".bsave");
+        return directory.resolve("partitions").resolve(saved.name().value()).resolve(saved.tick() + ".bsave");
     }
 
     /** Lists the files in the directory of a partition, in name order; empty if there is none. */
     private List<Path> filesOf(PartitionId partitionId) throws IOException {
-        Path partitionDirectory = directory.resolve("partitions").resolve(Long.toString(partitionId.value()));
+        Path partitionDirectory = directory.resolve("partitions").resolve(nameOf(partitionId).value());
         if (!Files.isDirectory(partitionDirectory)) {
             return List.of();
         }

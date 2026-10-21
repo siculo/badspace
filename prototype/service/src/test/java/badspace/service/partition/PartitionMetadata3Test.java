@@ -6,6 +6,7 @@ import static badspace.common.partition.MetadataCondition.absent;
 import static badspace.common.partition.MetadataCondition.valueIs;
 import static badspace.common.partition.MetadataWrite.delete;
 import static badspace.common.partition.MetadataWrite.put;
+import static badspace.service.partition.Names.nameOf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -48,7 +49,7 @@ class PartitionMetadata3Test {
     @BeforeEach
     void setUp() {
         node = new LocalPartitionNode3();
-        node.createPartition(P1, IndexConfig.uniformGrid(4));
+        node.createPartition(P1, nameOf(P1), IndexConfig.uniformGrid(4));
         token = node.claim(P1, 0).orElseThrow();
         node.insertAll(token, List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2), entity(3, 3, 3, 3)));
     }

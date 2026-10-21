@@ -23,6 +23,7 @@ import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
@@ -65,12 +66,14 @@ class Space2EndToEndTest {
     private static final Box2 ALL = new Box2(new Point2(-100, -100), new Point2(100, 100));
 
     private final Space2 space = new Space2(config);
+    // Numbers the names of the partitions made by nextName(), so they are unique on every node.
+    private final AtomicLong names = new AtomicLong();
     // The writer handles of the partitions, made by writer(partition). Used only by the test thread.
     private final Map<Partition2, PartitionWriter2> writers = new IdentityHashMap<>();
 
     @Test
     void readerSeesACommitOnlyAfterTheMoveOfTheTick() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         long a = writer(partition).insert(1, 2);
         long b = writer(partition).insert(5, 5);
         writer(partition).commit();
@@ -88,7 +91,7 @@ class Space2EndToEndTest {
 
     @Test
     void snapshotsOfTheWindowKeepTheStateOfTheirTick() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2(),
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName(),
                 PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)).withRetainedTicks(3));
         long id = writer(partition).insert(0, 0);
         for (int tick = 0; tick < 5; tick++) {
@@ -113,7 +116,7 @@ class Space2EndToEndTest {
 
     @Test
     void acquiredSnapshotStaysReadableAfterItLeavesTheWindow() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         long id = writer(partition).insert(1, 1);
         writer(partition).commit();
         space.setTick(1);
@@ -132,8 +135,8 @@ class Space2EndToEndTest {
     @Test
     void partitionsOnDifferentNodesMoveWithTheSpace() {
         LocalPartitionNode2 first = new LocalPartitionNode2();
-        Partition2 a = space.createPartition(first);
-        Partition2 b = space.createPartition(new LocalPartitionNode2());
+        Partition2 a = space.createPartition(first, nextName());
+        Partition2 b = space.createPartition(new LocalPartitionNode2(), nextName());
         space.setTick(5);
         assertEquals(5, a.tick());
         assertEquals(5, b.tick());
@@ -141,7 +144,7 @@ class Space2EndToEndTest {
 
         // A new node gets the tick of the space before the creation.
         LocalPartitionNode2 later = new LocalPartitionNode2();
-        Partition2 c = space.createPartition(later);
+        Partition2 c = space.createPartition(later, nextName());
         assertEquals(5, later.tick());
         assertEquals(5, c.creationTick());
         assertEquals(0, a.creationTick());
@@ -151,7 +154,7 @@ class Space2EndToEndTest {
 
     @Test
     void removedPartitionGivesItsTicksUntilItIsDestroyed() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2(),
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName(),
                 PartitionConfig.defaults().withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES).withRetainedTicks(2));
         writer(partition).insert(1, 1);
         writer(partition).commit();
@@ -180,7 +183,7 @@ class Space2EndToEndTest {
 
     @Test
     void saveWritesTheSnapshotOfTheTickAndReturnsItsReference(@TempDir Path directory) throws IOException {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2(directory),
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(directory), nextName(),
                 PartitionConfig.defaults().withRetainedTicks(3));
         long a = writer(partition).insert(1, 2);
         writer(partition).commit();
@@ -193,18 +196,19 @@ class Space2EndToEndTest {
         SavedPartition latest = partition.saveLatest();
         assertEquals(0, first.tick());
         assertEquals(1, latest.tick());
-        assertEquals(first.partitionId(), latest.partitionId());
+        assertEquals(partition.name(), first.name());
+        assertEquals(partition.name(), latest.name());
         // The test knows where the local node writes; the reference does not say it.
-        PartitionCopy2 saved = PartitionSave2.read(fileOf(directory, first), first.partitionId());
+        PartitionCopy2 saved = PartitionSave2.read(fileOf(directory, first), first.name());
         assertEquals(1, saved.size());
         assertEquals(a, saved.entityId(0));
         assertEquals(new Point2(1, 2), saved.position(0));
-        assertEquals(2, PartitionSave2.read(fileOf(directory, latest), latest.partitionId()).size());
+        assertEquals(2, PartitionSave2.read(fileOf(directory, latest), latest.name()).size());
     }
 
     @Test
     void removedPartitionIsSavedWhileItsTicksAreInTheWindow(@TempDir Path directory) {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2(directory),
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(directory), nextName(),
                 PartitionConfig.defaults().withRetainedTicks(2));
         writer(partition).commit();
         space.setTick(1);
@@ -215,15 +219,25 @@ class Space2EndToEndTest {
     }
 
     @Test
+    void nameOfAPartitionIsUniqueOnItsNode() {
+        LocalPartitionNode2 node = new LocalPartitionNode2();
+        Partition2 north = space.createPartition(node, new PartitionName("north"));
+        assertEquals(new PartitionName("north"), north.name());
+        assertThrows(IllegalArgumentException.class, () -> space.createPartition(node, new PartitionName("north")));
+        // Names are checked only on the same node: the software keeps them unique across nodes.
+        space.createPartition(new LocalPartitionNode2(), new PartitionName("north"));
+    }
+
+    @Test
     void saveNeedsANodeWithASaveDestination() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         space.setTick(1);
         assertThrows(IllegalStateException.class, partition::saveLatest);
     }
 
     @Test
     void removalThatRequiresEmptyLooksAtTheLastCommit() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         long id = writer(partition).insert(1, 1);
         writer(partition).commit();
         assertThrows(IllegalStateException.class, () -> writer(partition).removePartition());
@@ -240,7 +254,7 @@ class Space2EndToEndTest {
 
     @Test
     void getUpdateAndRemoveUseTheEntityId() {
-        Partition2 p = space.createPartition(new LocalPartitionNode2());
+        Partition2 p = space.createPartition(new LocalPartitionNode2(), nextName());
         long[] ids = writer(p).insertAll(List.of(new Point2(1, 1), new Point2(2, 2)));
         try (AcquiredSnapshot2 snapshot = publish(p)) {
             assertEquals(Optional.of(new Point2(1, 1)), snapshot.get(ids[0]));
@@ -265,7 +279,7 @@ class Space2EndToEndTest {
 
     @Test
     void metadataAreReadFromTheSnapshotOfTheCommitThatWroteThem() {
-        Partition2 p = space.createPartition(new LocalPartitionNode2());
+        Partition2 p = space.createPartition(new LocalPartitionNode2(), nextName());
         long[] ids = writer(p).insertAll(List.of(new Point2(1, 1), new Point2(2, 2)));
         writer(p).putMetadata(ids[0], "version", 1);
         writer(p).putMetadata(ids[0], "owner", 7);
@@ -290,7 +304,7 @@ class Space2EndToEndTest {
 
     @Test
     void metadataWriteOnAMissingEntityChangesNothing() {
-        Partition2 p = space.createPartition(new LocalPartitionNode2());
+        Partition2 p = space.createPartition(new LocalPartitionNode2(), nextName());
         long id = writer(p).insert(new Point2(1, 1));
         assertThrows(NoSuchElementException.class, () -> writer(p).updateMetadataAll(
                 List.of(MetadataWrite.put(id, "version", 1), MetadataWrite.put(id + 1000, "version", 1))));
@@ -301,7 +315,7 @@ class Space2EndToEndTest {
 
     @Test
     void conditionalWritesApplyOnlyWhenTheirConditionsAreTrue() {
-        Partition2 p = space.createPartition(new LocalPartitionNode2());
+        Partition2 p = space.createPartition(new LocalPartitionNode2(), nextName());
         long[] ids = writer(p).insertAll(List.of(new Point2(1, 1), new Point2(2, 2)));
         writer(p).putMetadata(ids[0], "version", 1);
         assertTrue(writer(p).compareAndSetMetadata(ids[0], "version", 1, 2));
@@ -326,7 +340,7 @@ class Space2EndToEndTest {
 
     @Test
     void removalDiscardsUncommittedInsertionsWhenTheLastCommitIsEmpty() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         writer(partition).insert(new Point2(1, 2));
         writer(partition).removePartition();
         space.setTick(1);
@@ -337,7 +351,7 @@ class Space2EndToEndTest {
 
     @Test
     void closingAViewTwiceReleasesItAndKeepsItsTick() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         space.setTick(1);
         AcquiredSnapshot2 snapshot = partition.acquireLatest();
         snapshot.close();
@@ -357,8 +371,8 @@ class Space2EndToEndTest {
         SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
         LocalPartitionNode2 first = new LocalPartitionNode2();
         LocalPartitionNode2 second = new LocalPartitionNode2();
-        Partition2 a = new Space2(config).createPartition(first);
-        Partition2 b = new Space2(config).createPartition(second);
+        Partition2 a = new Space2(config).createPartition(first, nextName());
+        Partition2 b = new Space2(config).createPartition(second, nextName());
         assertEquals(1, writer(a).insert(new Point2(1, 2)));
         assertEquals(2, writer(b).insert(new Point2(1, 2)));
         assertEquals(0, first.creationTick(new PartitionId(1)));
@@ -368,9 +382,9 @@ class Space2EndToEndTest {
     @Test
     void writesAndQueriesStayOnTheChosenPartitionAndNode() {
         LocalPartitionNode2 node = new LocalPartitionNode2();
-        Partition2 first = space.createPartition(node);
-        Partition2 sameNode = space.createPartition(node);
-        Partition2 otherNode = space.createPartition(new LocalPartitionNode2());
+        Partition2 first = space.createPartition(node, nextName());
+        Partition2 sameNode = space.createPartition(node, nextName());
+        Partition2 otherNode = space.createPartition(new LocalPartitionNode2(), nextName());
         Point2 position = new Point2(1, 2);
         long id = writer(first).insert(position);
         Box2 region = new Box2(position, position);
@@ -393,7 +407,7 @@ class Space2EndToEndTest {
     @Test
     void repeatingTheTickDoesNotPublishAnUnfinishedTick() {
         assertEquals(0, space.tick());
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         space.setTick(4);
         writer(partition).insert(new Point2(1, 2));
         writer(partition).commit();
@@ -418,7 +432,7 @@ class Space2EndToEndTest {
     @Test
     void writersOfPartitionsOnTheSameNodeWorkOnTheirOwnThreads() throws Exception {
         LocalPartitionNode2 node = new LocalPartitionNode2();
-        List<Partition2> partitions = List.of(space.createPartition(node), space.createPartition(node));
+        List<Partition2> partitions = List.of(space.createPartition(node, nextName()), space.createPartition(node, nextName()));
         int batches = 50;
         int batchSize = 20;
         CyclicBarrier start = new CyclicBarrier(partitions.size());
@@ -468,7 +482,7 @@ class Space2EndToEndTest {
 
     @Test
     void newPartitionHasNoOwnerUntilAWriterClaimsIt() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         assertEquals(new Ownership(0, false), partition.ownership());
         WriteToken token = partition.claim(0).orElseThrow();
         assertEquals(new Ownership(1, true), partition.ownership());
@@ -482,7 +496,7 @@ class Space2EndToEndTest {
 
     @Test
     void ownerPassesTheOwnershipWithATokenThatTheNextWriterUses() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         PartitionWriter2 first = partition.writer(partition.claim(0).orElseThrow());
         long a = first.insert(new Point2(1, 1));
         first.commit();
@@ -505,7 +519,7 @@ class Space2EndToEndTest {
 
     @Test
     void coordinatorTakesTheOwnershipAwayAndTheWritesNotCommittedAreLost() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         PartitionWriter2 slow = partition.writer(partition.claim(0).orElseThrow());
         long kept = slow.insert(new Point2(1, 1));
         slow.commit();
@@ -522,7 +536,7 @@ class Space2EndToEndTest {
 
     @Test
     void closeAfterAnExceptionDiscardsTheWritesNotCommitted() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         long[] ids = new long[2];
         assertThrows(IllegalStateException.class, () -> {
             try (PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow())) {
@@ -542,7 +556,7 @@ class Space2EndToEndTest {
 
     @Test
     void closeAfterTheDestructionOfThePartitionDoesNothing() {
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow());
         writer.removePartition();
         writer.close();
@@ -577,10 +591,14 @@ class Space2EndToEndTest {
      * Returns the writer handle of a partition for the tests that are not about the ownership:
      * the first call claims the new partition, the next calls give the same handle.
      */
+    /** Returns a new partition name: "p" and a number, unique in the test. */
+    private PartitionName nextName() {
+        return new PartitionName("p" + names.incrementAndGet());
+    }
+
     /** Returns the file of a save of the local node, in its save directory. */
     private static Path fileOf(Path directory, SavedPartition saved) {
-        return directory.resolve("partitions").resolve(Long.toString(saved.partitionId().value()))
-                .resolve(saved.tick() + ".bsave");
+        return directory.resolve("partitions").resolve(saved.name().value()).resolve(saved.tick() + ".bsave");
     }
 
     private PartitionWriter2 writer(Partition2 partition) {

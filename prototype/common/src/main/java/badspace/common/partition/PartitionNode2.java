@@ -70,27 +70,29 @@ public interface PartitionNode2 {
 
     /**
      * Creates an empty partition that uses the linear scan as index, at the tick of the node.
-     * Fails if the ID is already in use on this node.
+     * Fails if the ID or the name is already in use on this node.
      */
-    default void createPartition(PartitionId partitionId) {
-        createPartition(partitionId, IndexConfig.linearScan());
+    default void createPartition(PartitionId partitionId, PartitionName name) {
+        createPartition(partitionId, name, IndexConfig.linearScan());
     }
 
     /**
      * Creates an empty partition with the given index and the default number of retained ticks,
-     * at the tick of the node. Fails if the ID is already in use on this node.
+     * at the tick of the node. Fails if the ID or the name is already in use on this node.
      */
-    default void createPartition(PartitionId partitionId, IndexConfig index) {
-        createPartition(partitionId, index, RetentionWindow.DEFAULT_RETAINED_TICKS);
+    default void createPartition(PartitionId partitionId, PartitionName name, IndexConfig index) {
+        createPartition(partitionId, name, index, RetentionWindow.DEFAULT_RETAINED_TICKS);
     }
 
     /**
      * Creates an empty partition with the given index, at the tick of the node: this is its
      * {@linkplain #creationTick creation tick}. Readers can acquire the snapshots of the last
-     * retainedTicks ticks. Fails with IllegalArgumentException if the ID is already in use on
-     * this node or if retainedTicks is less than 1; in these cases no partition is created.
+     * retainedTicks ticks. The ID identifies the partition in all the other operations; the
+     * node uses the name only for the saves. Fails with IllegalArgumentException if the ID or
+     * the name is already in use on this node, also by a removed partition that is not
+     * destroyed yet, or if retainedTicks is less than 1; in these cases no partition is created.
      */
-    void createPartition(PartitionId partitionId, IndexConfig index, int retainedTicks);
+    void createPartition(PartitionId partitionId, PartitionName name, IndexConfig index, int retainedTicks);
 
     /**
      * Moves the tick of the node forward to the given tick, and then the tick of each of its
@@ -295,7 +297,7 @@ public interface PartitionNode2 {
 
     /**
      * Saves the snapshot of the given tick of a partition to the save destination of the node
-     * and returns the reference to the save. The call is synchronous: it returns when the save
+     * and returns the reference to the save, with the name of the partition. The call is synchronous: it returns when the save
      * is complete. The node acquires the snapshot like {@link #acquire}, with the default
      * timeout, copies it and releases it, then writes the copy: the timeout does not limit
      * the save, and the writer and the readers of the partition continue meanwhile. A save of

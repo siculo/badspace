@@ -1,6 +1,6 @@
 package badspace.service.persistence;
 
-import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.AccessDeniedException;
@@ -11,8 +11,8 @@ import java.nio.file.StandardOpenOption;
 
 /**
  * The destination of the saves of a node: a directory with a subdirectory {@code partitions},
- * which has a directory for each partition, named by the partition ID. The save of a tick is
- * the file {@code partitions/<partition ID>/<tick>.bsave}; a save in progress writes a
+ * which has a directory for each partition, named by the partition name. The save of a tick is
+ * the file {@code partitions/<partition name>/<tick>.bsave}; a save in progress writes a
  * temporary file with a unique name and the extension {@code .tmp} in the same directory.
  * Thread-safe: it has no state of its own, only the file system.
  */
@@ -43,8 +43,8 @@ public final class SaveDirectory {
     }
 
     /** Returns the file of the save of the given tick of a partition, also if it does not exist. */
-    public Path saveFile(PartitionId partitionId, long tick) {
-        return partitionDirectory(partitionId).resolve(tick + SAVE_EXTENSION);
+    public Path saveFile(PartitionName name, long tick) {
+        return partitionDirectory(name).resolve(tick + SAVE_EXTENSION);
     }
 
     /**
@@ -66,16 +66,16 @@ public final class SaveDirectory {
     }
 
     /** Returns the directory of a partition. */
-    Path partitionDirectory(PartitionId partitionId) {
-        return partitions.resolve(Long.toString(partitionId.value()));
+    Path partitionDirectory(PartitionName name) {
+        return partitions.resolve(name.value());
     }
 
     /**
      * Creates the directory of a partition if it does not exist, and returns it. A new directory
      * is forced to the disk with its parent, so a save in it is not lost with it.
      */
-    Path createPartitionDirectory(PartitionId partitionId) throws IOException {
-        Path directory = partitionDirectory(partitionId);
+    Path createPartitionDirectory(PartitionName name) throws IOException {
+        Path directory = partitionDirectory(name);
         if (!Files.isDirectory(directory)) {
             Files.createDirectories(directory);
             force(partitions);

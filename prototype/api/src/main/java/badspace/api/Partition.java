@@ -2,6 +2,7 @@ package badspace.api;
 
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Ownership;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.WriteToken;
 import java.util.Optional;
@@ -14,6 +15,12 @@ import java.util.Optional;
  * writer too, reads the snapshots. Any thread can call these operations.
  */
 public interface Partition {
+
+    /**
+     * Returns the name of the partition, chosen at the creation: its public identifier, which
+     * also identifies its saves.
+     */
+    PartitionName name();
 
     /**
      * Returns the tick of the partition. While the space moves to a new tick, it can be less

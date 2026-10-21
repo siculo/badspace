@@ -2,6 +2,7 @@ package badspace.samples.partitionsaves;
 
 import static badspace.common.geometry.Point2.point;
 import static badspace.common.partition.MetadataWrite.put;
+import static badspace.common.partition.PartitionName.partitionName;
 
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
@@ -22,17 +23,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Stream;
 
 /**
  * Sample client: the saves of the partitions of a node. Three partitions, each with its own
- * index, live on one node with a save directory. The writers insert entities with metadata,
- * the software saves the snapshot of each partition, then the writers change the entities in a
- * later tick and the software saves again. A save is a file in the save directory of the node,
- * one per partition and tick, and the call returns its reference: the partition ID and the tick.
+ * name and index, live on one node with a save directory. The writers insert entities with
+ * metadata, the software saves the snapshot of each partition, then the writers change the
+ * entities in a later tick and the software saves again. A save is a file in the save directory
+ * of the node, one per partition and tick, and the call returns its reference: the name of the
+ * partition and the tick. The name is the public identifier of the partition, chosen by the
+ * software, so the saves are found by name also after the end of the run.
  * <p>
  * At the end a new node starts on the same directory, as after a restart: the files are there,
  * but the node has no partitions. A save keeps the content of one partition at one tick, not the
@@ -56,65 +57,63 @@ public final class PartitionSaves {
 
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
         LocalPartitionNode2 node = new LocalPartitionNode2(directory);
-        // The software gives the partitions its own names: the API does not show the partition IDs.
-        Map<String, Partition2> partitions = new LinkedHashMap<>();
-        partitions.put("north", space.createPartition(node,
-                PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(10)).withRetainedTicks(3)));
-        partitions.put("center", space.createPartition(node,
-                PartitionConfig.defaults().withIndex(IndexConfig.gridQuadtree(16)).withRetainedTicks(3)));
-        partitions.put("south", space.createPartition(node,
-                PartitionConfig.defaults().withIndex(IndexConfig.linearScan()).withRetainedTicks(3)));
+        List<Partition2> partitions = List.of(
+                space.createPartition(node, partitionName("north"),
+                        PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(10)).withRetainedTicks(3)),
+                space.createPartition(node, partitionName("center"),
+                        PartitionConfig.defaults().withIndex(IndexConfig.gridQuadtree(16)).withRetainedTicks(3)),
+                space.createPartition(node, partitionName("south"),
+                        PartitionConfig.defaults().withIndex(IndexConfig.linearScan()).withRetainedTicks(3)));
+        Partition2 north = partitions.get(0);
 
-        Map<String, PartitionWriter2> writers = new LinkedHashMap<>();
-        for (Map.Entry<String, Partition2> named : partitions.entrySet()) {
-            Partition2 partition = named.getValue();
-            writers.put(named.getKey(), partition.writer(partition.claim(0).orElseThrow()));
+        // The writers, in the same order as the partitions.
+        List<PartitionWriter2> writers = new ArrayList<>();
+        for (Partition2 partition : partitions) {
+            writers.add(partition.writer(partition.claim(0).orElseThrow()));
         }
 
         try {
             // Tick 0: each writer inserts three entities with a health value, and commits.
-            Map<String, List<Long>> entityIds = new LinkedHashMap<>();
-            int base = 0;
-            for (Map.Entry<String, PartitionWriter2> named : writers.entrySet()) {
-                PartitionWriter2 writer = named.getValue();
+            List<List<Long>> entityIds = new ArrayList<>();
+            for (int p = 0; p < writers.size(); p++) {
+                PartitionWriter2 writer = writers.get(p);
                 List<Long> ids = new ArrayList<>();
                 for (int i = 0; i < 3; i++) {
-                    long id = writer.insert(base + i * 10, base);
+                    long id = writer.insert(p * 100 + i * 10, p * 100);
                     writer.putMetadata(id, "health", 100);
                     ids.add(id);
                 }
                 writer.commit();
-                entityIds.put(named.getKey(), ids);
-                base += 100;
+                entityIds.add(ids);
             }
             space.setTick(1);
             System.out.println();
             System.out.println("Tick 0 committed, the space is at tick 1.");
-            Map<String, SavedPartition> firstSaves = saveAll(partitions);
+            List<SavedPartition> firstSaves = saveAll(partitions);
 
             // Tick 1: each writer moves its first entity, damages the second and removes the
             // third; the north writer also inserts a new entity.
-            for (Map.Entry<String, PartitionWriter2> named : writers.entrySet()) {
-                PartitionWriter2 writer = named.getValue();
-                List<Long> ids = entityIds.get(named.getKey());
+            for (int p = 0; p < writers.size(); p++) {
+                PartitionWriter2 writer = writers.get(p);
+                List<Long> ids = entityIds.get(p);
                 writer.update(ids.get(0), point(-5, -5));
                 writer.updateMetadataAll(List.of(put(ids.get(1), "health", 40)));
                 writer.remove(ids.get(2));
             }
-            long newcomer = writers.get("north").insert(7, 7);
-            writers.get("north").putMetadata(newcomer, "health", 100);
-            for (PartitionWriter2 writer : writers.values()) {
+            long newcomer = writers.get(0).insert(7, 7);
+            writers.get(0).putMetadata(newcomer, "health", 100);
+            for (PartitionWriter2 writer : writers) {
                 writer.commit();
             }
             space.setTick(2);
             System.out.println();
             System.out.println("Tick 1 committed, the space is at tick 2.");
-            Map<String, SavedPartition> secondSaves = saveAll(partitions);
+            List<SavedPartition> secondSaves = saveAll(partitions);
 
             // The snapshot of tick 0 is still in the window: a save of a past tick writes the
             // same file again, with the same bytes.
             System.out.println();
-            System.out.printf("Save of tick 0 of north again: %s%n", partitions.get("north").save(0));
+            System.out.printf("Save of tick 0 of north again: %s%n", north.save(0));
 
             System.out.println();
             System.out.println("Files in the save directory:");
@@ -122,32 +121,32 @@ public final class PartitionSaves {
 
             System.out.println();
             System.out.println("Content of the saves, read from the files:");
-            for (String name : partitions.keySet()) {
-                showSave(directory, name, firstSaves.get(name));
-                showSave(directory, name, secondSaves.get(name));
+            for (int p = 0; p < partitions.size(); p++) {
+                showSave(directory, firstSaves.get(p));
+                showSave(directory, secondSaves.get(p));
             }
 
             System.out.println();
             System.out.println("The live snapshot of tick 1 of north, for comparison:");
-            try (AcquiredSnapshot2 snapshot = partitions.get("north").acquire(1)) {
+            try (AcquiredSnapshot2 snapshot = north.acquire(1)) {
                 for (Entity2 entity : snapshot.findInRegion(ALL)) {
                     System.out.printf("  %s %s%n", entity, snapshot.getMetadata(entity.id()).orElseThrow());
                 }
             }
         } finally {
-            for (PartitionWriter2 writer : writers.values()) {
+            for (PartitionWriter2 writer : writers) {
                 writer.close();
             }
         }
 
         // A restart: a new space and a new node on the same directory. The node finds the
         // directory ready, but it has no partitions: a save is the content of a partition, not
-        // the state of the node. The software must know which saves to use, for example from
-        // the references it kept, and load them into new partitions, with the index and the
-        // window it chooses (not in the prototype yet).
+        // the state of the node. The software finds the saves by the names of its partitions
+        // and loads them into new partitions with the same names, with the index and the
+        // window it chooses (not in the prototype yet); the new partitions get new IDs.
         Space2 restarted = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(1), new SnowflakeIdGenerator(1)));
         LocalPartitionNode2 newNode = new LocalPartitionNode2(directory);
-        Partition2 fresh = restarted.createPartition(newNode);
+        Partition2 fresh = restarted.createPartition(newNode, partitionName("fresh"));
         System.out.println();
         System.out.println("After a restart, with a new node on the same directory:");
         System.out.printf("  a new partition starts empty at tick %d; the files are still there:%n",
@@ -158,13 +157,13 @@ public final class PartitionSaves {
     }
 
     /** Saves the latest snapshot of every partition and prints the references. */
-    private static Map<String, SavedPartition> saveAll(Map<String, Partition2> partitions) {
-        Map<String, SavedPartition> saves = new LinkedHashMap<>();
-        for (Map.Entry<String, Partition2> named : partitions.entrySet()) {
+    private static List<SavedPartition> saveAll(List<Partition2> partitions) {
+        List<SavedPartition> saves = new ArrayList<>();
+        for (Partition2 partition : partitions) {
             // Synchronous: it returns when the file is written, while the writer could continue.
-            SavedPartition saved = named.getValue().saveLatest();
-            saves.put(named.getKey(), saved);
-            System.out.printf("  saved %-6s -> %s%n", named.getKey(), saved);
+            SavedPartition saved = partition.saveLatest();
+            saves.add(saved);
+            System.out.printf("  saved %-6s -> tick %d%n", saved.name().value(), saved.tick());
         }
         return saves;
     }
@@ -183,11 +182,10 @@ public final class PartitionSaves {
      * file of a save; the reference does not say it, and the API will read the saves only to
      * load them into a partition.
      */
-    private static void showSave(Path directory, String name, SavedPartition saved) throws IOException {
-        Path file = directory.resolve("partitions").resolve(Long.toString(saved.partitionId().value()))
-                .resolve(saved.tick() + ".bsave");
-        PartitionCopy2 copy = PartitionSave2.read(file, saved.partitionId());
-        System.out.printf("  %s at tick %d, %d entities:%n", name, copy.tick(), copy.size());
+    private static void showSave(Path directory, SavedPartition saved) throws IOException {
+        Path file = directory.resolve("partitions").resolve(saved.name().value()).resolve(saved.tick() + ".bsave");
+        PartitionCopy2 copy = PartitionSave2.read(file, saved.name());
+        System.out.printf("  %s at tick %d, %d entities:%n", saved.name().value(), copy.tick(), copy.size());
         for (int i = 0; i < copy.size(); i++) {
             System.out.printf("    %d at %s %s%n", copy.entityId(i), copy.position(i), copy.metadata(i));
         }

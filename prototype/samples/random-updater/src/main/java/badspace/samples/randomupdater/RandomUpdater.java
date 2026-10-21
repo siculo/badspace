@@ -1,5 +1,7 @@
 package badspace.samples.randomupdater;
 
+import static badspace.common.partition.PartitionName.partitionName;
+
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
@@ -48,7 +50,7 @@ public final class RandomUpdater {
         PartitionNode2 node = new LocalPartitionNode2();
         PartitionConfig config = PartitionConfig.defaults()
                 .withIndex(IndexConfig.gridQuadtree(128));
-        Partition2 partition = space.createPartition(node, config);
+        Partition2 partition = space.createPartition(node, partitionName("world"), config);
 
         // The main thread claims the new partition and inserts the entities with the handle of
         // the token; the writer thread gets the handle and commits them at its first tick.

@@ -1,5 +1,7 @@
 package badspace.samples.writerfailover;
 
+import static badspace.common.partition.PartitionName.partitionName;
+
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
 import badspace.api.PartitionWriter2;
@@ -38,7 +40,7 @@ public final class WriterFailover {
 
     public static void main(String[] args) throws InterruptedException {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), partitionName("world"));
         BlockingQueue<Long> commits = new LinkedBlockingQueue<>();
         CountDownLatch wakeUp = new CountDownLatch(1);
 

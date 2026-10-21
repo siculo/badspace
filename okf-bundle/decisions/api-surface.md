@@ -447,14 +447,9 @@ finestra; i salvataggi restano dopo la distruzione della partizione.
 
 ## Differenze nel codice attuale
 
-- Il [nome della partizione](/decisions/entity-ids.md#nome-della-partizione)
-  non c'è ancora: la creazione non lo riceve, la partizione non ha
-  `name()`, e `SavedPartition`, le directory e l'intestazione dei file
-  dei salvataggi usano ancora l'ID della partizione.
-
-Per il resto il codice segue la forma descritta sopra per tick, commit,
-proprietà e handle del writer, letture, salvataggi e rimozione delle
-partizioni.
+Nessuna: il codice segue la forma descritta sopra per tick, commit,
+proprietà e handle del writer, letture, nomi delle partizioni,
+salvataggi e rimozione delle partizioni.
 
 ## Contratto del nodo
 

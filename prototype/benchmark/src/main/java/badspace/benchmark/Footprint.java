@@ -123,7 +123,7 @@ final class Footprint {
         for (int r = 0; r < REPEAT; r++) {
             long before = usedHeap();
             PartitionNode2 node = new LocalPartitionNode2();
-            node.createPartition(WorkloadState.PARTITION_ID, IndexNames.parse(index));
+            node.createPartition(WorkloadState.PARTITION_ID, WorkloadState.PARTITION_NAME, IndexNames.parse(index));
             node.claim(WorkloadState.PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
             node.insertAll(WorkloadState.WRITE_TOKEN, workload.entities());
             long after = usedHeap();

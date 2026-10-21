@@ -1,5 +1,7 @@
 package badspace.samples.ownershiphandoff;
 
+import static badspace.common.partition.PartitionName.partitionName;
+
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
 import badspace.api.PartitionWriter2;
@@ -20,8 +22,8 @@ public final class OwnershipHandoff {
 
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Partition2 partition = space.createPartition(new LocalPartitionNode2());
-        Partition2 other = space.createPartition(new LocalPartitionNode2());
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), partitionName("main"));
+        Partition2 other = space.createPartition(new LocalPartitionNode2(), partitionName("other"));
         System.out.printf("New partition: %s%n", partition.ownership());
 
         // A claim succeeds only with the current generation: of two claims with generation 0,

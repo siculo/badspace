@@ -1,5 +1,6 @@
 package badspace.service.persistence;
 
+import badspace.common.partition.PartitionName;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -13,8 +14,9 @@ import java.util.function.IntFunction;
 /**
  * The binary format of a save, the same for 2D and 3D. A save has, in this order:
  * <ol>
- *   <li>a header: {@link #MAGIC}, {@link #VERSION}, the number of dimensions, the partition
- *       ID, the tick and the number of entities;</li>
+ *   <li>a header: {@link #MAGIC}, {@link #VERSION}, the number of dimensions, the name of
+ *       the partition (its length in bytes and its UTF-8 bytes), the tick and the number of
+ *       entities;</li>
  *   <li>the IDs of the entities, then their coordinates, the same number per entity as the
  *       dimensions;</li>
  *   <li>the application metadata: the table of the keys in string order, each key as its
@@ -64,11 +66,24 @@ final class SaveFormat {
     }
 
     /**
-     * Reads the header of a save and checks it: the format, the version, the dimensions and
-     * the partition ID must be the expected ones. Returns the tick; the number of entities
-     * follows in the input.
+     * Writes the header of a save, without the number of entities, which follows it.
      */
-    static long readHeader(SaveInput input, int dimensions, long partitionId) throws IOException {
+    static void writeHeader(SaveOutput output, int dimensions, PartitionName name, long tick) throws IOException {
+        output.writeInt(MAGIC);
+        output.writeInt(VERSION);
+        output.writeInt(dimensions);
+        byte[] nameBytes = name.value().getBytes(StandardCharsets.UTF_8);
+        output.writeInt(nameBytes.length);
+        output.writeBytes(nameBytes);
+        output.writeLong(tick);
+    }
+
+    /**
+     * Reads the header of a save, written by {@link #writeHeader}, and checks it: the format,
+     * the version, the dimensions and the name of the partition must be the expected ones.
+     * Returns the tick; the number of entities follows in the input.
+     */
+    static long readHeader(SaveInput input, int dimensions, PartitionName name) throws IOException {
         int magic = input.readInt();
         if (magic != MAGIC) {
             throw new IOException("Not a save: format " + Integer.toHexString(magic));
@@ -81,9 +96,9 @@ final class SaveFormat {
         if (savedDimensions != dimensions) {
             throw new IOException("Save with " + savedDimensions + " dimensions, expected " + dimensions);
         }
-        long savedPartitionId = input.readLong();
-        if (savedPartitionId != partitionId) {
-            throw new IOException("Save of partition " + savedPartitionId + ", expected " + partitionId);
+        String savedName = new String(input.readBytes(readCount(input, 1)), StandardCharsets.UTF_8);
+        if (!savedName.equals(name.value())) {
+            throw new IOException("Save of partition \"" + savedName + "\", expected \"" + name.value() + "\"");
         }
         return input.readLong();
     }

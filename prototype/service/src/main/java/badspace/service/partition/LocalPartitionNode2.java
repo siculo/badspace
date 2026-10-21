@@ -13,6 +13,7 @@ import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.RetentionWindow;
 import badspace.common.partition.SavedPartition;
@@ -67,6 +68,10 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     // partition stays here until it is destroyed; the thread that destroys it, any
     // thread, removes it.
     private final Map<PartitionId, PartitionStorage2> partitions = new ConcurrentHashMap<>();
+    // The names of the partitions, with the same IDs as partitions: a name is in use while its
+    // partition is on the node. Written by createPartition while holding tickLock and by the
+    // thread that destroys a partition; read by any thread.
+    private final Map<PartitionId, PartitionName> names = new ConcurrentHashMap<>();
     // Measures the timeouts of the acquisitions in all the partitions.
     private final MonotonicClock clock;
     // Makes the storage of each new partition.
@@ -126,19 +131,25 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
-    public void createPartition(PartitionId partitionId, IndexConfig index, int retainedTicks) {
+    public void createPartition(PartitionId partitionId, PartitionName name, IndexConfig index, int retainedTicks) {
+        Objects.requireNonNull(name);
         if (retainedTicks < RetentionWindow.MIN_RETAINED_TICKS) {
             throw new IllegalArgumentException("Number of retained ticks is less than "
                     + RetentionWindow.MIN_RETAINED_TICKS + ": " + retainedTicks);
         }
         tickLock.lock();
         try {
-            // A removed partition keeps its ID until it is destroyed, so this also rejects
-            // its ID.
-            PartitionStorage2 storage = storageFactory.create(index, retainedTicks, clock, tick);
-            if (partitions.putIfAbsent(partitionId, storage) != null) {
+            // A removed partition keeps its ID and its name until it is destroyed, so this also
+            // rejects them. The creation of a partition is rare, so a scan of the names is enough.
+            if (partitions.containsKey(partitionId)) {
                 throw new IllegalArgumentException("Partition already exists: " + partitionId);
             }
+            if (names.containsValue(name)) {
+                throw new IllegalArgumentException("Partition name already in use: " + name.value());
+            }
+            PartitionStorage2 storage = storageFactory.create(index, retainedTicks, clock, tick);
+            names.put(partitionId, name);
+            partitions.put(partitionId, storage);
         } finally {
             tickLock.unlock();
         }
@@ -327,13 +338,15 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public SavedPartition save(PartitionId partitionId, long tick) {
         requireSaveDirectory();
-        return write(partitionId, copy(partitionId, tick));
+        PartitionName name = nameOf(partitionId);
+        return write(name, copy(partitionId, tick));
     }
 
     @Override
     public SavedPartition saveLatest(PartitionId partitionId) {
         requireSaveDirectory();
-        return write(partitionId, copyLatest(partitionId));
+        PartitionName name = nameOf(partitionId);
+        return write(name, copyLatest(partitionId));
     }
 
     /**
@@ -359,13 +372,25 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         }
     }
 
+    /**
+     * Returns the name of a partition. Taken before the copy, which then fails if the
+     * partition was destroyed meanwhile.
+     */
+    private PartitionName nameOf(PartitionId partitionId) {
+        PartitionName name = names.get(partitionId);
+        if (name == null) {
+            throw new IllegalArgumentException("Unknown partition: " + partitionId);
+        }
+        return name;
+    }
+
     /** Writes a copy to the save directory and returns the reference to the save. */
-    private SavedPartition write(PartitionId partitionId, PartitionCopy2 copy) {
+    private SavedPartition write(PartitionName name, PartitionCopy2 copy) {
         try {
-            new PartitionSave2(saveDirectory, partitionId, copy).write();
-            return new SavedPartition(partitionId, copy.tick());
+            new PartitionSave2(saveDirectory, name, copy).write();
+            return new SavedPartition(name, copy.tick());
         } catch (IOException e) {
-            throw new UncheckedIOException("Cannot save partition " + partitionId + " at tick " + copy.tick(), e);
+            throw new UncheckedIOException("Cannot save partition " + name.value() + " at tick " + copy.tick(), e);
         }
     }
 
@@ -446,7 +471,9 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
      * says it once, so only one thread calls this for a partition.
      */
     private void finish(PartitionId partitionId, PartitionStorage2 storage) {
-        partitions.remove(partitionId, storage);
+        if (partitions.remove(partitionId, storage)) {
+            names.remove(partitionId);
+        }
     }
 
     /**

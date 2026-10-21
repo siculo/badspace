@@ -2,6 +2,7 @@ package badspace.service.partition;
 
 import static badspace.common.geometry.Point2.point;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
+import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -191,7 +192,7 @@ class AcquisitionConcurrency2Test {
     void acquisitionsDuringTheMoveOfTheWindowReadWholeCommits() throws Exception {
         for (IndexConfig config : CONFIGS) {
             LocalPartitionNode2 node = new LocalPartitionNode2();
-            node.createPartition(P1, config, 2);
+            node.createPartition(P1, nameOf(P1), config, 2);
             long[] entityIds = new long[ENTITIES];
             List<Entity2> entities = new ArrayList<>();
             for (int i = 0; i < ENTITIES; i++) {
@@ -410,7 +411,7 @@ class AcquisitionConcurrency2Test {
     void removalDuringAcquisitionsEndsWithTheLastRelease() throws Exception {
         for (IndexConfig config : CONFIGS) {
             LocalPartitionNode2 node = new LocalPartitionNode2();
-            node.createPartition(P1, config, 1);
+            node.createPartition(P1, nameOf(P1), config, 1);
             node.insertAll(owner(node, P1), List.of(new Entity2(10, A), new Entity2(20, B)));
             CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
@@ -538,7 +539,7 @@ class AcquisitionConcurrency2Test {
     void writerAndTickOnDifferentThreadsPublishWholeCommits() throws Exception {
         for (IndexConfig config : CONFIGS) {
             LocalPartitionNode2 node = new LocalPartitionNode2();
-            node.createPartition(P1, config, 2);
+            node.createPartition(P1, nameOf(P1), config, 2);
             long[] entityIds = new long[ENTITIES];
             List<Entity2> entities = new ArrayList<>();
             for (int i = 0; i < ENTITIES; i++) {

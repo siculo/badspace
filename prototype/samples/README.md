@@ -26,8 +26,8 @@ class.
 
 1. [`spaces-and-partitions`](spaces-and-partitions) (`SpacesAndPartitions`):
    the generators of the IDs, shared by all the spaces of the process; 2D and
-   3D spaces; partitions on local nodes and their configuration (index,
-   removal policy, retained ticks); the limits of the coordinates; the
+   3D spaces; partitions on local nodes, with the name that the software gives
+   them and their configuration (index, removal policy, retained ticks); the limits of the coordinates; the
    operations shared by 2D and 3D.
 2. [`writes-and-commits`](writes-and-commits) (`WritesAndCommits`): the
    writer claims a partition and writes through the handle of its token;
@@ -57,8 +57,9 @@ class.
    entity deletes its metadata.
 9. [`partition-saves`](partition-saves) (`PartitionSaves`): the saves of
    three partitions of a node at two ticks, with the synchronous
-   `saveLatest()` and `save(tick)` and the reference they return; the files in
-   the save directory of the node, one per partition and tick; what a new node
+   `saveLatest()` and `save(tick)` and the reference they return, with the
+   name of the partition and the tick; the files in the save directory of the
+   node, one per partition name and tick; what a new node
    on the same directory finds after a restart. Pass a directory as argument
    to keep the saves there.
 

@@ -1,5 +1,7 @@
 package badspace.samples.partitionremoval;
 
+import static badspace.common.partition.PartitionName.partitionName;
+
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
@@ -26,10 +28,11 @@ public final class PartitionRemoval {
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
         LocalPartitionNode2 node = new LocalPartitionNode2();
-        Partition2 empty = space.createPartition(node);
-        Partition2 discarded = space.createPartition(node, PartitionConfig.defaults()
-                .withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES)
-                .withRetainedTicks(RETAINED_TICKS));
+        Partition2 empty = space.createPartition(node, partitionName("empty"));
+        Partition2 discarded = space.createPartition(node, partitionName("discarded"),
+                PartitionConfig.defaults()
+                        .withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES)
+                        .withRetainedTicks(RETAINED_TICKS));
 
         // REQUIRE_EMPTY looks at the last commit: the writer removes the entities and commits first.
         try (PartitionWriter2 writer = empty.writer(empty.claim(0).orElseThrow())) {

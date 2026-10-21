@@ -4,6 +4,7 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.WriteToken;
@@ -28,13 +29,20 @@ public final class Partition2 implements Partition {
     private final Space2 space;
     private final PartitionNode2 node;
     private final PartitionId partitionId;
+    private final PartitionName name;
     private final PartitionConfig config;
 
-    Partition2(Space2 space, PartitionNode2 node, PartitionId partitionId, PartitionConfig config) {
+    Partition2(Space2 space, PartitionNode2 node, PartitionId partitionId, PartitionName name, PartitionConfig config) {
         this.space = space;
         this.node = node;
         this.partitionId = partitionId;
+        this.name = name;
         this.config = config;
+    }
+
+    @Override
+    public PartitionName name() {
+        return name;
     }
 
     @Override

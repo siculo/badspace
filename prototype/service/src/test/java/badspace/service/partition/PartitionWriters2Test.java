@@ -2,6 +2,7 @@ package badspace.service.partition;
 
 import static badspace.common.geometry.Point2.point;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
+import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
@@ -73,8 +74,8 @@ class PartitionWriters2Test {
                     return gated;
                 }, retainedTicks, clock, tick, lock, new CoordinateBufferPool());
             });
-            node.createPartition(P1, config, 1);
-            node.createPartition(P2, config, 1);
+            node.createPartition(P1, nameOf(P1), config, 1);
+            node.createPartition(P2, nameOf(P2), config, 1);
             node.insertAll(owner(node, P1), List.of(new Entity2(10, A)));
             Gate gate = new Gate();
             indexes.getFirst().commitGate = gate;
@@ -128,7 +129,7 @@ class PartitionWriters2Test {
         }
         for (int w = 0; w < WRITERS; w++) {
             partitionIds[w] = new PartitionId(w + 1);
-            node.createPartition(partitionIds[w], CONFIGS.get(w % CONFIGS.size()), 2);
+            node.createPartition(partitionIds[w], nameOf(partitionIds[w]), CONFIGS.get(w % CONFIGS.size()), 2);
             node.insertAll(owner(node, partitionIds[w]), entitiesAt(w, 0, entityIds));
         }
 

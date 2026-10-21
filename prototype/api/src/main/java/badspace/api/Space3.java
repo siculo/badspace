@@ -1,6 +1,7 @@
 package badspace.api;
 
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode3;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -39,7 +40,8 @@ public final class Space3 implements Space<PartitionNode3, Partition3> {
     }
 
     @Override
-    public Partition3 createPartition(PartitionNode3 node, PartitionConfig config) {
+    public Partition3 createPartition(PartitionNode3 node, PartitionName name, PartitionConfig config) {
+        Objects.requireNonNull(name);
         Objects.requireNonNull(config);
         tickLock.lock();
         try {
@@ -49,8 +51,8 @@ public final class Space3 implements Space<PartitionNode3, Partition3> {
                 nodes.add(node);
             }
             PartitionId id = new PartitionId(this.config.partitionIds().nextId());
-            node.createPartition(id, config.index(), config.retainedTicks());
-            return new Partition3(this, node, id, config);
+            node.createPartition(id, name, config.index(), config.retainedTicks());
+            return new Partition3(this, node, id, name, config);
         } finally {
             tickLock.unlock();
         }

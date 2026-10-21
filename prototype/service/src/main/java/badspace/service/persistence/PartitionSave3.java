@@ -1,7 +1,7 @@
 package badspace.service.persistence;
 
 import badspace.common.geometry.Point3;
-import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
@@ -22,25 +22,25 @@ public final class PartitionSave3 {
     private static final int DIMENSIONS = 3;
 
     private final SaveDirectory saveDirectory;
-    private final PartitionId partitionId;
+    private final PartitionName name;
     private final PartitionCopy3 copy;
 
-    public PartitionSave3(SaveDirectory saveDirectory, PartitionId partitionId, PartitionCopy3 copy) {
+    public PartitionSave3(SaveDirectory saveDirectory, PartitionName name, PartitionCopy3 copy) {
         this.saveDirectory = saveDirectory;
-        this.partitionId = partitionId;
+        this.name = name;
         this.copy = copy;
     }
 
     /** Writes the save and returns its file. Call it once. */
     public Path write() throws IOException {
-        Path directory = saveDirectory.createPartitionDirectory(partitionId);
+        Path directory = saveDirectory.createPartitionDirectory(name);
         Path temporary = Files.createTempFile(directory, copy.tick() + ".", SaveDirectory.TEMPORARY_EXTENSION);
         try {
             try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
                 writeContent(new SaveOutput(channel));
                 channel.force(true);
             }
-            Path file = saveDirectory.saveFile(partitionId, copy.tick());
+            Path file = saveDirectory.saveFile(name, copy.tick());
             Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             SaveDirectory.force(directory);
             return file;
@@ -56,11 +56,7 @@ public final class PartitionSave3 {
 
     private void writeContent(SaveOutput output) throws IOException {
         int count = copy.size();
-        output.writeInt(SaveFormat.MAGIC);
-        output.writeInt(SaveFormat.VERSION);
-        output.writeInt(DIMENSIONS);
-        output.writeLong(partitionId.value());
-        output.writeLong(copy.tick());
+        SaveFormat.writeHeader(output, DIMENSIONS, name, copy.tick());
         output.writeInt(count);
         for (int i = 0; i < count; i++) {
             output.writeLong(copy.entityId(i));
@@ -76,16 +72,16 @@ public final class PartitionSave3 {
     }
 
     /**
-     * Reads a 3D save of the given partition, written by {@link #write}, and returns its
+     * Reads a 3D save of the partition with the given name, written by {@link #write}, and returns its
      * content as a copy.
      *
      * @throws IOException if the file cannot be read, is not a 3D save of the partition, or is
      *     corrupted
      */
-    public static PartitionCopy3 read(Path file, PartitionId partitionId) throws IOException {
+    public static PartitionCopy3 read(Path file, PartitionName name) throws IOException {
         try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
             SaveInput input = new SaveInput(channel);
-            long tick = SaveFormat.readHeader(input, DIMENSIONS, partitionId.value());
+            long tick = SaveFormat.readHeader(input, DIMENSIONS, name);
             int count = SaveFormat.readCount(input, Long.BYTES + DIMENSIONS * Double.BYTES);
             long[] entityIds = new long[count];
             for (int i = 0; i < count; i++) {

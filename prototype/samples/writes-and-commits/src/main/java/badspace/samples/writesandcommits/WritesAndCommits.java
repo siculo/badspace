@@ -2,6 +2,7 @@ package badspace.samples.writesandcommits;
 
 import static badspace.common.geometry.Point2.point;
 import static badspace.common.partition.Entity2.entity;
+import static badspace.common.partition.PartitionName.partitionName;
 
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
@@ -26,7 +27,7 @@ public final class WritesAndCommits {
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
         // A cell size of 1 gives limits of 2^30 on each axis.
-        Partition2 partition = space.createPartition(new LocalPartitionNode2(),
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), partitionName("world"),
                 PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(1)));
 
         // A new partition has no owner, at generation 0. Closing the handle releases the ownership.

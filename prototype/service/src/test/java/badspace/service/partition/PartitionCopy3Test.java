@@ -2,6 +2,7 @@ package badspace.service.partition;
 
 import static badspace.common.partition.Entity3.entity;
 import static badspace.common.partition.MetadataWrite.put;
+import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -34,7 +35,7 @@ class PartitionCopy3Test {
     @BeforeEach
     void setUp() {
         node = new LocalPartitionNode3();
-        node.createPartition(P1, IndexConfig.uniformGrid(4));
+        node.createPartition(P1, nameOf(P1), IndexConfig.uniformGrid(4));
     }
 
     @Test
@@ -60,7 +61,7 @@ class PartitionCopy3Test {
 
     @Test
     void copyAtATickChoosesThatSnapshot() {
-        node.createPartition(P2, IndexConfig.linearScan(), 5);
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
         node.insertAll(owner(node, P2), List.of(entity(1, 1, 1, 1)));
         node.commit(owner(node, P2));
         node.setTick(1);
@@ -73,7 +74,7 @@ class PartitionCopy3Test {
 
     @Test
     void copyDoesNotDependOnTheLifeOfTheSnapshot() {
-        node.createPartition(P2, IndexConfig.linearScan(), 1);
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 1);
         node.insertAll(owner(node, P2), List.of(entity(1, 1, 2, 3)));
         node.commit(owner(node, P2));
         node.setTick(1);
@@ -92,7 +93,7 @@ class PartitionCopy3Test {
     void copyFailsLikeAnAcquisitionWhenTheSnapshotIsNotAvailable() {
         assertReason(Reason.NOT_YET_PUBLISHED, () -> node.copyLatest(P1));
         assertReason(Reason.NOT_YET_PUBLISHED, () -> node.copy(P1, 0));
-        node.createPartition(P2, IndexConfig.linearScan(), 1);
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 1);
         node.setTick(1);
         node.setTick(2);
         assertReason(Reason.OUT_OF_RETENTION, () -> node.copy(P2, 0));
