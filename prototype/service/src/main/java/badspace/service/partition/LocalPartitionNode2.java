@@ -57,7 +57,7 @@ import java.util.function.Function;
  * for the writers of the other partitions.
  * <p>
  * A node created with a save directory saves the snapshots of its partitions there, each in
- * its own file (see {2link SaveDirectory}). Saves of different partitions, and of the same
+ * its own file (see {@link SaveDirectory}). Saves of different partitions, and of the same
  * partition, can run at the same time on different threads, while the writers work.
  */
 public final class LocalPartitionNode2 implements PartitionNode2 {
@@ -89,8 +89,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
      * Creates a node that measures the timeouts of the acquisitions with the clock of the system
      * and saves the snapshots in the given directory, which must exist.
      *
-     * 2throws IllegalArgumentException if the directory does not exist
-     * 2throws UncheckedIOException if the node cannot prepare the directory for the saves
+     * @throws IllegalArgumentException if the directory does not exist
+     * @throws UncheckedIOException if the node cannot prepare the directory for the saves
      */
     public LocalPartitionNode2(Path saveDirectory) {
         this(MonotonicClock.SYSTEM, PartitionStorage2::new, openSaveDirectory(saveDirectory));
@@ -323,13 +323,13 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     /**
      * Saves the snapshot of the given tick of a partition in the save directory and returns
-     * its file. The node makes an {2linkplain #copy autonomous copy} of the snapshot and
+     * its file. The node makes an {@linkplain #copy autonomous copy} of the snapshot and
      * writes it; the writer of the partition continues meanwhile, and the write does not
      * depend on the timeout of the acquisition. A save of a tick already saved replaces the
-     * file with the same bytes. Fails like {2link #copy} if the snapshot is not available.
+     * file with the same bytes. Fails like {@link #copy} if the snapshot is not available.
      *
-     * 2throws IllegalStateException if the node has no save directory
-     * 2throws UncheckedIOException if the file cannot be written; the saves already there do
+     * @throws IllegalStateException if the node has no save directory
+     * @throws UncheckedIOException if the file cannot be written; the saves already there do
      *     not change
      */
     Path save(PartitionId partitionId, long tick) {
@@ -339,7 +339,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     /**
      * Saves the snapshot of the tick before the current one of a partition, like
-     * {2link #save}. Fails like {2link #copyLatest} if no snapshot is available.
+     * {@link #save}. Fails like {@link #copyLatest} if no snapshot is available.
      */
     Path saveLatest(PartitionId partitionId) {
         requireSaveDirectory();
@@ -351,8 +351,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
      * save directory. It must run when no save of the node is in progress, for example after
      * the node starts: it would also remove the file of a save in progress, which would fail.
      *
-     * 2throws IllegalStateException if the node has no save directory
-     * 2throws UncheckedIOException if a file cannot be removed
+     * @throws IllegalStateException if the node has no save directory
+     * @throws UncheckedIOException if a file cannot be removed
      */
     void removeTemporaryFiles() {
         requireSaveDirectory();
