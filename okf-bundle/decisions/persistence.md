@@ -31,15 +31,21 @@ partizione esegue il salvataggio, su comando dell'API, come un reader
 interno: usa le stesse acquisizioni degli altri reader, con la finestra e
 la scadenza, senza regole speciali. I passi sono:
 
-1. Acquisire lo snapshot della partizione.
-2. Copiarne ID, posizioni e metadati mentre l'acquisizione è valida.
+1. Acquisire lo snapshot della partizione, con la scadenza di default.
+2. Copiarne ID, posizioni e metadati in una query sull'acquisizione.
 3. Rilasciare l'acquisizione.
 4. Salvare la copia autonoma, senza dipendere dalla scadenza
    dell'acquisizione o dalla vita dello snapshot originale.
 
-La copia deve essere completata prima della scadenza. La scrittura
-successiva non ha quel vincolo. Il writer continua a lavorare durante
-entrambe le fasi: non ci sono scritture sincrone nel game loop.
+La copia deve iniziare mentre l'acquisizione è valida, cioè subito
+dopo l'acquisizione. Poi, come ogni query già ammessa, finisce anche se
+l'acquisizione scade: lo snapshot resta in vita fino alla fine della
+query. La scadenza quindi non limita la durata della copia, e le
+chiamate di salvataggio non hanno opzioni di scadenza. Una copia lunga
+costa memoria: lo snapshot e i suoi buffer restano in vita, anche fuori
+dalla finestra, fino alla sua fine. La scrittura successiva usa solo la
+copia. Il writer continua a lavorare durante entrambe le fasi: non ci
+sono scritture sincrone nel game loop.
 La copia avviene dentro il nodo e non passa dall'API (vedi
 [conservazione degli snapshot](/architecture/snapshot-retention.md#copia-autonoma-per-la-persistenza)).
 Una funzione di copia esposta al software resta utile per tenere uno

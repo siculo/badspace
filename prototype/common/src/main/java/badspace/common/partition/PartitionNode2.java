@@ -292,4 +292,24 @@ public interface PartitionNode2 {
      * {@link IndexConfig#limits()} of the index chosen at creation.
      */
     CoordinateLimits limits(PartitionId partitionId);
+
+    /**
+     * Saves the snapshot of the given tick of a partition to the save destination of the node
+     * and returns the reference to the save. The call is synchronous: it returns when the save
+     * is complete. The node acquires the snapshot like {@link #acquire}, with the default
+     * timeout, copies it and releases it, then writes the copy: the timeout does not limit
+     * the save, and the writer and the readers of the partition continue meanwhile. A save of
+     * a tick already saved replaces the save with the same content. Fails like {@link #acquire}
+     * if the snapshot is not available, and then writes nothing; fails with
+     * IllegalStateException if the node has no save destination, and with
+     * UncheckedIOException if the save cannot be written: the saves already there do not
+     * change. Any thread can call it, also at the same time as other saves.
+     */
+    SavedPartition save(PartitionId partitionId, long tick);
+
+    /**
+     * Saves the snapshot of the tick before the current tick of a partition, like
+     * {@link #save}. Fails like {@link #acquireLatest} if no snapshot is available.
+     */
+    SavedPartition saveLatest(PartitionId partitionId);
 }

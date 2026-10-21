@@ -15,6 +15,7 @@ import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.RetentionWindow;
+import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.WriteToken;
@@ -304,8 +305,10 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     /**
      * Makes an autonomous copy of the snapshot of the given tick of a partition, for the
      * persistence. The node acquires the snapshot like an internal reader, with the window and
-     * the default timeout, copies its IDs, positions and metadata while the acquisition is
-     * valid, and releases it: the copy does not depend on the life of the snapshot. Fails like
+     * the default timeout, copies its IDs, positions and metadata in a query on the
+     * acquisition, and releases it: the copy does not depend on the life of the snapshot. The
+     * query starts at once, while the acquisition is valid; like every admitted query, it ends
+     * also if the acquisition expires meanwhile, so the timeout does not limit the copy. Fails like
      * {@link #acquire} if the snapshot is not available.
      */
     PartitionCopy2 copy(PartitionId partitionId, long tick) {
@@ -321,27 +324,14 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         return copyOf(acquireLatest(partitionId, AcquireOptions.defaultTimeout()));
     }
 
-    /**
-     * Saves the snapshot of the given tick of a partition in the save directory and returns
-     * its file. The node makes an {@linkplain #copy autonomous copy} of the snapshot and
-     * writes it; the writer of the partition continues meanwhile, and the write does not
-     * depend on the timeout of the acquisition. A save of a tick already saved replaces the
-     * file with the same bytes. Fails like {@link #copy} if the snapshot is not available.
-     *
-     * @throws IllegalStateException if the node has no save directory
-     * @throws UncheckedIOException if the file cannot be written; the saves already there do
-     *     not change
-     */
-    Path save(PartitionId partitionId, long tick) {
+    @Override
+    public SavedPartition save(PartitionId partitionId, long tick) {
         requireSaveDirectory();
         return write(partitionId, copy(partitionId, tick));
     }
 
-    /**
-     * Saves the snapshot of the tick before the current one of a partition, like
-     * {@link #save}. Fails like {@link #copyLatest} if no snapshot is available.
-     */
-    Path saveLatest(PartitionId partitionId) {
+    @Override
+    public SavedPartition saveLatest(PartitionId partitionId) {
         requireSaveDirectory();
         return write(partitionId, copyLatest(partitionId));
     }
@@ -369,9 +359,11 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         }
     }
 
-    private Path write(PartitionId partitionId, PartitionCopy2 copy) {
+    /** Writes a copy to the save directory and returns the reference to the save. */
+    private SavedPartition write(PartitionId partitionId, PartitionCopy2 copy) {
         try {
-            return new PartitionSave2(saveDirectory, partitionId, copy).write();
+            new PartitionSave2(saveDirectory, partitionId, copy).write();
+            return new SavedPartition(partitionId, copy.tick());
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot save partition " + partitionId + " at tick " + copy.tick(), e);
         }

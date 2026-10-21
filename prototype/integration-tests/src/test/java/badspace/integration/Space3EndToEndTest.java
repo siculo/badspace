@@ -23,10 +23,15 @@ import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.LocalPartitionNode3;
+import badspace.service.persistence.PartitionCopy3;
+import badspace.service.persistence.PartitionSave3;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -44,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * The API together with the local nodes of the service: spaces, partitions, ticks, commits,
@@ -170,6 +176,49 @@ class Space3EndToEndTest {
         assertThrows(IllegalArgumentException.class, partition::tick);
         assertThrows(IllegalArgumentException.class, partition::acquireLatest);
         kept.close();
+    }
+
+    @Test
+    void saveWritesTheSnapshotOfTheTickAndReturnsItsReference(@TempDir Path directory) throws IOException {
+        Partition3 partition = space.createPartition(new LocalPartitionNode3(directory),
+                PartitionConfig.defaults().withRetainedTicks(3));
+        long a = writer(partition).insert(1, 2, 0);
+        writer(partition).commit();
+        space.setTick(1);
+        writer(partition).insert(3, 4, 0);
+        writer(partition).commit();
+        space.setTick(2);
+
+        SavedPartition first = partition.save(0);
+        SavedPartition latest = partition.saveLatest();
+        assertEquals(0, first.tick());
+        assertEquals(1, latest.tick());
+        assertEquals(first.partitionId(), latest.partitionId());
+        // The test knows where the local node writes; the reference does not say it.
+        PartitionCopy3 saved = PartitionSave3.read(fileOf(directory, first), first.partitionId());
+        assertEquals(1, saved.size());
+        assertEquals(a, saved.entityId(0));
+        assertEquals(new Point3(1, 2, 0), saved.position(0));
+        assertEquals(2, PartitionSave3.read(fileOf(directory, latest), latest.partitionId()).size());
+    }
+
+    @Test
+    void removedPartitionIsSavedWhileItsTicksAreInTheWindow(@TempDir Path directory) {
+        Partition3 partition = space.createPartition(new LocalPartitionNode3(directory),
+                PartitionConfig.defaults().withRetainedTicks(2));
+        writer(partition).commit();
+        space.setTick(1);
+        writer(partition).removePartition();
+        space.setTick(2);
+        assertEquals(1, partition.save(1).tick());
+        assertReason(Reason.AFTER_REMOVAL, () -> partition.save(2));
+    }
+
+    @Test
+    void saveNeedsANodeWithASaveDestination() {
+        Partition3 partition = space.createPartition(new LocalPartitionNode3());
+        space.setTick(1);
+        assertThrows(IllegalStateException.class, partition::saveLatest);
     }
 
     @Test
@@ -528,6 +577,12 @@ class Space3EndToEndTest {
      * Returns the writer handle of a partition for the tests that are not about the ownership:
      * the first call claims the new partition, the next calls give the same handle.
      */
+    /** Returns the file of a save of the local node, in its save directory. */
+    private static Path fileOf(Path directory, SavedPartition saved) {
+        return directory.resolve("partitions").resolve(Long.toString(saved.partitionId().value()))
+                .resolve(saved.tick() + ".bsave");
+    }
+
     private PartitionWriter3 writer(Partition3 partition) {
         return writers.computeIfAbsent(partition, created -> created.writer(created.claim(0).orElseThrow()));
     }

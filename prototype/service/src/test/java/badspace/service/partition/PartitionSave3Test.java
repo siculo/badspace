@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import badspace.common.geometry.Point3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.service.persistence.PartitionCopy3;
 import badspace.service.persistence.PartitionSave3;
@@ -54,11 +55,19 @@ class PartitionSave3Test {
     }
 
     @Test
+    void saveReturnsTheReferenceOfThePartitionAndTheTick() {
+        node.createPartition(P2, IndexConfig.linearScan(), 5);
+        node.setTick(1);
+        node.setTick(2);
+        assertEquals(new SavedPartition(P2, 1), node.saveLatest(P2));
+        assertEquals(new SavedPartition(P2, 0), node.save(P2, 0));
+    }
+
+    @Test
     void saveWritesTheFileOfTheTickInTheDirectoryOfThePartition() throws IOException {
         node.setTick(1);
-        Path file = node.saveLatest(P1);
-        assertEquals(directory.resolve("partitions").resolve("1").resolve("0.bsave"), file);
-        assertEquals(List.of(file), filesOf(P1));
+        node.saveLatest(P1);
+        assertEquals(List.of(directory.resolve("partitions").resolve("1").resolve("0.bsave")), filesOf(P1));
     }
 
     @Test
@@ -67,7 +76,7 @@ class PartitionSave3Test {
         node.updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
         node.commit(owner(node, P1));
         node.setTick(1);
-        PartitionCopy3 saved = PartitionSave3.read(node.saveLatest(P1), P1);
+        PartitionCopy3 saved = PartitionSave3.read(fileOf(node.saveLatest(P1)), P1);
         assertEquals(0, saved.tick());
         assertEquals(2, saved.size());
         assertEquals(Map.of(1L, new Point3(1, 2, 3), 2L, new Point3(4, 5, 6)), positionsById(saved));
@@ -77,7 +86,7 @@ class PartitionSave3Test {
     @Test
     void saveOfAnEmptySnapshotHasNoEntities() throws IOException {
         node.setTick(1);
-        PartitionCopy3 saved = PartitionSave3.read(node.saveLatest(P1), P1);
+        PartitionCopy3 saved = PartitionSave3.read(fileOf(node.saveLatest(P1)), P1);
         assertEquals(0, saved.tick());
         assertEquals(0, saved.size());
     }
@@ -91,8 +100,8 @@ class PartitionSave3Test {
         node.insertAll(owner(node, P2), List.of(entity(2, 2, 2, 2)));
         node.commit(owner(node, P2));
         node.setTick(2);
-        assertEquals(1, PartitionSave3.read(node.save(P2, 0), P2).size());
-        assertEquals(2, PartitionSave3.read(node.save(P2, 1), P2).size());
+        assertEquals(1, PartitionSave3.read(fileOf(node.save(P2, 0)), P2).size());
+        assertEquals(2, PartitionSave3.read(fileOf(node.save(P2, 1)), P2).size());
         assertEquals(2, filesOf(P2).size());
     }
 
@@ -103,8 +112,8 @@ class PartitionSave3Test {
                 List.of(put(1, "b", 1), put(1, "a", 2), put(2, "c", 3), put(2, "a", 4)));
         node.commit(owner(node, P1));
         node.setTick(1);
-        byte[] first = Files.readAllBytes(node.save(P1, 0));
-        byte[] second = Files.readAllBytes(node.save(P1, 0));
+        byte[] first = Files.readAllBytes(fileOf(node.save(P1, 0)));
+        byte[] second = Files.readAllBytes(fileOf(node.save(P1, 0)));
         assertArrayEquals(first, second);
         assertEquals(1, filesOf(P1).size());
     }
@@ -117,13 +126,13 @@ class PartitionSave3Test {
         node.commit(owner(node, P1));
         node.setTick(1);
         int saves = 8;
-        List<Callable<Path>> tasks = new ArrayList<>();
+        List<Callable<SavedPartition>> tasks = new ArrayList<>();
         for (int i = 0; i < saves; i++) {
             tasks.add(() -> node.save(P1, 0));
         }
         ExecutorService executor = Executors.newFixedThreadPool(saves);
         try {
-            for (Future<Path> result : executor.invokeAll(tasks)) {
+            for (Future<SavedPartition> result : executor.invokeAll(tasks)) {
                 result.get();
             }
         } finally {
@@ -165,8 +174,8 @@ class PartitionSave3Test {
     void removeTemporaryFilesKeepsTheSaves() throws IOException {
         node.createPartition(P2, IndexConfig.linearScan());
         node.setTick(1);
-        Path save1 = node.saveLatest(P1);
-        Path save2 = node.saveLatest(P2);
+        Path save1 = fileOf(node.saveLatest(P1));
+        Path save2 = fileOf(node.saveLatest(P2));
         // Temporary files left by interrupted saves, as a crash would leave them.
         Path temporary1 = Files.createFile(save1.resolveSibling("1.123.tmp"));
         Path temporary2 = Files.createFile(save2.resolveSibling("0.456.tmp"));
@@ -182,7 +191,7 @@ class PartitionSave3Test {
         node.insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3)));
         node.commit(owner(node, P1));
         node.setTick(1);
-        Path file = node.saveLatest(P1);
+        Path file = fileOf(node.saveLatest(P1));
         byte[] bytes = Files.readAllBytes(file);
         byte[] changed = bytes.clone();
         // A byte of the position of the entity: before it there are the key table (an int),
@@ -197,8 +206,14 @@ class PartitionSave3Test {
     @Test
     void readRejectsTheSaveOfAnotherPartition() throws IOException {
         node.setTick(1);
-        Path file = node.saveLatest(P1);
+        Path file = fileOf(node.saveLatest(P1));
         assertThrows(IOException.class, () -> PartitionSave3.read(file, P2));
+    }
+
+    /** Returns the file of a save in the save directory of the node. */
+    private Path fileOf(SavedPartition saved) {
+        return directory.resolve("partitions").resolve(Long.toString(saved.partitionId().value()))
+                .resolve(saved.tick() + ".bsave");
     }
 
     /** Lists the files in the directory of a partition, in name order; empty if there is none. */

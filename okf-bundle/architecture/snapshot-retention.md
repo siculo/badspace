@@ -140,8 +140,10 @@ copia, con una funzione ancora da progettare.
 Il primo blocco di [persistenza](/decisions/persistence.md) usa una
 copia autonoma di ID, posizioni e metadati dello snapshot, fatta dentro
 il nodo che gestisce la partizione: la copia non passa dall'API. Il nodo
-acquisisce lo snapshot, completa la copia mentre l’acquisizione è
-valida e rilascia l’acquisizione; la scrittura usa poi solo la copia,
+acquisisce lo snapshot, fa la copia in una query sull'acquisizione e
+rilascia l’acquisizione. La query inizia mentre l'acquisizione è
+valida e, come ogni query in corso, finisce anche dopo la scadenza, che
+quindi non limita la durata della copia. La scrittura usa poi solo la copia,
 senza dipendere dalla scadenza o dalla vita dello snapshot originale.
 La funzione di copia esposta al software, per tenere uno snapshot oltre
 la scadenza massima, resta da progettare.

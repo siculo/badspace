@@ -31,6 +31,7 @@ import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode3;
+import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.WriteToken;
 import java.time.Duration;
@@ -259,6 +260,24 @@ class Space3Test {
         clearInvocations(node);
         assertThrows(IllegalArgumentException.class, () -> partition.writer(new WriteToken(new PartitionId(999), 1)));
         verifyNoInteractions(node);
+    }
+
+    @Test
+    void savesGoToTheNodeWithThePartitionIdAndReturnItsReference() {
+        Partition3 partition = space.createPartition(node);
+        when(node.save(PARTITION_ID, 2)).thenReturn(new SavedPartition(PARTITION_ID, 2));
+        when(node.saveLatest(PARTITION_ID)).thenReturn(new SavedPartition(PARTITION_ID, 4));
+        assertEquals(new SavedPartition(PARTITION_ID, 2), partition.save(2));
+        assertEquals(new SavedPartition(PARTITION_ID, 4), partition.saveLatest());
+    }
+
+    @Test
+    void saveErrorsKeepTheirReasonThroughTheProxy() {
+        Partition3 partition = space.createPartition(node);
+        var failure = new SnapshotNotAvailableException(
+                SnapshotNotAvailableException.Reason.NOT_YET_PUBLISHED, "Tick is not published yet");
+        when(node.saveLatest(PARTITION_ID)).thenThrow(failure);
+        assertSame(failure, assertThrows(SnapshotNotAvailableException.class, partition::saveLatest));
     }
 
     @Test

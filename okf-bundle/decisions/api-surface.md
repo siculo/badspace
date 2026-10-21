@@ -413,6 +413,35 @@ Scelte di dettaglio:
   e le acquisizioni già fatte restano leggibili; il nodo trova la
   partizione per ID fino alla distruzione, e l'ID non torna mai.
 
+### Salvataggio
+
+La semantica è nella [persistenza](/decisions/persistence.md#chiamate).
+Le chiamate sono nell'interfaccia comune `Partition`, perché non
+dipendono dal numero di dimensioni, e nel contratto del nodo, con l'ID
+della partizione.
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Al tick | `save(long tick)` | Salva `S(tick)`, con la stessa finestra di `acquire(tick)` |
+| Ultimo | `saveLatest()` | Salva `S(T − 1)`, come `acquireLatest()` |
+
+Le chiamate sono sincrone: ritornano a scrittura finita, con il
+riferimento al salvataggio, il record `SavedPartition` in `common`
+(ID della partizione e tick). Il riferimento non contiene il file: dove
+e come il nodo scrive è un suo dettaglio. Non ci sono opzioni di
+scadenza: il nodo acquisisce con la scadenza di default e la copia,
+come ogni query ammessa, finisce anche dopo la scadenza. Si salva anche
+una partizione in rimozione o ritirata, finché il tick è nella
+finestra; i salvataggi restano dopo la distruzione della partizione.
+
+| Errore | Eccezione |
+|---|---|
+| Snapshot non acquisibile | `SnapshotNotAvailableException`, come l'acquisizione corrispondente; nessun file scritto |
+| Tick negativo | `IllegalArgumentException` |
+| Nodo senza destinazione dei salvataggi | `IllegalStateException` |
+| Partizione distrutta o mai esistita | Errore generico, come per l'acquisizione |
+| Errore nella scrittura del file | `UncheckedIOException`; i salvataggi già presenti non cambiano. Un'eccezione dedicata si valuta con il nodo gRPC |
+
 ## Differenze nel codice attuale
 
 Nessuna: il codice segue la forma descritta sopra per tick, commit,
