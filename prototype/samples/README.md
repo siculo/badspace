@@ -55,6 +55,12 @@ class.
    compare-and-set or the reservation of two entities, that change nothing
    and return the false conditions when a condition is false; removing an
    entity deletes its metadata.
+9. [`partition-saves`](partition-saves) (`PartitionSaves`): the saves of
+   three partitions of a node at two ticks, with the synchronous
+   `saveLatest()` and `save(tick)` and the reference they return; the files in
+   the save directory of the node, one per partition and tick; what a new node
+   on the same directory finds after a restart. Pass a directory as argument
+   to keep the saves there.
 
 ## Use cases
 

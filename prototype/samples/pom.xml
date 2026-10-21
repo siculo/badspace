@@ -28,6 +28,7 @@
         <module>ownership-handoff</module>
         <module>partition-removal</module>
         <module>entity-metadata</module>
+        <module>partition-saves</module>
         <module>multi-writer</module>
         <module>writer-failover</module>
         <module>lagged-reader</module>

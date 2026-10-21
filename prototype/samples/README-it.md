@@ -56,6 +56,12 @@ classe.
    compare-and-set o la prenotazione di due entità, che con una condizione
    falsa non cambiano niente e restituiscono le condizioni false; la
    rimozione di un'entità ne cancella i metadati.
+9. [`partition-saves`](partition-saves) (`PartitionSaves`): i salvataggi di
+   tre partizioni di un nodo a due tick, con le chiamate sincrone
+   `saveLatest()` e `save(tick)` e il riferimento che restituiscono; i file
+   nella directory dei salvataggi del nodo, uno per partizione e tick; cosa
+   trova un nuovo nodo sulla stessa directory dopo un riavvio. Con una
+   directory come argomento i salvataggi restano lì.
 
 ## Casi d'uso
 
