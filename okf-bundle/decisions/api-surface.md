@@ -172,7 +172,7 @@ altre impostazioni dello spazio.
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Creazione | `createPartition(node)`, `createPartition(node, PartitionConfig)` | Crea una partizione vuota sul [nodo](/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio, al tick corrente: `creationTick()` della partizione; senza configurazione vale quella di default |
+| Creazione | `createPartition(node, name)`, `createPartition(node, name, PartitionConfig)` | Crea una partizione vuota con il [nome](/decisions/entity-ids.md#nome-della-partizione) scelto dal software sul [nodo](/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio, al tick corrente: `creationTick()` della partizione; senza configurazione vale quella di default. La partizione restituisce il nome con `name()` |
 | Rimozione | `removePartition()` sull'handle del writer | Ultima operazione del writer, con il token corrente (vedi [Rimozione della partizione](/architecture/partition-removal.md)) |
 
 La **configurazione della partizione** (`PartitionConfig`) si sceglie
@@ -216,12 +216,15 @@ conosce il nodo, e gli passano le chiamate.
 | Stato confermato non vuoto con `REQUIRE_EMPTY` (la partizione non cambia), o rimozione già chiesta | `IllegalStateException` |
 | Scrittura o commit dopo la rimozione | `IllegalStateException` |
 | k minore di 1 nella configurazione | `IllegalArgumentException` |
+| Nome che non rispetta le regole, o ancora presente sul nodo | `IllegalArgumentException` |
 
-Nel contratto del nodo la creazione riceve l'ID della partizione, la
-configurazione dell'indice (`IndexConfig`, scansione lineare se manca)
+Nel contratto del nodo la creazione riceve l'ID della partizione, il
+suo nome, la configurazione dell'indice (`IndexConfig`, scansione lineare se manca)
 e k (1 se manca), e crea la partizione al tick corrente del nodo;
-fallisce con `IllegalArgumentException` se k è minore di 1 o se l'ID è
-ancora presente sul nodo, anche con la partizione ritirata. La
+fallisce con `IllegalArgumentException` se k è minore di 1 o se l'ID o
+il nome sono ancora presenti sul nodo, anche con la partizione
+ritirata. Il nome il nodo lo usa solo per la persistenza; tutte le
+altre operazioni del contratto usano l'ID. La
 rimozione ha due operazioni, una per le partizioni con lo stato
 confermato vuoto e una che scarta anche le entità. Dopo la distruzione
 l'ID è sconosciuto, e le operazioni falliscono con un errore generico,
@@ -427,7 +430,7 @@ della partizione.
 
 Le chiamate sono sincrone: ritornano a scrittura finita, con il
 riferimento al salvataggio, il record `SavedPartition` in `common`
-(ID della partizione e tick). Il riferimento non contiene il file: dove
+(nome della partizione e tick). Il riferimento non contiene il file: dove
 e come il nodo scrive è un suo dettaglio. Non ci sono opzioni di
 scadenza: il nodo acquisisce con la scadenza di default e la copia,
 come ogni query ammessa, finisce anche dopo la scadenza. Si salva anche
@@ -444,8 +447,14 @@ finestra; i salvataggi restano dopo la distruzione della partizione.
 
 ## Differenze nel codice attuale
 
-Nessuna: il codice segue la forma descritta sopra per tick, commit,
-proprietà e handle del writer, letture e rimozione delle partizioni.
+- Il [nome della partizione](/decisions/entity-ids.md#nome-della-partizione)
+  non c'è ancora: la creazione non lo riceve, la partizione non ha
+  `name()`, e `SavedPartition`, le directory e l'intestazione dei file
+  dei salvataggi usano ancora l'ID della partizione.
+
+Per il resto il codice segue la forma descritta sopra per tick, commit,
+proprietà e handle del writer, letture, salvataggi e rimozione delle
+partizioni.
 
 ## Contratto del nodo
 

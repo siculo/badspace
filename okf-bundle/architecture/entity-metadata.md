@@ -17,7 +17,9 @@ due spazi.
 - **epoca**: contatore che cresce a ogni migrazione e viaggia con
   l'entità;
 - **stato**: viva, in uscita verso X, rimossa;
-- **destinazione** (facoltativa): la partizione verso cui è migrata.
+- **destinazione** (facoltativa): la partizione verso cui è migrata,
+  indicata con il suo [nome](/decisions/entity-ids.md#nome-della-partizione),
+  perché resta valida nei salvataggi e dopo un recupero.
 
 Cambiano solo attraverso le operazioni dei protocolli (per esempio la
 [migrazione](/mechanisms/entity-migration.md)), perché da loro

@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: Persistenza
-description: Persistenza periodica del contenuto di una singola partizione, eseguita dal nodo che la gestisce su una destinazione configurata sul nodo, da una copia autonoma dello snapshot; l'API comanda il salvataggio con una chiamata sincrona e ne riceve l'esito, mentre la periodicità e la conservazione dei salvataggi sono del software; formato binario con file scritti in modo atomico; caricamento in una nuova partizione creata con il contenuto salvato e misure dei costi nel prototipo, con recupero coerente dei nodi e durabilità osservabile rimandati.
+description: Persistenza periodica del contenuto di una singola partizione, eseguita dal nodo che la gestisce su una destinazione configurata sul nodo, da una copia autonoma dello snapshot; i salvataggi sono identificati dal nome della partizione, scelto dal software, e dal tick; l'API comanda il salvataggio con una chiamata sincrona e ne riceve l'esito, mentre la periodicità e la conservazione dei salvataggi sono del software; formato binario con file scritti in modo atomico; caricamento in una nuova partizione creata con il contenuto salvato e misure dei costi nel prototipo; recupero ricostruttivo dai soli salvataggi come direzione, con il taglio coerente scelto dal software.
 tags: [badspace, design, persistence, partitioning]
 status: draft
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T17:00:00Z }
@@ -63,7 +63,7 @@ di salvare tutte le partizioni allo stesso tick N e ottenere un
 salvataggio coerente tra partizioni senza un meccanismo apposta.
 
 Le chiamate sono **sincrone**: ritornano a scrittura finita con il
-riferimento al salvataggio (ID della partizione e tick), o falliscono
+riferimento al salvataggio (nome della partizione e tick), o falliscono
 con un errore. Bloccano solo il thread che salva, che il software
 dedica a questo; il writer e gli altri reader continuano. L'esito è il
 valore di ritorno, senza un meccanismo di notifica, e la forma si
@@ -85,17 +85,18 @@ scrittura atomica lascia comunque un file valido.
 
 Ogni salvataggio è un file nella destinazione del nodo. La destinazione
 ha una sottodirectory `partitions`, con una directory per ogni
-partizione, che ha come nome l'ID della partizione; dentro, il file di
-un salvataggio ha come nome il tick (`partitions/<ID>/<tick>.bsave`).
+partizione, che ha come nome il [nome della
+partizione](/decisions/entity-ids.md#nome-della-partizione); dentro, il
+file di un salvataggio ha come nome il tick
+(`partitions/<nome>/<tick>.bsave`).
 L'elenco dei salvataggi di una partizione è il contenuto della sua
 directory.
 
 Il formato è binario e semplice:
 
 1. un'intestazione: identificativo del formato, versione, numero di
-   dimensioni, ID della partizione, tick, numero di entità; l'ID della
-   partizione permette di verificare un file anche fuori dalla sua
-   directory;
+   dimensioni, nome della partizione, tick, numero di entità; il nome
+   permette di verificare un file anche fuori dalla sua directory;
 2. gli array paralleli di ID e coordinate;
 3. i metadati applicativi: una tabella delle chiavi in ordine di
    stringa e, per ogni entità, le coppie (indice della chiave, valore)
@@ -164,8 +165,8 @@ I motivi:
 Al software, secondo l'[architettura a livelli](/architecture/layers.md),
 restano le politiche: quando salvare, quali partizioni, quanti
 salvataggi conservare e da quale salvataggio caricare. Un salvataggio
-è identificato da un riferimento (partizione e tick) che il software
-usa per il caricamento.
+è identificato da un riferimento (nome della partizione e tick) che il
+software usa per il caricamento.
 
 Il caricamento su un altro nodo richiede che la destinazione sia
 raggiungibile da quel nodo, cioè uno storage condiviso. Con il solo
@@ -176,7 +177,10 @@ caso successivo.
 
 Lo spazio dell'API offre `loadPartition(node, config, saved)`: il nodo
 crea una nuova partizione già con il contenuto di un salvataggio, cioè
-con le entità con gli stessi ID, posizioni e metadati. Il contenuto è
+con le entità con gli stessi ID, posizioni e metadati. La partizione
+caricata ha il nome del salvataggio e un ID di runtime nuovo; un
+caricamento con un altro nome, per copiare una partizione, si aggiunge
+se serve. Il contenuto è
 confermato al tick di creazione, quindi è nello snapshot di quel tick e
 diventa acquisibile al successivo avanzamento del tick, senza stati
 intermedi visibili. La partizione nasce senza proprietario, come le
@@ -206,21 +210,74 @@ Si misurano separatamente:
 - tempo di caricamento, compresa la ricostruzione degli indici;
 - dimensione dei dati salvati e memoria aggiuntiva occupata dalla copia.
 
-# Recupero coerente dei nodi: lavoro successivo
+# Recupero ricostruttivo
 
-Gli snapshot sono indipendenti per partizione, senza salvataggio atomico
-tra partizioni. Il caricamento attuale ricrea il contenuto di una
-partizione; il recupero della stessa partizione e di un nodo dopo un
-crash richiede un contratto successivo. In un sistema con più nodi, il
-crash di un nodo non ferma il tempo e le attività degli altri.
+Per recuperare le partizioni ci sono due approcci: persistere lo stato
+delle partizioni e dei nodi oltre agli snapshot, oppure **ricostruire lo
+stato dai soli salvataggi**. La direzione scelta è la seconda, più
+semplice da gestire: dopo un riavvio, o un crash, le partizioni si
+ricreano caricando i loro salvataggi, e il resto dello stato è di
+runtime e si ricrea.
 
-Sono quindi rimandati il recupero coerente dei nodi, la continuità del
-tempo logico e della [proprietà](/architecture/partition-ownership.md),
-e l'esposizione dell'ultimo tick persistito prevista dalla
-[durabilità osservabile](/architecture/observable-durability.md).
-Quest'ultima servirà ai protocolli che confermano operazioni solo dopo
-la persistenza, come la [migrazione](/mechanisms/entity-migration.md).
-Il salvataggio deve comunque avere un esito di completamento o errore.
+L'identità persistente è il [nome della
+partizione](/decisions/entity-ids.md#nome-della-partizione); l'ID è un
+dato di runtime e non si persiste. Una partizione ricaricata ha lo
+stesso nome e un ID nuovo, quindi i [token di
+scrittura](/architecture/partition-ownership.md) dell'esecuzione
+precedente, che contengono l'ID vecchio, non valgono più: il fencing
+tra un'esecuzione e l'altra non richiede di persistere le generazioni.
+
+Cosa si ricava dai salvataggi:
+
+- **contenuto**: lo snapshot salvato;
+- **stato dei protocolli**: epoca, stato, destinazione e
+  [tombstone](/architecture/tombstones.md) sono nello snapshot di ogni
+  commit, quindi nei salvataggi. La
+  [migrazione](/mechanisms/entity-migration.md) non ha uno stato
+  persistente separato: l'origine persiste la marcatura "in uscita"
+  prima di spedire e la destinazione conferma dopo la persistenza, così
+  una partizione ricaricata ritrova le entità da rispedire;
+- **ultimo tick persistito** della [durabilità
+  osservabile](/architecture/observable-durability.md): il tick più alto
+  tra i salvataggi di un nome;
+- **insieme delle partizioni** a un tick N: i nomi con un salvataggio
+  al tick N, se il software ha salvato tutte le partizioni a quel tick
+  con `save(N)`, comprese quelle create da uno split.
+
+Non si persistono acquisizioni, sequenza dei commit, generazioni della
+proprietà e tick interni, che sono stato di runtime; il generatore di
+ID riceve un `generatorId` nuovo a ogni avvio.
+
+**Il taglio è una politica del software.** Quale tick caricare per ogni
+partizione lo sceglie il software, che ha i meccanismi per farlo:
+`save(N)` per salvare tutte le partizioni allo stesso tick, l'elenco
+dei salvataggi con nome e tick, e il caricamento. Il taglio coerente
+(il tick più alto salvato da tutte le partizioni) è la scelta tipica,
+non una regola: un taglio incoerente è possibile ed è responsabilità di
+chi lo sceglie. Una funzione di supporto nell'API, per esempio il tick
+più alto salvato da un insieme di nomi, si aggiunge se serve.
+
+Limiti e condizioni:
+
+- ogni riferimento persistito a una partizione usa il nome, mai l'ID;
+- si perde il lavoro dopo l'ultimo salvataggio: i protocolli lo
+  assumono già, perché non confermano niente prima della persistenza;
+- con salvataggi completi l'ultimo tick persistito avanza al ritmo dei
+  salvataggi, e la latenza della migrazione ne dipende. Se le misure lo
+  rendono necessario, salvataggi incrementali (un salvataggio base e le
+  differenze tra tick) restano un approccio ricostruttivo;
+- il recupero di un solo nodo mentre gli altri continuano riporta le
+  sue partizioni all'ultimo tick persistito, indietro rispetto allo
+  spazio; va verificato con gli scenari di guasto della migrazione.
+
+Sono rimandati il recupero di un nodo mentre gli altri continuano, la
+continuità del tempo logico e l'esposizione dell'ultimo tick
+persistito. Anche la persistenza della configurazione delle partizioni
+(indice, finestra) è rimandata: si decide insieme al modo in cui il
+software usa i nodi, crea le partizioni, spegne e riavvia il sistema e
+recupera da un crash. Fino ad allora la configurazione la sceglie chi
+carica. Il salvataggio deve comunque avere un esito di completamento o
+errore.
 
 # Punti aperti
 

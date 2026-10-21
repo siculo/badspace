@@ -18,7 +18,11 @@ quando la scrittura è durevole.
 
 # Introduzione nel prototipo
 
-L’esposizione dell’ultimo tick persistito è rimandata ai protocolli che
+Con il [recupero
+ricostruttivo](/decisions/persistence.md#recupero-ricostruttivo)
+l'ultimo tick persistito di una partizione è il tick più alto tra i
+salvataggi del suo nome: si ricava dai salvataggi anche dopo un
+riavvio. L’esposizione dell’ultimo tick persistito è rimandata ai protocolli che
 richiedono conferme durevoli e al recupero coerente dei nodi. Il primo
 blocco di [persistenza](/decisions/persistence.md) salva e carica il
 contenuto delle singole partizioni e ne misura i costi; non richiede

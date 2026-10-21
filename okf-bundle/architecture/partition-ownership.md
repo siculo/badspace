@@ -38,7 +38,10 @@ Il **token di scrittura** (fencing token) è la coppia (ID della
 partizione, generazione). Gli [ID delle
 partizioni](/decisions/entity-ids.md#id-delle-partizioni) non si
 riusano e la generazione cresce soltanto, quindi un token non torna mai
-valido.
+valido. L'ID vale solo nell'esecuzione: una partizione ricaricata da un
+salvataggio ha un ID nuovo, quindi i token dell'esecuzione precedente
+non valgono più (vedi [recupero
+ricostruttivo](/decisions/persistence.md#recupero-ricostruttivo)).
 
 # Operazioni
 
