@@ -36,19 +36,22 @@ public interface Space<N, P extends Partition> {
     P createPartition(N node, PartitionName name, PartitionConfig config);
 
     /**
-     * Creates a partition on the given node with the content of a save of that node: its
-     * entities, with the same IDs, positions and application metadata. The partition has the
-     * name of the save and a new ID; the index and the retention window come from the given
-     * configuration, not from the save. Like {@link #createPartition(Object, PartitionName,
-     * PartitionConfig)}, the partition is created at the tick of the space, also if the save is
-     * of another tick, and has no owner. The content is confirmed at the creation tick: readers
-     * acquire it after the next move of the tick, and never see a partition loaded in part. The
-     * application metadata are loaded as they are: if they hold ticks or timeouts, the software
-     * updates them. A move of the tick of the space waits for the load to end. Fails like
-     * {@code createPartition}, and with IllegalArgumentException if a position of the save is
-     * outside the limits of the index; with IllegalStateException if the node has no save
-     * destination; and with UncheckedIOException if the save is not there or cannot be read, for
-     * example because it is corrupted. In these cases no partition is created.
+     * Creates a partition with the content of a save: the same entity IDs, positions and
+     * application metadata. Like {@link #createPartition(Object, PartitionName, PartitionConfig)},
+     * the partition is created at the tick of the space and has no owner. Readers acquire the
+     * content after the next move of the tick; a move of the tick waits for the load. The
+     * metadata are loaded as they are: the software updates the ones that hold ticks.
+     *
+     * @param node the node that creates the partition and has the save in its save destination
+     * @param config the index and the retention window of the partition; they do not come from
+     *     the save
+     * @param saved the save to load; the partition takes its name and a new ID
+     * @return the loaded partition
+     * @throws IllegalArgumentException if the name of the save is already in use on the node,
+     *     or a position of the save is outside the limits of the index
+     * @throws IllegalStateException if the node has no save destination
+     * @throws java.io.UncheckedIOException if the save is not there or cannot be read, for
+     *     example because it is corrupted
      */
     P loadPartition(N node, PartitionConfig config, SavedPartition saved);
 

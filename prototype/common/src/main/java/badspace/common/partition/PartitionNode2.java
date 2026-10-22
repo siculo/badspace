@@ -95,20 +95,23 @@ public interface PartitionNode2 {
     void createPartition(PartitionId partitionId, PartitionName name, IndexConfig index, int retainedTicks);
 
     /**
-     * Creates a partition with the content of a save of the save destination of the node: its
-     * entities, with the same IDs, positions and application metadata. The partition has the
-     * name of the save and the given ID, index and number of retained ticks, which do not come
-     * from the save. Like a new partition, it is created at the tick of the node, which is its
-     * creation tick, also if the save is of another tick, and it has no owner. The content is
-     * confirmed at the creation tick: it is in the snapshot of that tick, which readers can
-     * acquire after the next move of the tick, with no partition loaded in part before. The
-     * node rebuilds the index by inserting the entities, and loads the metadata without
-     * changing them. Fails like {@link #createPartition(PartitionId, PartitionName, IndexConfig, int)},
-     * and with IllegalArgumentException if a position of the save is outside the limits of the
-     * index; with IllegalStateException if the node has no save destination; and with
-     * UncheckedIOException if the save is not there or cannot be read, for example because it
-     * is corrupted or has another number of dimensions. In these cases no partition is created.
-     * A move of the tick of the node waits for the rebuild of the index.
+     * Creates a partition with the content of a save: the same entity IDs, positions and
+     * application metadata. Like a new partition, it is created at the tick of the node and has
+     * no owner. The content is confirmed at the creation tick, so readers acquire it after the
+     * next move of the tick. The node rebuilds the index by inserting the entities; a move of
+     * the tick of the node waits for it. If the load fails, no partition is created.
+     *
+     * @param partitionId the ID of the new partition
+     * @param saved the save to load, in the save destination of the node; the partition takes
+     *     its name
+     * @param index the index of the partition; it does not come from the save
+     * @param retainedTicks the number of retained ticks of the partition
+     * @throws IllegalArgumentException if the ID or the name is already in use on this node,
+     *     if retainedTicks is less than 1, or if a position of the save is outside the limits
+     *     of the index
+     * @throws IllegalStateException if the node has no save destination
+     * @throws java.io.UncheckedIOException if the save is not there or cannot be read, for
+     *     example because it is corrupted or has another number of dimensions
      */
     void loadPartition(PartitionId partitionId, SavedPartition saved, IndexConfig index, int retainedTicks);
 

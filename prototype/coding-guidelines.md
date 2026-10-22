@@ -88,7 +88,11 @@ sviluppo incrementale sono in `CLAUDE.md` e non si ripetono qui.
 ## 5. Commenti
 
 1. **Javadoc** su ogni tipo e metodo del contratto: cosa fa, casi limite (vuoto, ordine,
-   valori speciali), errori, thread-safety.
+   valori speciali), errori, thread-safety. La descrizione resta breve e dice il
+   comportamento; parametri, risultato ed eccezioni vanno nei tag `@param`, `@return` e
+   `@throws`, uno per eccezione con i casi in cui si verifica. Un metodo senza parametri né
+   eccezioni da spiegare può restare in sola prosa. I Javadoc scritti prima in sola prosa si
+   convertono quando si modifica il metodo.
 2. **Commenti nel codice**: il perché, non il cosa.
 3. **Concorrenza**: per ogni stato condiviso, un commento dice chi scrive, chi legge e come
    avviene la pubblicazione.
