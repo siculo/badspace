@@ -69,28 +69,42 @@ import java.util.Optional;
 public interface PartitionNode2 {
 
     /**
-     * Creates an empty partition that uses the linear scan as index, at the tick of the node.
-     * Fails if the ID or the name is already in use on this node.
+     * Creates an empty partition that uses the linear scan as index, like
+     * {@link #createPartition(PartitionId, PartitionName, IndexConfig, int)}.
+     *
+     * @param partitionId the ID of the new partition
+     * @param name the name of the new partition
+     * @throws IllegalArgumentException if the ID or the name is already in use on this node
      */
     default void createPartition(PartitionId partitionId, PartitionName name) {
         createPartition(partitionId, name, IndexConfig.linearScan());
     }
 
     /**
-     * Creates an empty partition with the given index and the default number of retained ticks,
-     * at the tick of the node. Fails if the ID or the name is already in use on this node.
+     * Creates an empty partition with the default number of retained ticks, like
+     * {@link #createPartition(PartitionId, PartitionName, IndexConfig, int)}.
+     *
+     * @param partitionId the ID of the new partition
+     * @param name the name of the new partition
+     * @param index the index of the partition
+     * @throws IllegalArgumentException if the ID or the name is already in use on this node
      */
     default void createPartition(PartitionId partitionId, PartitionName name, IndexConfig index) {
         createPartition(partitionId, name, index, RetentionWindow.DEFAULT_RETAINED_TICKS);
     }
 
     /**
-     * Creates an empty partition with the given index, at the tick of the node: this is its
-     * {@linkplain #creationTick creation tick}. Readers can acquire the snapshots of the last
-     * retainedTicks ticks. The ID identifies the partition in all the other operations; the
-     * node uses the name only for the saves. Fails with IllegalArgumentException if the ID or
-     * the name is already in use on this node, also by a removed partition that is not
-     * destroyed yet, or if retainedTicks is less than 1; in these cases no partition is created.
+     * Creates an empty partition at the tick of the node: this is its
+     * {@linkplain #creationTick creation tick}. If the creation fails, no partition is created.
+     *
+     * @param partitionId the ID of the new partition, which identifies it in all the other
+     *     operations
+     * @param name the name of the new partition; the node uses it only for the saves
+     * @param index the index of the partition
+     * @param retainedTicks the number of ticks whose snapshots readers can acquire
+     * @throws IllegalArgumentException if the ID or the name is already in use on this node,
+     *     also by a removed partition that is not destroyed yet, or if retainedTicks is less
+     *     than 1
      */
     void createPartition(PartitionId partitionId, PartitionName name, IndexConfig index, int retainedTicks);
 
@@ -116,11 +130,13 @@ public interface PartitionNode2 {
     void loadPartition(PartitionId partitionId, SavedPartition saved, IndexConfig index, int retainedTicks);
 
     /**
-     * Moves the tick of the node forward to the given tick, and then the tick of each of its
-     * partitions, also of the ones marked as removed. The partitions move one after the other,
-     * not all at the same moment. The same tick again does nothing, and ticks can be skipped.
-     * Fails with IllegalArgumentException if the tick is less than the tick of the node; in
-     * this case nothing changes.
+     * Moves the tick of the node forward, and then the tick of each of its partitions, also of
+     * the ones marked as removed. The partitions move one after the other, not all at the same
+     * moment. The same tick again does nothing, and ticks can be skipped.
+     *
+     * @param tick the new tick of the node
+     * @throws IllegalArgumentException if the tick is less than the tick of the node; in this
+     *     case nothing changes
      */
     void setTick(long tick);
 
@@ -131,49 +147,73 @@ public interface PartitionNode2 {
      * Returns the tick of a partition. While the node moves its partitions to a new tick, it can
      * be less than the {@linkplain #tick() tick of the node}. Any thread can call it, also after
      * the removal of the partition, until it is destroyed.
+     *
+     * @param partitionId the ID of the partition
+     * @return the tick of the partition
+     * @throws IllegalArgumentException if the partition is unknown
      */
     long tick(PartitionId partitionId);
 
-    /** Returns the tick at which the partition was created: the tick of the node at that moment. */
+    /**
+     * Returns the tick at which the partition was created: the tick of the node at that moment.
+     *
+     * @param partitionId the ID of the partition
+     * @return the creation tick of the partition
+     * @throws IllegalArgumentException if the partition is unknown
+     */
     long creationTick(PartitionId partitionId);
 
     /**
      * Removes a partition whose last commit has no entities: the removal becomes effective at
-     * the next move of the tick, and the writes not committed are discarded. Fails with
-     * IllegalArgumentException if the partition of the token is unknown, and with
-     * IllegalStateException if the last commit has entities or the removal was already requested; in these cases the
-     * partition does not change.
-     * Fails with OwnershipChangedException if the token is not the current one.
+     * the next move of the tick, and the writes not committed are discarded. If the call
+     * fails, the partition does not change.
+     *
+     * @param token the token of the owner of the partition
+     * @throws IllegalArgumentException if the partition of the token is unknown
+     * @throws IllegalStateException if the last commit has entities or the removal was already
+     *     requested
+     * @throws OwnershipChangedException if the token is not the current one
      */
     void removePartition(WriteToken token);
 
     /**
      * Removes a partition together with its entities: the removal becomes effective at the
-     * next move of the tick, and the writes not committed are discarded. Fails with
-     * IllegalArgumentException if the partition of the token is unknown, and with
-     * IllegalStateException if the removal was already requested.
-     * Fails with OwnershipChangedException if the token is not the current one.
+     * next move of the tick, and the writes not committed are discarded. If the call fails,
+     * the partition does not change.
+     *
+     * @param token the token of the owner of the partition
+     * @throws IllegalArgumentException if the partition of the token is unknown
+     * @throws IllegalStateException if the removal was already requested
+     * @throws OwnershipChangedException if the token is not the current one
      */
     void dropPartition(WriteToken token);
 
     /**
-     * Returns the state of the ownership of a partition: its generation and whether it has
-     * an owner. It is only a read: the node tells nobody about the changes. Any thread can
-     * call it, also after the removal of the partition, until it is destroyed. Fails with
-     * IllegalArgumentException if the ID is unknown.
+     * Returns the state of the ownership of a partition. It is only a read: the node tells
+     * nobody about the changes. Any thread can call it, also after the removal of the
+     * partition, until it is destroyed.
+     *
+     * @param partitionId the ID of the partition
+     * @return the generation of the ownership and whether the partition has an owner
+     * @throws IllegalArgumentException if the partition is unknown
      */
     Ownership ownership(PartitionId partitionId);
 
     /**
      * Makes the caller the owner of a partition if the generation of its ownership is still
-     * expectedGeneration: the generation grows by one, the writes not committed are
-     * discarded, and the result is the token of the new generation. Otherwise the result is
-     * empty and nothing changes. With the generation of a free partition it takes the
-     * partition; with the generation of the token of the owner it passes the ownership to a
-     * new token, or takes it away from the owner. Fails with IllegalArgumentException if
-     * expectedGeneration is negative or the ID is unknown, and with IllegalStateException
-     * after the removal of the partition was requested. Any thread can call it: it waits for
-     * a write or a commit that is running.
+     * the expected one: the generation grows by one and the writes not committed are
+     * discarded. With the generation of a free partition it takes the partition; with the
+     * generation of the token of the owner it passes the ownership to a new token, or takes it
+     * away from the owner. Any thread can call it: it waits for a write or a commit that is
+     * running.
+     *
+     * @param partitionId the ID of the partition
+     * @param expectedGeneration the generation that the ownership must have
+     * @return the token of the new generation, or empty if the generation is not the expected
+     *     one; in this case nothing changes
+     * @throws IllegalArgumentException if expectedGeneration is negative or the partition is
+     *     unknown
+     * @throws IllegalStateException if the removal of the partition was requested
      */
     Optional<WriteToken> claim(PartitionId partitionId, long expectedGeneration);
 
@@ -183,41 +223,56 @@ public interface PartitionNode2 {
      * Otherwise it does nothing: also if the ownership has already changed, after the removal
      * of the partition was requested, and if the partition is unknown or destroyed. Any thread
      * can call it.
+     *
+     * @param token the token of the owner
      */
     void release(WriteToken token);
 
     /**
-     * Adds new entities to a partition. The API generates the entity IDs, which must
-     * not be used anywhere else. Fails with IllegalArgumentException if an ID is
-     * already in the partition or appears twice in the list, or if a position is
-     * outside the {@linkplain #limits limits} of the partition.
-     * Fails with OwnershipChangedException if the token is not the current one.
+     * Adds new entities to a partition. The API generates the entity IDs, which must not be
+     * used anywhere else.
+     *
+     * @param token the token of the owner of the partition
+     * @param entities the new entities, with their IDs and positions
+     * @throws IllegalArgumentException if an ID is already in the partition or appears twice in
+     *     the list, or if a position is outside the {@linkplain #limits limits} of the partition
+     * @throws OwnershipChangedException if the token is not the current one
      */
     void insertAll(WriteToken token, List<Entity2> entities);
 
     /**
-     * Sets the position of existing entities. Fails with NoSuchElementException
-     * if an ID is not in the partition, and with IllegalArgumentException if a
-     * position is outside the {@linkplain #limits limits} of the partition.
-     * If an ID appears more than once, the last position wins.
-     * Fails with OwnershipChangedException if the token is not the current one.
+     * Sets the position of existing entities. If an ID appears more than once, the last
+     * position wins.
+     *
+     * @param token the token of the owner of the partition
+     * @param entities the IDs of the entities with their new positions
+     * @throws java.util.NoSuchElementException if an ID is not in the partition
+     * @throws IllegalArgumentException if a position is outside the {@linkplain #limits limits}
+     *     of the partition
+     * @throws OwnershipChangedException if the token is not the current one
      */
     void updateAll(WriteToken token, List<Entity2> entities);
 
     /**
-     * Removes entities from a partition. Fails with NoSuchElementException if an ID
-     * is not in the partition, and with IllegalArgumentException if an ID appears twice.
-     * Fails with OwnershipChangedException if the token is not the current one.
+     * Removes entities from a partition, with their application metadata.
+     *
+     * @param token the token of the owner of the partition
+     * @param entityIds the IDs of the entities to remove
+     * @throws java.util.NoSuchElementException if an ID is not in the partition
+     * @throws IllegalArgumentException if an ID appears twice
+     * @throws OwnershipChangedException if the token is not the current one
      */
     void removeAll(WriteToken token, long[] entityIds);
 
     /**
-     * Writes the application metadata of existing entities: each write sets or deletes one
-     * key of one entity, in the order of the list, so if more writes change the same key the
-     * last one wins. The metadata are confirmed by the same commit as the positions, and are
-     * in the same snapshot. Removing an entity deletes its metadata. Fails with
-     * NoSuchElementException if an ID is not in the partition.
-     * Fails with OwnershipChangedException if the token is not the current one.
+     * Writes the application metadata of existing entities, in the order of the list: if more
+     * writes change the same key, the last one wins. The metadata are confirmed by the same
+     * commit as the positions, and are in the same snapshot.
+     *
+     * @param token the token of the owner of the partition
+     * @param writes the writes, each of which sets or deletes one key of one entity
+     * @throws java.util.NoSuchElementException if an ID is not in the partition
+     * @throws OwnershipChangedException if the token is not the current one
      */
     void updateMetadataAll(WriteToken token, List<MetadataWrite> writes);
 
@@ -225,144 +280,216 @@ public interface PartitionNode2 {
      * Applies a conditional write: it moves entities and writes their application metadata
      * only if all its conditions are true on the state of the writer, with the writes not
      * committed yet. Checking the conditions and applying the write is a single step, so no
-     * other write of the partition can come in between. Returns the false conditions, in
-     * their order, or an empty list if the write was applied; a false condition is not an
-     * error, and then the partition does not change. Fails with NoSuchElementException if an
-     * ID of the write or of a condition is not in the partition, and with
-     * IllegalArgumentException if a position is outside the {@linkplain #limits limits} of
-     * the partition; in these cases the partition does not change.
-     * Fails with OwnershipChangedException if the token is not the current one.
+     * other write of the partition can come in between. A false condition is not an error:
+     * the partition does not change. If the call fails, the partition does not change either.
+     *
+     * @param token the token of the owner of the partition
+     * @param write the conditions, the positions and the metadata writes
+     * @return the false conditions, in their order, or an empty list if the write was applied
+     * @throws java.util.NoSuchElementException if an ID of the write or of a condition is not
+     *     in the partition
+     * @throws IllegalArgumentException if a position is outside the {@linkplain #limits limits}
+     *     of the partition
+     * @throws OwnershipChangedException if the token is not the current one
      */
     List<MetadataCondition> updateIf(WriteToken token, ConditionalWrite2 write);
 
     /**
      * Confirms the writes of a partition in its current tick: the snapshot of the tick will
-     * have them.
-     * Each commit confirms the full current state, including the effects of earlier commits
-     * unless later writes change or remove them. Only the last commit of a tick defines its
-     * snapshot; readers cannot acquire the intermediate states. Writes after the last commit
-     * stay uncommitted and carry over to the next tick. A commit with no writes is valid.
-     * This call does not advance the tick, wait for the next tick or stop further writes
-     * in the same tick. The writer decides whether to wait before writing again.
-     * The snapshot becomes acquirable when the tick of the partition moves forward.
-     * Fails with OwnershipChangedException if the token is not the current one.
+     * have them, and becomes acquirable when the tick of the partition moves forward. Each
+     * commit confirms the full current state, including the effects of earlier commits unless
+     * later writes change or remove them. Only the last commit of a tick defines its snapshot;
+     * readers cannot acquire the intermediate states. Writes after the last commit stay
+     * uncommitted and carry over to the next tick. A commit with no writes is valid. The call
+     * does not move the tick, wait for the next tick or stop further writes in the same tick:
+     * the writer decides whether to wait before writing again.
+     *
+     * @param token the token of the owner of the partition
+     * @throws OwnershipChangedException if the token is not the current one
      */
     void commit(WriteToken token);
 
     /**
-     * Acquires the snapshot of the given tick of a partition: it must be in the retention
-     * window. Checking the window and acquiring the snapshot is a single step, so a move of
-     * the tick at the same time cannot make it go away. Fails with IllegalArgumentException
-     * if tick is negative, and with SnapshotNotAvailableException, with the reason, if the
-     * snapshot is not published yet, is older than the window, is before the creation of the
-     * partition or is at its removal tick or after it. The options give the timeout of the
-     * acquisition.
+     * Acquires the snapshot of a tick of a partition, which must be in the retention window.
+     * Checking the window and acquiring the snapshot is a single step, so a move of the tick
+     * at the same time cannot make it go away.
+     *
+     * @param partitionId the ID of the partition
+     * @param tick the tick of the snapshot
+     * @param options the timeout of the acquisition
+     * @return the acquisition, for the reads and the release
+     * @throws IllegalArgumentException if tick is negative or the partition is unknown
+     * @throws SnapshotNotAvailableException with the reason, if the snapshot is not published
+     *     yet, is older than the window, is before the creation of the partition or is at its
+     *     removal tick or after it
      */
     Acquisition acquire(PartitionId partitionId, long tick, AcquireOptions options);
 
     /**
      * Acquires the snapshot of the tick before the current tick of a partition, like
-     * {@link #acquire}. Fails with SnapshotNotAvailableException if the tick of the partition
-     * has not moved since its creation, so no snapshot is published yet, or if the partition
-     * did not exist at that tick any more.
+     * {@link #acquire}.
+     *
+     * @param partitionId the ID of the partition
+     * @param options the timeout of the acquisition
+     * @return the acquisition, for the reads and the release
+     * @throws IllegalArgumentException if the partition is unknown
+     * @throws SnapshotNotAvailableException if the tick of the partition has not moved since
+     *     its creation, so no snapshot is published yet, or if the partition did not exist at
+     *     that tick any more
      */
     Acquisition acquireLatest(PartitionId partitionId, AcquireOptions options);
 
     /**
-     * Releases an acquisition: after this, its reads fail. Releasing it again, or
-     * after its timeout, does nothing; also after the removal of the partition. Fails
-     * with IllegalArgumentException if the partition never made the acquisition; the
-     * other acquisitions do not change.
+     * Releases an acquisition: after this, its reads fail. Releasing it again, after its
+     * timeout or after the removal of the partition does nothing. The other acquisitions do
+     * not change.
+     *
+     * @param acquisition the acquisition to release
+     * @throws IllegalArgumentException if the partition never made the acquisition
      */
     void release(Acquisition acquisition);
 
     /**
-     * Returns the number of entities in the acquired snapshot. Fails with
-     * IllegalStateException if the acquisition was released or is expired, and with
-     * IllegalArgumentException if the partition never made it.
+     * Returns the number of entities in the acquired snapshot.
+     *
+     * @param acquisition the acquisition of the snapshot
+     * @return the number of entities
+     * @throws IllegalStateException if the acquisition was released or is expired
+     * @throws IllegalArgumentException if the partition never made the acquisition
      */
     int size(Acquisition acquisition);
 
     /**
      * Returns the entities of the acquired snapshot with the given IDs, in the same order.
-     * IDs that are not in the snapshot are skipped. Fails like {@link #size(Acquisition)}.
+     * IDs that are not in the snapshot are skipped.
+     *
+     * @param acquisition the acquisition of the snapshot
+     * @param entityIds the IDs of the entities
+     * @return the entities found
+     * @throws IllegalStateException if the acquisition was released or is expired
+     * @throws IllegalArgumentException if the partition never made the acquisition
      */
     List<Entity2> getAll(Acquisition acquisition, long[] entityIds);
 
     /**
      * Returns the application metadata of the entities of the acquired snapshot with the given
-     * IDs, in the same order, with an empty map for an entity without metadata. IDs that are
-     * not in the snapshot are skipped. Fails like {@link #size(Acquisition)}.
+     * IDs, in the same order. IDs that are not in the snapshot are skipped.
+     *
+     * @param acquisition the acquisition of the snapshot
+     * @param entityIds the IDs of the entities
+     * @return the metadata of the entities found, with an empty map for an entity without
+     *     metadata
+     * @throws IllegalStateException if the acquisition was released or is expired
+     * @throws IllegalArgumentException if the partition never made the acquisition
      */
     List<ApplicationMetadata> getMetadataAll(Acquisition acquisition, long[] entityIds);
 
     /**
      * Returns the entities of the acquired snapshot that are inside the region or on its
-     * border. The order of the result is not defined. Fails like {@link #size(Acquisition)}.
+     * border.
+     *
+     * @param acquisition the acquisition of the snapshot
+     * @param region the region of the query
+     * @return the entities found, in no defined order
+     * @throws IllegalStateException if the acquisition was released or is expired
+     * @throws IllegalArgumentException if the partition never made the acquisition
      */
     List<Entity2> findInRegion(Acquisition acquisition, Region2 region);
 
     /**
-     * Returns the entities of the acquired snapshot nearest to a point, at most count of
-     * them, sorted by distance from the point and then by ID. Fails like
-     * {@link #size(Acquisition)}, and with IllegalArgumentException if count is negative.
+     * Returns the entities of the acquired snapshot nearest to a point.
+     *
+     * @param acquisition the acquisition of the snapshot
+     * @param point the point of the query
+     * @param count the largest number of entities to return
+     * @return at most count entities, sorted by distance from the point and then by ID
+     * @throws IllegalStateException if the acquisition was released or is expired
+     * @throws IllegalArgumentException if the partition never made the acquisition, or if
+     *     count is negative
      */
     List<Entity2> findNearest(Acquisition acquisition, Point2 point, int count);
 
     /**
-     * Returns the coordinates that the entities of a partition can have. The
-     * index of the partition sets them: they are the same as
-     * {@link IndexConfig#limits()} of the index chosen at creation.
+     * Returns the coordinates that the entities of a partition can have. The index of the
+     * partition sets them: they are the same as {@link IndexConfig#limits()} of the index
+     * chosen at creation.
+     *
+     * @param partitionId the ID of the partition
+     * @return the limits of the coordinates
+     * @throws IllegalArgumentException if the partition is unknown
+     * @throws IllegalStateException if the removal of the partition was requested
      */
     CoordinateLimits limits(PartitionId partitionId);
 
     /**
-     * Saves the snapshot of the given tick of a partition to the save destination of the node
-     * and returns the reference to the save, with the name of the partition. The call is synchronous: it returns when the save
-     * is complete. The node acquires the snapshot like {@link #acquire}, with the default
-     * timeout, copies it and releases it, then writes the copy: the timeout does not limit
-     * the save, and the writer and the readers of the partition continue meanwhile. A save of
-     * a tick already saved replaces the save with the same content. Fails like {@link #acquire}
-     * if the snapshot is not available, and then writes nothing; fails with
-     * IllegalStateException if the node has no save destination, and with
-     * UncheckedIOException if the save cannot be written: the saves already there do not
-     * change. Any thread can call it, also at the same time as other saves. A save of a
-     * snapshot that another thread is saving does not copy it again: it releases its
-     * acquisition, waits for that save and returns the same reference, or fails with
-     * UncheckedIOException if that save fails.
+     * Saves the snapshot of a tick of a partition to the save destination of the node. The
+     * call is synchronous: it returns when the save is complete. The node acquires the
+     * snapshot like {@link #acquire}, with the default timeout, copies it and releases it, then
+     * writes the copy: the timeout does not limit the save, and the writer and the readers of
+     * the partition continue meanwhile. A save of a tick already saved replaces the save with
+     * the same content. Any thread can call it, also at the same time as other saves. A save of
+     * a snapshot that another thread is saving does not copy it again: it releases its
+     * acquisition, waits for that save and returns the same reference.
+     *
+     * @param partitionId the ID of the partition
+     * @param tick the tick of the snapshot
+     * @return the reference to the save, with the name of the partition and the tick
+     * @throws IllegalArgumentException if tick is negative or the partition is unknown
+     * @throws SnapshotNotAvailableException like {@link #acquire}, if the snapshot is not
+     *     available; then nothing is written
+     * @throws IllegalStateException if the node has no save destination
+     * @throws java.io.UncheckedIOException if the save cannot be written, or if the save of
+     *     another thread that it waited for failed; the saves already there do not change
      */
     SavedPartition save(PartitionId partitionId, long tick);
 
     /**
      * Saves the snapshot of the tick before the current tick of a partition, like
-     * {@link #save}. Fails like {@link #acquireLatest} if no snapshot is available.
+     * {@link #save}.
+     *
+     * @param partitionId the ID of the partition
+     * @return the reference to the save, with the name of the partition and the tick
+     * @throws IllegalArgumentException if the partition is unknown
+     * @throws SnapshotNotAvailableException like {@link #acquireLatest}, if no snapshot is
+     *     available; then nothing is written
+     * @throws IllegalStateException if the node has no save destination
+     * @throws java.io.UncheckedIOException like {@link #save}
      */
     SavedPartition saveLatest(PartitionId partitionId);
 
     /**
-     * Returns the saves in the save destination of the node, sorted by name and then by tick.
-     * The saves do not need a partition on the node: they stay after the destruction of their
-     * partition and after the end of the run that wrote them. The node has no rule on which
-     * saves to keep: the software chooses. Fails with IllegalStateException if the node has no
-     * save destination, and with UncheckedIOException if the destination cannot be read. Any
-     * thread can call it, also during saves: a save in progress is in the list only if it is
-     * complete.
+     * Returns the saves in the save destination of the node. The saves do not need a partition
+     * on the node: they stay after the destruction of their partition and after the end of the
+     * run that wrote them. The node has no rule on which saves to keep: the software chooses.
+     * Any thread can call it, also during saves: a save in progress is in the list only if it
+     * is complete.
+     *
+     * @return the saves, sorted by name and then by tick
+     * @throws IllegalStateException if the node has no save destination
+     * @throws java.io.UncheckedIOException if the destination cannot be read
      */
     List<SavedPartition> saves();
 
     /**
-     * Returns the saves of a partition name, sorted by tick, like {@link #saves()}; empty if the
-     * name has no saves.
+     * Returns the saves of a partition name, like {@link #saves()}.
+     *
+     * @param name the name of the partition
+     * @return the saves of the name, sorted by tick; empty if the name has no saves
+     * @throws IllegalStateException if the node has no save destination
+     * @throws java.io.UncheckedIOException if the destination cannot be read
      */
     List<SavedPartition> saves(PartitionName name);
 
     /**
-     * Deletes the given saves from the save destination of the node, in the order of the list.
-     * A save that is not there is skipped, so deleting the same save twice does nothing. A save
-     * of the same tick in progress at the same time is not stopped, and its file can come back.
-     * Fails with IllegalStateException if the node has no save destination, and with
-     * UncheckedIOException if a save cannot be deleted: the saves before it in the list are
-     * already deleted. Any thread can call it.
+     * Deletes saves from the save destination of the node, in the order of the list. A save
+     * that is not there is skipped, so deleting the same save twice does nothing. A save of
+     * the same tick in progress at the same time is not stopped, and its file can come back.
+     * Any thread can call it.
+     *
+     * @param saves the saves to delete
+     * @throws IllegalStateException if the node has no save destination
+     * @throws java.io.UncheckedIOException if a save cannot be deleted; the saves before it in
+     *     the list are already deleted
      */
     void deleteSaves(List<SavedPartition> saves);
 }
