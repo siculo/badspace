@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -39,6 +40,11 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
@@ -80,6 +86,29 @@ class Space2Test {
         order.verify(node).setTick(5);
         order.verify(node).loadPartition(PARTITION_ID, saved, chosen.index(), 3);
         order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    void moveOfTheTickDoesNotWaitForALoad() throws Exception {
+        SavedPartition saved = new SavedPartition(new PartitionName("north"), 2);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            assertTrue(finish.await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(node).loadPartition(PARTITION_ID, saved, IndexConfig.linearScan(), 1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Partition2> load = executor.submit(() -> space.loadPartition(node, PartitionConfig.defaults(), saved));
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            space.setTick(5);
+            verify(node).setTick(5);
+            finish.countDown();
+            assertEquals(new PartitionName("north"), load.get(10, TimeUnit.SECONDS).name());
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

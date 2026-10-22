@@ -48,9 +48,11 @@ import java.util.function.Function;
  * and looks for their expired acquisitions, so a reader that never releases cannot keep
  * a removed partition for ever.
  * <p>
- * A lock orders the moves to a new tick and the creation of partitions: a partition created
- * while the node moves to a new tick is created either before the move, and then moves too,
- * or after it, at the new tick. So no partition stays behind the node.
+ * A lock orders the moves to a new tick and the additions of partitions: a partition added
+ * while the node moves to a new tick is added either before the move, and then moves too,
+ * or after it, at the new tick. So no partition stays behind the node. A load builds the
+ * partition without the lock and takes it only to add the partition, so the moves of the tick
+ * do not wait for the read of the save or for the rebuild of the index.
  * <p>
  * The writers of different partitions can work on different threads. Each partition has its
  * own lock and its own sequence of commits, and the writes and the commits do not take the
@@ -68,7 +70,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     // thread, removes it.
     private final Map<PartitionId, PartitionStorage2> partitions = new ConcurrentHashMap<>();
     // The names of the partitions, with the same IDs as partitions: a name is in use while its
-    // partition is on the node. Written by createPartition while holding tickLock and by the
+    // partition is on the node. Written when a partition is added, while holding tickLock, and by the
     // thread that destroys a partition; read by any thread.
     private final Map<PartitionId, PartitionName> names = new ConcurrentHashMap<>();
     // Measures the timeouts of the acquisitions in all the partitions.
@@ -77,7 +79,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     private final StorageFactory storageFactory;
     // The saves of the node in its save directory, or null if the node cannot save.
     private final NodeSaves saves;
-    // Orders setTick and createPartition: both run while holding it.
+    // Orders setTick and the additions of partitions: they run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
     // The tick of the node. Written by setTick while holding tickLock, read by any thread.
     private volatile long tick;
@@ -115,7 +117,12 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         this(clock, storageFactory, null);
     }
 
-    private LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory, NodeSaves saves) {
+    /**
+     * Creates a node like {@link #LocalPartitionNode2(MonotonicClock, StorageFactory)}, with the
+     * given saves, or null if the node cannot save. The tests use it to stop a load inside the
+     * index of the loaded partition.
+     */
+    LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory, NodeSaves saves) {
         this.clock = clock;
         this.storageFactory = storageFactory;
         this.saves = saves;
@@ -125,17 +132,40 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     public void createPartition(PartitionId partitionId, PartitionName name, IndexConfig index, int retainedTicks) {
         Objects.requireNonNull(name);
         checkRetainedTicks(retainedTicks);
-        create(partitionId, name, index, retainedTicks, null);
+        tickLock.lock();
+        try {
+            checkFree(partitionId, name);
+            add(partitionId, name, storageFactory.create(index, retainedTicks, clock, tick));
+        } finally {
+            tickLock.unlock();
+        }
     }
 
+    /**
+     * Loads a save in two phases. First, without the lock of the node, it reads the save and
+     * builds the whole partition: the slots, the index and the commit of the content. The moves
+     * of the tick go on meanwhile. Then, while holding tickLock, it sets the creation tick to the
+     * tick of the node and adds the partition: this phase is short, and its tick is the creation
+     * tick, also if the tick moved during the first phase.
+     */
     @Override
     public void loadPartition(PartitionId partitionId, SavedPartition saved, IndexConfig index, int retainedTicks) {
         Objects.requireNonNull(saved);
         checkRetainedTicks(retainedTicks);
         NodeSaves saves = requireSaves();
-        // Outside the lock of the node: reading the file does not stop the moves of the tick.
+        // Fails before the slow phase if the ID or the name is in use; the second phase checks again.
+        checkFree(partitionId, saved.name());
         PartitionCopy2 content = saves.read(saved, file -> PartitionSave2.read(file, saved.name()));
-        create(partitionId, saved.name(), index, retainedTicks, content);
+        PartitionStorage2 storage = storageFactory.create(index, retainedTicks, clock, tick);
+        storage.load(content);
+        tickLock.lock();
+        try {
+            checkFree(partitionId, saved.name());
+            storage.setCreationTick(tick);
+            add(partitionId, saved.name(), storage);
+        } finally {
+            tickLock.unlock();
+        }
     }
 
     private static void checkRetainedTicks(int retainedTicks) {
@@ -146,32 +176,23 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     /**
-     * Creates a partition at the tick of the node, with the given content, or empty if content
-     * is null. The load of the content rebuilds the index while holding tickLock: the
-     * partition is created at the tick of the node, and with its content, before the next move
-     * of the tick, so the moves of the tick wait for it.
+     * Fails with IllegalArgumentException if the ID or the name is in use on the node. A removed
+     * partition keeps its ID and its name until it is destroyed, so this also rejects them. The
+     * creation of a partition is rare, so a scan of the names is enough.
      */
-    private void create(PartitionId partitionId, PartitionName name, IndexConfig index, int retainedTicks,
-            PartitionCopy2 content) {
-        tickLock.lock();
-        try {
-            // A removed partition keeps its ID and its name until it is destroyed, so this also
-            // rejects them. The creation of a partition is rare, so a scan of the names is enough.
-            if (partitions.containsKey(partitionId)) {
-                throw new IllegalArgumentException("Partition already exists: " + partitionId);
-            }
-            if (names.containsValue(name)) {
-                throw new IllegalArgumentException("Partition name already in use: " + name.value());
-            }
-            PartitionStorage2 storage = storageFactory.create(index, retainedTicks, clock, tick);
-            if (content != null) {
-                storage.load(content);
-            }
-            names.put(partitionId, name);
-            partitions.put(partitionId, storage);
-        } finally {
-            tickLock.unlock();
+    private void checkFree(PartitionId partitionId, PartitionName name) {
+        if (partitions.containsKey(partitionId)) {
+            throw new IllegalArgumentException("Partition already exists: " + partitionId);
         }
+        if (names.containsValue(name)) {
+            throw new IllegalArgumentException("Partition name already in use: " + name.value());
+        }
+    }
+
+    /** Adds a partition to the node. The caller holds tickLock and checked the ID and the name. */
+    private void add(PartitionId partitionId, PartitionName name, PartitionStorage2 storage) {
+        names.put(partitionId, name);
+        partitions.put(partitionId, storage);
     }
 
     @Override

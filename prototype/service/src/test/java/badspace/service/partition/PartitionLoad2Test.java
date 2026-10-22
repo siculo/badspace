@@ -5,6 +5,7 @@ import static badspace.common.partition.MetadataWrite.put;
 import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import badspace.common.geometry.Box2;
@@ -20,14 +21,23 @@ import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.WriteToken;
+import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.snapshot.MonotonicClock;
+import badspace.service.persistence.NodeSaves;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -43,6 +53,7 @@ class PartitionLoad2Test {
     private static final PartitionId P1 = new PartitionId(1);
     private static final PartitionId P2 = new PartitionId(2);
     private static final PartitionId LOADED = new PartitionId(10);
+    private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
     @TempDir
     private Path directory;
@@ -215,6 +226,57 @@ class PartitionLoad2Test {
         assertThrows(IllegalStateException.class, () -> other.loadPartition(LOADED, saved, IndexConfig.linearScan(), 5));
     }
 
+    @Test
+    void moveOfTheTickDoesNotWaitForALoadAndTheLoadCreatesThePartitionAtTheNewTick() throws Exception {
+        SavedPartition saved = saveOf(List.of(entity(1, 1, 2)));
+        Gate gate = new Gate();
+        LocalPartitionNode2 gated = nodeWithGatedCommit(gate);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> load = executor.submit(() -> gated.loadPartition(LOADED, saved, IndexConfig.linearScan(), 5));
+            // The load stops in the commit of its content, after the read and the rebuild of the index.
+            gate.awaitEntered();
+            gated.setTick(3);
+            gate.open();
+            load.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+        assertEquals(3, gated.creationTick(LOADED));
+        gated.setTick(4);
+        assertEquals(1, gated.size(gated.acquire(LOADED, 3, AcquireOptions.defaultTimeout())));
+    }
+
+    @Test
+    void loadFailsIfTheNameIsTakenDuringTheLoad() throws Exception {
+        SavedPartition saved = saveOf(List.of(entity(1, 1, 2)));
+        Gate gate = new Gate();
+        LocalPartitionNode2 gated = nodeWithGatedCommit(gate);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> load = executor.submit(() -> gated.loadPartition(LOADED, saved, IndexConfig.linearScan(), 5));
+            gate.awaitEntered();
+            gated.createPartition(P2, saved.name());
+            gate.open();
+            ExecutionException failure = assertThrows(ExecutionException.class,
+                    () -> load.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS));
+            assertInstanceOf(IllegalArgumentException.class, failure.getCause());
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThrows(IllegalArgumentException.class, () -> gated.ownership(LOADED));
+        assertEquals(Ownership.INITIAL, gated.ownership(P2));
+    }
+
+    @Test
+    void creationTickCannotChangeAfterAMoveOfTheTick() {
+        PartitionStorage2 storage = new PartitionStorage2();
+        storage.setCreationTick(5);
+        assertEquals(5, storage.creationTick());
+        storage.setTick(6);
+        assertThrows(IllegalStateException.class, () -> storage.setCreationTick(7));
+    }
+
     /**
      * Writes the entities into P1, with metadata for entity 1 if it is there, commits them at
      * tick 0 and saves the snapshot of tick 0.
@@ -229,6 +291,19 @@ class PartitionLoad2Test {
         node.commit(owner(node, P1));
         node.setTick(1);
         return node.saveLatest(P1);
+    }
+
+    /**
+     * Returns a node on the save directory whose indices stop their commits at the gate: a load
+     * stops after the read of the save and the rebuild of the index, before it adds the partition.
+     */
+    private LocalPartitionNode2 nodeWithGatedCommit(Gate gate) {
+        return new LocalPartitionNode2(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) ->
+                new PartitionStorage2(index.limits(), slots -> {
+                    GatedIndex2 gatedIndex = new GatedIndex2(SpatialIndexes.create(index, slots));
+                    gatedIndex.commitGate = gate;
+                    return gatedIndex;
+                }, retainedTicks, clock, tick), new NodeSaves(directory));
     }
 
     private static void assertReason(Reason reason, Executable executable) {

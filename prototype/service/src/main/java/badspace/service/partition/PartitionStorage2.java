@@ -372,7 +372,8 @@ final class PartitionStorage2 {
      * commits them, as the commit of the creation tick: the first move of the tick publishes
      * them as the snapshot of the creation tick, and no reader sees a partition loaded in part.
      * The tick of the copy does not matter. The partition must have no commits and no owner, so
-     * the node calls it before the partition is on the node. Fails with
+     * the node calls it before the partition is on the node, and then sets the creation tick
+     * with {@link #setCreationTick}. Fails with
      * IllegalArgumentException if the copy has an entity ID twice or a position outside the
      * limits of the index; in this case nothing changes.
      */
@@ -399,6 +400,26 @@ final class PartitionStorage2 {
                 }
             }
             commitWrites();
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
+    /**
+     * Sets the creation tick of a partition that is not on a node yet: the node builds the
+     * partition, and loads it, before it knows the tick at which it adds the partition to the
+     * node. The partition is then at the new tick, and the snapshot that waits for the move of
+     * the tick, empty or of the load, becomes the snapshot of that tick. Fails with
+     * IllegalStateException if the tick of the partition has moved since its creation.
+     */
+    void setCreationTick(long creationTick) {
+        writerLock.lock();
+        try {
+            SnapshotCatalog2 current = catalog;
+            if (current.tick() != current.creationTick()) {
+                throw new IllegalStateException("Tick of the partition has moved: " + current.tick());
+            }
+            catalog = SnapshotCatalog2.empty(creationTick, current.retainedTicks());
         } finally {
             writerLock.unlock();
         }

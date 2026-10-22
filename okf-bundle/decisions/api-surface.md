@@ -474,7 +474,7 @@ semantica è nel [caricamento](/decisions/persistence.md#caricamento).
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Caricamento | `loadPartition(node, PartitionConfig, saved)` | Crea sul nodo una partizione con il contenuto del salvataggio `saved` (`SavedPartition`), il nome del salvataggio e un ID nuovo, al tick dello spazio e senza proprietario; indice e finestra vengono dalla configurazione |
+| Caricamento | `loadPartition(node, PartitionConfig, saved)` | Crea sul nodo una partizione con il contenuto del salvataggio `saved` (`SavedPartition`), il nome del salvataggio e un ID nuovo, senza proprietario; il tick di creazione è quello del nodo alla fine del caricamento, che non ferma l'avanzamento del tick; indice e finestra vengono dalla configurazione |
 
 Nel contratto del nodo la chiamata è `loadPartition(partitionId, saved,
 index, retainedTicks)`, accanto a `createPartition`, con l'ID generato

@@ -223,10 +223,13 @@ crea una nuova partizione già con il contenuto di un salvataggio, cioè
 con le entità con gli stessi ID, posizioni e metadati. La partizione
 caricata ha il nome del salvataggio e un ID di runtime nuovo; un
 caricamento con un altro nome, per copiare una partizione, si aggiunge
-se serve. Il contenuto è
-confermato al tick di creazione, quindi è nello snapshot di quel tick e
-diventa acquisibile al successivo avanzamento del tick, senza stati
-intermedi visibili. La partizione nasce senza proprietario, come le
+se serve. Il caricamento fa il commit del contenuto al tick di
+creazione, senza un commit del software: il contenuto è nello snapshot
+di quel tick e diventa acquisibile al successivo avanzamento del tick,
+senza stati intermedi visibili. Un writer che vuole cambiare il
+contenuto prima che i reader lo vedano prende la proprietà, scrive e fa
+il commit nello stesso tick: il suo commit sostituisce quello del
+caricamento. La partizione nasce senza proprietario, come le
 altre. Gli indici si ricostruiscono dagli inserimenti. Indice e
 finestra degli snapshot li sceglie chi carica, non vengono dal
 salvataggio; una posizione fuori dai limiti dell'indice scelto fa
@@ -235,14 +238,17 @@ del nodo il caricamento è una variante della creazione della
 partizione, così l'API non espone un inserimento con ID scelti dal
 chiamante.
 
-Nel prototipo il nodo legge il file del salvataggio fuori dal lock del
-proprio tick, e ricostruisce la partizione sotto quel lock, così la
-partizione nasce al tick del nodo già con il contenuto: gli avanzamenti
-del tick del nodo aspettano la ricostruzione degli indici. Lo spazio
-tiene il suo lock del tick per tutta la chiamata, come per la
-creazione, quindi i suoi avanzamenti aspettano anche la lettura del
-file. Le [misure](#misure) del tempo di caricamento dicono quanto
-costa questa attesa.
+Il caricamento non ferma l'avanzamento del tick, così si può caricare
+una partizione mentre una simulazione va avanti. Il nodo lavora in due
+fasi: prima, senza il lock del tick, legge il salvataggio e costruisce
+tutta la partizione, con gli indici e il commit del contenuto; poi,
+sotto il lock, controlla nome e ID, assegna il tick corrente come tick
+di creazione e aggiunge la partizione. Il commit del contenuto cade
+quindi nel tick in cui la partizione viene davvero popolata, che può
+essere successivo al tick della chiamata; `creationTick()` lo dice. Lo
+spazio tiene il suo lock solo per aggiungere il nodo e generare l'ID,
+non durante il caricamento. Un nome occupato da un'altra creazione
+durante la prima fase fa fallire il caricamento nella seconda.
 
 Il tick segue il contesto di creazione della nuova partizione: può
 partire da zero in una nuova esecuzione del tempo logico, mentre in uno

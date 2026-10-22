@@ -19,13 +19,15 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>
  * The space has a tick, which it gives to the nodes on which it created partitions. A lock
  * orders the moves to a new tick and the creation of partitions, so a new node never misses
- * a tick.
+ * a tick. A load takes the lock only to add the node, so the moves of the tick do not wait
+ * for it.
  */
 public final class Space2 implements Space<PartitionNode2, Partition2> {
 
     // Partitions may have writers on different threads, and they share the generators.
     private final SpaceConfig config;
-    // Orders setTick and createPartition: both run while holding it.
+    // Orders setTick, createPartition and the addition of the node of a load: they run while
+    // holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
     // The nodes on which this space created partitions; each new tick goes to all of them.
     // Read and written while holding tickLock.
@@ -59,14 +61,17 @@ public final class Space2 implements Space<PartitionNode2, Partition2> {
     public Partition2 loadPartition(PartitionNode2 node, PartitionConfig config, SavedPartition saved) {
         Objects.requireNonNull(config);
         Objects.requireNonNull(saved);
+        PartitionId id;
         tickLock.lock();
         try {
-            PartitionId id = newPartitionId(node);
-            node.loadPartition(id, saved, config.index(), config.retainedTicks());
-            return new Partition2(this, node, id, saved.name(), config);
+            id = newPartitionId(node);
         } finally {
             tickLock.unlock();
         }
+        // Outside the lock: the moves of the tick do not wait for the load. The node is already
+        // among the nodes of the space, so it gets them, and it creates the partition at its tick.
+        node.loadPartition(id, saved, config.index(), config.retainedTicks());
+        return new Partition2(this, node, id, saved.name(), config);
     }
 
     /**
