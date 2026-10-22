@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>badspace</groupId>
+        <artifactId>badspace-samples</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>badspace-sample-periodic-saves</artifactId>
+    <name>BADSPACE prototype - sample periodic-saves</name>
+    <description>A simulation that saves its world while it runs: a saver thread saves every few ticks while the writer goes on, keeps the latest saves, and a restart loads the latest one into a new partition.</description>
+
+    <properties>
+        <exec.mainClass>badspace.samples.periodicsaves.PeriodicSaves</exec.mainClass>
+    </properties>
+</project>

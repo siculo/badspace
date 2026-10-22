@@ -38,8 +38,8 @@ import java.util.stream.Stream;
  * At the end a new node starts on the same directory, as after a restart: the files are there,
  * but the node has no partitions. A save keeps the content of one partition at one tick, not the
  * state of the node: which partitions it had, their configuration, their tick and their owner.
- * Loading a save into a new partition is not in the prototype yet, so the sample reads the files
- * with the service class that writes them, only to show their content.
+ * The sample reads the files with the service class that writes them, only to show their content;
+ * the sample periodic-saves loads a save into a new partition.
  * <p>
  * Run it with a directory as argument to keep the saves there; without an argument it uses a new
  * temporary directory. It does not delete the files at the end, so you can look at them.
@@ -143,7 +143,7 @@ public final class PartitionSaves {
         // directory ready, but it has no partitions: a save is the content of a partition, not
         // the state of the node. The software finds the saves by the names of its partitions
         // and loads them into new partitions with the same names, with the index and the
-        // window it chooses (not in the prototype yet); the new partitions get new IDs.
+        // window it chooses (see the sample periodic-saves); the new partitions get new IDs.
         Space2 restarted = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(1), new SnowflakeIdGenerator(1)));
         LocalPartitionNode2 newNode = new LocalPartitionNode2(directory);
         Partition2 fresh = restarted.createPartition(newNode, partitionName("fresh"));

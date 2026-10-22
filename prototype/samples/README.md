@@ -65,16 +65,22 @@ class.
 
 ## Use cases
 
-9. [`random-updater`](random-updater) (`RandomUpdater`): one writer and one
-   reader on two threads; the writer moves the entities at random at each
-   tick, the reader shows the latest snapshot.
-10. [`multi-writer`](multi-writer) (`MultiWriter`): many partitions on one
+10. [`random-updater`](random-updater) (`RandomUpdater`): one writer and one
+    reader on two threads; the writer moves the entities at random at each
+    tick, the reader shows the latest snapshot.
+11. [`multi-writer`](multi-writer) (`MultiWriter`): many partitions on one
     node, each with its writer on its own thread, and a tick shared by all of
     them, like the loop of a game server.
-11. [`lagged-reader`](lagged-reader) (`LaggedReader`): a reader that draws
+12. [`lagged-reader`](lagged-reader) (`LaggedReader`): a reader that draws
     more frames than there are ticks, a little in the past, between the
     snapshots of two retained ticks, like a game client.
-12. [`writer-failover`](writer-failover) (`WriterFailover`): a coordinator
+13. [`writer-failover`](writer-failover) (`WriterFailover`): a coordinator
     takes the ownership away from a stuck writer and gives it to a new one,
     which goes on from the latest snapshot; the fencing token rejects the old
     writer when it wakes up.
+14. [`periodic-saves`](periodic-saves) (`PeriodicSaves`): a simulation that
+    saves its world while it runs; a saver thread saves every few ticks while
+    the writer goes on, and keeps only the latest saves; after a restart the
+    software loads the latest save into a new partition, with another index,
+    and a writer claims it and goes on. Pass a directory as argument to keep
+    the saves there.
