@@ -5,6 +5,7 @@ import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.WriteToken;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -86,4 +87,11 @@ public interface Partition {
      * {@code acquireLatest()}.
      */
     SavedPartition saveLatest();
+
+    /**
+     * Returns the saves of the name of the partition on its node, sorted by tick, like
+     * {@code Space.saves(node, name())}: also the saves of an earlier partition with the same
+     * name, for example of an earlier run.
+     */
+    List<SavedPartition> saves();
 }

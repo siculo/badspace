@@ -1,6 +1,8 @@
 package badspace.api;
 
 import badspace.common.partition.PartitionName;
+import badspace.common.partition.SavedPartition;
+import java.util.List;
 
 /**
  * Operations shared by 2D and 3D spaces.
@@ -44,4 +46,29 @@ public interface Space<N, P extends Partition> {
 
     /** Returns the tick of the space: 0 for a new space. Any thread can call it. */
     long tick();
+    /**
+     * Returns the saves in the save destination of the node, sorted by name and then by tick.
+     * The saves do not need a partition: they stay after the removal of their partition and
+     * after the end of the run that wrote them, so the space gives them also for a node on
+     * which it has no partition yet, for example after a restart. The node has no rule on which
+     * saves to keep: the software chooses which ones to delete with {@link #deleteSaves}. Fails
+     * with IllegalStateException if the node has no save destination, and with
+     * UncheckedIOException if the destination cannot be read. Any thread can call it.
+     */
+    List<SavedPartition> saves(N node);
+
+    /**
+     * Returns the saves of a partition name in the save destination of the node, sorted by
+     * tick, like {@link #saves(Object)}; empty if the name has no saves.
+     */
+    List<SavedPartition> saves(N node, PartitionName name);
+
+    /**
+     * Deletes the given saves from the save destination of the node, in the order of the list.
+     * A save that is not there is skipped, so deleting the same save twice does nothing. Fails
+     * with IllegalStateException if the node has no save destination, and with
+     * UncheckedIOException if a save cannot be deleted: the saves before it in the list are
+     * already deleted. Any thread can call it.
+     */
+    void deleteSaves(N node, List<SavedPartition> saves);
 }

@@ -31,14 +31,30 @@ public record PartitionName(String value) {
         if (value.equals(".") || value.equals("..")) {
             throw new IllegalArgumentException("Partition name cannot be \"" + value + "\"");
         }
+        if (!hasAllowedCharacters(value)) {
+            throw new IllegalArgumentException("Partition name can have only a-z, 0-9, '-', '_' and '.': \""
+                    + value + "\"");
+        }
+    }
+
+    /**
+     * Returns true if the value follows the rules of a name, so the constructor accepts it.
+     * Fails with NullPointerException if value is null.
+     */
+    public static boolean isValid(String value) {
+        return !value.isEmpty() && value.length() <= MAX_LENGTH && !value.equals(".") && !value.equals("..")
+                && hasAllowedCharacters(value);
+    }
+
+    private static boolean hasAllowedCharacters(String value) {
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
             boolean allowed = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
             if (!allowed) {
-                throw new IllegalArgumentException("Partition name can have only a-z, 0-9, '-', '_' and '.': \""
-                        + value + "\"");
+                return false;
             }
         }
+        return true;
     }
 
     /** Returns the name with the given value; fails like the constructor. */

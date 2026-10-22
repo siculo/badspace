@@ -349,6 +349,38 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
         return write(name, copyLatest(partitionId));
     }
 
+    @Override
+    public List<SavedPartition> saves() {
+        requireSaveDirectory();
+        try {
+            return saveDirectory.saves();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot list the saves", e);
+        }
+    }
+
+    @Override
+    public List<SavedPartition> saves(PartitionName name) {
+        Objects.requireNonNull(name);
+        requireSaveDirectory();
+        try {
+            return saveDirectory.saves(name);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot list the saves of partition " + name.value(), e);
+        }
+    }
+
+    @Override
+    public void deleteSaves(List<SavedPartition> saves) {
+        Objects.requireNonNull(saves);
+        requireSaveDirectory();
+        try {
+            saveDirectory.delete(saves);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot delete the saves", e);
+        }
+    }
+
     /**
      * Removes the temporary files of interrupted saves, for example after a crash, in the
      * save directory. It must run when no save of the node is in progress, for example after

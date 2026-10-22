@@ -445,6 +445,26 @@ finestra; i salvataggi restano dopo la distruzione della partizione.
 | Partizione distrutta o mai esistita | Errore generico, come per l'acquisizione |
 | Errore nella scrittura del file | `UncheckedIOException`; i salvataggi già presenti non cambiano. Un'eccezione dedicata si valuta con il nodo gRPC |
 
+L'elenco e l'eliminazione dei salvataggi non richiedono una partizione
+viva (vedi [periodicità e
+conservazione](/decisions/persistence.md#periodicità-e-conservazione)),
+quindi sono sull'interfaccia comune `Space`, con il nodo come
+parametro; lo spazio delega al nodo anche se non ci ha ancora creato
+partizioni, come dopo un riavvio. Nel contratto del nodo hanno la
+stessa forma, senza il nodo.
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Elenco | `saves(node)` | Tutti i salvataggi della destinazione del nodo, per nome e poi per tick crescente |
+| Elenco di un nome | `saves(node, name)` | I salvataggi di un nome, per tick crescente; vuoto se non ce ne sono |
+| Elenco della partizione | `saves()` su `Partition` | Come `saves(node, name())` |
+| Eliminazione | `deleteSaves(node, saved)` | Batch, con una lista di `SavedPartition`; un salvataggio che non c'è viene saltato |
+
+| Errore | Eccezione |
+|---|---|
+| Nodo senza destinazione dei salvataggi | `IllegalStateException` |
+| Errore nella lettura della directory o nell'eliminazione | `UncheckedIOException`; con l'eliminazione, i salvataggi prima di quello che fallisce sono già eliminati |
+
 ## Differenze nel codice attuale
 
 Nessuna: il codice segue la forma descritta sopra per tick, commit,

@@ -229,6 +229,34 @@ class Space2EndToEndTest {
     }
 
     @Test
+    void savesAreListedAndDeletedAlsoByANewSpaceAfterARestart(@TempDir Path directory) {
+        LocalPartitionNode2 node = new LocalPartitionNode2(directory);
+        Partition2 north = space.createPartition(node, new PartitionName("north"),
+                PartitionConfig.defaults().withRetainedTicks(3));
+        Partition2 south = space.createPartition(node, new PartitionName("south"),
+                PartitionConfig.defaults().withRetainedTicks(3));
+        space.setTick(1);
+        space.setTick(2);
+        SavedPartition south0 = south.save(0);
+        SavedPartition south1 = south.save(1);
+        SavedPartition north1 = north.save(1);
+        writer(north).removePartition();
+        space.setTick(10);
+        assertEquals(List.of(south0, south1), south.saves());
+        assertEquals(List.of(north1, south0, south1), space.saves(node));
+
+        // A new run: the space and the node are new, and the space has no partition on the node.
+        Space2 restarted = new Space2(SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet));
+        LocalPartitionNode2 restartedNode = new LocalPartitionNode2(directory);
+        assertEquals(List.of(north1, south0, south1), restarted.saves(restartedNode));
+        // The partition north was removed: the software deletes its saves, and the older saves of south.
+        restarted.deleteSaves(restartedNode, List.of(north1, south0));
+        assertEquals(List.of(south1), restarted.saves(restartedNode));
+        assertEquals(List.of(), restarted.saves(restartedNode, new PartitionName("north")));
+        assertEquals(List.of(south1), south.saves());
+    }
+
+    @Test
     void saveNeedsANodeWithASaveDestination() {
         Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         space.setTick(1);

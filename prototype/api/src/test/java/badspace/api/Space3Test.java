@@ -281,6 +281,27 @@ class Space3Test {
     }
 
     @Test
+    void savesAndTheirDeletionGoToTheNodeAlsoWithoutPartitionsOnIt() {
+        List<SavedPartition> saves = List.of(new SavedPartition(NAME, 1), new SavedPartition(NAME, 2));
+        when(node.saves()).thenReturn(saves);
+        when(node.saves(NAME)).thenReturn(saves);
+        assertEquals(saves, space.saves(node));
+        assertEquals(saves, space.saves(node, NAME));
+        space.deleteSaves(node, saves);
+        verify(node).deleteSaves(saves);
+        // The space does not take the node: it creates no partition and gives it no tick.
+        verify(node, never()).setTick(0);
+    }
+
+    @Test
+    void savesOfAPartitionAreTheSavesOfItsName() {
+        Partition3 partition = space.createPartition(node, NAME);
+        List<SavedPartition> saves = List.of(new SavedPartition(NAME, 3));
+        when(node.saves(NAME)).thenReturn(saves);
+        assertEquals(saves, partition.saves());
+    }
+
+    @Test
     void saveErrorsKeepTheirReasonThroughTheProxy() {
         Partition3 partition = space.createPartition(node, NAME);
         var failure = new SnapshotNotAvailableException(

@@ -314,4 +314,31 @@ public interface PartitionNode3 {
      * {@link #save}. Fails like {@link #acquireLatest} if no snapshot is available.
      */
     SavedPartition saveLatest(PartitionId partitionId);
+
+    /**
+     * Returns the saves in the save destination of the node, sorted by name and then by tick.
+     * The saves do not need a partition on the node: they stay after the destruction of their
+     * partition and after the end of the run that wrote them. The node has no rule on which
+     * saves to keep: the software chooses. Fails with IllegalStateException if the node has no
+     * save destination, and with UncheckedIOException if the destination cannot be read. Any
+     * thread can call it, also during saves: a save in progress is in the list only if it is
+     * complete.
+     */
+    List<SavedPartition> saves();
+
+    /**
+     * Returns the saves of a partition name, sorted by tick, like {@link #saves()}; empty if the
+     * name has no saves.
+     */
+    List<SavedPartition> saves(PartitionName name);
+
+    /**
+     * Deletes the given saves from the save destination of the node, in the order of the list.
+     * A save that is not there is skipped, so deleting the same save twice does nothing. A save
+     * of the same tick in progress at the same time is not stopped, and its file can come back.
+     * Fails with IllegalStateException if the node has no save destination, and with
+     * UncheckedIOException if a save cannot be deleted: the saves before it in the list are
+     * already deleted. Any thread can call it.
+     */
+    void deleteSaves(List<SavedPartition> saves);
 }

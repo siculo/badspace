@@ -132,10 +132,46 @@ del software, secondo l'[architettura a livelli](/architecture/layers.md).
 Il software dedica un thread che, per esempio ogni N tick, chiama il
 salvataggio e gestisce l'esito.
 
-Il nodo offre l'elenco dei salvataggi di una partizione e
-l'eliminazione di un salvataggio. Quanti salvataggi conservare lo
-decide il software; l'elenco serve anche a ritrovarli dopo un riavvio
-del software.
+Il nodo offre meccanismi generici: l'elenco dei salvataggi, di tutti i
+nomi o di un nome, e l'eliminazione di un insieme di salvataggi. Le
+chiamate lavorano sui file della destinazione e non richiedono una
+partizione viva, così servono anche dopo un riavvio, prima di
+qualsiasi caricamento, e per i salvataggi delle partizioni rimosse.
+Il nodo non ha regole su quali salvataggi conservare: quanti e quali
+lo decide il software, che può adottare politiche diverse. Alcuni
+esempi:
+
+- **conservazione per taglio**: il software tiene i salvataggi del
+  taglio coerente, ed eventualmente di qualche taglio precedente, ed
+  elimina quelli più vecchi di tutti i nomi. Tenere gli ultimi N
+  salvataggi di ogni partizione può invece eliminare l'unico tick
+  comune, se le partizioni salvano a tick diversi o un salvataggio
+  fallisce;
+- **partizioni rimosse**: una partizione rimossa al tick R non salva
+  più, ma i suoi salvataggi servono a un recupero a un taglio prima
+  di R; si possono eliminare quando il software non tornerà più a un
+  taglio prima di R. Il nodo non può deciderlo: non sa se il software
+  ricaricherà quel nome;
+- **salvataggi corrotti**: un caricamento che fallisce per il CRC
+  porta il software a eliminare il salvataggio e a ripiegare su un
+  taglio precedente;
+- **ripartenza**: si eliminano tutti i salvataggi, o quelli di un
+  insieme di nomi, per esempio nei test o per un mondo nuovo.
+
+L'eliminazione è batch, come le altre operazioni del contratto del
+nodo, perché una politica elimina spesso molti salvataggi insieme.
+Eliminare un salvataggio che non c'è non fa niente, così due
+politiche, o due thread, possono eliminare lo stesso salvataggio.
+L'eliminazione di un tick mentre un salvataggio dello stesso tick è in
+corso non è impedita: il file può ricomparire con il rename. Funzioni
+di supporto nell'API, per esempio l'eliminazione dei salvataggi prima
+di un tick per un insieme di nomi, si aggiungono se servono.
+
+L'elenco si basa solo sui nomi dei file e delle directory: salta i
+file temporanei e quelli con un nome diverso da `<tick>.bsave`, senza
+aprire i file; un file corrotto lo trova il caricamento. Le directory
+delle partizioni restano anche senza salvataggi, perché eliminarle
+competerebbe con un salvataggio che le crea.
 
 # Destinazione
 
@@ -281,6 +317,11 @@ errore.
 
 # Punti aperti
 
+- Eliminazione dei salvataggi e durabilità osservabile: l'ultimo tick
+  persistito è il tick più alto tra i salvataggi di un nome, quindi
+  eliminare il salvataggio più recente lo fa tornare indietro, mentre
+  la migrazione conta sul fatto che non succeda. Si rivede con la
+  durabilità osservabile.
 - Salvataggio asincrono nel contratto del nodo, con il nodo gRPC e la
   durabilità osservabile.
 - Durabilità del salvataggio secondo la piattaforma. Il nodo sincronizza

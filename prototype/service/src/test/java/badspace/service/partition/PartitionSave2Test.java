@@ -158,12 +158,96 @@ class PartitionSave2Test {
     }
 
     @Test
+    void savesListsTheSavesOfAllThePartitionsByNameAndThenByTick() {
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
+        for (long tick = 1; tick <= 11; tick++) {
+            node.setTick(tick);
+        }
+        node.save(P2, 10);
+        node.save(P2, 9);
+        node.saveLatest(P1);
+        assertEquals(List.of(new SavedPartition(nameOf(P1), 10), new SavedPartition(nameOf(P2), 9),
+                new SavedPartition(nameOf(P2), 10)), node.saves());
+    }
+
+    @Test
+    void savesOfANameAreSortedByTick() {
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 20);
+        for (long tick = 1; tick <= 12; tick++) {
+            node.setTick(tick);
+        }
+        // 10 comes before 9 in the order of the file names, not in the order of the ticks.
+        node.save(P2, 10);
+        node.save(P2, 9);
+        node.save(P2, 11);
+        assertEquals(List.of(new SavedPartition(nameOf(P2), 9), new SavedPartition(nameOf(P2), 10),
+                new SavedPartition(nameOf(P2), 11)), node.saves(nameOf(P2)));
+        assertEquals(List.of(), node.saves(nameOf(P1)));
+    }
+
+    @Test
+    void savesStayForANewNodeOnTheSameDirectory() {
+        node.setTick(1);
+        SavedPartition saved = node.saveLatest(P1);
+        LocalPartitionNode2 restarted = new LocalPartitionNode2(directory);
+        assertEquals(List.of(saved), restarted.saves());
+        assertEquals(List.of(saved), restarted.saves(nameOf(P1)));
+    }
+
+    @Test
+    void savesSkipTheFilesAndDirectoriesThatAreNotSaves() throws IOException {
+        node.setTick(1);
+        SavedPartition saved = node.saveLatest(P1);
+        Path partitionDirectory = fileOf(saved).getParent();
+        for (String fileName : new String[] {"1.123.tmp", "007.bsave", "-1.bsave", "x.bsave", ".bsave",
+                "99999999999999999999.bsave", "notes.txt"}) {
+            Files.createFile(partitionDirectory.resolve(fileName));
+        }
+        Files.createDirectories(directory.resolve("partitions").resolve("Upper"));
+        Files.createFile(directory.resolve("partitions").resolve("Upper").resolve("0.bsave"));
+        assertEquals(List.of(saved), node.saves());
+        assertEquals(List.of(saved), node.saves(nameOf(P1)));
+    }
+
+    @Test
+    void deleteSavesRemovesTheFilesAndSkipsTheSavesThatAreNotThere() throws IOException {
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
+        node.setTick(1);
+        SavedPartition first = node.saveLatest(P1);
+        node.setTick(2);
+        SavedPartition second = node.saveLatest(P1);
+        SavedPartition other = node.save(P2, 1);
+        node.deleteSaves(List.of(first, other, new SavedPartition(nameOf(P2), 7), first));
+        assertEquals(List.of(second), node.saves());
+        assertEquals(List.of(fileOf(second)), filesOf(P1));
+        assertEquals(List.of(), filesOf(P2));
+    }
+
+    @Test
+    void savesOfADestroyedPartitionStayAndCanBeDeleted() {
+        node.setTick(1);
+        SavedPartition saved = node.saveLatest(P1);
+        node.dropPartition(owner(node, P1));
+        // The removal is effective at tick 2, and the partition is destroyed when its last
+        // snapshot, of tick 1, leaves the window.
+        node.setTick(2);
+        node.setTick(3);
+        assertThrows(IllegalArgumentException.class, () -> node.saveLatest(P1));
+        assertEquals(List.of(saved), node.saves());
+        node.deleteSaves(List.of(saved));
+        assertEquals(List.of(), node.saves());
+    }
+
+    @Test
     void nodeWithoutASaveDirectoryCannotSave() {
         LocalPartitionNode2 other = new LocalPartitionNode2();
         other.createPartition(P1, nameOf(P1), IndexConfig.linearScan());
         other.setTick(1);
         assertThrows(IllegalStateException.class, () -> other.saveLatest(P1));
         assertThrows(IllegalStateException.class, other::removeTemporaryFiles);
+        assertThrows(IllegalStateException.class, other::saves);
+        assertThrows(IllegalStateException.class, () -> other.saves(nameOf(P1)));
+        assertThrows(IllegalStateException.class, () -> other.deleteSaves(List.of()));
     }
 
     @Test

@@ -3,8 +3,10 @@ package badspace.api;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode3;
+import badspace.common.partition.SavedPartition;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
@@ -77,6 +79,21 @@ public final class Space3 implements Space<PartitionNode3, Partition3> {
     @Override
     public long tick() {
         return tick;
+    }
+
+    @Override
+    public List<SavedPartition> saves(PartitionNode3 node) {
+        return node.saves();
+    }
+
+    @Override
+    public List<SavedPartition> saves(PartitionNode3 node, PartitionName name) {
+        return node.saves(name);
+    }
+
+    @Override
+    public void deleteSaves(PartitionNode3 node, List<SavedPartition> saves) {
+        node.deleteSaves(saves);
     }
 
     long nextEntityId() {

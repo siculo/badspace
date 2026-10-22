@@ -2,7 +2,9 @@ package badspace.common.partition;
 
 import static badspace.common.partition.PartitionName.partitionName;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +35,14 @@ class PartitionNameTest {
         assertThrows(IllegalArgumentException.class, () -> partitionName("North"));
         for (String name : new String[] {"a/b", "a\\b", "a b", "a:b", "città", "a*"}) {
             assertThrows(IllegalArgumentException.class, () -> partitionName(name), name);
+        }
+    }
+
+    @Test
+    void isValidFollowsTheRulesOfTheConstructor() {
+        assertTrue(PartitionName.isValid("north-2_b.v1"));
+        for (String name : new String[] {"", "a".repeat(PartitionName.MAX_LENGTH + 1), ".", "..", "North", "a/b"}) {
+            assertFalse(PartitionName.isValid(name), name);
         }
     }
 

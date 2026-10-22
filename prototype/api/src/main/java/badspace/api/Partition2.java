@@ -8,6 +8,7 @@ import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.WriteToken;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -63,6 +64,11 @@ public final class Partition2 implements Partition {
     @Override
     public SavedPartition saveLatest() {
         return node.saveLatest(partitionId);
+    }
+
+    @Override
+    public List<SavedPartition> saves() {
+        return node.saves(name);
     }
 
     /**
