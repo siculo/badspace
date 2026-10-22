@@ -23,10 +23,9 @@ import badspace.common.partition.WriteToken;
 import badspace.service.partition.snapshot.MonotonicClock;
 import badspace.service.partition.snapshot.SnapshotCatalog3;
 import badspace.service.partition.snapshot.StorageSnapshot3;
+import badspace.service.persistence.NodeSaves;
 import badspace.service.persistence.PartitionCopy3;
 import badspace.service.persistence.PartitionSave3;
-import badspace.service.persistence.SaveDirectory;
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -59,7 +58,7 @@ import java.util.function.Function;
  * for the writers of the other partitions.
  * <p>
  * A node created with a save directory saves the snapshots of its partitions there, each in
- * its own file (see {@link SaveDirectory}). Saves of different partitions, and of the same
+ * its own file (see {@link NodeSaves}). Saves of different partitions, and of the same
  * partition, can run at the same time on different threads, while the writers work.
  */
 public final class LocalPartitionNode3 implements PartitionNode3 {
@@ -76,8 +75,8 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     private final MonotonicClock clock;
     // Makes the storage of each new partition.
     private final StorageFactory storageFactory;
-    // The destination of the saves, or null if the node cannot save.
-    private final SaveDirectory saveDirectory;
+    // The saves of the node in its save directory, or null if the node cannot save.
+    private final NodeSaves saves;
     // Orders setTick and createPartition: both run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
     // The tick of the node. Written by setTick while holding tickLock, read by any thread.
@@ -99,7 +98,7 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
      * @throws UncheckedIOException if the node cannot prepare the directory for the saves
      */
     public LocalPartitionNode3(Path saveDirectory) {
-        this(MonotonicClock.SYSTEM, PartitionStorage3::new, openSaveDirectory(saveDirectory));
+        this(MonotonicClock.SYSTEM, PartitionStorage3::new, new NodeSaves(saveDirectory));
     }
 
     /** Creates a node that measures the timeouts of the acquisitions with the given clock. */
@@ -116,18 +115,10 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
         this(clock, storageFactory, null);
     }
 
-    private LocalPartitionNode3(MonotonicClock clock, StorageFactory storageFactory, SaveDirectory saveDirectory) {
+    private LocalPartitionNode3(MonotonicClock clock, StorageFactory storageFactory, NodeSaves saves) {
         this.clock = clock;
         this.storageFactory = storageFactory;
-        this.saveDirectory = saveDirectory;
-    }
-
-    private static SaveDirectory openSaveDirectory(Path directory) {
-        try {
-            return new SaveDirectory(directory);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot prepare the save directory: " + directory, e);
-        }
+        this.saves = saves;
     }
 
     @Override
@@ -337,48 +328,31 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
 
     @Override
     public SavedPartition save(PartitionId partitionId, long tick) {
-        requireSaveDirectory();
+        NodeSaves saves = requireSaves();
         PartitionName name = nameOf(partitionId);
-        return write(name, copy(partitionId, tick));
+        return save(saves, name, acquire(partitionId, tick, AcquireOptions.defaultTimeout()));
     }
 
     @Override
     public SavedPartition saveLatest(PartitionId partitionId) {
-        requireSaveDirectory();
+        NodeSaves saves = requireSaves();
         PartitionName name = nameOf(partitionId);
-        return write(name, copyLatest(partitionId));
+        return save(saves, name, acquireLatest(partitionId, AcquireOptions.defaultTimeout()));
     }
 
     @Override
     public List<SavedPartition> saves() {
-        requireSaveDirectory();
-        try {
-            return saveDirectory.saves();
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot list the saves", e);
-        }
+        return requireSaves().saves();
     }
 
     @Override
     public List<SavedPartition> saves(PartitionName name) {
-        Objects.requireNonNull(name);
-        requireSaveDirectory();
-        try {
-            return saveDirectory.saves(name);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot list the saves of partition " + name.value(), e);
-        }
+        return requireSaves().saves(name);
     }
 
     @Override
     public void deleteSaves(List<SavedPartition> saves) {
-        Objects.requireNonNull(saves);
-        requireSaveDirectory();
-        try {
-            saveDirectory.delete(saves);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot delete the saves", e);
-        }
+        requireSaves().deleteSaves(saves);
     }
 
     /**
@@ -390,18 +364,14 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
      * @throws UncheckedIOException if a file cannot be removed
      */
     void removeTemporaryFiles() {
-        requireSaveDirectory();
-        try {
-            saveDirectory.removeTemporaryFiles();
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot remove the temporary files of the saves", e);
-        }
+        requireSaves().removeTemporaryFiles();
     }
 
-    private void requireSaveDirectory() {
-        if (saveDirectory == null) {
+    private NodeSaves requireSaves() {
+        if (saves == null) {
             throw new IllegalStateException("Node without a save directory: it cannot save");
         }
+        return saves;
     }
 
     /**
@@ -416,13 +386,17 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
         return name;
     }
 
-    /** Writes a copy to the save directory and returns the reference to the save. */
-    private SavedPartition write(PartitionName name, PartitionCopy3 copy) {
+    /**
+     * Saves the acquired snapshot: it copies the snapshot, releases the acquisition and writes
+     * the copy. The acquisition is released also if the save fails.
+     */
+    private SavedPartition save(NodeSaves saves, PartitionName name, Acquisition acquisition) {
         try {
-            new PartitionSave3(saveDirectory, name, copy).write();
-            return new SavedPartition(name, copy.tick());
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot save partition " + name.value() + " at tick " + copy.tick(), e);
+            return saves.save(name, acquisition.tick(),
+                    saveDirectory -> new PartitionSave3(saveDirectory, name, copyOf(acquisition)).write());
+        } finally {
+            // A second release does nothing: copyOf already released it, if it ran.
+            release(acquisition);
         }
     }
 

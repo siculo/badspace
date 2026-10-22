@@ -7,6 +7,7 @@
  * <p>
  * A save writes a copy to a binary file in the save directory of the node, through a temporary
  * file renamed when it is complete, and reads it back. {@link badspace.service.persistence.SaveFormat}
- * describes the format.
+ * describes the format. {@link badspace.service.persistence.NodeSaves} runs the saves of a node
+ * and lists and deletes them, without depending on the number of dimensions.
  */
 package badspace.service.persistence;
