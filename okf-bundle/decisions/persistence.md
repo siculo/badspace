@@ -235,6 +235,15 @@ del nodo il caricamento è una variante della creazione della
 partizione, così l'API non espone un inserimento con ID scelti dal
 chiamante.
 
+Nel prototipo il nodo legge il file del salvataggio fuori dal lock del
+proprio tick, e ricostruisce la partizione sotto quel lock, così la
+partizione nasce al tick del nodo già con il contenuto: gli avanzamenti
+del tick del nodo aspettano la ricostruzione degli indici. Lo spazio
+tiene il suo lock del tick per tutta la chiamata, come per la
+creazione, quindi i suoi avanzamenti aspettano anche la lettura del
+file. Le [misure](#misure) del tempo di caricamento dicono quanto
+costa questa attesa.
+
 Il tick segue il contesto di creazione della nuova partizione: può
 partire da zero in una nuova esecuzione del tempo logico, mentre in uno
 spazio già attivo segue il tick dello spazio. Non è necessario ripartire

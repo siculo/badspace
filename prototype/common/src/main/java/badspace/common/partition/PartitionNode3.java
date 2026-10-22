@@ -95,6 +95,24 @@ public interface PartitionNode3 {
     void createPartition(PartitionId partitionId, PartitionName name, IndexConfig index, int retainedTicks);
 
     /**
+     * Creates a partition with the content of a save of the save destination of the node: its
+     * entities, with the same IDs, positions and application metadata. The partition has the
+     * name of the save and the given ID, index and number of retained ticks, which do not come
+     * from the save. Like a new partition, it is created at the tick of the node, which is its
+     * creation tick, also if the save is of another tick, and it has no owner. The content is
+     * confirmed at the creation tick: it is in the snapshot of that tick, which readers can
+     * acquire after the next move of the tick, with no partition loaded in part before. The
+     * node rebuilds the index by inserting the entities, and loads the metadata without
+     * changing them. Fails like {@link #createPartition(PartitionId, PartitionName, IndexConfig, int)},
+     * and with IllegalArgumentException if a position of the save is outside the limits of the
+     * index; with IllegalStateException if the node has no save destination; and with
+     * UncheckedIOException if the save is not there or cannot be read, for example because it
+     * is corrupted or has another number of dimensions. In these cases no partition is created.
+     * A move of the tick of the node waits for the rebuild of the index.
+     */
+    void loadPartition(PartitionId partitionId, SavedPartition saved, IndexConfig index, int retainedTicks);
+
+    /**
      * Moves the tick of the node forward to the given tick, and then the tick of each of its
      * partitions, also of the ones marked as removed. The partitions move one after the other,
      * not all at the same moment. The same tick again does nothing, and ticks can be skipped.

@@ -219,6 +219,34 @@ class Space3EndToEndTest {
     }
 
     @Test
+    void loadedPartitionHasTheContentOfTheSaveAfterARestart(@TempDir Path directory) {
+        Partition3 partition = space.createPartition(new LocalPartitionNode3(directory), new PartitionName("north"));
+        long a = writer(partition).insert(1, 2, 0);
+        long b = writer(partition).insert(3, 4, 0);
+        writer(partition).putMetadata(a, "version", 7);
+        writer(partition).commit();
+        space.setTick(5);
+        SavedPartition saved = partition.saveLatest();
+
+        // A new run, at another tick: the loaded partition is created at the tick of the space.
+        Space3 restarted = new Space3(SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet));
+        restarted.setTick(100);
+        Partition3 loaded = restarted.loadPartition(new LocalPartitionNode3(directory),
+                PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(2)), saved);
+        assertEquals(partition.name(), loaded.name());
+        assertEquals(100, loaded.creationTick());
+        assertEquals(Ownership.INITIAL, loaded.ownership());
+        assertReason(Reason.NOT_YET_PUBLISHED, loaded::acquireLatest);
+        restarted.setTick(101);
+        try (AcquiredSnapshot3 snapshot = loaded.acquireLatest()) {
+            assertEquals(100, snapshot.tick());
+            assertEquals(Set.of(new Entity3(a, new Point3(1, 2, 0)), new Entity3(b, new Point3(3, 4, 0))),
+                    new HashSet<>(snapshot.findInRegion(ALL)));
+            assertEquals(Optional.of(Map.of("version", 7L)), snapshot.getMetadata(a));
+        }
+    }
+
+    @Test
     void nameOfAPartitionIsUniqueOnItsNode() {
         LocalPartitionNode3 node = new LocalPartitionNode3();
         Partition3 north = space.createPartition(node, new PartitionName("north"));

@@ -58,7 +58,7 @@ import java.util.function.Function;
  * for the writers of the other partitions.
  * <p>
  * A node created with a save directory saves the snapshots of its partitions there, each in
- * its own file (see {@link NodeSaves}). Saves of different partitions, and of the same
+ * its own file (see {@link NodeSaves}), and loads them into new partitions. Saves of different partitions, and of the same
  * partition, can run at the same time on different threads, while the writers work.
  */
 public final class LocalPartitionNode3 implements PartitionNode3 {
@@ -124,10 +124,35 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     @Override
     public void createPartition(PartitionId partitionId, PartitionName name, IndexConfig index, int retainedTicks) {
         Objects.requireNonNull(name);
+        checkRetainedTicks(retainedTicks);
+        create(partitionId, name, index, retainedTicks, null);
+    }
+
+    @Override
+    public void loadPartition(PartitionId partitionId, SavedPartition saved, IndexConfig index, int retainedTicks) {
+        Objects.requireNonNull(saved);
+        checkRetainedTicks(retainedTicks);
+        NodeSaves saves = requireSaves();
+        // Outside the lock of the node: reading the file does not stop the moves of the tick.
+        PartitionCopy3 content = saves.read(saved, file -> PartitionSave3.read(file, saved.name()));
+        create(partitionId, saved.name(), index, retainedTicks, content);
+    }
+
+    private static void checkRetainedTicks(int retainedTicks) {
         if (retainedTicks < RetentionWindow.MIN_RETAINED_TICKS) {
             throw new IllegalArgumentException("Number of retained ticks is less than "
                     + RetentionWindow.MIN_RETAINED_TICKS + ": " + retainedTicks);
         }
+    }
+
+    /**
+     * Creates a partition at the tick of the node, with the given content, or empty if content
+     * is null. The load of the content rebuilds the index while holding tickLock: the
+     * partition is created at the tick of the node, and with its content, before the next move
+     * of the tick, so the moves of the tick wait for it.
+     */
+    private void create(PartitionId partitionId, PartitionName name, IndexConfig index, int retainedTicks,
+            PartitionCopy3 content) {
         tickLock.lock();
         try {
             // A removed partition keeps its ID and its name until it is destroyed, so this also
@@ -139,6 +164,9 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
                 throw new IllegalArgumentException("Partition name already in use: " + name.value());
             }
             PartitionStorage3 storage = storageFactory.create(index, retainedTicks, clock, tick);
+            if (content != null) {
+                storage.load(content);
+            }
             names.put(partitionId, name);
             partitions.put(partitionId, storage);
         } finally {

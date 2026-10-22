@@ -36,6 +36,23 @@ public interface Space<N, P extends Partition> {
     P createPartition(N node, PartitionName name, PartitionConfig config);
 
     /**
+     * Creates a partition on the given node with the content of a save of that node: its
+     * entities, with the same IDs, positions and application metadata. The partition has the
+     * name of the save and a new ID; the index and the retention window come from the given
+     * configuration, not from the save. Like {@link #createPartition(Object, PartitionName,
+     * PartitionConfig)}, the partition is created at the tick of the space, also if the save is
+     * of another tick, and has no owner. The content is confirmed at the creation tick: readers
+     * acquire it after the next move of the tick, and never see a partition loaded in part. The
+     * application metadata are loaded as they are: if they hold ticks or timeouts, the software
+     * updates them. A move of the tick of the space waits for the load to end. Fails like
+     * {@code createPartition}, and with IllegalArgumentException if a position of the save is
+     * outside the limits of the index; with IllegalStateException if the node has no save
+     * destination; and with UncheckedIOException if the save is not there or cannot be read, for
+     * example because it is corrupted. In these cases no partition is created.
+     */
+    P loadPartition(N node, PartitionConfig config, SavedPartition saved);
+
+    /**
      * Moves the tick of the space forward to the given tick, and then the tick of each node on
      * which the space created partitions; each node moves its partitions. The partitions move
      * one after the other, not all at the same moment. The same tick again does nothing, and

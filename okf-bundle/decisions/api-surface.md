@@ -466,11 +466,35 @@ stessa forma, senza il nodo.
 | Nodo senza destinazione dei salvataggi | `IllegalStateException` |
 | Errore nella lettura della directory o nell'eliminazione | `UncheckedIOException`; con l'eliminazione, i salvataggi prima di quello che fallisce sono già eliminati |
 
+### Caricamento
+
+Il caricamento crea una partizione, come la creazione, quindi è
+sull'interfaccia comune `Space`, con il nodo come parametro. La
+semantica è nel [caricamento](/decisions/persistence.md#caricamento).
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Caricamento | `loadPartition(node, PartitionConfig, saved)` | Crea sul nodo una partizione con il contenuto del salvataggio `saved` (`SavedPartition`), il nome del salvataggio e un ID nuovo, al tick dello spazio e senza proprietario; indice e finestra vengono dalla configurazione |
+
+Nel contratto del nodo la chiamata è `loadPartition(partitionId, saved,
+index, retainedTicks)`, accanto a `createPartition`, con l'ID generato
+dall'API come per la creazione. Il nodo legge il salvataggio dalla sua
+destinazione.
+
+| Errore | Eccezione |
+|---|---|
+| Nome o ID già in uso sul nodo, finestra minore di 1 | `IllegalArgumentException`, come la creazione |
+| Posizione del salvataggio fuori dai limiti dell'indice scelto | `IllegalArgumentException` |
+| Nodo senza destinazione dei salvataggi | `IllegalStateException` |
+| Salvataggio assente, corrotto o con un altro numero di dimensioni | `UncheckedIOException` |
+
+In tutti i casi di errore la partizione non viene creata.
+
 ## Differenze nel codice attuale
 
 Nessuna: il codice segue la forma descritta sopra per tick, commit,
 proprietà e handle del writer, letture, nomi delle partizioni,
-salvataggi e rimozione delle partizioni.
+salvataggi, caricamento e rimozione delle partizioni.
 
 ## Contratto del nodo
 

@@ -13,8 +13,8 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * The saves of a node in its {@link SaveDirectory}: it runs the saves and lists, deletes and
- * cleans up the files. It does not depend on the number of dimensions: the node gives the part
+ * The saves of a node in its {@link SaveDirectory}: it runs the saves, reads them and lists,
+ * deletes and cleans up the files. It does not depend on the number of dimensions: the node gives the part
  * of a save that does, the copy of the snapshot and its write, as a {@link SnapshotWriter}. The
  * errors of the file system become UncheckedIOException, with a message that says what failed.
  * <p>
@@ -124,6 +124,23 @@ public final class NodeSaves {
         }
     }
 
+    /**
+     * Reads a save with the reader and returns its content. A save of the same snapshot in
+     * progress at the same time does not change the result: the file is replaced by a rename,
+     * with the same content. Fails with UncheckedIOException if the save is not there or the
+     * reader cannot read it, for example because it is corrupted.
+     */
+    public <T> T read(SavedPartition saved, SaveReader<T> reader) {
+        Objects.requireNonNull(saved);
+        Objects.requireNonNull(reader);
+        try {
+            return reader.read(saveDirectory.saveFile(saved.name(), saved.tick()));
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot read the save of partition " + saved.name().value()
+                    + " at tick " + saved.tick(), e);
+        }
+    }
+
     /** Returns the saves of all the partitions, sorted by name and then by tick. */
     public List<SavedPartition> saves() {
         try {
@@ -176,6 +193,16 @@ public final class NodeSaves {
     public interface SnapshotWriter {
 
         void write(SaveDirectory saveDirectory) throws IOException;
+    }
+
+    /**
+     * The part of the read of a save that depends on the number of dimensions: it reads the
+     * file of the save, for example with {@link PartitionSave2#read}.
+     */
+    @FunctionalInterface
+    public interface SaveReader<T> {
+
+        T read(Path file) throws IOException;
     }
 
     /** A save in progress, with its result once it is finished. Read and written while holding lock. */

@@ -69,6 +69,20 @@ class Space2Test {
     }
 
     @Test
+    void loadPassesTheSaveTheGeneratedIdAndTheConfigurationAndKeepsTheNameOfTheSave() {
+        space.setTick(5);
+        PartitionConfig chosen = PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)).withRetainedTicks(3);
+        SavedPartition saved = new SavedPartition(new PartitionName("north"), 2);
+        Partition2 partition = space.loadPartition(node, chosen, saved);
+        assertEquals(new PartitionName("north"), partition.name());
+        assertEquals(chosen, partition.config());
+        var order = inOrder(node);
+        order.verify(node).setTick(5);
+        order.verify(node).loadPartition(PARTITION_ID, saved, chosen.index(), 3);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
     void nameIsPassedToTheNodeAndKeptByThePartition() {
         Partition2 partition = space.createPartition(node, new PartitionName("north"));
         assertEquals(new PartitionName("north"), partition.name());

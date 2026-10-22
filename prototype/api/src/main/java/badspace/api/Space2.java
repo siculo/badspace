@@ -47,17 +47,39 @@ public final class Space2 implements Space<PartitionNode2, Partition2> {
         Objects.requireNonNull(config);
         tickLock.lock();
         try {
-            if (!nodes.contains(node)) {
-                // A new node starts at tick 0, or at a tick the space gave it before.
-                node.setTick(tick);
-                nodes.add(node);
-            }
-            PartitionId id = new PartitionId(this.config.partitionIds().nextId());
+            PartitionId id = newPartitionId(node);
             node.createPartition(id, name, config.index(), config.retainedTicks());
             return new Partition2(this, node, id, name, config);
         } finally {
             tickLock.unlock();
         }
+    }
+
+    @Override
+    public Partition2 loadPartition(PartitionNode2 node, PartitionConfig config, SavedPartition saved) {
+        Objects.requireNonNull(config);
+        Objects.requireNonNull(saved);
+        tickLock.lock();
+        try {
+            PartitionId id = newPartitionId(node);
+            node.loadPartition(id, saved, config.index(), config.retainedTicks());
+            return new Partition2(this, node, id, saved.name(), config);
+        } finally {
+            tickLock.unlock();
+        }
+    }
+
+    /**
+     * Returns the ID of a new partition on the node, after moving the node to the tick of the
+     * space if the space has no partition on it yet. The caller holds tickLock.
+     */
+    private PartitionId newPartitionId(PartitionNode2 node) {
+        if (!nodes.contains(node)) {
+            // A new node starts at tick 0, or at a tick the space gave it before.
+            node.setTick(tick);
+            nodes.add(node);
+        }
+        return new PartitionId(config.partitionIds().nextId());
     }
 
     @Override
