@@ -38,9 +38,12 @@ public interface Space<N, P extends Partition> {
     /**
      * Creates a partition with the content of a save: the same entity IDs, positions and
      * application metadata. Like {@link #createPartition(Object, PartitionName, PartitionConfig)},
-     * the partition is created at the tick of the space and has no owner. Readers acquire the
-     * content after the next move of the tick; a move of the tick waits for the load. The
-     * metadata are loaded as they are: the software updates the ones that hold ticks.
+     * the partition is created at the tick of the space and has no owner. The load commits the
+     * content at the creation tick, so the software does not commit it: readers acquire it after
+     * the next move of the tick. To change the content before the readers see it, the writer
+     * claims the partition, writes and commits in the same tick: its commit replaces the one of
+     * the load. A move of the tick waits for the load. The metadata are loaded as they are: the
+     * software updates the ones that hold ticks.
      *
      * @param node the node that creates the partition and has the save in its save destination
      * @param config the index and the retention window of the partition; they do not come from

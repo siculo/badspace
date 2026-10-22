@@ -111,8 +111,9 @@ public interface PartitionNode2 {
     /**
      * Creates a partition with the content of a save: the same entity IDs, positions and
      * application metadata. Like a new partition, it is created at the tick of the node and has
-     * no owner. The content is confirmed at the creation tick, so readers acquire it after the
-     * next move of the tick. The node rebuilds the index by inserting the entities; a move of
+     * no owner. The load commits the content at the creation tick, so readers acquire it after
+     * the next move of the tick, with no commit of the writer; a commit of the writer in the same
+     * tick replaces the one of the load. The node rebuilds the index by inserting the entities; a move of
      * the tick of the node waits for it. If the load fails, no partition is created.
      *
      * @param partitionId the ID of the new partition
