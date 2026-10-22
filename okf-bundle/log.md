@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-22
+* **Edit**: Riportato il registro dei salvataggi in corso fatto nel prototipo. [Persistenza](/decisions/persistence.md#chiamate): un salvataggio di uno snapshot che un altro thread sta già salvando rilascia la sua acquisizione, aspetta l'altro e ne restituisce il riferimento, o fallisce se l'altro fallisce; niente copie inutili né rename contemporanei sullo stesso file, che su Windows falliscono. [API da esporre](/decisions/api-surface.md#salvataggio): errore del salvataggio aspettato.
 * **Edit**: Riportati l'elenco e l'eliminazione dei salvataggi fatti nel prototipo, come meccanismi generici. [Persistenza](/decisions/persistence.md#periodicità-e-conservazione): `saves()`, `saves(name)` e `deleteSaves(saves)` batch nel nodo, sui file della destinazione e senza una partizione viva; nessuna regola di conservazione nel nodo, con esempi di politiche del software (conservazione per taglio, partizioni rimosse, salvataggi corrotti, ripartenza); eliminazione di un salvataggio assente senza effetto; elenco basato sui nomi dei file; directory delle partizioni conservate. Nuovo [punto aperto](/decisions/persistence.md#punti-aperti): eliminazione del salvataggio più recente e durabilità osservabile. [API da esporre](/decisions/api-surface.md#salvataggio): `saves(node)`, `saves(node, name)` e `deleteSaves(node, saves)` su `Space`, `saves()` su `Partition`, con gli errori. Allineato il TODO.
 
 ## 2026-10-21

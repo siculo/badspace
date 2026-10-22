@@ -305,7 +305,10 @@ public interface PartitionNode3 {
      * if the snapshot is not available, and then writes nothing; fails with
      * IllegalStateException if the node has no save destination, and with
      * UncheckedIOException if the save cannot be written: the saves already there do not
-     * change. Any thread can call it, also at the same time as other saves.
+     * change. Any thread can call it, also at the same time as other saves. A save of a
+     * snapshot that another thread is saving does not copy it again: it releases its
+     * acquisition, waits for that save and returns the same reference, or fails with
+     * UncheckedIOException if that save fails.
      */
     SavedPartition save(PartitionId partitionId, long tick);
 

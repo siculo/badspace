@@ -444,6 +444,7 @@ finestra; i salvataggi restano dopo la distruzione della partizione.
 | Nodo senza destinazione dei salvataggi | `IllegalStateException` |
 | Partizione distrutta o mai esistita | Errore generico, come per l'acquisizione |
 | Errore nella scrittura del file | `UncheckedIOException`; i salvataggi già presenti non cambiano. Un'eccezione dedicata si valuta con il nodo gRPC |
+| Fallimento di un salvataggio contemporaneo dello stesso snapshot, di cui si aspettava la fine | `UncheckedIOException` |
 
 L'elenco e l'eliminazione dei salvataggi non richiedono una partizione
 viva (vedi [periodicità e

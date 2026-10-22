@@ -71,7 +71,9 @@ public interface Partition {
      * window. The call is synchronous: it returns when the save is complete, and it blocks
      * only the calling thread, while the writer and the readers continue. The node acquires
      * and copies the snapshot itself, so the call has no timeout options. A save of a tick
-     * already saved replaces it with the same content.
+     * already saved replaces it with the same content; a save of a snapshot that another
+     * thread is saving waits for that save and returns the same reference, or fails if that
+     * save fails.
      * <p>
      * Fails with IllegalArgumentException if tick is negative; with
      * SnapshotNotAvailableException, with the reason, if the snapshot is not acquirable, and

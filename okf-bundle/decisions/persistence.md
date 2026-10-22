@@ -77,9 +77,16 @@ osservabile](/architecture/observable-durability.md), dove serve sapere
 quando un salvataggio è finito senza aspettarlo. La forma più probabile
 è avviare il salvataggio e poi interrogarne lo stato.
 
-Due salvataggi dello stesso tick di una partizione, anche
-contemporanei, producono lo stesso file e lo stesso riferimento: la
-scrittura atomica lascia comunque un file valido.
+Due salvataggi dello stesso tick di una partizione producono lo stesso
+file e lo stesso riferimento. Il nodo tiene traccia dei salvataggi in
+corso: un salvataggio di uno snapshot che un altro thread sta già
+salvando non lo copia e non lo scrive di nuovo, ma rilascia la sua
+acquisizione, aspetta l'altro salvataggio e ne restituisce il
+riferimento, o fallisce se l'altro fallisce, perché non ha più lo
+snapshot per ripetere la copia. Così si evita una copia inutile e due
+rename contemporanei sullo stesso file, che su alcune piattaforme
+(Windows) falliscono. Il registro dei salvataggi in corso è
+indipendente dal numero di dimensioni, come l'elenco e l'eliminazione.
 
 ## Formato
 

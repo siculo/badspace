@@ -388,14 +388,16 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     /**
      * Saves the acquired snapshot: it copies the snapshot, releases the acquisition and writes
-     * the copy. The acquisition is released also if the save fails.
+     * the copy. If another thread is saving the same snapshot, it releases the acquisition and
+     * waits for that save. The acquisition is released also if the save fails.
      */
     private SavedPartition save(NodeSaves saves, PartitionName name, Acquisition acquisition) {
         try {
-            return saves.save(name, acquisition.tick(),
+            return saves.save(name, acquisition.tick(), () -> release(acquisition),
                     saveDirectory -> new PartitionSave2(saveDirectory, name, copyOf(acquisition)).write());
         } finally {
-            // A second release does nothing: copyOf already released it, if it ran.
+            // A second release does nothing: copyOf, or the wait for another save of the same
+            // snapshot, already released it, if it ran.
             release(acquisition);
         }
     }
