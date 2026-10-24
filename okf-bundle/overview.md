@@ -4,7 +4,7 @@ title: Panoramica di BADSPACE
 description: Panoramica di BADSPACE, un framework con cui gli sviluppatori costruiscono lo strato di gestione di una base dati real-time per entità in uno spazio 2D o 3D del proprio software, e delle sue decisioni architetturali principali.
 tags: [badspace, design]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-18T09:35:42Z }
+generated: { by: codex/gpt-6, at: 2026-10-19T14:17:50Z }
 ---
 
 # Cos'è BADSPACE
@@ -83,8 +83,10 @@ partizione: quasi tutte le altre decisioni ne discendono.
 - [API da esporre](/decisions/api-surface.md) — operazioni di base
   individuate, forma da definire.
 - [Persistenza](/decisions/persistence.md) — snapshot per partizione;
-  il meccanismo si implementa nel prototipo, la strategia di dettaglio
-  è aperta.
+  nel prototipo si salva una copia autonoma dei dati e si carica il
+  contenuto in una nuova partizione, misurandone i costi. Durabilità
+  osservabile e recupero coerente dei nodi sono rimandati; formato e
+  destinazione restano aperti.
 
 # Architettura
 

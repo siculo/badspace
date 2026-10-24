@@ -7,8 +7,10 @@ import badspace.common.partition.Entity3;
 import badspace.service.index.IndexSnapshot3;
 import badspace.service.partition.metadata.MetadataSnapshot;
 import badspace.service.partition.slots.SlotSnapshot3;
+import badspace.service.persistence.PartitionCopy3;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A 3D partition at a commit: the slots, the index and the metadata of the same commit. The
@@ -22,6 +24,8 @@ import java.util.List;
  * use, an acquisition or an admitted query.
  */
 public final class StorageSnapshot3 {
+
+    private static final int DIMENSIONS = 3;
 
     private final SlotSnapshot3 slots;
     private final IndexSnapshot3 index;
@@ -92,6 +96,29 @@ public final class StorageSnapshot3 {
             }
         }
         return result;
+    }
+
+    /**
+     * Returns an autonomous copy of the content of the snapshot at the given tick: the IDs,
+     * the positions and the application metadata of all its entities. The copy owns its data
+     * and does not depend on the snapshot any more. The caller must hold a use of the snapshot
+     * while it calls this.
+     */
+    public PartitionCopy3 copy(long tick) {
+        int count = slots.size();
+        long[] entityIds = new long[count];
+        double[] coords = new double[DIMENSIONS * count];
+        List<Map<String, Long>> metadataByEntity = new ArrayList<>(count);
+        for (int slot = 0; slot < count; slot++) {
+            long id = slots.idAt(slot);
+            entityIds[slot] = id;
+            Point3 position = slots.positionAt(slot);
+            coords[DIMENSIONS * slot] = position.x();
+            coords[DIMENSIONS * slot + 1] = position.y();
+            coords[DIMENSIONS * slot + 2] = position.z();
+            metadataByEntity.add(metadata.metadataOf(id).values());
+        }
+        return new PartitionCopy3(tick, entityIds, coords, metadataByEntity);
     }
 
     public List<Entity3> findInRegion(Region3 region) {

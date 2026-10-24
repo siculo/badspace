@@ -1,7 +1,5 @@
 package badspace.common.partition;
 
-import java.util.Objects;
-
 /**
  * A condition on one key of the application metadata of an entity, for a conditional write:
  * the key has a given value, or the key has no value. The conditions are checked on the state
@@ -28,18 +26,24 @@ public sealed interface MetadataCondition permits MetadataCondition.ValueIs, Met
     /** True if the key of the entity has the value. */
     record ValueIs(long entityId, String key, long value) implements MetadataCondition {
 
-        /** Fails with NullPointerException if key is null. */
+        /**
+         * Fails with NullPointerException if key is null, and with IllegalArgumentException if it
+         * is not a valid key (see {@link ApplicationMetadata#checkKey}).
+         */
         public ValueIs {
-            Objects.requireNonNull(key);
+            ApplicationMetadata.checkKey(key);
         }
     }
 
     /** True if the key of the entity has no value. */
     record Absent(long entityId, String key) implements MetadataCondition {
 
-        /** Fails with NullPointerException if key is null. */
+        /**
+         * Fails with NullPointerException if key is null, and with IllegalArgumentException if it
+         * is not a valid key (see {@link ApplicationMetadata#checkKey}).
+         */
         public Absent {
-            Objects.requireNonNull(key);
+            ApplicationMetadata.checkKey(key);
         }
     }
 }

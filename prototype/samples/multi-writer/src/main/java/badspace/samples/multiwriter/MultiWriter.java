@@ -1,5 +1,7 @@
 package badspace.samples.multiwriter;
 
+import static badspace.common.partition.PartitionName.partitionName;
+
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
@@ -42,7 +44,7 @@ public final class MultiWriter {
         PartitionConfig config = PartitionConfig.defaults().withIndex(IndexConfig.gridQuadtree(64));
         List<Partition2> partitions = new ArrayList<>();
         for (int i = 0; i < PARTITIONS; i++) {
-            partitions.add(space.createPartition(node, config));
+            partitions.add(space.createPartition(node, partitionName("region-" + i), config));
         }
 
         // The barrier action runs on the thread of the last writer that arrives, when all the

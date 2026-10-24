@@ -8,8 +8,10 @@ import java.lang.ref.Reference;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.openjdk.jmh.util.Version;
@@ -43,62 +45,76 @@ final class Footprint {
             return samples[samples.length / 2];
         }
 
-        /**
-         * Returns the result with all the fields of a JMH result. Tools that
-         * read JMH results, like the online JMH Visualizer, expect all of them.
-         */
+        /** Returns the result in the format of the JMH results, see {@link Footprint#toJson}. */
         String toJson() {
-            String percentiles = Stream.of("0.0", "50.0", "90.0", "95.0", "99.0", "99.9", "99.99", "99.999", "99.9999", "100.0")
-                    .map(p -> String.format(Locale.ROOT, "\"%s\" : %s", p, number(percentile(Double.parseDouble(p)))))
-                    .collect(Collectors.joining(", "));
-            String rawData = Arrays.stream(samples).mapToObj(Footprint::number).collect(Collectors.joining(", "));
-            return String.format(Locale.ROOT, """
-                    {
-                        "jmhVersion" : "%s",
-                        "benchmark" : "%s",
-                        "mode" : "footprint",
-                        "threads" : 1,
-                        "forks" : 0,
-                        "jvm" : "%s",
-                        "jvmArgs" : [],
-                        "jdkVersion" : "%s",
-                        "vmName" : "%s",
-                        "vmVersion" : "%s",
-                        "warmupIterations" : 0,
-                        "warmupTime" : "single-shot",
-                        "warmupBatchSize" : 1,
-                        "measurementIterations" : %d,
-                        "measurementTime" : "single-shot",
-                        "measurementBatchSize" : 1,
-                        "params" : {
-                            "index" : "%s",
-                            "distribution" : "%s",
-                            "size" : "%d"
-                        },
-                        "primaryMetric" : {
-                            "score" : %s,
-                            "scoreError" : "NaN",
-                            "scoreConfidence" : [%s, %s],
-                            "scorePercentiles" : {%s},
-                            "scoreUnit" : "B/entity",
-                            "rawData" : [[%s]]
-                        },
-                        "secondaryMetrics" : {}
-                    }""",
-                    Version.getPlainVersion(), BENCHMARK,
-                    json(Path.of(System.getProperty("java.home"), "bin", "java").toString()),
-                    json(System.getProperty("java.version")), json(System.getProperty("java.vm.name")),
-                    json(System.getProperty("java.vm.version")), samples.length,
-                    index, distribution, size,
-                    number(bytesPerEntity()), number(samples[0]), number(samples[samples.length - 1]),
-                    percentiles, rawData);
+            Map<String, String> params = new LinkedHashMap<>();
+            params.put("index", index);
+            params.put("distribution", distribution.name());
+            params.put("size", Integer.toString(size));
+            return Footprint.toJson(BENCHMARK, params, "B/entity", bytesPerEntity(), samples);
         }
+    }
 
-        /** Returns the sample at the percentile, with the nearest-rank method. */
-        private double percentile(double p) {
-            int rank = (int) Math.ceil(p / 100 * samples.length);
-            return samples[Math.clamp(rank - 1, 0, samples.length - 1)];
-        }
+    /**
+     * Returns a measure that JMH does not make, with all the fields of a JMH result, in
+     * the mode {@code footprint}. Tools that read JMH results, like the online JMH
+     * Visualizer, expect all of them. The confidence interval goes from the lowest to the
+     * highest sample, and the percentiles come from the samples.
+     *
+     * @param samples the samples of the measure, sorted
+     */
+    static String toJson(String benchmark, Map<String, String> params, String unit, double score, double[] samples) {
+        String percentiles = Stream.of("0.0", "50.0", "90.0", "95.0", "99.0", "99.9", "99.99", "99.999", "99.9999", "100.0")
+                .map(p -> String.format(Locale.ROOT, "\"%s\" : %s", p, number(percentile(samples, Double.parseDouble(p)))))
+                .collect(Collectors.joining(", "));
+        String rawData = Arrays.stream(samples).mapToObj(Footprint::number).collect(Collectors.joining(", "));
+        String paramsJson = params.entrySet().stream()
+                .map(e -> String.format(Locale.ROOT, "        \"%s\" : \"%s\"", json(e.getKey()), json(e.getValue())))
+                .collect(Collectors.joining(",\n"));
+        return String.format(Locale.ROOT, """
+                {
+                    "jmhVersion" : "%s",
+                    "benchmark" : "%s",
+                    "mode" : "footprint",
+                    "threads" : 1,
+                    "forks" : 0,
+                    "jvm" : "%s",
+                    "jvmArgs" : [],
+                    "jdkVersion" : "%s",
+                    "vmName" : "%s",
+                    "vmVersion" : "%s",
+                    "warmupIterations" : 0,
+                    "warmupTime" : "single-shot",
+                    "warmupBatchSize" : 1,
+                    "measurementIterations" : %d,
+                    "measurementTime" : "single-shot",
+                    "measurementBatchSize" : 1,
+                    "params" : {
+                %s
+                    },
+                    "primaryMetric" : {
+                        "score" : %s,
+                        "scoreError" : "NaN",
+                        "scoreConfidence" : [%s, %s],
+                        "scorePercentiles" : {%s},
+                        "scoreUnit" : "%s",
+                        "rawData" : [[%s]]
+                    },
+                    "secondaryMetrics" : {}
+                }""",
+                Version.getPlainVersion(), json(benchmark),
+                json(Path.of(System.getProperty("java.home"), "bin", "java").toString()),
+                json(System.getProperty("java.version")), json(System.getProperty("java.vm.name")),
+                json(System.getProperty("java.vm.version")), samples.length,
+                paramsJson,
+                number(score), number(samples[0]), number(samples[samples.length - 1]),
+                percentiles, json(unit), rawData);
+    }
+
+    /** Returns the sample at the percentile, with the nearest-rank method. */
+    private static double percentile(double[] samples, double p) {
+        int rank = (int) Math.ceil(p / 100 * samples.length);
+        return samples[Math.clamp(rank - 1, 0, samples.length - 1)];
     }
 
     static List<Result> measure(List<String> indices, List<Distribution> distributions, List<Integer> sizes) {
@@ -123,7 +139,7 @@ final class Footprint {
         for (int r = 0; r < REPEAT; r++) {
             long before = usedHeap();
             PartitionNode2 node = new LocalPartitionNode2();
-            node.createPartition(WorkloadState.PARTITION_ID, IndexNames.parse(index));
+            node.createPartition(WorkloadState.PARTITION_ID, WorkloadState.PARTITION_NAME, IndexNames.parse(index));
             node.claim(WorkloadState.PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
             node.insertAll(WorkloadState.WRITE_TOKEN, workload.entities());
             long after = usedHeap();
@@ -143,7 +159,8 @@ final class Footprint {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
-    private static long usedHeap() {
+    /** Returns the heap in use after some garbage collections, so it has almost only live objects. */
+    static long usedHeap() {
         for (int i = 0; i < 3; i++) {
             System.gc();
         }

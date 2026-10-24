@@ -172,7 +172,7 @@ altre impostazioni dello spazio.
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Creazione | `createPartition(node)`, `createPartition(node, PartitionConfig)` | Crea una partizione vuota sul [nodo](/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio, al tick corrente: `creationTick()` della partizione; senza configurazione vale quella di default |
+| Creazione | `createPartition(node, name)`, `createPartition(node, name, PartitionConfig)` | Crea una partizione vuota con il [nome](/decisions/entity-ids.md#nome-della-partizione) scelto dal software sul [nodo](/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio, al tick corrente: `creationTick()` della partizione; senza configurazione vale quella di default. La partizione restituisce il nome con `name()` |
 | Rimozione | `removePartition()` sull'handle del writer | Ultima operazione del writer, con il token corrente (vedi [Rimozione della partizione](/architecture/partition-removal.md)) |
 
 La **configurazione della partizione** (`PartitionConfig`) si sceglie
@@ -216,12 +216,15 @@ conosce il nodo, e gli passano le chiamate.
 | Stato confermato non vuoto con `REQUIRE_EMPTY` (la partizione non cambia), o rimozione già chiesta | `IllegalStateException` |
 | Scrittura o commit dopo la rimozione | `IllegalStateException` |
 | k minore di 1 nella configurazione | `IllegalArgumentException` |
+| Nome che non rispetta le regole, o ancora presente sul nodo | `IllegalArgumentException` |
 
-Nel contratto del nodo la creazione riceve l'ID della partizione, la
-configurazione dell'indice (`IndexConfig`, scansione lineare se manca)
+Nel contratto del nodo la creazione riceve l'ID della partizione, il
+suo nome, la configurazione dell'indice (`IndexConfig`, scansione lineare se manca)
 e k (1 se manca), e crea la partizione al tick corrente del nodo;
-fallisce con `IllegalArgumentException` se k è minore di 1 o se l'ID è
-ancora presente sul nodo, anche con la partizione ritirata. La
+fallisce con `IllegalArgumentException` se k è minore di 1 o se l'ID o
+il nome sono ancora presenti sul nodo, anche con la partizione
+ritirata. Il nome il nodo lo usa solo per la persistenza; tutte le
+altre operazioni del contratto usano l'ID. La
 rimozione ha due operazioni, una per le partizioni con lo stato
 confermato vuoto e una che scarta anche le entità. Dopo la distruzione
 l'ID è sconosciuto, e le operazioni falliscono con un errore generico,
@@ -413,10 +416,85 @@ Scelte di dettaglio:
   e le acquisizioni già fatte restano leggibili; il nodo trova la
   partizione per ID fino alla distruzione, e l'ID non torna mai.
 
+### Salvataggio
+
+La semantica è nella [persistenza](/decisions/persistence.md#chiamate).
+Le chiamate sono nell'interfaccia comune `Partition`, perché non
+dipendono dal numero di dimensioni, e nel contratto del nodo, con l'ID
+della partizione.
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Al tick | `save(long tick)` | Salva `S(tick)`, con la stessa finestra di `acquire(tick)` |
+| Ultimo | `saveLatest()` | Salva `S(T − 1)`, come `acquireLatest()` |
+
+Le chiamate sono sincrone: ritornano a scrittura finita, con il
+riferimento al salvataggio, il record `SavedPartition` in `common`
+(nome della partizione e tick). Il riferimento non contiene il file: dove
+e come il nodo scrive è un suo dettaglio. Non ci sono opzioni di
+scadenza: il nodo acquisisce con la scadenza di default e la copia,
+come ogni query ammessa, finisce anche dopo la scadenza. Si salva anche
+una partizione in rimozione o ritirata, finché il tick è nella
+finestra; i salvataggi restano dopo la distruzione della partizione.
+
+| Errore | Eccezione |
+|---|---|
+| Snapshot non acquisibile | `SnapshotNotAvailableException`, come l'acquisizione corrispondente; nessun file scritto |
+| Tick negativo | `IllegalArgumentException` |
+| Nodo senza destinazione dei salvataggi | `IllegalStateException` |
+| Partizione distrutta o mai esistita | Errore generico, come per l'acquisizione |
+| Errore nella scrittura del file | `UncheckedIOException`; i salvataggi già presenti non cambiano. Un'eccezione dedicata si valuta con il nodo gRPC |
+| Fallimento di un salvataggio contemporaneo dello stesso snapshot, di cui si aspettava la fine | `UncheckedIOException` |
+
+L'elenco e l'eliminazione dei salvataggi non richiedono una partizione
+viva (vedi [periodicità e
+conservazione](/decisions/persistence.md#periodicità-e-conservazione)),
+quindi sono sull'interfaccia comune `Space`, con il nodo come
+parametro; lo spazio delega al nodo anche se non ci ha ancora creato
+partizioni, come dopo un riavvio. Nel contratto del nodo hanno la
+stessa forma, senza il nodo.
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Elenco | `saves(node)` | Tutti i salvataggi della destinazione del nodo, per nome e poi per tick crescente |
+| Elenco di un nome | `saves(node, name)` | I salvataggi di un nome, per tick crescente; vuoto se non ce ne sono |
+| Elenco della partizione | `saves()` su `Partition` | Come `saves(node, name())` |
+| Eliminazione | `deleteSaves(node, saved)` | Batch, con una lista di `SavedPartition`; un salvataggio che non c'è viene saltato |
+
+| Errore | Eccezione |
+|---|---|
+| Nodo senza destinazione dei salvataggi | `IllegalStateException` |
+| Errore nella lettura della directory o nell'eliminazione | `UncheckedIOException`; con l'eliminazione, i salvataggi prima di quello che fallisce sono già eliminati |
+
+### Caricamento
+
+Il caricamento crea una partizione, come la creazione, quindi è
+sull'interfaccia comune `Space`, con il nodo come parametro. La
+semantica è nel [caricamento](/decisions/persistence.md#caricamento).
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Caricamento | `loadPartition(node, PartitionConfig, saved)` | Crea sul nodo una partizione con il contenuto del salvataggio `saved` (`SavedPartition`), il nome del salvataggio e un ID nuovo, senza proprietario; il tick di creazione è quello del nodo alla fine del caricamento, che non ferma l'avanzamento del tick; indice e finestra vengono dalla configurazione |
+
+Nel contratto del nodo la chiamata è `loadPartition(partitionId, saved,
+index, retainedTicks)`, accanto a `createPartition`, con l'ID generato
+dall'API come per la creazione. Il nodo legge il salvataggio dalla sua
+destinazione.
+
+| Errore | Eccezione |
+|---|---|
+| Nome o ID già in uso sul nodo, finestra minore di 1 | `IllegalArgumentException`, come la creazione |
+| Posizione del salvataggio fuori dai limiti dell'indice scelto | `IllegalArgumentException` |
+| Nodo senza destinazione dei salvataggi | `IllegalStateException` |
+| Salvataggio assente, corrotto o con un altro numero di dimensioni | `UncheckedIOException` |
+
+In tutti i casi di errore la partizione non viene creata.
+
 ## Differenze nel codice attuale
 
 Nessuna: il codice segue la forma descritta sopra per tick, commit,
-proprietà e handle del writer, letture e rimozione delle partizioni.
+proprietà e handle del writer, letture, nomi delle partizioni,
+salvataggi, caricamento e rimozione delle partizioni.
 
 ## Contratto del nodo
 

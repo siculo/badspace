@@ -21,7 +21,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Metadati delle entità](okf-bundle/architecture/entity-metadata.md), [Architettura minima](okf-bundle/architecture/minimal-core.md).
 
-- [ ] **Persistenza:** snapshot per partizione, durabilità osservabile e copia di uno snapshot oltre la scadenza delle acquisizioni. → [cose da fare](#fare-persistenza) · [decisioni](#decisioni-persistenza)
+- [ ] **Persistenza:** salvataggio periodico e caricamento del contenuto di una singola partizione, da una copia autonoma dello snapshot; misure dei costi. → [cose da fare](#fare-persistenza) · [decisioni](#decisioni-persistenza)
 
   Documenti: [Persistenza](okf-bundle/decisions/persistence.md), [Durabilità osservabile](okf-bundle/architecture/observable-durability.md), [Conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md).
 
@@ -140,9 +140,16 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 <a id="fare-persistenza"></a>
 ### Persistenza [↑](#blocchi)
 
-- [ ] Salvataggio e ripristino degli snapshot per partizione, senza fermare il writer
-- [ ] Durabilità osservabile (ultimo commit persistito)
-- [ ] Funzione di copia di uno snapshot, per chi deve tenerlo oltre la scadenza massima delle acquisizioni
+- [x] Copia autonoma dello snapshot dentro il nodo, per il salvataggio (ID, posizioni e metadati): il nodo, come un reader interno, acquisisce, copia prima della scadenza e rilascia; la copia non dipende più dalla vita dello snapshot e non passa dall'API
+- [x] Salvataggio nel nodo su una destinazione configurata (una directory): un file binario per salvataggio in una directory per partizione (`partitions/<ID>/<tick>.bsave`), little-endian con CRC32, scritto con file temporaneo, sincronizzazione e rename atomico da un oggetto per ogni salvataggio (`PartitionSave2`/`PartitionSave3`, con la lettura del file); temporanei rimasti eliminati da una funzione di pulizia del nodo; salvataggi dello stesso tick che producono lo stesso file
+- [x] Chiamate sincrone `save(tick)` e `saveLatest()` sulla partizione dell'API (interfaccia comune `Partition`) e nel contratto del nodo, con il riferimento `SavedPartition` (partizione e tick) come esito o un errore, senza fermare il writer e senza opzioni di scadenza: la copia è una query ammessa, che finisce anche dopo la scadenza
+- [x] Nome della partizione scelto dal software alla creazione (`createPartition(node, name, …)`, `name()` sulla partizione, nome nel contratto del nodo con le regole e l'unicità sul nodo); `SavedPartition`, directory e intestazione dei file dei salvataggi con il nome al posto dell'ID; aggiornare il sample `partition-saves`
+- [x] Elenco ed eliminazione dei salvataggi nel nodo e nell'API, per nome e non legati a una partizione viva, come meccanismi generici senza politiche di conservazione: `saves()`, `saves(name)` e `deleteSaves(saves)` batch del nodo; nell'API sullo spazio con il nodo e `saves()` sulla partizione
+- [x] Caricamento con `loadPartition(node, config, saved)`: partizione creata nel nodo con il nome del salvataggio e un ID nuovo, già con il contenuto (stessi ID, posizioni e metadati), indici ricostruiti dagli inserimenti, contenuto confermato al tick di creazione, nessun proprietario, indice e finestra scelti da chi carica; metadati senza reinterpretazione
+- [x] Esempio in `samples` con un thread che salva ogni N tick mentre il writer continua, conserva gli ultimi salvataggi e carica una partizione
+- [x] Misure separate di tempo di copia, scrittura e caricamento (ricostruzione degli indici compresa), dimensione dei dati salvati e memoria aggiuntiva della copia, in 2D e 3D: benchmark `PersistenceBenchmark2`/`PersistenceBenchmark3` e `PersistenceSizes`, piani `persistence-cost-quick`/`-full`, campagna del 2026-10-24 sulla macchina dedicata (vedi [misure](okf-bundle/decisions/persistence.md#misure))
+
+Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandati: questo blocco ricrea il contenuto di una singola partizione.
 
 <a id="fare-query"></a>
 ### Query su più partizioni [↑](#blocchi)
@@ -166,6 +173,8 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 - [ ] Regola di inserimento con confronto dell'epoca
 - [ ] Lettura ed eliminazione delle tombstone
 - [ ] Puntatore di inoltro nelle letture per ID
+- [ ] Durabilità osservabile (ultimo tick persistito), necessaria alle conferme della migrazione
+- [ ] Recupero coerente dei nodi dopo un crash: tempo logico, proprietà delle partizioni e coordinamento con gli altri nodi
 - [ ] Protocollo di migrazione tra partizioni
 - [ ] Entità congelate durante la migrazione
 - [ ] Reinvio, ACK, ACK "superato" e messaggio REMOVED
@@ -197,6 +206,7 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 ### Nodo gRPC [↑](#blocchi)
 
 - [ ] Nodo remoto via gRPC
+- [ ] Salvataggio asincrono nel contratto del nodo (avvio e poi interrogazione dello stato), se una chiamata sincrona lunga pesa sulla chiamata remota e sul suo timeout (vedi [persistenza](okf-bundle/decisions/persistence.md#chiamate))
 - [ ] Durata della scadenza nel record `Acquisition` e controllo anticipato della scadenza nella view dell'API, se serve a risparmiare chiamate remote destinate a fallire (oggi controlla solo il nodo)
 
 <a id="fare-client"></a>
@@ -213,6 +223,7 @@ Non è deciso quanti e quali client servono: si costruiscono man mano. Scenari p
 
 Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici sono nel [TODO degli indici](TODO-indices.md).
 
+- [ ] Funzione di copia autonoma di uno snapshot esposta al software, per tenerlo oltre la scadenza massima delle acquisizioni (vedi [conservazione degli snapshot](okf-bundle/architecture/snapshot-retention.md))
 - [ ] Array di oggetti negli indici sostituiti da array paralleli di primitivi, come chiedono le [linee guida](prototype/coding-guidelines.md) (principio 2): `Node[] children` in `GridQuadtreeIndex2` e `GridOctreeIndex3`, `Object[]` ed `Entry[]` in `HashTrie`. Va fatto indipendentemente dal [TODO degli indici](TODO-indices.md)
 
 
@@ -260,7 +271,12 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 <a id="decisioni-persistenza"></a>
 ### Persistenza [↑](#blocchi)
 
-- [ ] Strategia di persistenza (snapshot per partizione)
+- [x] Perimetro iniziale: persistenza del contenuto della singola partizione da una copia autonoma dello snapshot; caricamento in una nuova partizione, durabilità osservabile e recupero coerente dei nodi rimandati
+- [x] Destinazione dei dati persistiti: il nodo che gestisce la partizione scrive su una destinazione configurata sul nodo; l'API comanda il salvataggio e riceve l'esito
+- [x] Formato dei dati persistiti: binario, un file per salvataggio, scritto in modo atomico (temporaneo, sincronizzazione, rename)
+- [x] Frequenza e attivazione dei salvataggi periodici: decise dal software, senza scheduler nell'API o nel nodo
+- [x] Forma delle chiamate: il nodo salva come un reader interno; `save(tick)` e `saveLatest()` sincroni con il riferimento come esito; caricamento con `loadPartition(node, config, saved)`; asincrono rimandato al nodo gRPC e alla durabilità osservabile
+- [x] Salvataggi interrotti e conservazione: un salvataggio interrotto non lascia file validi né tocca gli altri; elenco ed eliminazione nel nodo, politica di conservazione del software
 
 <a id="decisioni-query"></a>
 ### Query su più partizioni [↑](#blocchi)

@@ -1,6 +1,7 @@
 package badspace.samples.spacesandpartitions;
 
 import static badspace.common.geometry.Point3.point;
+import static badspace.common.partition.PartitionName.partitionName;
 
 import badspace.api.AcquiredSnapshot3;
 import badspace.api.Partition;
@@ -23,8 +24,8 @@ import java.util.List;
 
 /**
  * Sample client: creates a 2D and a 3D space that share the generators of the IDs, and
- * partitions on local nodes with different configurations: the index, the removal policy and
- * the number of retained ticks. It shows what a partition tells about itself, the operations
+ * partitions on local nodes with a name and different configurations: the index, the removal
+ * policy and the number of retained ticks. It shows what a partition tells about itself, the operations
  * shared by 2D and 3D, and that a 3D partition works like a 2D one with one more coordinate.
  */
 public final class SpacesAndPartitions {
@@ -39,16 +40,19 @@ public final class SpacesAndPartitions {
         Space2 space2 = new Space2(spaceConfig);
         Space3 space3 = new Space3(spaceConfig);
 
-        // A node can host many partitions of the same space. Without a configuration a
-        // partition has the defaults: linear scan, REQUIRE_EMPTY and one retained tick.
+        // A node can host many partitions of the same space. The software gives each partition
+        // a name, unique on the node: its public identifier, which also identifies its saves.
+        // Without a configuration a partition has the defaults: linear scan, REQUIRE_EMPTY and
+        // one retained tick.
         LocalPartitionNode2 node2 = new LocalPartitionNode2();
-        Partition2 scan = space2.createPartition(node2);
-        Partition2 grid = space2.createPartition(node2,
+        Partition2 scan = space2.createPartition(node2, partitionName("scan"));
+        Partition2 grid = space2.createPartition(node2, partitionName("grid"),
                 PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(10)));
-        Partition2 quadtree = space2.createPartition(node2, PartitionConfig.defaults()
-                .withIndex(IndexConfig.gridQuadtree(64))
-                .withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES)
-                .withRetainedTicks(5));
+        Partition2 quadtree = space2.createPartition(node2, partitionName("quadtree"),
+                PartitionConfig.defaults()
+                        .withIndex(IndexConfig.gridQuadtree(64))
+                        .withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES)
+                        .withRetainedTicks(5));
 
         // The configuration is checked when it is made, before any call to a node.
         try {
@@ -67,15 +71,15 @@ public final class SpacesAndPartitions {
         for (Space<?, ?> space : List.<Space<?, ?>>of(space2, space3)) {
             space.setTick(10);
         }
-        Partition3 octree = space3.createPartition(new LocalPartitionNode3(),
+        Partition3 octree = space3.createPartition(new LocalPartitionNode3(), partitionName("octree"),
                 PartitionConfig.defaults().withIndex(IndexConfig.gridQuadtree(16)));
 
         // The partitions share the operations that tell about them; the limits of the
         // coordinates come from the index.
-        describe("2D linear scan", scan);
-        describe("2D uniform grid", grid);
-        describe("2D grid of quadtrees", quadtree);
-        describe("3D grid of octrees", octree);
+        describe(scan);
+        describe(grid);
+        describe(quadtree);
+        describe(octree);
 
         // The 3D partition has the same writes and reads, with a third coordinate.
         try (PartitionWriter3 writer = octree.writer(octree.claim(0).orElseThrow())) {
@@ -91,8 +95,9 @@ public final class SpacesAndPartitions {
         }
     }
 
-    private static void describe(String name, Partition partition) {
-        System.out.printf("%s: %s%n  limits %s, created at tick %d, at tick %d, ownership %s%n", name,
+    private static void describe(Partition partition) {
+        System.out.printf("%s: %s%n  limits %s, created at tick %d, at tick %d, ownership %s%n",
+                partition.name().value(),
                 partition.config(), partition.limits(), partition.creationTick(), partition.tick(),
                 partition.ownership());
     }

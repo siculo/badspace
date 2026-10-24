@@ -13,6 +13,8 @@
   a.button { display:inline-block; text-decoration:none }
   button,a.button { cursor:pointer; background:#254b60 } button:hover,a.button:hover { background:#32647e } button:disabled { opacity:.5; cursor:default }
   .row { display:flex; flex-wrap:wrap; align-items:center; gap:10px } .row input { flex:1; min-width:130px }
+  .row label { display:flex; flex-wrap:wrap; align-items:center; gap:10px; max-width:100% }
+  input[type=file] { max-width:100%; box-sizing:border-box }
   table { width:100%; border-collapse:collapse } td,th { text-align:left; padding:10px 8px; border-bottom:1px solid #304455; vertical-align:top }
   td button,td a.button { padding:3px 8px } .scroll { overflow-x:auto } pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:420px; overflow:auto; font-size:12px }
   #error { color:#ffb7ac; white-space:pre-wrap } a { color:#94d8ff } .badge { font:12px monospace; color:#a9d9dd }

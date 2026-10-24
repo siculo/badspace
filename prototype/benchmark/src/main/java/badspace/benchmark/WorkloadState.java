@@ -2,6 +2,7 @@ package badspace.benchmark;
 
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.LocalPartitionNode2;
@@ -20,6 +21,7 @@ import org.openjdk.jmh.annotations.State;
 public abstract class WorkloadState {
 
     static final PartitionId PARTITION_ID = new PartitionId(1);
+    static final PartitionName PARTITION_NAME = new PartitionName("benchmark");
     /** The token that {@link #newNode()} takes: the first owner of a partition has generation 1. */
     static final WriteToken WRITE_TOKEN = new WriteToken(PARTITION_ID, 1);
     static final long SEED = 42;
@@ -49,7 +51,7 @@ public abstract class WorkloadState {
     /** Returns a new node with an empty partition that uses the index of the benchmark, owned with {@link #WRITE_TOKEN}. */
     PartitionNode2 newNode() {
         PartitionNode2 node = new LocalPartitionNode2();
-        node.createPartition(PARTITION_ID, IndexNames.parse(index));
+        node.createPartition(PARTITION_ID, PARTITION_NAME, IndexNames.parse(index));
         node.claim(PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
         return node;
     }

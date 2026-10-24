@@ -13,14 +13,21 @@ import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode3;
 import badspace.common.partition.RetentionWindow;
+import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.snapshot.MonotonicClock;
 import badspace.service.partition.snapshot.SnapshotCatalog3;
 import badspace.service.partition.snapshot.StorageSnapshot3;
+import badspace.service.persistence.NodeSaves;
+import badspace.service.persistence.PartitionCopy3;
+import badspace.service.persistence.PartitionSave3;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -41,14 +48,20 @@ import java.util.function.Function;
  * and looks for their expired acquisitions, so a reader that never releases cannot keep
  * a removed partition for ever.
  * <p>
- * A lock orders the moves to a new tick and the creation of partitions: a partition created
- * while the node moves to a new tick is created either before the move, and then moves too,
- * or after it, at the new tick. So no partition stays behind the node.
+ * A lock orders the moves to a new tick and the additions of partitions: a partition added
+ * while the node moves to a new tick is added either before the move, and then moves too,
+ * or after it, at the new tick. So no partition stays behind the node. A load builds the
+ * partition without the lock and takes it only to add the partition, so the moves of the tick
+ * do not wait for the read of the save or for the rebuild of the index.
  * <p>
  * The writers of different partitions can work on different threads. Each partition has its
  * own lock and its own sequence of commits, and the writes and the commits do not take the
  * lock of the node: a writer waits only for a move of the tick of its own partition, never
  * for the writers of the other partitions.
+ * <p>
+ * A node created with a save directory saves the snapshots of its partitions there, each in
+ * its own file (see {@link NodeSaves}), and loads them into new partitions. Saves of different partitions, and of the same
+ * partition, can run at the same time on different threads, while the writers work.
  */
 public final class LocalPartitionNode3 implements PartitionNode3 {
 
@@ -56,18 +69,38 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     // partition stays here until it is destroyed; the thread that destroys it, any
     // thread, removes it.
     private final Map<PartitionId, PartitionStorage3> partitions = new ConcurrentHashMap<>();
+    // The names of the partitions, with the same IDs as partitions: a name is in use while its
+    // partition is on the node. Written when a partition is added, while holding tickLock, and by the
+    // thread that destroys a partition; read by any thread.
+    private final Map<PartitionId, PartitionName> names = new ConcurrentHashMap<>();
     // Measures the timeouts of the acquisitions in all the partitions.
     private final MonotonicClock clock;
     // Makes the storage of each new partition.
     private final StorageFactory storageFactory;
-    // Orders setTick and createPartition: both run while holding it.
+    // The saves of the node in its save directory, or null if the node cannot save.
+    private final NodeSaves saves;
+    // Orders setTick and the additions of partitions: they run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
     // The tick of the node. Written by setTick while holding tickLock, read by any thread.
     private volatile long tick;
 
-    /** Creates a node that measures the timeouts of the acquisitions with the clock of the system. */
+    /**
+     * Creates a node that measures the timeouts of the acquisitions with the clock of the system,
+     * without a save directory: it cannot save.
+     */
     public LocalPartitionNode3() {
         this(MonotonicClock.SYSTEM);
+    }
+
+    /**
+     * Creates a node that measures the timeouts of the acquisitions with the clock of the system
+     * and saves the snapshots in the given directory, which must exist.
+     *
+     * @throws IllegalArgumentException if the directory does not exist
+     * @throws UncheckedIOException if the node cannot prepare the directory for the saves
+     */
+    public LocalPartitionNode3(Path saveDirectory) {
+        this(MonotonicClock.SYSTEM, PartitionStorage3::new, new NodeSaves(saveDirectory));
     }
 
     /** Creates a node that measures the timeouts of the acquisitions with the given clock. */
@@ -81,27 +114,85 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
      * partition, and to know when a move of the tick waits for the lock of a partition.
      */
     LocalPartitionNode3(MonotonicClock clock, StorageFactory storageFactory) {
+        this(clock, storageFactory, null);
+    }
+
+    /**
+     * Creates a node like {@link #LocalPartitionNode3(MonotonicClock, StorageFactory)}, with the
+     * given saves, or null if the node cannot save. The tests use it to stop a load inside the
+     * index of the loaded partition.
+     */
+    LocalPartitionNode3(MonotonicClock clock, StorageFactory storageFactory, NodeSaves saves) {
         this.clock = clock;
         this.storageFactory = storageFactory;
+        this.saves = saves;
     }
 
     @Override
-    public void createPartition(PartitionId partitionId, IndexConfig index, int retainedTicks) {
+    public void createPartition(PartitionId partitionId, PartitionName name, IndexConfig index, int retainedTicks) {
+        Objects.requireNonNull(name);
+        checkRetainedTicks(retainedTicks);
+        tickLock.lock();
+        try {
+            checkFree(partitionId, name);
+            add(partitionId, name, storageFactory.create(index, retainedTicks, clock, tick));
+        } finally {
+            tickLock.unlock();
+        }
+    }
+
+    /**
+     * Loads a save in two phases. First, without the lock of the node, it reads the save and
+     * builds the whole partition: the slots, the index and the commit of the content. The moves
+     * of the tick go on meanwhile. Then, while holding tickLock, it sets the creation tick to the
+     * tick of the node and adds the partition: this phase is short, and its tick is the creation
+     * tick, also if the tick moved during the first phase.
+     */
+    @Override
+    public void loadPartition(PartitionId partitionId, SavedPartition saved, IndexConfig index, int retainedTicks) {
+        Objects.requireNonNull(saved);
+        checkRetainedTicks(retainedTicks);
+        NodeSaves saves = requireSaves();
+        // Fails before the slow phase if the ID or the name is in use; the second phase checks again.
+        checkFree(partitionId, saved.name());
+        PartitionCopy3 content = saves.read(saved, file -> PartitionSave3.read(file, saved.name()));
+        PartitionStorage3 storage = storageFactory.create(index, retainedTicks, clock, tick);
+        storage.load(content);
+        tickLock.lock();
+        try {
+            checkFree(partitionId, saved.name());
+            storage.setCreationTick(tick);
+            add(partitionId, saved.name(), storage);
+        } finally {
+            tickLock.unlock();
+        }
+    }
+
+    private static void checkRetainedTicks(int retainedTicks) {
         if (retainedTicks < RetentionWindow.MIN_RETAINED_TICKS) {
             throw new IllegalArgumentException("Number of retained ticks is less than "
                     + RetentionWindow.MIN_RETAINED_TICKS + ": " + retainedTicks);
         }
-        tickLock.lock();
-        try {
-            // A removed partition keeps its ID until it is destroyed, so this also rejects
-            // its ID.
-            PartitionStorage3 storage = storageFactory.create(index, retainedTicks, clock, tick);
-            if (partitions.putIfAbsent(partitionId, storage) != null) {
-                throw new IllegalArgumentException("Partition already exists: " + partitionId);
-            }
-        } finally {
-            tickLock.unlock();
+    }
+
+    /**
+     * Fails with IllegalArgumentException if the ID or the name is in use on the node. A removed
+     * partition keeps its ID and its name until it is destroyed, so this also rejects them. The
+     * creation of a partition is rare, so a scan of the names is enough.
+     */
+    private void checkFree(PartitionId partitionId, PartitionName name) {
+        if (partitions.containsKey(partitionId)) {
+            throw new IllegalArgumentException("Partition already exists: " + partitionId);
         }
+        if (names.containsValue(name)) {
+            throw new IllegalArgumentException("Partition name already in use: " + name.value());
+        }
+    }
+
+    /** Adds a partition to the node. The caller holds tickLock and checked the ID and the name. */
+    private void add(PartitionId partitionId, PartitionName name, PartitionStorage3 storage) {
+        names.put(partitionId, name);
+        partitions.put(partitionId, storage);
     }
 
     @Override
@@ -263,6 +354,113 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     /**
+     * Makes an autonomous copy of the snapshot of the given tick of a partition, for the
+     * persistence. The node acquires the snapshot like an internal reader, with the window and
+     * the default timeout, copies its IDs, positions and metadata in a query on the
+     * acquisition, and releases it: the copy does not depend on the life of the snapshot. The
+     * query starts at once, while the acquisition is valid; like every admitted query, it ends
+     * also if the acquisition expires meanwhile, so the timeout does not limit the copy. Fails like
+     * {@link #acquire} if the snapshot is not available.
+     */
+    PartitionCopy3 copy(PartitionId partitionId, long tick) {
+        return copyOf(acquire(partitionId, tick, AcquireOptions.defaultTimeout()));
+    }
+
+    /**
+     * Makes an autonomous copy of the snapshot of the tick before the current one of a
+     * partition, like {@link #copy}. Fails like {@link #acquireLatest} if no snapshot is
+     * available.
+     */
+    PartitionCopy3 copyLatest(PartitionId partitionId) {
+        return copyOf(acquireLatest(partitionId, AcquireOptions.defaultTimeout()));
+    }
+
+    @Override
+    public SavedPartition save(PartitionId partitionId, long tick) {
+        NodeSaves saves = requireSaves();
+        PartitionName name = nameOf(partitionId);
+        return save(saves, name, acquire(partitionId, tick, AcquireOptions.defaultTimeout()));
+    }
+
+    @Override
+    public SavedPartition saveLatest(PartitionId partitionId) {
+        NodeSaves saves = requireSaves();
+        PartitionName name = nameOf(partitionId);
+        return save(saves, name, acquireLatest(partitionId, AcquireOptions.defaultTimeout()));
+    }
+
+    @Override
+    public List<SavedPartition> saves() {
+        return requireSaves().saves();
+    }
+
+    @Override
+    public List<SavedPartition> saves(PartitionName name) {
+        return requireSaves().saves(name);
+    }
+
+    @Override
+    public void deleteSaves(List<SavedPartition> saves) {
+        requireSaves().deleteSaves(saves);
+    }
+
+    /**
+     * Removes the temporary files of interrupted saves, for example after a crash, in the
+     * save directory. It must run when no save of the node is in progress, for example after
+     * the node starts: it would also remove the file of a save in progress, which would fail.
+     *
+     * @throws IllegalStateException if the node has no save directory
+     * @throws UncheckedIOException if a file cannot be removed
+     */
+    void removeTemporaryFiles() {
+        requireSaves().removeTemporaryFiles();
+    }
+
+    private NodeSaves requireSaves() {
+        if (saves == null) {
+            throw new IllegalStateException("Node without a save directory: it cannot save");
+        }
+        return saves;
+    }
+
+    /**
+     * Returns the name of a partition. Taken before the copy, which then fails if the
+     * partition was destroyed meanwhile.
+     */
+    private PartitionName nameOf(PartitionId partitionId) {
+        PartitionName name = names.get(partitionId);
+        if (name == null) {
+            throw new IllegalArgumentException("Unknown partition: " + partitionId);
+        }
+        return name;
+    }
+
+    /**
+     * Saves the acquired snapshot: it copies the snapshot, releases the acquisition and writes
+     * the copy. If another thread is saving the same snapshot, it releases the acquisition and
+     * waits for that save. The acquisition is released also if the save fails.
+     */
+    private SavedPartition save(NodeSaves saves, PartitionName name, Acquisition acquisition) {
+        try {
+            return saves.save(name, acquisition.tick(), () -> release(acquisition),
+                    saveDirectory -> new PartitionSave3(saveDirectory, name, copyOf(acquisition)).write());
+        } finally {
+            // A second release does nothing: copyOf, or the wait for another save of the same
+            // snapshot, already released it, if it ran.
+            release(acquisition);
+        }
+    }
+
+    /** Copies the acquired snapshot and releases the acquisition, also if the copy fails. */
+    private PartitionCopy3 copyOf(Acquisition acquisition) {
+        try {
+            return query(acquisition, snapshot -> snapshot.copy(acquisition.tick()));
+        } finally {
+            release(acquisition);
+        }
+    }
+
+    /**
      * Acquires the snapshot of a tick: the tick before the current one if latest is true,
      * otherwise the given tick. The tick and the snapshot come from the same catalog. If a move
      * of the tick makes the snapshot leave the window before the acquisition, it chooses again
@@ -330,7 +528,9 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
      * says it once, so only one thread calls this for a partition.
      */
     private void finish(PartitionId partitionId, PartitionStorage3 storage) {
-        partitions.remove(partitionId, storage);
+        if (partitions.remove(partitionId, storage)) {
+            names.remove(partitionId);
+        }
     }
 
     /**

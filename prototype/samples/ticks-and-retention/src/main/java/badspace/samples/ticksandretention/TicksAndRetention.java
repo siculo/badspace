@@ -1,5 +1,7 @@
 package badspace.samples.ticksandretention;
 
+import static badspace.common.partition.PartitionName.partitionName;
+
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
@@ -24,7 +26,7 @@ public final class TicksAndRetention {
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
         space.setTick(2);
-        Partition2 partition = space.createPartition(new LocalPartitionNode2(),
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), partitionName("world"),
                 PartitionConfig.defaults().withRetainedTicks(RETAINED_TICKS));
 
         try (PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow())) {

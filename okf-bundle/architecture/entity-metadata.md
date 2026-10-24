@@ -17,7 +17,9 @@ due spazi.
 - **epoca**: contatore che cresce a ogni migrazione e viaggia con
   l'entità;
 - **stato**: viva, in uscita verso X, rimossa;
-- **destinazione** (facoltativa): la partizione verso cui è migrata.
+- **destinazione** (facoltativa): la partizione verso cui è migrata,
+  indicata con il suo [nome](/decisions/entity-ids.md#nome-della-partizione),
+  perché resta valida nei salvataggi e dopo un recupero.
 
 Cambiano solo attraverso le operazioni dei protocolli (per esempio la
 [migrazione](/mechanisms/entity-migration.md)), perché da loro
@@ -72,6 +74,15 @@ I metadati applicativi di un'entità sono coppie chiave → valore, con
 noti: una versione, una riserva come ID del processo, un tag di
 responsabilità come ID, una scadenza come tick. Altri tipi di valore si
 aggiungono solo quando un caso concreto li richiede.
+
+Una chiave è una stringa UTF-16 ben formata, cioè **senza surrogate
+isolati**: i salvataggi scrivono le chiavi in UTF-8, che non può
+conservarli, e due chiavi diverse rischierebbero di diventare uguali. Le
+scritture e le condizioni con una chiave non valida falliscono con
+`IllegalArgumentException` già alla creazione, quindi non entrano in un
+batch e non ne applicano una parte; nel prototipo il controllo è
+`ApplicationMetadata.checkKey`. Ogni altra stringa è una chiave valida,
+anche quella vuota.
 
 Per ora **non ci sono limiti** sul numero di chiavi di un'entità né
 sulla lunghezza delle chiavi: nessuna garanzia del sistema ne dipende,

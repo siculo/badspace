@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: ID delle entità
-description: "Gli ID delle entità sono univoci su tutte le partizioni, mai riusati e senza indicazione della partizione; anche gli ID delle partizioni sono univoci tra spazi e mai riusati. Li crea, uno per tipo di ID, un generatore dell'API comune dietro un contratto proprio, senza garanzie di ordine né di segno. Lo schema scelto, sostituibile, è Snowflake a 64 bit: un generatore per processo API, con generatorId assegnato a ogni avvio."
+description: "Gli ID delle entità sono univoci su tutte le partizioni, mai riusati e senza indicazione della partizione; anche gli ID delle partizioni sono univoci tra spazi e mai riusati, ma valgono solo nell'esecuzione: fuori dall'esecuzione, e nella persistenza, una partizione si identifica con il nome scelto dal software. Li crea, uno per tipo di ID, un generatore dell'API comune dietro un contratto proprio, senza garanzie di ordine né di segno. Lo schema scelto, sostituibile, è Snowflake a 64 bit: un generatore per processo API, con generatorId assegnato a ogni avvio."
 tags: [badspace, design, partitioning, ids]
 status: stable
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T16:00:00Z }
@@ -174,6 +174,64 @@ resta sul nodo con il suo ID, in rimozione e poi ritirata, fino alla
 distruzione, e acquisizioni e letture la trovano per ID. Il nodo
 rifiuta la creazione di una partizione con un ID ancora presente, anche
 se la partizione è ritirata.
+
+L'ID della partizione è un **identificatore di runtime**: identifica la
+partizione mentre è in esecuzione su un nodo, sta nei [token di
+scrittura](/architecture/partition-ownership.md#stato-di-proprietà) e nel
+contratto del nodo, e non sopravvive all'esecuzione. Non è persistito:
+una partizione ricreata da un salvataggio riceve un ID nuovo (vedi
+[persistenza](/decisions/persistence.md#recupero-ricostruttivo)). Fuori
+dall'esecuzione la partizione si identifica con il suo nome.
+
+# Nome della partizione
+
+Il **nome della partizione** è l'identificatore pubblico, scelto dal
+software alla creazione: un nome fisso ("north") oppure la forma
+testuale di un ID che il software genera. Il software lo usa per
+riconoscere le partizioni, e la [persistenza](/decisions/persistence.md)
+lo usa al posto dell'ID: i salvataggi di una partizione sono
+identificati da nome e tick. Lo stesso nome indica la stessa
+partizione anche tra esecuzioni diverse: creare o caricare una
+partizione con il nome di una partizione salvata ne continua la storia,
+ed è voluto.
+
+Due nomi per due ruoli, come il nome e l'ID di un container: il nome è
+stabile e significativo, l'ID vale per la partizione in esecuzione.
+L'API non espone l'ID della partizione al software.
+
+Il nome è una stringa con regole che lo rendono un nome di directory, e
+domani una chiave di object store, valido ovunque:
+
+- caratteri `a-z`, `0-9`, `-`, `_` e `.`, cioè solo minuscole: su macOS
+  e Windows i filesystem di solito non distinguono maiuscole e
+  minuscole, e "North" e "north" finirebbero nella stessa directory;
+- lunghezza da 1 a 128 caratteri;
+- nessun `.` finale: Windows toglie i punti finali, quindi `arena.`
+  sarebbe la directory di `arena` e i due salvataggi si
+  sovrascriverebbero; la regola esclude anche `.` e `..`;
+- la parte prima del primo `.` non è un nome di dispositivo di Windows
+  (`con`, `prn`, `aux`, `nul`, da `com0` a `com9`, da `lpt0` a `lpt9`),
+  nemmeno con un'estensione: anche `nul.save` è un dispositivo.
+
+Le regole servono a una corrispondenza univoca tra nomi e directory:
+due nomi diversi danno due directory diverse su tutte le piattaforme.
+
+Un nome che non le rispetta fa fallire la creazione con
+`IllegalArgumentException`. Il nodo rifiuta un nome ancora presente,
+come fa con l'ID, anche se la partizione è ritirata; l'unicità tra nodi
+diversi la garantisce il software, che sceglie i nomi (vedi [fiducia
+negli sviluppatori](/process/development-approach.md#fiducia-negli-sviluppatori)).
+
+Nel prototipo il nome è il record `PartitionName` in `common`, che
+controlla le regole nel costruttore, con `partitionName(String)` per
+l'`import static`. La creazione nell'API e nel contratto del nodo lo
+riceve, la partizione dell'API lo restituisce con `name()`, e il nodo
+lo tiene accanto all'ID e lo usa solo per i salvataggi.
+
+Ogni riferimento persistito a una partizione usa il nome, mai l'ID: per
+esempio la destinazione di un'entità migrata nei [metadati di
+sistema](/architecture/entity-metadata.md), che sta negli snapshot
+salvati e dopo un recupero deve ancora indicare la partizione giusta.
 
 # Punti aperti
 

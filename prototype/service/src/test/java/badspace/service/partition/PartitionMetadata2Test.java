@@ -6,6 +6,7 @@ import static badspace.common.partition.MetadataCondition.absent;
 import static badspace.common.partition.MetadataCondition.valueIs;
 import static badspace.common.partition.MetadataWrite.delete;
 import static badspace.common.partition.MetadataWrite.put;
+import static badspace.service.partition.Names.nameOf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -48,7 +49,7 @@ class PartitionMetadata2Test {
     @BeforeEach
     void setUp() {
         node = new LocalPartitionNode2();
-        node.createPartition(P1, IndexConfig.uniformGrid(4));
+        node.createPartition(P1, nameOf(P1), IndexConfig.uniformGrid(4));
         token = node.claim(P1, 0).orElseThrow();
         node.insertAll(token, List.of(entity(1, 1, 1), entity(2, 2, 2), entity(3, 3, 3)));
     }
@@ -58,6 +59,14 @@ class PartitionMetadata2Test {
         node.updateMetadataAll(token, List.of(put(1, "version", 7), put(1, "owner", -3), put(2, "version", 1)));
         assertEquals(List.of(metadata(1, Map.of("version", 7L, "owner", -3L)), metadata(2, Map.of("version", 1L))),
                 node.getMetadataAll(publish(), new long[] {1, 2}));
+    }
+
+    @Test
+    void batchWithAnUnpairedSurrogateInAKeyChangesNothing() {
+        String unpaired = String.valueOf((char) 0xd800);
+        assertThrows(IllegalArgumentException.class,
+                () -> node.updateMetadataAll(token, List.of(put(1, "a", 1), put(1, unpaired, 2))));
+        assertEquals(List.of(metadata(1, Map.of())), node.getMetadataAll(publish(), new long[] {1}));
     }
 
     @Test

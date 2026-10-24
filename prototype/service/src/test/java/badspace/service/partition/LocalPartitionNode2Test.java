@@ -3,6 +3,8 @@ package badspace.service.partition;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.AcquireOptions.timeout;
 import static badspace.common.partition.Entity2.entity;
+import static badspace.common.partition.PartitionName.partitionName;
+import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -46,27 +48,27 @@ class LocalPartitionNode2Test {
     @BeforeEach
     void setUp() {
         node = new LocalPartitionNode2();
-        node.createPartition(P1);
+        node.createPartition(P1, nameOf(P1));
     }
 
     @Test
     void partitionUsesTheIndexChosenAtCreation() {
-        node.createPartition(P2, IndexConfig.uniformGrid(1));
+        node.createPartition(P2, nameOf(P2), IndexConfig.uniformGrid(1));
         node.insertAll(owner(node, P2), List.of(entity(1, 1, 2), entity(2, 5, 5)));
         assertEquals(List.of(entity(1, 1, 2)), node.findNearest(publish(P2), new Point2(0, 0), 1));
-        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, IndexConfig.linearScan()));
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, nameOf(P2), IndexConfig.linearScan()));
     }
 
     @Test
     void partitionCanUseTheGridQuadtree() {
-        node.createPartition(P2, IndexConfig.gridQuadtree(1, 1));
+        node.createPartition(P2, nameOf(P2), IndexConfig.gridQuadtree(1, 1));
         node.insertAll(owner(node, P2), List.of(entity(1, 1, 2), entity(2, 5, 5)));
         assertEquals(List.of(entity(1, 1, 2)), node.findNearest(publish(P2), new Point2(0, 0), 1));
     }
 
     @Test
     void limitsComeFromTheIndexOfThePartition() {
-        node.createPartition(P2, IndexConfig.gridQuadtree(128));
+        node.createPartition(P2, nameOf(P2), IndexConfig.gridQuadtree(128));
         assertEquals(IndexConfig.linearScan().limits(), node.limits(P1));
         assertEquals(IndexConfig.gridQuadtree(128).limits(), node.limits(P2));
         node.insertAll(owner(node, P1), List.of(entity(3, 0x1p40, 0)));
@@ -76,7 +78,7 @@ class LocalPartitionNode2Test {
 
     @Test
     void insertAddsEntitiesToTheirPartitionOnly() {
-        node.createPartition(P2);
+        node.createPartition(P2, nameOf(P2));
         node.insertAll(owner(node, P1), List.of(entity(42, 1, 2), entity(43, 3, 4)));
         assertEquals(2, node.size(publish(P1)));
         assertEquals(0, node.size(publish(P2)));
@@ -224,7 +226,7 @@ class LocalPartitionNode2Test {
 
     @Test
     void eachPartitionHasItsOwnCommits() {
-        node.createPartition(P2);
+        node.createPartition(P2, nameOf(P2));
         node.insertAll(owner(node, P1), List.of(entity(1, 1, 1)));
         node.commit(owner(node, P1));
         node.setTick(1);
@@ -241,7 +243,7 @@ class LocalPartitionNode2Test {
 
     @Test
     void setTickMovesTheNodeAndItsPartitionsAndAllowsGaps() {
-        node.createPartition(P2);
+        node.createPartition(P2, nameOf(P2));
         node.setTick(1);
         node.setTick(5);
         assertEquals(5, node.tick());
@@ -269,7 +271,7 @@ class LocalPartitionNode2Test {
     @Test
     void partitionIsCreatedAtTheTickOfTheNode() {
         node.setTick(7);
-        node.createPartition(P2);
+        node.createPartition(P2, nameOf(P2));
         assertEquals(7, node.creationTick(P2));
         assertEquals(7, node.tick(P2));
         assertEquals(0, node.creationTick(P1));
@@ -300,7 +302,7 @@ class LocalPartitionNode2Test {
         mover.start();
         start.countDown();
         for (int i = 0; i < created; i++) {
-            node.createPartition(new PartitionId(100 + i));
+            node.createPartition(new PartitionId(100 + i), nameOf(new PartitionId(100 + i)));
         }
         assertTimeoutPreemptively(TIMEOUT, () -> mover.join());
         assertNull(failure.get());
@@ -355,7 +357,7 @@ class LocalPartitionNode2Test {
     @Test
     void acquisitionAtATickFindsItsSnapshotInTheWindow() {
         node.setTick(100);
-        node.createPartition(P2, IndexConfig.linearScan(), 5);
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
         for (int tick = 100; tick < 110; tick++) {
             node.insertAll(owner(node, P2), List.of(entity(tick, tick, 0)));
             node.commit(owner(node, P2));
@@ -374,7 +376,7 @@ class LocalPartitionNode2Test {
 
     @Test
     void skippedTicksHaveTheSnapshotOfTheLastCommitBeforeThem() {
-        node.createPartition(P2, IndexConfig.linearScan(), 5);
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
         node.setTick(102);
         node.insertAll(owner(node, P2), List.of(entity(1, 1, 1)));
         node.commit(owner(node, P2));
@@ -389,7 +391,7 @@ class LocalPartitionNode2Test {
     @Test
     void unavailableSnapshotsSayWhy() {
         node.setTick(10);
-        node.createPartition(P2, IndexConfig.linearScan(), 2);
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 2);
         node.setTick(20);
         assertReason(Reason.NOT_YET_PUBLISHED, () -> node.acquire(P2, 20, defaultTimeout()));
         assertReason(Reason.NOT_YET_PUBLISHED, () -> node.acquire(P2, 25, defaultTimeout()));
@@ -412,7 +414,7 @@ class LocalPartitionNode2Test {
 
     @Test
     void snapshotOutsideTheWindowStaysReadableWhileAcquired() {
-        node.createPartition(P2, IndexConfig.linearScan(), 2);
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 2);
         node.insertAll(owner(node, P2), List.of(entity(1, 1, 1)));
         node.commit(owner(node, P2));
         node.setTick(1);
@@ -469,7 +471,7 @@ class LocalPartitionNode2Test {
 
     @Test
     void unknownAcquisitionIsRejectedAndTheOthersDoNotChange() {
-        node.createPartition(P2);
+        node.createPartition(P2, nameOf(P2));
         node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         Acquisition neverMade = new Acquisition(P1, acquisition.id() + 1, 0);
@@ -663,7 +665,7 @@ class LocalPartitionNode2Test {
     void removedPartitionGivesTheTicksBeforeTheRemovalWhileTheyAreInTheWindow() {
         // The example of the bundle: k = 5, removal requested at tick 102, next move to 105.
         node.setTick(100);
-        node.createPartition(P2, IndexConfig.linearScan(), 5);
+        node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
         for (int tick = 100; tick <= 102; tick++) {
             node.setTick(tick);
             node.insertAll(owner(node, P2), List.of(entity(tick, tick, 0)));
@@ -748,11 +750,22 @@ class LocalPartitionNode2Test {
     @Test
     void removedPartitionKeepsItsIdUntilItIsDestroyed() {
         node.removePartition(owner(node, P1));
-        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1));
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1, nameOf(P1)));
         node.setTick(1);
-        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1));
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1, nameOf(P1)));
         node.setTick(2);
-        node.createPartition(P1);
+        node.createPartition(P1, nameOf(P1));
+    }
+
+    @Test
+    void removedPartitionKeepsItsNameUntilItIsDestroyed() {
+        node.removePartition(owner(node, P1));
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, nameOf(P1)));
+        node.setTick(1);
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, nameOf(P1)));
+        node.setTick(2);
+        // Destroyed: a new partition can take the name, and continues its saves.
+        node.createPartition(P2, nameOf(P1));
     }
 
     @Test
@@ -813,13 +826,21 @@ class LocalPartitionNode2Test {
 
     @Test
     void rejectsRetainedTicksLessThanOne() {
-        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, IndexConfig.linearScan(), 0));
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 0));
         assertThrows(IllegalArgumentException.class, () -> node.tick(P2));
     }
 
     @Test
-    void rejectsDuplicatePartition() {
-        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1));
+    void rejectsTheIdOfAPartitionOnTheNode() {
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P1, partitionName("other")));
+        // The name was not taken by the failed creation.
+        node.createPartition(P2, partitionName("other"));
+    }
+
+    @Test
+    void rejectsTheNameOfAPartitionOnTheNode() {
+        assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, nameOf(P1)));
+        assertThrows(IllegalArgumentException.class, () -> node.tick(P2));
     }
 
     @Test
@@ -833,7 +854,7 @@ class LocalPartitionNode2Test {
      */
     private static LocalPartitionNode2 timedNode(FakeClock clock) {
         LocalPartitionNode2 timedNode = new LocalPartitionNode2(clock);
-        timedNode.createPartition(P1);
+        timedNode.createPartition(P1, nameOf(P1));
         timedNode.insertAll(owner(timedNode, P1), List.of(entity(1, 1, 1)));
         timedNode.commit(owner(timedNode, P1));
         timedNode.setTick(1);
@@ -860,7 +881,7 @@ class LocalPartitionNode2Test {
         SteppingClock clock = new SteppingClock();
         PartitionStorage2[] storage = new PartitionStorage2[1];
         LocalPartitionNode2 timed = nodeWithClock(clock, storage);
-        timed.createPartition(P1, IndexConfig.linearScan(), 1);
+        timed.createPartition(P1, nameOf(P1), IndexConfig.linearScan(), 1);
         WriteToken token = timed.claim(P1, 0).orElseThrow();
         timed.setTick(1);
         timed.removePartition(token);
@@ -882,7 +903,7 @@ class LocalPartitionNode2Test {
         SteppingClock clock = new SteppingClock();
         PartitionStorage2[] storage = new PartitionStorage2[1];
         LocalPartitionNode2 timed = nodeWithClock(clock, storage);
-        timed.createPartition(P1, IndexConfig.linearScan(), 1);
+        timed.createPartition(P1, nameOf(P1), IndexConfig.linearScan(), 1);
         WriteToken first = timed.claim(P1, 0).orElseThrow();
         timed.insertAll(first, List.of(entity(1, 1, 1)));
         timed.commit(first);

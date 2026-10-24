@@ -24,9 +24,11 @@ import badspace.service.partition.snapshot.SnapshotAcquisitions3;
 import badspace.service.partition.snapshot.SnapshotCatalog3;
 import badspace.service.partition.snapshot.SnapshotLifetime3;
 import badspace.service.partition.snapshot.StorageSnapshot3;
+import badspace.service.persistence.PartitionCopy3;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
@@ -77,7 +79,8 @@ import java.util.function.Function;
  * tick publishes it in the {@link SnapshotCatalog3}, as the snapshot of that tick and of the
  * ticks without a commit after it. A later commit in the same tick replaces the snapshot that
  * waits for the move, and gives back its buffer at once, because no reader ever saw it. The new
- * partition has the empty snapshot as if it had a commit at its creation tick. The catalog
+ * partition has the empty snapshot as if it had a commit at its creation tick. A partition loaded
+ * from a save has instead the snapshot of the loaded content (see {@link #load}). The catalog
  * holds the same snapshots, not copies, for the ticks of the retention window. Everyone, the
  * writer too, reads the snapshots of the {@linkplain #catalog() catalog}: the move of the tick
  * publishes it with a single write of a volatile field, so a reader sees either the catalog
@@ -253,7 +256,7 @@ final class PartitionStorage3 {
                 if (slots.slotOf(e.id()) != SlotSnapshot3.NONE || !seen.add(e.id())) {
                     throw new IllegalArgumentException("Duplicate entity ID: " + e.id());
                 }
-                checkLimits(e);
+                checkLimits(e.id(), e.position());
             }
             slots.ensureCapacity(slots.size() + entities.size());
             for (Entity3 e : entities) {
@@ -270,7 +273,7 @@ final class PartitionStorage3 {
             checkOwner(generation);
             for (Entity3 e : entities) {
                 existingSlot(e.id());
-                checkLimits(e);
+                checkLimits(e.id(), e.position());
             }
             for (Entity3 e : entities) {
                 move(slots.slotOf(e.id()), e.position());
@@ -316,7 +319,7 @@ final class PartitionStorage3 {
             }
             for (Entity3 e : write.positions()) {
                 existingSlot(e.id());
-                checkLimits(e);
+                checkLimits(e.id(), e.position());
             }
             for (MetadataWrite metadataWrite : write.metadata()) {
                 existingSlot(metadataWrite.entityId());
@@ -361,6 +364,67 @@ final class PartitionStorage3 {
         }
     }
 
+    // Load.
+
+    /**
+     * Loads the content of a copy into a new partition: its entities, with the same IDs,
+     * positions and application metadata, and an index rebuilt by inserting them. Then it
+     * commits them, as the commit of the creation tick: the first move of the tick publishes
+     * them as the snapshot of the creation tick, and no reader sees a partition loaded in part.
+     * The tick of the copy does not matter. The partition must have no commits and no owner, so
+     * the node calls it before the partition is on the node, and then sets the creation tick
+     * with {@link #setCreationTick}. Fails with
+     * IllegalArgumentException if the copy has an entity ID twice or a position outside the
+     * limits of the index; in this case nothing changes.
+     */
+    void load(PartitionCopy3 copy) {
+        writerLock.lock();
+        try {
+            if (commitSequence != 0 || ownership.owned()) {
+                throw new IllegalStateException("Only a new partition can be loaded");
+            }
+            int count = copy.size();
+            Set<Long> seen = new HashSet<>();
+            for (int i = 0; i < count; i++) {
+                if (!seen.add(copy.entityId(i))) {
+                    throw new IllegalArgumentException("Duplicate entity ID: " + copy.entityId(i));
+                }
+                checkLimits(copy.entityId(i), copy.position(i));
+            }
+            slots.ensureCapacity(count);
+            for (int i = 0; i < count; i++) {
+                long entityId = copy.entityId(i);
+                insert(entityId, copy.position(i));
+                for (Map.Entry<String, Long> pair : copy.metadata(i).entrySet()) {
+                    metadata.write(new MetadataWrite.Put(entityId, pair.getKey(), pair.getValue()));
+                }
+            }
+            commitWrites();
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
+    /**
+     * Sets the creation tick of a partition that is not on a node yet: the node builds the
+     * partition, and loads it, before it knows the tick at which it adds the partition to the
+     * node. The partition is then at the new tick, and the snapshot that waits for the move of
+     * the tick, empty or of the load, becomes the snapshot of that tick. Fails with
+     * IllegalStateException if the tick of the partition has moved since its creation.
+     */
+    void setCreationTick(long creationTick) {
+        writerLock.lock();
+        try {
+            SnapshotCatalog3 current = catalog;
+            if (current.tick() != current.creationTick()) {
+                throw new IllegalStateException("Tick of the partition has moved: " + current.tick());
+            }
+            catalog = SnapshotCatalog3.empty(creationTick, current.retainedTicks());
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
     // Commit and move of the tick.
 
     /**
@@ -373,36 +437,13 @@ final class PartitionStorage3 {
      * it. Fails with OwnershipChangedException if generation is not the one of the owner.
      */
     StorageSnapshot3 commit(long generation) {
-        StorageSnapshot3 snapshot;
         writerLock.lock();
         try {
             checkOwner(generation);
-            commitSequence++;
-            // Replaced before the move of the tick, if not null: no reader ever saw it.
-            StorageSnapshot3 replaced = pending;
-            CoordinateBuffer coordinates;
-            if (slots.coordinatesChanged()) {
-                if (replaced != null) {
-                    // Its buffer can go to this commit, with only the pages changed since.
-                    lifetime.replaced(replaced);
-                    replaced = null;
-                }
-                coordinates = slots.copyChangedPages(coordinateBuffers, commitSequence);
-            } else {
-                coordinates = lastCommitted.slots().coordinateBuffer();
-            }
-            snapshot = new StorageSnapshot3(slots.snapshot(coordinates, lastCommitted.slots()),
-                    index.commit(commitSequence), metadata.commit(commitSequence));
-            if (replaced != null) {
-                // After the new snapshot became a user of the shared buffer.
-                lifetime.replaced(replaced);
-            }
-            lastCommitted = snapshot;
-            pending = snapshot;
+            return commitWrites();
         } finally {
             writerLock.unlock();
         }
-        return snapshot;
     }
 
     /**
@@ -716,6 +757,37 @@ final class PartitionStorage3 {
         return slots.copiedPageCount();
     }
 
+    /**
+     * Confirms the writes of the writer in a new commit of the current tick and returns its
+     * snapshot, which replaces the one that waits for the move of the tick. The caller holds
+     * writerLock.
+     */
+    private StorageSnapshot3 commitWrites() {
+        commitSequence++;
+        // Replaced before the move of the tick, if not null: no reader ever saw it.
+        StorageSnapshot3 replaced = pending;
+        CoordinateBuffer coordinates;
+        if (slots.coordinatesChanged()) {
+            if (replaced != null) {
+                // Its buffer can go to this commit, with only the pages changed since.
+                lifetime.replaced(replaced);
+                replaced = null;
+            }
+            coordinates = slots.copyChangedPages(coordinateBuffers, commitSequence);
+        } else {
+            coordinates = lastCommitted.slots().coordinateBuffer();
+        }
+        StorageSnapshot3 snapshot = new StorageSnapshot3(slots.snapshot(coordinates, lastCommitted.slots()),
+                index.commit(commitSequence), metadata.commit(commitSequence));
+        if (replaced != null) {
+            // After the new snapshot became a user of the shared buffer.
+            lifetime.replaced(replaced);
+        }
+        lastCommitted = snapshot;
+        pending = snapshot;
+        return snapshot;
+    }
+
     // Steps of the writes: the slots change first, then the index learns the change.
 
     private void insert(long entityId, Point3 position) {
@@ -750,10 +822,10 @@ final class PartitionStorage3 {
         return commitSequence + 1;
     }
 
-    private void checkLimits(Entity3 e) {
-        if (!limits.contains(e.position())) {
-            throw new IllegalArgumentException("Position of entity " + e.id() + " is outside the limits "
-                    + limits.min() + ", " + limits.max() + ": " + e.position());
+    private void checkLimits(long entityId, Point3 position) {
+        if (!limits.contains(position)) {
+            throw new IllegalArgumentException("Position of entity " + entityId + " is outside the limits "
+                    + limits.min() + ", " + limits.max() + ": " + position);
         }
     }
 

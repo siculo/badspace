@@ -20,6 +20,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.profile.GCProfiler;
 import org.openjdk.jmh.results.RunResult;
 import org.openjdk.jmh.results.format.ResultFormatFactory;
 import org.openjdk.jmh.results.format.ResultFormatType;
@@ -31,7 +32,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 /**
  * Runs the benchmarks and builds the HTML report. Usage:
  * <pre>
- * java -jar benchmarks.jar run [quick|full] [--index NAME1,NAME2] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
+ * java -jar benchmarks.jar run [quick|full] [--index NAME1,NAME2] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE] [--save-directory DIR]
  * java -jar benchmarks.jar run --plan FILE
  * java -jar benchmarks.jar report [--output FILE] RESULTS.json...
  * </pre>
@@ -41,7 +42,9 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
  * Without {@code --output}, the results go to
  * {@code results/<date>-<profile>.json}. The run also writes the report of
  * its results next to them, with the same name and the {@code .html}
- * extension. {@code --plan} does the runs of a plan file instead (see
+ * extension. The persistence benchmarks write their files in a new directory of the run
+ * inside {@code --save-directory}, by default {@code target/save-benchmarks}, and delete
+ * it at the end (see {@link SaveDestination}). {@code --plan} does the runs of a plan file instead (see
  * {@link BenchmarkPlan}), and takes no other options. Without
  * {@code --output}, the report command writes the report next to the last
  * results file, in the same way.
@@ -60,6 +63,7 @@ public final class BenchmarkMain {
     private static final String USAGE = """
             Usage:
               run [quick|full] [--index NAME1,NAME2] [--include REGEX] [--param NAME=V1,V2] [--percentiles] [--output FILE]
+                  [--save-directory DIR]
               run --plan FILE
               report [--output FILE] RESULTS.json...
             Index names: LINEAR_SCAN, UNIFORM_GRID_<cell size> (for example UNIFORM_GRID_100),
@@ -96,6 +100,7 @@ public final class BenchmarkMain {
         params.put("index", IndexNames.DEFAULT);
         boolean percentiles = false;
         Path output = null;
+        Path saveDirectory = SaveDestination.DEFAULT;
         for (int i = 0; i < args.size(); i++) {
             switch (args.get(i)) {
                 case "quick" -> profile = Profile.QUICK;
@@ -104,6 +109,7 @@ public final class BenchmarkMain {
                 case "--include" -> include = Pattern.compile(value(args, ++i));
                 case "--percentiles" -> percentiles = true;
                 case "--output" -> output = Path.of(value(args, ++i));
+                case "--save-directory" -> saveDirectory = Path.of(value(args, ++i));
                 case "--param" -> {
                     String[] nameAndValues = value(args, ++i).split("=", 2);
                     if (nameAndValues.length != 2) {
@@ -117,7 +123,7 @@ public final class BenchmarkMain {
         if (output == null) {
             output = Path.of("results", LocalDateTime.now().format(DATE) + "-" + profile.name() + ".json");
         }
-        RunOptions run = new RunOptions(null, profile, include, params, percentiles, output);
+        RunOptions run = new RunOptions(null, profile, include, params, percentiles, output, saveDirectory);
         try {
             run.check();
         } catch (IllegalArgumentException e) {
@@ -186,24 +192,111 @@ public final class BenchmarkMain {
             }
             results.addAll(new Runner(options.build()).run());
         }
-        List<Footprint.Result> footprints = List.of();
+        List<String> measures = new ArrayList<>();
         if (run.measuresFootprint()) {
-            footprints = Footprint.measure(
+            Footprint.measure(
                     allParams.get("index"),
-                    paramValues(allParams, "distribution").stream()
+                    paramValues(allParams, "distribution", WorkloadState.class).stream()
                             .map(Distribution::valueOf).toList(),
-                    allParams.get("size").stream().map(Integer::valueOf).toList());
+                    allParams.get("size").stream().map(Integer::valueOf).toList())
+                    .forEach(f -> measures.add(f.toJson()));
         }
-        writeResults(run.output(), results, footprints, commit);
+        if (run.usesSaveDirectory()) {
+            measures.addAll(executePersistence(run, results));
+        }
+        writeResults(run.output(), results, measures, commit, environment(run));
         System.out.println("Results written to " + run.output().toAbsolutePath());
         writeReport(List.of(run.output()), run.reportPath());
     }
 
-    private static ChainedOptionsBuilder options(Profile profile, Map<String, List<String>> params, List<String> benchmarks) {
+    /**
+     * Runs the persistence benchmarks and the measures of {@link PersistenceSizes} of the
+     * options, in a new directory of the run inside the save directory, which it deletes at
+     * the end, also if they fail or the JVM stops. Adds the JMH results to the list, and
+     * returns the results of the measures of the sizes, as JSON objects.
+     */
+    private static List<String> executePersistence(RunOptions run, List<RunResult> results)
+            throws RunnerException, IOException {
+        Profile profile = run.profile();
+        Map<String, List<String>> allParams = run.allParams();
+        Path runDirectory = SaveDestination.createRunDirectory(run.saveDirectory(),
+                run.name() != null ? run.name() : "run");
+        System.out.println("Save directory of the run: " + runDirectory.toAbsolutePath());
+        // If the JVM stops during the run, for example because the run is cancelled.
+        Thread cleanup = new Thread(() -> {
+            try {
+                SaveDestination.delete(runDirectory);
+            } catch (IOException e) {
+                System.err.println("Cannot delete " + runDirectory + ": " + e.getMessage());
+            }
+        });
+        Runtime.getRuntime().addShutdownHook(cleanup);
+        try {
+            List<String> benchmarks = run.persistenceBenchmarks();
+            if (!benchmarks.isEmpty()) {
+                Profile.Timing timing = profile.persistence();
+                ChainedOptionsBuilder options = options(profile, allParams, benchmarks,
+                        "-D" + SaveDestination.PROPERTY + "=" + runDirectory)
+                        .forks(timing.forks())
+                        .warmupIterations(timing.warmupIterations())
+                        .warmupTime(timing.warmupTime())
+                        .measurementIterations(timing.measurementIterations())
+                        .measurementTime(timing.measurementTime())
+                        // The allocations and the collections during the calls, in the secondary metrics.
+                        .addProfiler(GCProfiler.class);
+                if (run.percentiles()) {
+                    options.mode(Mode.AverageTime).mode(Mode.SampleTime);
+                }
+                results.addAll(new Runner(options.build()).run());
+            }
+            List<String> sizes = run.persistenceSizes();
+            if (sizes.isEmpty()) {
+                return List.of();
+            }
+            return PersistenceSizes.measure(sizes,
+                    allParams.get("size").stream().map(Integer::valueOf).toList(),
+                    paramValues(allParams, "metadata", PersistenceBenchmark2.SourceState.class).stream()
+                            .map(MetadataSet::valueOf).toList(),
+                    runDirectory);
+        } finally {
+            SaveDestination.delete(runDirectory);
+            Runtime.getRuntime().removeShutdownHook(cleanup);
+        }
+    }
+
+    /**
+     * Returns the environment of the run as a JSON object: the operating system, the number of
+     * processors and, if the run writes files, the save directory as given and its file system.
+     * The JVM and its options are already in each JMH result.
+     */
+    private static String environment(RunOptions run) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("os", System.getProperty("os.name") + " " + System.getProperty("os.version"));
+        fields.put("arch", System.getProperty("os.arch"));
+        fields.put("processors", Integer.toString(Runtime.getRuntime().availableProcessors()));
+        if (run.usesSaveDirectory()) {
+            fields.put("saveDirectory", run.saveDirectory().toString());
+            fields.put("saveFileStore", SaveDestination.fileStore(run.saveDirectory()));
+        }
+        return fields.entrySet().stream()
+                .map(e -> "\"" + jsonText(e.getKey()) + "\" : \"" + jsonText(e.getValue()) + "\"")
+                .collect(Collectors.joining(", ", "{", "}"));
+    }
+
+    /** Escapes a string for a JSON string literal. */
+    private static String jsonText(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private static ChainedOptionsBuilder options(Profile profile, Map<String, List<String>> params, List<String> benchmarks,
+            String... jvmArgs) {
+        List<String> allJvmArgs = new ArrayList<>();
+        // JMH 1.37 uses sun.misc.Unsafe: this hides the warnings of the new JDKs.
+        allJvmArgs.add("--sun-misc-unsafe-memory-access=allow");
+        allJvmArgs.addAll(List.of(jvmArgs));
         ChainedOptionsBuilder options = new OptionsBuilder()
                 .forks(profile.forks())
-                // JMH 1.37 uses sun.misc.Unsafe: this hides the warnings of the new JDKs.
-                .jvmArgsAppend("--sun-misc-unsafe-memory-access=allow")
+                .jvmArgsAppend(allJvmArgs.toArray(String[]::new))
                 .shouldFailOnError(true);
         for (String benchmark : benchmarks) {
             options.include("^" + Pattern.quote(benchmark) + "$");
@@ -215,24 +308,27 @@ public final class BenchmarkMain {
 
     /**
      * Returns the values of the parameter in the run or, as JMH does, the default
-     * values of its field in {@link WorkloadState}. Not all the values of an enum
-     * are defaults: EDGE_CLUSTER is only for the indices with large limits.
+     * values of its field in the state. Not all the values of an enum are defaults:
+     * EDGE_CLUSTER is only for the indices with large limits.
      */
-    private static List<String> paramValues(Map<String, List<String>> params, String name) {
+    private static List<String> paramValues(Map<String, List<String>> params, String name, Class<?> state) {
         List<String> values = params.get(name);
         if (values != null) {
             return values;
         }
         try {
-            return List.of(WorkloadState.class.getField(name).getAnnotation(Param.class).value());
+            return List.of(state.getField(name).getAnnotation(Param.class).value());
         } catch (NoSuchFieldException e) {
             throw new IllegalArgumentException("Unknown parameter: " + name, e);
         }
     }
 
-    /** Writes the JMH results and the footprints in a single JSON array, each with the commit of the code. */
-    private static void writeResults(Path output, List<RunResult> results, List<Footprint.Result> footprints,
-            String commit) throws IOException {
+    /**
+     * Writes the JMH results and the other measures in a single JSON array, each with the
+     * commit of the code and the environment of the run.
+     */
+    private static void writeResults(Path output, List<RunResult> results, List<String> measures,
+            String commit, String environment) throws IOException {
         List<String> entries = new ArrayList<>();
         if (!results.isEmpty()) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -242,15 +338,16 @@ public final class BenchmarkMain {
             // Remove the brackets of the array, to add the footprints to it.
             entries.add(json.substring(1, json.length() - 1).strip());
         }
-        footprints.forEach(f -> entries.add(f.toJson()));
+        entries.addAll(measures);
         if (output.getParent() != null) {
             Files.createDirectories(output.getParent());
         }
         // Keep only the name of the JVM executable: its path shows the local file system.
         String json = JVM_DIRECTORIES.matcher("[\n" + String.join(",\n", entries) + "\n]\n").replaceAll("");
-        // Each entry starts with "jmhVersion": the commit goes before it.
+        // Each entry starts with "jmhVersion": the commit and the environment go before it.
         json = JMH_VERSION.matcher(json)
-                .replaceAll("$1\"commit\" : \"" + Matcher.quoteReplacement(commit) + "\",\n$1\"jmhVersion\" :");
+                .replaceAll("$1\"commit\" : \"" + Matcher.quoteReplacement(commit) + "\",\n"
+                        + "$1\"environment\" : " + Matcher.quoteReplacement(environment) + ",\n$1\"jmhVersion\" :");
         Files.writeString(output, json);
     }
 

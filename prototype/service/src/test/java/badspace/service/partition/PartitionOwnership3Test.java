@@ -2,6 +2,7 @@ package badspace.service.partition;
 
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.Entity3.entity;
+import static badspace.service.partition.Names.nameOf;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -58,7 +59,7 @@ class PartitionOwnership3Test {
     @BeforeEach
     void setUp() {
         node = new LocalPartitionNode3();
-        node.createPartition(P1);
+        node.createPartition(P1, nameOf(P1));
     }
 
     @Test
@@ -117,7 +118,7 @@ class PartitionOwnership3Test {
     void claimDiscardsTheWritesNotCommittedAndKeepsTheCommits() {
         for (IndexConfig config : CONFIGS) {
             setUp();
-            node.createPartition(P2, config);
+            node.createPartition(P2, nameOf(P2), config);
             WriteToken first = node.claim(P2, 0).orElseThrow();
             node.insertAll(first, List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2), entity(3, 3, 3, 3)));
             node.commit(first);
@@ -169,7 +170,7 @@ class PartitionOwnership3Test {
     void discardAfterRandomWritesGivesTheCommittedStateAndTheIndexStaysConsistent() {
         for (IndexConfig config : CONFIGS) {
             setUp();
-            node.createPartition(P2, config);
+            node.createPartition(P2, nameOf(P2), config);
             WriteToken token = node.claim(P2, 0).orElseThrow();
             Random random = new Random(42);
             Map<Long, Entity3> model = new LinkedHashMap<>();
@@ -262,7 +263,7 @@ class PartitionOwnership3Test {
             GatedIndex3[] index = new GatedIndex3[1];
             ObservedLock lock = new ObservedLock();
             LocalPartitionNode3 gated = gatedNode(index, lock);
-            gated.createPartition(P1, config, 1);
+            gated.createPartition(P1, nameOf(P1), config, 1);
             WriteToken old = gated.claim(P1, 0).orElseThrow();
             gated.insertAll(old, List.of(entity(1, 1, 1, 1)));
             Gate gate = new Gate();
@@ -394,7 +395,7 @@ class PartitionOwnership3Test {
             GatedIndex3[] index = new GatedIndex3[1];
             ObservedLock lock = new ObservedLock();
             LocalPartitionNode3 gated = gatedNode(index, lock);
-            gated.createPartition(P1, config, 1);
+            gated.createPartition(P1, nameOf(P1), config, 1);
             WriteToken old = gated.claim(P1, 0).orElseThrow();
             gated.insertAll(old, List.of(entity(1, 1, 1, 1)));
             Gate gate = new Gate();
@@ -433,7 +434,7 @@ class PartitionOwnership3Test {
         for (boolean release : new boolean[] {false, true}) {
             for (IndexConfig config : CONFIGS) {
                 setUp();
-                node.createPartition(P2, config);
+                node.createPartition(P2, nameOf(P2), config);
                 WriteToken first = node.claim(P2, 0).orElseThrow();
                 Random random = new Random(7);
                 Map<Long, Entity3> model = new LinkedHashMap<>();

@@ -12,7 +12,7 @@
   }
   * { box-sizing: border-box; }
   body { margin: 0 auto; max-width: 1900px; padding: 16px 24px; background: var(--bg); color: var(--fg);
-         height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+         min-height: 100dvh; display: flex; flex-direction: column;
          font: 15px/1.5 system-ui, sans-serif; }
   h1 { font-size: 28px; margin: 0 0 4px; flex-shrink: 0; }
   h2 { font-size: 19px; margin: 8px 0 4px; flex-shrink: 0; }
@@ -31,15 +31,14 @@
             max-height: 15dvh; overflow: auto; flex-shrink: 0; }
   .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px;
             vertical-align: -1px; }
-  .comparison { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px;
-                flex: 1; min-height: 0; }
+  /* The comparison fills the space left in the window, but not below its minimum height:
+     in a lower window the page scrolls. */
+  .comparison { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+                grid-template-rows: minmax(0, 1fr); gap: 20px; flex: 1 1 0; min-height: 360px; }
   .legend label { cursor: pointer; display: flex; align-items: center; gap: 4px; overflow-wrap: anywhere; min-width: 0; }
   .legend input { accent-color: var(--fg); }
   .legend label:has(input:not(:checked)) { opacity: 0.55; }
   .table-wrap th:first-child { white-space: normal; min-width: 160px; max-width: 280px; overflow-wrap: anywhere; }
-  @media (max-width: 1000px) {
-    .comparison { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 3fr) minmax(0, 2fr); gap: 8px; }
-  }
   figure { margin: 0; padding: 20px; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
            display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   figcaption { font-weight: 600; margin-bottom: 4px; }
@@ -55,6 +54,20 @@
   .better { color: var(--better); }
   .worse { color: var(--worse); }
   .ratio { font-size: 12px; margin-left: 4px; }
+  /* On a narrow screen all does not fit in the window: the page scrolls, the chart keeps
+     its proportions and the other parts have their natural height. */
+  @media (max-width: 1000px) {
+    body { display: block; padding: 12px 16px; }
+    main { display: block; }
+    #runs, main > p, .legend, .controls { max-height: none; }
+    .controls { position: static; }
+    .controls label { flex-wrap: wrap; }
+    select { max-width: 100%; }
+    .comparison { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; gap: 8px; min-height: 0; }
+    figure { padding: 12px; }
+    svg { height: auto; flex: none; aspect-ratio: 900 / 560; }
+    .table-wrap { overflow-x: auto; overflow-y: visible; padding: 12px; }
+  }
 </style>
 </head>
 <body>
@@ -69,13 +82,35 @@ const RUNS = /*DATA*/[];
 // Parameters that are on the axes or in the series, so they are not filters.
 const AXES = ['index', 'distribution', 'size'];
 const ORDER = ['build', 'insert', 'remove', 'update', 'get', 'findInRegion', 'findNearest', 'bytesPerEntity',
-  'commitTick', 'movesWithoutCommit', 'acquireAndRelease'];
+  'commitTick', 'movesWithoutCommit', 'acquireAndRelease',
+  'copy', 'write', 'load', 'fileBytes', 'fileBytesPerEntity', 'copyBytes', 'copyBytesPerEntity'];
 const TITLES = {
   build: 'Build (all entities in one call)', insert: 'Insert', remove: 'Remove', update: 'Update',
   get: 'Get by ID', findInRegion: 'Range query', findNearest: 'k-nearest query', bytesPerEntity: 'Memory per entity',
   commitTick: 'Tick with a commit (moves, commit, move of the tick)',
   movesWithoutCommit: 'Moves without a commit (reference for the tick)',
-  acquireAndRelease: 'Acquisition and release of the latest snapshot'
+  acquireAndRelease: 'Acquisition and release of the latest snapshot',
+  copy: 'Persistence: copy of the snapshot', write: 'Persistence: write of a save', load: 'Persistence: load of a save',
+  fileBytes: 'Persistence: size of the save file', fileBytesPerEntity: 'Persistence: size of the save file per entity',
+  copyBytes: 'Persistence: memory kept by the copy (estimate)',
+  copyBytesPerEntity: 'Persistence: memory kept by the copy per entity (estimate)'
+};
+// What each measure includes, when the title is not enough.
+const PERSISTENCE = 'Uniform positions; with metadata FIXED, 4 pairs per entity. ';
+const DESCRIPTIONS = {
+  copy: PERSISTENCE + 'Acquisition of the published snapshot, autonomous copy of IDs, positions and metadata, release. ' +
+    'Not measured: the creation, the filling and the publication of the snapshot. Index of the source: linear scan.',
+  write: PERSISTENCE + 'PartitionSave.write() of a copy to a new file: encoding, CRC, write of the temporary file, sync, rename and ' +
+    'sync of the directory (not on Windows). Not measured: the copy, the deletion of the file after each call.',
+  load: PERSISTENCE + 'loadPartition() of a save into a new partition: read, checks, rebuild of the storage and of the index, ' +
+    'addition to the node. The file is read again at each call, so it is usually in the cache of the operating system. ' +
+    'Not measured: the creation of the save file and of the empty node.',
+  fileBytes: PERSISTENCE + 'Real size of the complete file after a save of the node.',
+  fileBytesPerEntity: PERSISTENCE + 'Real size of the complete file after a save of the node, divided by the number of entities.',
+  copyBytes: PERSISTENCE + 'Heap in use with the copies minus without them, after a garbage collection, with the source snapshot ' +
+    'alive in both. An estimate: the table shows the median, hover over a value for the samples.',
+  copyBytesPerEntity: PERSISTENCE + 'The memory kept by the copy divided by the number of entities. An estimate: the table shows ' +
+    'the median, hover over a value for the samples.'
 };
 const COLORS = ['#94d8ff', '#ffb078', '#71d69a', '#ff92bd', '#b9a1ff', '#a9d9dd', '#f2d479', '#c7d2df'];
 const PERCENTILES = { p50: '50.0', p90: '90.0', p99: '99.0' };
@@ -88,10 +123,15 @@ for (const run of RUNS) {
       op: r.benchmark.substring(r.benchmark.lastIndexOf('.') + 1),
       mode: r.mode,
       params: p,
-      series: run.label + ' · ' + (p.index || '?'),
+      // A digit at the end of the class gives the dimensions, as in PersistenceBenchmark3.
+      series: run.label + (p.index ? ' · ' + p.index : '') + dimensions(r.benchmark),
       metric: r.primaryMetric
     });
   }
+}
+function dimensions(benchmark) {
+  const match = benchmark.match(/([23])\.[^.]+$/);
+  return match ? ' · ' + match[1] + 'D' : '';
 }
 const unique = values => [...new Set(values)];
 const numericSort = values => values.sort((a, b) => (isNaN(a) || isNaN(b)) ? String(a).localeCompare(b) : a - b);
@@ -112,8 +152,22 @@ const state = { operation: operations[0], distribution: '', metric: 'mean', base
 for (const [name, values] of Object.entries(filters)) state.filters[name] = values[0];
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-const fmt = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v.toPrecision(3);
+// The estimates of the memory can be negative.
+const fmt = v => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toPrecision(3);
 const fmtSize = n => n >= 1e6 ? n / 1e6 + 'M' : n >= 1e3 ? n / 1e3 + 'k' : String(n);
+// The units in bytes, B and B/entity, are shown with the prefix that fits each value.
+const BYTE_PREFIXES = [[1e9, 'G'], [1e6, 'M'], [1e3, 'k']];
+const isBytes = u => u === 'B' || u.startsWith('B/');
+/** Returns the name of the unit for the captions: bytes are written in full, the prefixes go with the values. */
+const unitName = u => u === 'B' ? 'bytes' : u.startsWith('B/') ? 'bytes per ' + u.substring(2) : u;
+/** Returns the value with its unit, with a decimal prefix for the bytes: 23600000 B is 23.6 MB. */
+function withUnit(v, u) {
+  if (!isBytes(u)) return `${fmt(v)} ${u}`;
+  const [scale, prefix] = BYTE_PREFIXES.find(([scale]) => Math.abs(v) >= scale) || [1, ''];
+  return `${fmt(v / scale)} ${prefix}${u}`;
+}
+/** Returns the value for the table: only the number, but with the prefixed unit for the bytes. */
+const cell = (v, u) => isBytes(u) ? withUnit(v, u) : fmt(v);
 const color = s => COLORS[series.indexOf(s) % COLORS.length];
 
 /** Returns the value of a row for the chosen metric, or undefined if the row does not have it. */
@@ -202,7 +256,7 @@ function chart(lines, unitLabel) {
   for (let e = y0; e <= y1; e++) {
     const y = sy(10 ** e);
     svg += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/>`;
-    svg += `<text x="${L - 4}" y="${y + 3}" text-anchor="end">${fmt(10 ** e)}</text>`;
+    svg += `<text x="${L - 4}" y="${y + 3}" text-anchor="end">${esc(cell(10 ** e, unitLabel))}</text>`;
   }
   for (let e = x0; e <= x1; e++) {
     const x = sx(10 ** e);
@@ -210,13 +264,13 @@ function chart(lines, unitLabel) {
     svg += `<text x="${x}" y="${H - B + 13}" text-anchor="middle">${fmtSize(10 ** e)}</text>`;
   }
   svg += `<text x="${W - R}" y="${H - 2}" text-anchor="end">entities</text>`;
-  svg += `<text x="2" y="${T - 10}">${esc(unitLabel)}</text>`;
+  svg += `<text x="2" y="${T - 10}">${esc(unitName(unitLabel))}</text>`;
   for (const l of lines) {
     const pts = l.points.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(' ');
     svg += `<polyline points="${pts}" fill="none" stroke="${l.color}" stroke-width="2"/>`;
     for (const [x, y] of l.points) {
       svg += `<circle cx="${sx(x)}" cy="${sy(y)}" r="3" fill="${l.color}">` +
-        `<title>${esc(l.name)}\n${fmtSize(x)} entities: ${fmt(y)} ${esc(unitLabel)}</title></circle>`;
+        `<title>${esc(l.name)}\n${fmtSize(x)} entities: ${esc(withUnit(y, unitLabel))}</title></circle>`;
     }
   }
   return svg + '</svg>';
@@ -240,7 +294,8 @@ function renderSection(op) {
   }));
   let html = `<h2>${esc(TITLES[op] || op)} · ${esc(state.distribution || 'Not specified')}</h2>` +
     `<p class="muted">${esc(subtitle || 'no other parameters')}` +
-    `${state.metric !== 'mean' && !matching.some(r => r.mode === 'sample') ? ' · mean only' : ''}</p>`;
+    `${state.metric !== 'mean' && !matching.some(r => r.mode === 'sample') ? ' · mean only' : ''}</p>` +
+    (DESCRIPTIONS[op] ? `<p class="muted">${esc(DESCRIPTIONS[op])}</p>` : '');
   if (matching.length === 0) return html + '<p class="muted">No data for these filters.</p>';
   if (data.length === 0) return html + '<p class="muted">All solutions are hidden. Select a solution above to show its results.</p>';
   const unitLabel = unit(data[0]);
@@ -251,9 +306,9 @@ function renderSection(op) {
     points: sizes.map(n => [n, find(s, n)]).filter(([, r]) => r)
       .map(([n, r]) => [n, value(r)]).filter(([x, y]) => x > 0 && y > 0 && Number.isFinite(y))
   }));
-  html += `<div class="comparison"><figure><figcaption>${esc(unitLabel)} by number of entities</figcaption>` +
+  html += `<div class="comparison"><figure><figcaption>${esc(unitName(unitLabel))} by number of entities</figcaption>` +
     chart(lines, unitLabel) + '<p class="muted">Both axes use a logarithmic scale. Hover over a point for its value.</p></figure>';
-  html += `<div class="table-wrap"><table><caption>Values in ${esc(unitLabel)}, lower is better</caption>` +
+  html += `<div class="table-wrap"><table><caption>Values in ${esc(unitName(unitLabel))}, lower is better</caption>` +
     `<thead><tr><th scope="col">Solution / entities</th>` +
     sizes.map(n => `<th scope="col">${fmtSize(n)}</th>`).join('') + '</tr></thead><tbody>';
   for (const s of visible) {
@@ -270,7 +325,9 @@ function renderSection(op) {
         const cls = q < 0.9 ? 'better' : q > 1.1 ? 'worse' : 'muted';
         ratio = `<span class="ratio ${cls}">×${q.toFixed(2)}</span>`;
       }
-      html += `<td>${fmt(v)}${ratio}</td>`;
+      const samples = r.mode === 'footprint' && r.metric.rawData?.[0]?.length > 1
+        ? ` title="Samples: ${esc(r.metric.rawData[0].map(x => withUnit(x, unitLabel)).join(', '))}"` : '';
+      html += `<td${samples}>${esc(cell(v, unitLabel))}${ratio}</td>`;
     }
     html += '</tr>';
   }

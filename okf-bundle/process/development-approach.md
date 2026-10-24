@@ -4,7 +4,7 @@ title: Approccio di sviluppo
 description: BADSPACE viene sviluppato per prototipi minimali, verificati da test di integrazione e accompagnati da client d'esempio costruiti man mano, per validare le decisioni di progettazione sul campo; si assume che gli sviluppatori sappiano quello che fanno e i controlli li aiutano a prevenire errori; lo sviluppo è incrementale, ogni concetto nuovo porta con sé le estensioni che richiede e i meccanismi si implementano una volta e si estendono quando servono nuovi dati; i test partono dalla semantica, preferiscono componenti reali e verificano effetti, risorse e concorrenza; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
 tags: [badspace, methodology, prototyping]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-18T09:35:42Z }
+generated: { by: codex/gpt-6, at: 2026-10-19T14:17:50Z }
 ---
 
 # Approccio
@@ -83,7 +83,9 @@ arrivano nuovi dati da gestire, invece di aspettare che ci siano
 tutti. Per esempio la [persistenza](/decisions/persistence.md) si
 implementa dopo i metadati, così salva già un insieme minimo ma
 significativo di informazioni, e si estende alle tombstone quando
-arrivano.
+arrivano. Il primo passo salva e carica il contenuto di una singola
+partizione e ne misura i costi; durabilità osservabile e recupero
+coerente dei nodi arrivano quando servono ai protocolli successivi.
 
 L'ordine dei prototipi tiene conto solo dei prerequisiti veri, cioè di
 ciò che senza un altro pezzo non può funzionare.

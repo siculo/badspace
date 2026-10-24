@@ -1,5 +1,9 @@
 package badspace.api;
 
+import badspace.common.partition.PartitionName;
+import badspace.common.partition.SavedPartition;
+import java.util.List;
+
 /**
  * Operations shared by 2D and 3D spaces.
  *
@@ -9,21 +13,51 @@ package badspace.api;
 public interface Space<N, P extends Partition> {
 
     /**
-     * Creates a partition on the given node, with the {@linkplain PartitionConfig#defaults() default}
-     * configuration, at the tick of the space. The node must serve only this space.
+     * Creates a partition with the given name on the given node, with the
+     * {@linkplain PartitionConfig#defaults() default} configuration, at the tick of the space.
+     * The node must serve only this space.
      */
-    default P createPartition(N node) {
-        return createPartition(node, PartitionConfig.defaults());
+    default P createPartition(N node, PartitionName name) {
+        return createPartition(node, name, PartitionConfig.defaults());
     }
 
     /**
-     * Creates a partition on the given node, with the given configuration, at the tick of the space.
-     * The node must serve only this space. If the space has no partition on the node yet, the space
-     * first moves the node to its tick. The new partition has no owner: the writer takes it with
-     * {@link Partition#claim(long)} and writes through the handle of the token. The writer
-     * removes the partition with {@link PartitionWriter#removePartition()}.
+     * Creates a partition with the given name on the given node, with the given configuration,
+     * at the tick of the space. The node must serve only this space. The name is the public
+     * identifier of the partition, chosen by the software: the saves of the partition are
+     * identified by it, also after the end of the run. If the space has no partition on the node
+     * yet, the space first moves the node to its tick. The new partition has no owner: the writer
+     * takes it with {@link Partition#claim(long)} and writes through the handle of the token. The
+     * writer removes the partition with {@link PartitionWriter#removePartition()}. Fails with
+     * IllegalArgumentException if the name is already in use on the node, also by a removed
+     * partition that is not destroyed yet; the names on different nodes are not checked, so the
+     * software keeps them unique.
      */
-    P createPartition(N node, PartitionConfig config);
+    P createPartition(N node, PartitionName name, PartitionConfig config);
+
+    /**
+     * Creates a partition with the content of a save: the same entity IDs, positions and
+     * application metadata. Like {@link #createPartition(Object, PartitionName, PartitionConfig)},
+     * the partition has no owner. The moves of the tick do not wait for the load: the partition
+     * is created at the tick of the node when the load ends, which can be later than the tick
+     * of the call; {@link Partition#creationTick()} gives it. The load commits the content at
+     * the creation tick, so the software does not commit it: readers acquire it after the next
+     * move of the tick. To change the content before the readers see it, the writer claims the
+     * partition, writes and commits in the same tick: its commit replaces the one of the load.
+     * The metadata are loaded as they are: the software updates the ones that hold ticks.
+     *
+     * @param node the node that creates the partition and has the save in its save destination
+     * @param config the index and the retention window of the partition; they do not come from
+     *     the save
+     * @param saved the save to load; the partition takes its name and a new ID
+     * @return the loaded partition
+     * @throws IllegalArgumentException if the name of the save is already in use on the node,
+     *     or a position of the save is outside the limits of the index
+     * @throws IllegalStateException if the node has no save destination
+     * @throws java.io.UncheckedIOException if the save is not there or cannot be read, for
+     *     example because it is corrupted
+     */
+    P loadPartition(N node, PartitionConfig config, SavedPartition saved);
 
     /**
      * Moves the tick of the space forward to the given tick, and then the tick of each node on
@@ -36,4 +70,29 @@ public interface Space<N, P extends Partition> {
 
     /** Returns the tick of the space: 0 for a new space. Any thread can call it. */
     long tick();
+    /**
+     * Returns the saves in the save destination of the node, sorted by name and then by tick.
+     * The saves do not need a partition: they stay after the removal of their partition and
+     * after the end of the run that wrote them, so the space gives them also for a node on
+     * which it has no partition yet, for example after a restart. The node has no rule on which
+     * saves to keep: the software chooses which ones to delete with {@link #deleteSaves}. Fails
+     * with IllegalStateException if the node has no save destination, and with
+     * UncheckedIOException if the destination cannot be read. Any thread can call it.
+     */
+    List<SavedPartition> saves(N node);
+
+    /**
+     * Returns the saves of a partition name in the save destination of the node, sorted by
+     * tick, like {@link #saves(Object)}; empty if the name has no saves.
+     */
+    List<SavedPartition> saves(N node, PartitionName name);
+
+    /**
+     * Deletes the given saves from the save destination of the node, in the order of the list.
+     * A save that is not there is skipped, so deleting the same save twice does nothing. Fails
+     * with IllegalStateException if the node has no save destination, and with
+     * UncheckedIOException if a save cannot be deleted: the saves before it in the list are
+     * already deleted. Any thread can call it.
+     */
+    void deleteSaves(N node, List<SavedPartition> saves);
 }

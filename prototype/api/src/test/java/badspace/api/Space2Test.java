@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -30,13 +31,20 @@ import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.WriteToken;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +53,7 @@ class Space2Test {
     private static final PartitionId PARTITION_ID = new PartitionId(101);
     /** A token of the partition, as the node gives it to the first owner. */
     private static final WriteToken TOKEN = new WriteToken(PARTITION_ID, 1);
+    private static final PartitionName NAME = new PartitionName("p");
     private final AtomicLong entityIds = new AtomicLong(10);
     private final AtomicLong partitionIds = new AtomicLong(100);
     private final SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
@@ -57,24 +66,68 @@ class Space2Test {
     @Test
     void partitionCreationPassesTheGeneratedIdAndConfiguration() {
         PartitionConfig chosen = PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)).withRetainedTicks(3);
-        Partition2 partition = space.createPartition(node, chosen);
+        Partition2 partition = space.createPartition(node, NAME, chosen);
         assertEquals(chosen, partition.config());
         var order = inOrder(node);
         order.verify(node).setTick(0);
-        order.verify(node).createPartition(PARTITION_ID, chosen.index(), 3);
+        order.verify(node).createPartition(PARTITION_ID, NAME, chosen.index(), 3);
         order.verifyNoMoreInteractions();
     }
 
     @Test
+    void loadPassesTheSaveTheGeneratedIdAndTheConfigurationAndKeepsTheNameOfTheSave() {
+        space.setTick(5);
+        PartitionConfig chosen = PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)).withRetainedTicks(3);
+        SavedPartition saved = new SavedPartition(new PartitionName("north"), 2);
+        Partition2 partition = space.loadPartition(node, chosen, saved);
+        assertEquals(new PartitionName("north"), partition.name());
+        assertEquals(chosen, partition.config());
+        var order = inOrder(node);
+        order.verify(node).setTick(5);
+        order.verify(node).loadPartition(PARTITION_ID, saved, chosen.index(), 3);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    void moveOfTheTickDoesNotWaitForALoad() throws Exception {
+        SavedPartition saved = new SavedPartition(new PartitionName("north"), 2);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            assertTrue(finish.await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(node).loadPartition(PARTITION_ID, saved, IndexConfig.linearScan(), 1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Partition2> load = executor.submit(() -> space.loadPartition(node, PartitionConfig.defaults(), saved));
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            space.setTick(5);
+            verify(node).setTick(5);
+            finish.countDown();
+            assertEquals(new PartitionName("north"), load.get(10, TimeUnit.SECONDS).name());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void nameIsPassedToTheNodeAndKeptByThePartition() {
+        Partition2 partition = space.createPartition(node, new PartitionName("north"));
+        assertEquals(new PartitionName("north"), partition.name());
+        verify(node).createPartition(PARTITION_ID, new PartitionName("north"), IndexConfig.linearScan(), 1);
+    }
+
+    @Test
     void defaultConfigurationIsPassedToTheNode() {
-        Partition2 partition = space.createPartition(node);
+        Partition2 partition = space.createPartition(node, NAME);
         assertEquals(PartitionConfig.defaults(), partition.config());
-        verify(node).createPartition(PARTITION_ID, IndexConfig.linearScan(), 1);
+        verify(node).createPartition(PARTITION_ID, NAME, IndexConfig.linearScan(), 1);
     }
 
     @Test
     void insertAllMakesOneBatchWithGeneratedIdsInPositionOrder() {
-        PartitionWriter2 writer = space.createPartition(node).writer(TOKEN);
+        PartitionWriter2 writer = space.createPartition(node, NAME).writer(TOKEN);
         clearInvocations(node);
         assertArrayEquals(new long[] {11, 12}, writer.insertAll(List.of(A, B)));
         verify(node).insertAll(TOKEN, List.of(new Entity2(11, A), new Entity2(12, B)));
@@ -84,7 +137,7 @@ class Space2Test {
     @Test
     void removalUsesTheConfiguredPolicy() {
         for (RemovalPolicy policy : RemovalPolicy.values()) {
-            Partition2 partition = space.createPartition(node, PartitionConfig.defaults().withRemovalPolicy(policy));
+            Partition2 partition = space.createPartition(node, NAME, PartitionConfig.defaults().withRemovalPolicy(policy));
             PartitionId id = new PartitionId(partitionIds.get());
             clearInvocations(node);
             partition.writer(new WriteToken(id, 1)).removePartition();
@@ -99,7 +152,7 @@ class Space2Test {
 
     @Test
     void failedRemovalLeavesTheWriterUsable() {
-        PartitionWriter2 writer = space.createPartition(node).writer(TOKEN);
+        PartitionWriter2 writer = space.createPartition(node, NAME).writer(TOKEN);
         doThrow(new IllegalStateException("Partition is not empty")).when(node).removePartition(TOKEN);
         assertThrows(IllegalStateException.class, writer::removePartition);
         writer.insert(A);
@@ -110,7 +163,7 @@ class Space2Test {
 
     @Test
     void acquisitionsPassDefaultAndExplicitTimeouts() {
-        Partition2 partition = space.createPartition(node);
+        Partition2 partition = space.createPartition(node, NAME);
         AcquireOptions options = AcquireOptions.timeout(Duration.ofSeconds(5));
         Acquisition acquisition = new Acquisition(PARTITION_ID, 7, 2);
         when(node.acquireLatest(PARTITION_ID, AcquireOptions.defaultTimeout())).thenReturn(acquisition);
@@ -160,9 +213,9 @@ class Space2Test {
     @Test
     void setTickReachesEachNodeOnceEvenWithSeveralPartitions() {
         PartitionNode2 other = mock(PartitionNode2.class);
-        space.createPartition(node);
-        space.createPartition(node);
-        space.createPartition(other);
+        space.createPartition(node, NAME);
+        space.createPartition(node, NAME);
+        space.createPartition(other, NAME);
         clearInvocations(node, other);
         space.setTick(5);
         assertEquals(5, space.tick());
@@ -174,15 +227,15 @@ class Space2Test {
     @Test
     void newNodeReceivesTheSpaceTickBeforeCreation() {
         space.setTick(5);
-        space.createPartition(node);
+        space.createPartition(node, NAME);
         var order = inOrder(node);
         order.verify(node).setTick(5);
-        order.verify(node).createPartition(PARTITION_ID, IndexConfig.linearScan(), 1);
+        order.verify(node).createPartition(PARTITION_ID, NAME, IndexConfig.linearScan(), 1);
     }
 
     @Test
     void earlierTickIsRejectedWithoutCallingTheNode() {
-        space.createPartition(node);
+        space.createPartition(node, NAME);
         space.setTick(5);
         clearInvocations(node);
         assertThrows(IllegalArgumentException.class, () -> space.setTick(4));
@@ -192,20 +245,20 @@ class Space2Test {
 
     @Test
     void limitsPassThePartitionId() {
-        Partition2 partition = space.createPartition(node);
+        Partition2 partition = space.createPartition(node, NAME);
         when(node.limits(PARTITION_ID)).thenReturn(IndexConfig.uniformGrid(4).limits());
         assertEquals(IndexConfig.uniformGrid(4).limits(), partition.limits());
     }
 
     @Test
     void newPartitionIsNotClaimedByTheSpace() {
-        space.createPartition(node);
+        space.createPartition(node, NAME);
         verify(node, never()).claim(any(), anyLong());
     }
 
     @Test
     void ownershipAndClaimPassThePartitionId() {
-        Partition2 partition = space.createPartition(node);
+        Partition2 partition = space.createPartition(node, NAME);
         when(node.ownership(PARTITION_ID)).thenReturn(new Ownership(3, true));
         when(node.claim(PARTITION_ID, 3)).thenReturn(Optional.of(new WriteToken(PARTITION_ID, 4)));
         assertEquals(new Ownership(3, true), partition.ownership());
@@ -214,7 +267,7 @@ class Space2Test {
 
     @Test
     void writerPassesItsTokenInEveryOperation() {
-        PartitionWriter2 writer = space.createPartition(node).writer(TOKEN);
+        PartitionWriter2 writer = space.createPartition(node, NAME).writer(TOKEN);
         clearInvocations(node);
         assertSame(TOKEN, writer.token());
         long entityId = writer.insert(A);
@@ -242,7 +295,7 @@ class Space2Test {
 
     @Test
     void conditionalWritesPassTheTokenAndReturnTheFalseConditions() {
-        PartitionWriter2 writer = space.createPartition(node).writer(TOKEN);
+        PartitionWriter2 writer = space.createPartition(node, NAME).writer(TOKEN);
         MetadataCondition condition = MetadataCondition.valueIs(7, "version", 1);
         ConditionalWrite2 write = new ConditionalWrite2(List.of(condition), List.of(),
                 List.of(MetadataWrite.put(7, "version", 2)));
@@ -255,15 +308,54 @@ class Space2Test {
 
     @Test
     void writerOfATokenOfAnotherPartitionIsRejectedWithoutCallingTheNode() {
-        Partition2 partition = space.createPartition(node);
+        Partition2 partition = space.createPartition(node, NAME);
         clearInvocations(node);
         assertThrows(IllegalArgumentException.class, () -> partition.writer(new WriteToken(new PartitionId(999), 1)));
         verifyNoInteractions(node);
     }
 
     @Test
+    void savesGoToTheNodeWithThePartitionIdAndReturnItsReference() {
+        Partition2 partition = space.createPartition(node, NAME);
+        when(node.save(PARTITION_ID, 2)).thenReturn(new SavedPartition(NAME, 2));
+        when(node.saveLatest(PARTITION_ID)).thenReturn(new SavedPartition(NAME, 4));
+        assertEquals(new SavedPartition(NAME, 2), partition.save(2));
+        assertEquals(new SavedPartition(NAME, 4), partition.saveLatest());
+    }
+
+    @Test
+    void savesAndTheirDeletionGoToTheNodeAlsoWithoutPartitionsOnIt() {
+        List<SavedPartition> saves = List.of(new SavedPartition(NAME, 1), new SavedPartition(NAME, 2));
+        when(node.saves()).thenReturn(saves);
+        when(node.saves(NAME)).thenReturn(saves);
+        assertEquals(saves, space.saves(node));
+        assertEquals(saves, space.saves(node, NAME));
+        space.deleteSaves(node, saves);
+        verify(node).deleteSaves(saves);
+        // The space does not take the node: it creates no partition and gives it no tick.
+        verify(node, never()).setTick(0);
+    }
+
+    @Test
+    void savesOfAPartitionAreTheSavesOfItsName() {
+        Partition2 partition = space.createPartition(node, NAME);
+        List<SavedPartition> saves = List.of(new SavedPartition(NAME, 3));
+        when(node.saves(NAME)).thenReturn(saves);
+        assertEquals(saves, partition.saves());
+    }
+
+    @Test
+    void saveErrorsKeepTheirReasonThroughTheProxy() {
+        Partition2 partition = space.createPartition(node, NAME);
+        var failure = new SnapshotNotAvailableException(
+                SnapshotNotAvailableException.Reason.NOT_YET_PUBLISHED, "Tick is not published yet");
+        when(node.saveLatest(PARTITION_ID)).thenThrow(failure);
+        assertSame(failure, assertThrows(SnapshotNotAvailableException.class, partition::saveLatest));
+    }
+
+    @Test
     void acquisitionErrorsKeepTheirReasonThroughTheProxy() {
-        Partition2 partition = space.createPartition(node);
+        Partition2 partition = space.createPartition(node, NAME);
         var failure = new SnapshotNotAvailableException(
                 SnapshotNotAvailableException.Reason.OUT_OF_RETENTION, "Tick is outside the window");
         when(node.acquire(PARTITION_ID, 2, AcquireOptions.defaultTimeout())).thenThrow(failure);
@@ -276,7 +368,8 @@ class Space2Test {
         assertThrows(NullPointerException.class, () -> config.withEntityIds(null));
         assertThrows(NullPointerException.class, () -> config.withPartitionIds(null));
         assertThrows(NullPointerException.class, () -> new Space2(null));
-        assertThrows(NullPointerException.class, () -> space.createPartition(node, null));
+        assertThrows(NullPointerException.class, () -> space.createPartition(node, NAME, null));
+        assertThrows(NullPointerException.class, () -> space.createPartition(node, null, PartitionConfig.defaults()));
         assertThrows(NullPointerException.class, () -> new PartitionConfig(null, RemovalPolicy.REQUIRE_EMPTY, 1));
         assertThrows(NullPointerException.class, () -> PartitionConfig.defaults().withRemovalPolicy(null));
         assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedTicks(0));

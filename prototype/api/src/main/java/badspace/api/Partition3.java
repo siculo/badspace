@@ -4,18 +4,20 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode3;
+import badspace.common.partition.SavedPartition;
 import badspace.common.partition.WriteToken;
+import java.util.List;
 import java.util.Optional;
 
 /**
- * Proxy of a 3D partition that lives on a node: it gives the information about the partition,
- * its ownership, the writer handles and the acquisitions of the snapshots. Any thread can use
- * it. The writes go through a {@link PartitionWriter3} made with {@link #writer(WriteToken)}
- * from the token of the owner. Everyone, the writer too, reads by
- * {@linkplain #acquireLatest() acquiring} the snapshot of a completed tick: the writer does not
- * see its own writes before the tick that has them moves forward, and if it must remember them,
- * it keeps its own state.
+ * Proxy of a 3D partition that lives on a node: it gives the information about the partition, its
+ * ownership, the writer handles, the acquisitions and the saves of the snapshots. Any thread can
+ * use it. The writes go through a {@link PartitionWriter3} made with {@link #writer(WriteToken)}
+ * from the token of the owner. Everyone, the writer too, reads by {@linkplain #acquireLatest()
+ * acquiring} the snapshot of a completed tick: the writer does not see its own writes before the
+ * tick that has them moves forward, and if it must remember them, it keeps its own state.
  * <p>
  * The proxy keeps no state of the partition: the node knows the ownership and the state of
  * the removal. After the removal the acquisitions, {@link #tick()}, {@link #creationTick()}
@@ -28,13 +30,20 @@ public final class Partition3 implements Partition {
     private final Space3 space;
     private final PartitionNode3 node;
     private final PartitionId partitionId;
+    private final PartitionName name;
     private final PartitionConfig config;
 
-    Partition3(Space3 space, PartitionNode3 node, PartitionId partitionId, PartitionConfig config) {
+    Partition3(Space3 space, PartitionNode3 node, PartitionId partitionId, PartitionName name, PartitionConfig config) {
         this.space = space;
         this.node = node;
         this.partitionId = partitionId;
+        this.name = name;
         this.config = config;
+    }
+
+    @Override
+    public PartitionName name() {
+        return name;
     }
 
     @Override
@@ -45,6 +54,21 @@ public final class Partition3 implements Partition {
     @Override
     public Optional<WriteToken> claim(long expectedGeneration) {
         return node.claim(partitionId, expectedGeneration);
+    }
+
+    @Override
+    public SavedPartition save(long tick) {
+        return node.save(partitionId, tick);
+    }
+
+    @Override
+    public SavedPartition saveLatest() {
+        return node.saveLatest(partitionId);
+    }
+
+    @Override
+    public List<SavedPartition> saves() {
+        return node.saves(name);
     }
 
     /**

@@ -1,5 +1,7 @@
 package badspace.samples.laggedreader;
 
+import static badspace.common.partition.PartitionName.partitionName;
+
 import badspace.api.AcquiredSnapshot2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
@@ -39,7 +41,7 @@ public final class LaggedReader {
 
     public static void main(String[] args) throws InterruptedException {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Partition2 partition = space.createPartition(new LocalPartitionNode2(),
+        Partition2 partition = space.createPartition(new LocalPartitionNode2(), partitionName("world"),
                 PartitionConfig.defaults().withRetainedTicks(RETAINED_TICKS));
 
         // The main thread inserts the entities; the writer thread commits them at its first tick.

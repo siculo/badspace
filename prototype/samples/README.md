@@ -26,8 +26,8 @@ class.
 
 1. [`spaces-and-partitions`](spaces-and-partitions) (`SpacesAndPartitions`):
    the generators of the IDs, shared by all the spaces of the process; 2D and
-   3D spaces; partitions on local nodes and their configuration (index,
-   removal policy, retained ticks); the limits of the coordinates; the
+   3D spaces; partitions on local nodes, with the name that the software gives
+   them and their configuration (index, removal policy, retained ticks); the limits of the coordinates; the
    operations shared by 2D and 3D.
 2. [`writes-and-commits`](writes-and-commits) (`WritesAndCommits`): the
    writer claims a partition and writes through the handle of its token;
@@ -55,19 +55,32 @@ class.
    compare-and-set or the reservation of two entities, that change nothing
    and return the false conditions when a condition is false; removing an
    entity deletes its metadata.
+9. [`partition-saves`](partition-saves) (`PartitionSaves`): the saves of
+   three partitions of a node at two ticks, with the synchronous
+   `saveLatest()` and `save(tick)` and the reference they return, with the
+   name of the partition and the tick; the files in the save directory of the
+   node, one per partition name and tick; what a new node
+   on the same directory finds after a restart. Pass a directory as argument
+   to keep the saves there.
 
 ## Use cases
 
-9. [`random-updater`](random-updater) (`RandomUpdater`): one writer and one
-   reader on two threads; the writer moves the entities at random at each
-   tick, the reader shows the latest snapshot.
-10. [`multi-writer`](multi-writer) (`MultiWriter`): many partitions on one
+10. [`random-updater`](random-updater) (`RandomUpdater`): one writer and one
+    reader on two threads; the writer moves the entities at random at each
+    tick, the reader shows the latest snapshot.
+11. [`multi-writer`](multi-writer) (`MultiWriter`): many partitions on one
     node, each with its writer on its own thread, and a tick shared by all of
     them, like the loop of a game server.
-11. [`lagged-reader`](lagged-reader) (`LaggedReader`): a reader that draws
+12. [`lagged-reader`](lagged-reader) (`LaggedReader`): a reader that draws
     more frames than there are ticks, a little in the past, between the
     snapshots of two retained ticks, like a game client.
-12. [`writer-failover`](writer-failover) (`WriterFailover`): a coordinator
+13. [`writer-failover`](writer-failover) (`WriterFailover`): a coordinator
     takes the ownership away from a stuck writer and gives it to a new one,
     which goes on from the latest snapshot; the fencing token rejects the old
     writer when it wakes up.
+14. [`periodic-saves`](periodic-saves) (`PeriodicSaves`): a simulation that
+    saves its world while it runs; a saver thread saves every few ticks while
+    the writer goes on, and keeps only the latest saves; after a restart the
+    software loads the latest save into a new partition, with another index,
+    and a writer claims it and goes on. Pass a directory as argument to keep
+    the saves there.

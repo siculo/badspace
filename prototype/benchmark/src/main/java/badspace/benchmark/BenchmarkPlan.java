@@ -41,7 +41,8 @@ import java.util.regex.PatternSyntaxException;
  * }
  * </pre>
  * A run has the same options as the run command; only {@code name} is
- * required. Without {@code output}, the results go to
+ * required; {@code saveDirectory} is the option {@code --save-directory}. Without
+ * {@code output}, the results go to
  * {@code results/<date>-<name>-<profile>.json}, and the report of the group
  * to {@code results/<date>-<report>-<profile>.html}. The date is the start of
  * the plan, the same for all the files. A single value can be written
@@ -74,7 +75,8 @@ record BenchmarkPlan(List<Group> groups) {
 
     private static final Set<String> PLAN_FIELDS = Set.of("groups");
     private static final Set<String> GROUP_FIELDS = Set.of("profile", "report", "runs");
-    private static final Set<String> RUN_FIELDS = Set.of("name", "index", "include", "params", "percentiles", "output");
+    private static final Set<String> RUN_FIELDS = Set.of("name", "index", "include", "params", "percentiles", "output",
+            "saveDirectory");
 
     /**
      * Reads and checks the plan in the file. The date goes in the names of the
@@ -179,7 +181,10 @@ record BenchmarkPlan(List<Group> groups) {
         Path output = node.has("output")
                 ? Path.of(text(node.get("output"), where + ".output"))
                 : Path.of("results", date + "-" + name + "-" + profile.name() + ".json");
-        RunOptions run = new RunOptions(name, profile, include, params, percentiles, output);
+        Path saveDirectory = node.has("saveDirectory")
+                ? Path.of(text(node.get("saveDirectory"), where + ".saveDirectory"))
+                : SaveDestination.DEFAULT;
+        RunOptions run = new RunOptions(name, profile, include, params, percentiles, output, saveDirectory);
         try {
             run.check();
         } catch (IllegalArgumentException e) {

@@ -1,0 +1,43 @@
+// Measures the costs of the persistence of a partition, in 2D and 3D, in one report: the
+// time of the copy of the snapshot, of the write of a save and of its load, the size of
+// the save file and the memory kept by the copy. A check before the full plan: few sizes
+// and two indices for the load. It takes about 10 minutes.
+//
+// The copy and the write use the linear scan: they do not depend on the index. The
+// positions are uniform; FIXED gives each entity 4 metadata pairs (see MetadataSet).
+// The files go to target/save-benchmarks, or to the saveDirectory of each run.
+{
+  "groups": [
+    {
+      "profile": "quick",
+      "report": "persistence-cost",
+      "runs": [
+        {
+          "name": "persistence-copy-write",
+          "include": "PersistenceBenchmark[23]\\.(copy|write)$",
+          "params": {
+            "size": [1000, 100000],
+            "metadata": ["NONE", "FIXED"]
+          }
+        },
+        {
+          "name": "persistence-load",
+          "index": ["LINEAR_SCAN", "UNIFORM_GRID_100"],
+          "include": "PersistenceBenchmark[23]\\.load$",
+          "params": {
+            "size": [1000, 100000],
+            "metadata": ["NONE", "FIXED"]
+          }
+        },
+        {
+          "name": "persistence-sizes",
+          "include": "PersistenceSizes",
+          "params": {
+            "size": [1000, 10000, 100000],
+            "metadata": ["NONE", "FIXED"]
+          }
+        }
+      ]
+    }
+  ]
+}

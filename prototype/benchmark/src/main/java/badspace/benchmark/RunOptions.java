@@ -1,6 +1,7 @@
 package badspace.benchmark;
 
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,6 +18,8 @@ import org.openjdk.jmh.annotations.Benchmark;
  * @param name the name of the run in a plan, or null on the command line
  * @param params the parameters given for the run, which replace the values of
  *        the profile; {@code index} is always there
+ * @param saveDirectory the destination of the files of the persistence benchmarks, where
+ *        the run creates its own directory (see {@link SaveDestination})
  */
 record RunOptions(
         String name,
@@ -24,7 +27,8 @@ record RunOptions(
         Pattern include,
         Map<String, List<String>> params,
         boolean percentiles,
-        Path output) {
+        Path output,
+        Path saveDirectory) {
 
     RunOptions {
         params = Map.copyOf(params);
@@ -44,8 +48,12 @@ record RunOptions(
      */
     void check() {
         params.forEach(BenchmarkParams::check);
-        if (buildBenchmarks().isEmpty() && operationBenchmarks().isEmpty() && !measuresFootprint()) {
+        if (buildBenchmarks().isEmpty() && operationBenchmarks().isEmpty() && !measuresFootprint()
+                && persistenceBenchmarks().isEmpty() && persistenceSizes().isEmpty()) {
             throw new IllegalArgumentException("No benchmark matches: " + include);
+        }
+        if (usesSaveDirectory() && Files.exists(saveDirectory) && !Files.isDirectory(saveDirectory)) {
+            throw new IllegalArgumentException("The save directory is not a directory: " + saveDirectory);
         }
     }
 
@@ -66,6 +74,32 @@ record RunOptions(
             names.addAll(matching(CommitBenchmark.class));
         }
         return names;
+    }
+
+    /**
+     * Returns the full names of the persistence benchmarks to run. Like the benchmarks of the
+     * commits, they run only when the options give an include pattern that matches them.
+     */
+    List<String> persistenceBenchmarks() {
+        List<String> names = new ArrayList<>();
+        if (!include.pattern().isEmpty()) {
+            names.addAll(matching(PersistenceBenchmark2.class));
+            names.addAll(matching(PersistenceBenchmark3.class));
+        }
+        return names;
+    }
+
+    /** Returns the names of the measures of {@link PersistenceSizes} to make, chosen like {@link #persistenceBenchmarks}. */
+    List<String> persistenceSizes() {
+        if (include.pattern().isEmpty()) {
+            return List.of();
+        }
+        return PersistenceSizes.BENCHMARKS.stream().filter(name -> include.matcher(name).find()).toList();
+    }
+
+    /** Returns true if the run writes files in {@link #saveDirectory}. */
+    boolean usesSaveDirectory() {
+        return !persistenceBenchmarks().isEmpty() || !persistenceSizes().isEmpty();
     }
 
     boolean measuresFootprint() {
