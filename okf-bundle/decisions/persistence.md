@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: Persistenza
-description: Persistenza periodica del contenuto di una singola partizione, eseguita dal nodo che la gestisce su una destinazione configurata sul nodo, da una copia autonoma dello snapshot; i salvataggi sono identificati dal nome della partizione, scelto dal software, e dal tick; l'API comanda il salvataggio con una chiamata sincrona e ne riceve l'esito, mentre la periodicità e la conservazione dei salvataggi sono del software; formato binario con file scritti in modo atomico; caricamento in una nuova partizione creata con il contenuto salvato e misure dei costi nel prototipo; recupero ricostruttivo dai soli salvataggi come direzione, con il taglio coerente scelto dal software.
+description: Persistenza periodica del contenuto di una singola partizione, eseguita dal nodo che la gestisce su una destinazione configurata sul nodo, da una copia autonoma dello snapshot; i salvataggi sono identificati dal nome della partizione, scelto dal software, e dal tick; l'API comanda il salvataggio con una chiamata sincrona e ne riceve l'esito, mentre la periodicità e la conservazione dei salvataggi sono del software; formato binario con file scritti in modo atomico; caricamento in una nuova partizione creata con il contenuto salvato; costi di copia, scrittura, caricamento e spazio misurati nel prototipo in 2D e 3D; recupero ricostruttivo dai soli salvataggi come direzione, con il taglio coerente scelto dal software.
 tags: [badspace, design, persistence, partitioning]
 status: draft
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T17:00:00Z }
@@ -267,6 +267,146 @@ Si misurano separatamente:
 - tempo di scrittura dei dati;
 - tempo di caricamento, compresa la ricostruzione degli indici;
 - dimensione dei dati salvati e memoria aggiuntiva occupata dalla copia.
+
+## Come si misura
+
+I benchmark sono nel modulo `prototype/benchmark` (`PersistenceBenchmark2`,
+`PersistenceBenchmark3` e `PersistenceSizes`, piani
+`plans/persistence-cost-quick.json` e `plans/persistence-cost-full.json`;
+comandi e dettagli in `prototype/benchmark/README-it.md`). Ogni fase ha il
+suo benchmark: il tempo di una fase non viene dalla differenza di due
+misure.
+
+- **Copia**: acquisizione dello snapshot pubblicato, copia autonoma e
+  rilascio, sul percorso reale del nodo. Fuori misura la creazione e la
+  pubblicazione dello snapshot.
+- **Scrittura**: `PartitionSave.write()` completo, cioè codifica, CRC,
+  scrittura del temporaneo, sincronizzazione del file, rename e
+  sincronizzazione della directory, su un file sempre nuovo. Fuori misura
+  la copia e l'eliminazione del file dopo ogni chiamata.
+- **Caricamento**: `loadPartition()` completo, cioè lettura e controlli,
+  ricostruzione dello storage e dell'indice, aggiunta al nodo. Fuori misura
+  la creazione del file e del nodo vuoto.
+- **Dimensione del file**: dimensione reale del file dopo un salvataggio
+  del nodo.
+- **Memoria della copia**: stima, come differenza dell'heap in uso dopo
+  una garbage collection con e senza le copie, con lo snapshot di origine
+  vivo in entrambe le osservazioni. Ogni campione tiene insieme copie per
+  almeno 100 000 entità; si conservano 5 campioni.
+
+La partizione è la stessa per tutte le misure, da seed fissi: ID da 1,
+posizioni uniformi in un quadrato o in un cubo di lato 10 000, senza
+metadati (`NONE`) o con 4 chiavi per entità (`health`, `owner`, `score`,
+`team`) e valori casuali a 64 bit (`FIXED`). Copia e scrittura usano la
+scansione lineare; il caricamento la scansione lineare, la grid uniforme
+con celle di 100 e la griglia di quadtree (octree in 3D) con celle di 128.
+JMH misura il tempo medio per chiamata con un solo thread, nessun writer
+concorrente, 3 fork, 5 iterazioni di riscaldamento e 10 di misura da 1
+secondo; il profiler `gc` registra allocazioni e collection.
+
+## Campagna del 2026-10-24
+
+Macchina dedicata: AMD Ryzen 5 5600 (6 core, 12 thread, governor
+`schedutil`), 31 GiB di RAM, Linux Mint 21.3 con kernel 5.15, OpenJDK
+25.0.2 con G1. Salvataggi su ext4 (`relatime`) in un Samsung SSD 850 PRO
+da 512 GB su SATA, nella directory del job del servizio dei benchmark.
+Commit `cc2c270`, piano completo, 47 minuti. Artefatti in
+`prototype/benchmark/results/2026-10-24-1537-persistence-*-full.*`: JSON
+grezzi con commit e ambiente, un report per run e il report di gruppo
+`2026-10-24-1537-persistence-cost-full.html`.
+
+## Osservazioni
+
+Tempi medi per chiamata, in millisecondi. L'errore al 99,9% resta sotto il
+3,5% del valore in tutte le misure.
+
+| Fase | Metadati | 2D 1k | 2D 10k | 2D 100k | 3D 1k | 3D 10k | 3D 100k |
+|---|---|---|---|---|---|---|---|
+| Copia | `NONE` | 0,007 | 0,067 | 0,65 | 0,008 | 0,077 | 0,77 |
+| Copia | `FIXED` | 0,137 | 1,56 | 20,3 | 0,141 | 1,57 | 20,1 |
+| Scrittura | `NONE` | 5,75 | 6,81 | 15,9 | 5,73 | 6,78 | 18,6 |
+| Scrittura | `FIXED` | 6,13 | 9,35 | 48,9 | 6,14 | 9,67 | 50,9 |
+| Caricamento, scansione lineare | `NONE` | 0,47 | 4,80 | 48,2 | 0,47 | 4,87 | 49,1 |
+| Caricamento, scansione lineare | `FIXED` | 0,84 | 9,29 | 104 | 0,85 | 9,17 | 105 |
+| Caricamento, grid uniforme 100 | `NONE` | 0,52 | 5,83 | 61,0 | 0,52 | 5,71 | 64,6 |
+| Caricamento, grid uniforme 100 | `FIXED` | 0,95 | 10,5 | 123 | 0,96 | 10,6 | 133 |
+| Caricamento, griglia di quadtree/octree 128 | `NONE` | 0,52 | 5,80 | 62,8 | 0,53 | 5,76 | 65,9 |
+| Caricamento, griglia di quadtree/octree 128 | `FIXED` | 0,94 | 10,6 | 129 | 0,95 | 10,6 | 134 |
+
+Spazio per entità, in byte, uguale a tutte le dimensioni salvo dove
+indicato:
+
+| Misura | 2D `NONE` | 2D `FIXED` | 3D `NONE` | 3D `FIXED` |
+|---|---|---|---|---|
+| File del salvataggio | 28 | 76 | 36 | 84 |
+| Memoria della copia | 28 | 236 | 36 (54 a 100k) | 245 (262 a 100k) |
+
+Il file ha in più 45 byte fissi (intestazione, conteggi e CRC), e con
+`FIXED` 36 byte per la tabella delle chiavi. I campioni della memoria
+della copia differiscono al massimo dell'1%.
+
+Allocazioni per chiamata a 100 000 entità (profiler `gc`): copia 2,8 MB
+senza metadati e 61 MB con `FIXED`; caricamento con la scansione lineare
+29 MB e 158 MB.
+
+## Interpretazioni
+
+- Tutte le fasi crescono in modo lineare con il numero di entità; la
+  scrittura ha in più un costo fisso.
+- **Scrittura**: con 1000 entità costa circa 5,7 ms, quasi tutti per le
+  due sincronizzazioni (file e directory) su questo disco SATA. Il costo
+  marginale è circa 0,1 µs per entità senza metadati e 0,4 µs con
+  `FIXED`. Fino a 10 000 entità il costo di un salvataggio è dominato dalle
+  sincronizzazioni, quindi dipende dal disco più che dalla partizione.
+- **Metadati**: con 4 chiavi per entità la copia costa circa 30 volte di
+  più, la scrittura fino a 3 volte e il caricamento circa il doppio. La
+  copia ricava per ogni entità una `HashMap` dai metadati dello snapshot e
+  poi ne fa la mappa immutabile di `ApplicationMetadata`: allocazioni da
+  612 byte per entità e una copia che in memoria occupa circa 3 volte il
+  file.
+- **Ricostruzione dell'indice**: rispetto alla scansione lineare, la grid
+  uniforme e la griglia di quadtree aggiungono circa il 25-35% al
+  caricamento a 100 000 entità (13-17 ms senza metadati), il 10-20% con
+  i metadati. Le due strutture costano quasi lo stesso.
+- **2D e 3D**: tempi quasi uguali; il 3D costa 8 byte per entità in più
+  nel file e nella copia, e qualche millisecondo in più nella scrittura e
+  nel caricamento a 100 000 entità.
+- **Memoria della copia in 3D a 100 000 entità**: 18 byte per entità in
+  più del previsto. È l'array delle coordinate da 2,4 MB, che per G1 è un
+  oggetto humongous e occupa una regione intera da 4 MiB. È memoria
+  davvero occupata, ma dipende dal collector e dalla dimensione delle sue
+  regioni.
+- **Nel tick**: un salvataggio completo (copia e scrittura) di 100 000
+  entità costa circa 17 ms senza metadati e 70 ms con `FIXED`; un
+  caricamento 50-135 ms. Il writer non li aspetta: la copia è una query su
+  uno snapshot e il caricamento costruisce la partizione fuori dal lock
+  del tick. Su un thread separato restano quindi fuori dal game loop, ma
+  la copia tiene vivo lo snapshot per la sua durata.
+
+## Limiti
+
+- Le letture del caricamento sono a caldo: il file è nella cache del
+  sistema operativo. Non è un recupero dopo un riavvio della macchina.
+- Il tempo di scrittura comprende le sincronizzazioni di ext4 su quel
+  disco, ma non dice nulla sulla durabilità oltre quella garantita da
+  sistema operativo, filesystem e disco (vedi i [punti
+  aperti](#punti-aperti)).
+- I tempi sono di Java e di una sola macchina: valgono come rapporti e
+  ordini di grandezza, non come previsione dell'implementazione finale.
+- Solo distribuzione uniforme, un solo insieme di metadati, fino a 100 000
+  entità, un solo thread e nessun writer concorrente.
+
+## Possibili attività future
+
+Da valutare quando servono, nessuna è in corso:
+
+- una rappresentazione compatta dei metadati nella copia e nel
+  caricamento, per esempio array di chiavi e valori come nel file, se il
+  costo dei metadati pesa nei casi d'uso;
+- misure con il writer e i reader attivi durante copia e salvataggio;
+- un recupero a freddo, con la cache del sistema operativo vuota;
+- partizioni da 1 000 000 di entità e altri insiemi di metadati;
+- altre destinazioni (disco NVMe, volume condiviso, object store).
 
 # Recupero ricostruttivo
 

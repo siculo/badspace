@@ -147,7 +147,7 @@ Le letture isolate dai commit non completi seguono la [decisione](okf-bundle/dec
 - [x] Elenco ed eliminazione dei salvataggi nel nodo e nell'API, per nome e non legati a una partizione viva, come meccanismi generici senza politiche di conservazione: `saves()`, `saves(name)` e `deleteSaves(saves)` batch del nodo; nell'API sullo spazio con il nodo e `saves()` sulla partizione
 - [x] Caricamento con `loadPartition(node, config, saved)`: partizione creata nel nodo con il nome del salvataggio e un ID nuovo, già con il contenuto (stessi ID, posizioni e metadati), indici ricostruiti dagli inserimenti, contenuto confermato al tick di creazione, nessun proprietario, indice e finestra scelti da chi carica; metadati senza reinterpretazione
 - [x] Esempio in `samples` con un thread che salva ogni N tick mentre il writer continua, conserva gli ultimi salvataggi e carica una partizione
-- [ ] Misure separate di tempo di copia, scrittura e caricamento (ricostruzione degli indici compresa), dimensione dei dati salvati e memoria aggiuntiva della copia
+- [x] Misure separate di tempo di copia, scrittura e caricamento (ricostruzione degli indici compresa), dimensione dei dati salvati e memoria aggiuntiva della copia, in 2D e 3D: benchmark `PersistenceBenchmark2`/`PersistenceBenchmark3` e `PersistenceSizes`, piani `persistence-cost-quick`/`-full`, campagna del 2026-10-24 sulla macchina dedicata (vedi [misure](okf-bundle/decisions/persistence.md#misure))
 
 Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandati: questo blocco ricrea il contenuto di una singola partizione.
 
