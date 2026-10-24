@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import badspace.common.geometry.Point2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.service.persistence.PartitionCopy2;
@@ -24,10 +25,12 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -293,6 +296,25 @@ class PartitionSave2Test {
         node.setTick(1);
         Path file = fileOf(node.saveLatest(P1));
         assertThrows(IOException.class, () -> PartitionSave2.read(file, nameOf(P2)));
+    }
+
+    @Test
+    void namesThatLookAlikeOnAFileSystemHaveTheirOwnSaves() throws IOException {
+        // Names that a file system could confuse: each one must keep its own file.
+        List<PartitionName> names = List.of(new PartitionName("arena"), new PartitionName(".arena"),
+                new PartitionName("a.rena"), new PartitionName("arena-"), new PartitionName("arena.save"),
+                new PartitionName("arena..save"));
+        for (int i = 0; i < names.size(); i++) {
+            node.createPartition(new PartitionId(10 + i), names.get(i), IndexConfig.linearScan(), 5);
+        }
+        node.setTick(1);
+        for (int i = 0; i < names.size(); i++) {
+            node.saveLatest(new PartitionId(10 + i));
+        }
+        for (PartitionName name : names) {
+            assertEquals(0, PartitionSave2.read(fileOf(new SavedPartition(name, 0)), name).size());
+        }
+        assertEquals(Set.copyOf(names), node.saves().stream().map(SavedPartition::name).collect(Collectors.toSet()));
     }
 
     /** Returns the file of a save in the save directory of the node. */

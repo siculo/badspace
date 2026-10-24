@@ -62,6 +62,14 @@ class PartitionMetadata2Test {
     }
 
     @Test
+    void batchWithAnUnpairedSurrogateInAKeyChangesNothing() {
+        String unpaired = String.valueOf((char) 0xd800);
+        assertThrows(IllegalArgumentException.class,
+                () -> node.updateMetadataAll(token, List.of(put(1, "a", 1), put(1, unpaired, 2))));
+        assertEquals(List.of(metadata(1, Map.of())), node.getMetadataAll(publish(), new long[] {1}));
+    }
+
+    @Test
     void entityWithoutMetadataHasAnEmptyMapAndIdsNotInTheSnapshotAreSkipped() {
         node.updateMetadataAll(token, List.of(put(2, "version", 1)));
         assertEquals(List.of(metadata(3, Map.of()), metadata(2, Map.of("version", 1L))),

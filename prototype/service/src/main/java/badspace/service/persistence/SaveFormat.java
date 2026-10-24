@@ -2,11 +2,16 @@ package badspace.service.persistence;
 
 import badspace.common.partition.PartitionName;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.IntFunction;
@@ -25,7 +30,9 @@ import java.util.function.IntFunction;
  *   <li>a CRC32 of all the bytes before it.</li>
  * </ol>
  * The numbers are little-endian. The fixed orders make two saves of the same snapshot equal,
- * byte by byte.
+ * byte by byte. The strings are encoded and decoded in strict UTF-8: a string that UTF-8
+ * cannot keep exactly, or bytes that are not valid UTF-8, make the write or the read fail
+ * instead of changing a character. A key appears once in the table and once for each entity.
  */
 final class SaveFormat {
 
@@ -51,7 +58,7 @@ final class SaveFormat {
         output.writeInt(keys.size());
         for (String key : keys) {
             keyIndexes.put(key, keyIndexes.size());
-            byte[] bytes = key.getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = encode(key);
             output.writeInt(bytes.length);
             output.writeBytes(bytes);
         }
@@ -72,7 +79,7 @@ final class SaveFormat {
         output.writeInt(MAGIC);
         output.writeInt(VERSION);
         output.writeInt(dimensions);
-        byte[] nameBytes = name.value().getBytes(StandardCharsets.UTF_8);
+        byte[] nameBytes = encode(name.value());
         output.writeInt(nameBytes.length);
         output.writeBytes(nameBytes);
         output.writeLong(tick);
@@ -96,7 +103,7 @@ final class SaveFormat {
         if (savedDimensions != dimensions) {
             throw new IOException("Save with " + savedDimensions + " dimensions, expected " + dimensions);
         }
-        String savedName = new String(input.readBytes(readCount(input, 1)), StandardCharsets.UTF_8);
+        String savedName = decode(input.readBytes(readCount(input, 1)));
         if (!savedName.equals(name.value())) {
             throw new IOException("Save of partition \"" + savedName + "\", expected \"" + name.value() + "\"");
         }
@@ -123,8 +130,12 @@ final class SaveFormat {
     static List<Map<String, Long>> readMetadata(SaveInput input, int count) throws IOException {
         int keyCount = readCount(input, Integer.BYTES);
         String[] keys = new String[keyCount];
+        Set<String> distinctKeys = new HashSet<>();
         for (int k = 0; k < keyCount; k++) {
-            keys[k] = new String(input.readBytes(readCount(input, 1)), StandardCharsets.UTF_8);
+            keys[k] = decode(input.readBytes(readCount(input, 1)));
+            if (!distinctKeys.add(keys[k])) {
+                throw new IOException("Corrupted save: key twice in the table: " + keys[k]);
+            }
         }
         List<Map<String, Long>> metadata = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
@@ -135,10 +146,28 @@ final class SaveFormat {
                 if (keyIndex < 0 || keyIndex >= keyCount) {
                     throw new IOException("Key index out of the table in save: " + keyIndex);
                 }
-                pairs.put(keys[keyIndex], input.readLong());
+                if (pairs.put(keys[keyIndex], input.readLong()) != null) {
+                    throw new IOException("Corrupted save: key twice for an entity: " + keys[keyIndex]);
+                }
             }
             metadata.add(Map.copyOf(pairs));
         }
         return metadata;
+    }
+
+    /**
+     * Encodes a string in UTF-8. Fails with CharacterCodingException if the string has an
+     * unpaired surrogate, which UTF-8 cannot keep.
+     */
+    private static byte[] encode(String value) throws CharacterCodingException {
+        ByteBuffer buffer = StandardCharsets.UTF_8.newEncoder().encode(CharBuffer.wrap(value));
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
+        return bytes;
+    }
+
+    /** Decodes UTF-8 bytes. Fails with CharacterCodingException if they are not valid UTF-8. */
+    private static String decode(byte[] bytes) throws CharacterCodingException {
+        return StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
     }
 }

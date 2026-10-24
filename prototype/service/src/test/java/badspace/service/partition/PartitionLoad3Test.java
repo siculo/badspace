@@ -15,6 +15,7 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SavedPartition;
@@ -292,6 +293,22 @@ class PartitionLoad3Test {
         node.commit(owner(node, P1));
         node.setTick(1);
         return node.saveLatest(P1);
+    }
+
+    @Test
+    void loadKeepsTheMetadataKeysExactly() {
+        // "?" is what a lax UTF-8 encoder writes for an unpaired surrogate.
+        Map<String, Long> values = Map.of("?", 1L, "", 2L, "città", 3L, "\uD83D\uDE80", 4L, "a\uD83D\uDE80b", 5L);
+        node.insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3)));
+        List<MetadataWrite> writes = new ArrayList<>();
+        values.forEach((key, value) -> writes.add(put(1, key, value)));
+        node.updateMetadataAll(owner(node, P1), writes);
+        node.commit(owner(node, P1));
+        node.setTick(1);
+        restarted.loadPartition(LOADED, node.saveLatest(P1), IndexConfig.linearScan(), 5);
+        restarted.setTick(1);
+        Acquisition acquisition = restarted.acquireLatest(LOADED, AcquireOptions.defaultTimeout());
+        assertEquals(List.of(new ApplicationMetadata(1, values)), restarted.getMetadataAll(acquisition, new long[] {1}));
     }
 
     /**

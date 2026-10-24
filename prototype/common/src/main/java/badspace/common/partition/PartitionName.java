@@ -6,10 +6,15 @@ import java.util.Objects;
  * The name of a partition: its public identifier, which the software chooses at the creation.
  * The same name means the same partition also across different runs, and the saves of a
  * partition are identified by its name; the {@link PartitionId} is only valid while the
- * partition runs on a node. The name becomes the name of a directory, so it has the
- * characters {@code a-z}, {@code 0-9}, {@code -}, {@code _} and {@code .}, only lower case
- * because many file systems do not tell upper case from lower case, and from 1 to
- * {@link #MAX_LENGTH} characters; it is neither {@code .} nor {@code ..}.
+ * partition runs on a node. The name becomes the name of a directory, so two different names
+ * must give two different directories on all the platforms. A name has the characters
+ * {@code a-z}, {@code 0-9}, {@code -}, {@code _} and {@code .}, only lower case because many
+ * file systems do not tell upper case from lower case, and from 1 to {@link #MAX_LENGTH}
+ * characters. It does not end with {@code .}, because Windows removes the final dots, so
+ * {@code arena.} would be the directory of {@code arena}; this also excludes {@code .} and
+ * {@code ..}. Its part before the first {@code .} is not a name that Windows reserves for a
+ * device ({@code con}, {@code prn}, {@code aux}, {@code nul}, {@code com0} to {@code com9},
+ * {@code lpt0} to {@code lpt9}), also with an extension: {@code nul.save} is a device too.
  *
  * @param value the name
  */
@@ -28,12 +33,15 @@ public record PartitionName(String value) {
             throw new IllegalArgumentException("Partition name must have from 1 to " + MAX_LENGTH
                     + " characters: \"" + value + "\"");
         }
-        if (value.equals(".") || value.equals("..")) {
-            throw new IllegalArgumentException("Partition name cannot be \"" + value + "\"");
-        }
         if (!hasAllowedCharacters(value)) {
             throw new IllegalArgumentException("Partition name can have only a-z, 0-9, '-', '_' and '.': \""
                     + value + "\"");
+        }
+        if (value.endsWith(".")) {
+            throw new IllegalArgumentException("Partition name cannot end with '.': \"" + value + "\"");
+        }
+        if (isDeviceName(value)) {
+            throw new IllegalArgumentException("Partition name is a device name on Windows: \"" + value + "\"");
         }
     }
 
@@ -42,8 +50,19 @@ public record PartitionName(String value) {
      * Fails with NullPointerException if value is null.
      */
     public static boolean isValid(String value) {
-        return !value.isEmpty() && value.length() <= MAX_LENGTH && !value.equals(".") && !value.equals("..")
-                && hasAllowedCharacters(value);
+        return !value.isEmpty() && value.length() <= MAX_LENGTH && hasAllowedCharacters(value)
+                && !value.endsWith(".") && !isDeviceName(value);
+    }
+
+    /** Returns true if the part of the value before the first '.' is a device name of Windows. */
+    private static boolean isDeviceName(String value) {
+        int dot = value.indexOf('.');
+        String base = dot < 0 ? value : value.substring(0, dot);
+        if (base.equals("con") || base.equals("prn") || base.equals("aux") || base.equals("nul")) {
+            return true;
+        }
+        return base.length() == 4 && (base.startsWith("com") || base.startsWith("lpt"))
+                && base.charAt(3) >= '0' && base.charAt(3) <= '9';
     }
 
     private static boolean hasAllowedCharacters(String value) {

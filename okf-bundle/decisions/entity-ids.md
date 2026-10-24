@@ -205,7 +205,16 @@ domani una chiave di object store, valido ovunque:
 - caratteri `a-z`, `0-9`, `-`, `_` e `.`, cioè solo minuscole: su macOS
   e Windows i filesystem di solito non distinguono maiuscole e
   minuscole, e "North" e "north" finirebbero nella stessa directory;
-- lunghezza da 1 a 128 caratteri, e né `.` né `..`.
+- lunghezza da 1 a 128 caratteri;
+- nessun `.` finale: Windows toglie i punti finali, quindi `arena.`
+  sarebbe la directory di `arena` e i due salvataggi si
+  sovrascriverebbero; la regola esclude anche `.` e `..`;
+- la parte prima del primo `.` non è un nome di dispositivo di Windows
+  (`con`, `prn`, `aux`, `nul`, da `com0` a `com9`, da `lpt0` a `lpt9`),
+  nemmeno con un'estensione: anche `nul.save` è un dispositivo.
+
+Le regole servono a una corrispondenza univoca tra nomi e directory:
+due nomi diversi danno due directory diverse su tutte le piattaforme.
 
 Un nome che non le rispetta fa fallire la creazione con
 `IllegalArgumentException`. Il nodo rifiuta un nome ancora presente,

@@ -112,7 +112,12 @@ Il formato è binario e semplice:
    corrotto.
 
 I numeri sono little-endian, l'ordine dei byte delle CPU più diffuse
-(x86, ARM, RISC-V). Gli ordini fissati di entità, chiavi e coppie fanno
+(x86, ARM, RISC-V). Le stringhe (nome e chiavi) sono in UTF-8 rigoroso:
+una stringa che UTF-8 non può conservare esattamente fa fallire la
+scrittura, e byte non validi in UTF-8 fanno fallire la lettura, invece
+di sostituire un carattere. Una chiave compare una sola volta nella
+tabella e nelle coppie di un'entità: un duplicato fa fallire la
+lettura, invece di sovrascrivere un valore. Gli ordini fissati di entità, chiavi e coppie fanno
 sì che due salvataggi dello stesso snapshot producano gli stessi byte.
 Un formato testuale sarebbe più leggibile, ma più grande e lento, e
 distorcerebbe le misure dei costi.

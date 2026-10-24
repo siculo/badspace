@@ -1,11 +1,11 @@
 package badspace.common.partition;
 
-import java.util.Objects;
-
 /**
  * A write of one key of the application metadata of an entity: it sets the value of the
- * key, or deletes the key. Keys are strings and values are long; there are no limits on
- * the number of keys or on their length.
+ * key, or deletes the key. Keys are strings without unpaired surrogates (see
+ * {@link ApplicationMetadata#checkKey}) and values are long; there are no limits on the number
+ * of keys or on their length. A write with a bad key cannot be created, so it never reaches a
+ * batch.
  */
 public sealed interface MetadataWrite permits MetadataWrite.Put, MetadataWrite.Delete {
 
@@ -28,18 +28,24 @@ public sealed interface MetadataWrite permits MetadataWrite.Put, MetadataWrite.D
     /** Sets the key of the entity to the value, also if the key has no value yet. */
     record Put(long entityId, String key, long value) implements MetadataWrite {
 
-        /** Fails with NullPointerException if key is null. */
+        /**
+         * Fails with NullPointerException if key is null, and with IllegalArgumentException if it
+         * is not a valid key (see {@link ApplicationMetadata#checkKey}).
+         */
         public Put {
-            Objects.requireNonNull(key);
+            ApplicationMetadata.checkKey(key);
         }
     }
 
     /** Deletes the key of the entity. If the key has no value, it does nothing. */
     record Delete(long entityId, String key) implements MetadataWrite {
 
-        /** Fails with NullPointerException if key is null. */
+        /**
+         * Fails with NullPointerException if key is null, and with IllegalArgumentException if it
+         * is not a valid key (see {@link ApplicationMetadata#checkKey}).
+         */
         public Delete {
-            Objects.requireNonNull(key);
+            ApplicationMetadata.checkKey(key);
         }
     }
 }
