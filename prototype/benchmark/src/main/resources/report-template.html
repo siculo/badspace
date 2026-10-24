@@ -142,6 +142,19 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 // The estimates of the memory can be negative.
 const fmt = v => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toPrecision(3);
 const fmtSize = n => n >= 1e6 ? n / 1e6 + 'M' : n >= 1e3 ? n / 1e3 + 'k' : String(n);
+// The units in bytes, B and B/entity, are shown with the prefix that fits each value.
+const BYTE_PREFIXES = [[1e9, 'G'], [1e6, 'M'], [1e3, 'k']];
+const isBytes = u => u === 'B' || u.startsWith('B/');
+/** Returns the name of the unit for the captions: bytes are written in full, the prefixes go with the values. */
+const unitName = u => u === 'B' ? 'bytes' : u.startsWith('B/') ? 'bytes per ' + u.substring(2) : u;
+/** Returns the value with its unit, with a decimal prefix for the bytes: 23600000 B is 23.6 MB. */
+function withUnit(v, u) {
+  if (!isBytes(u)) return `${fmt(v)} ${u}`;
+  const [scale, prefix] = BYTE_PREFIXES.find(([scale]) => Math.abs(v) >= scale) || [1, ''];
+  return `${fmt(v / scale)} ${prefix}${u}`;
+}
+/** Returns the value for the table: only the number, but with the prefixed unit for the bytes. */
+const cell = (v, u) => isBytes(u) ? withUnit(v, u) : fmt(v);
 const color = s => COLORS[series.indexOf(s) % COLORS.length];
 
 /** Returns the value of a row for the chosen metric, or undefined if the row does not have it. */
@@ -230,7 +243,7 @@ function chart(lines, unitLabel) {
   for (let e = y0; e <= y1; e++) {
     const y = sy(10 ** e);
     svg += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/>`;
-    svg += `<text x="${L - 4}" y="${y + 3}" text-anchor="end">${fmt(10 ** e)}</text>`;
+    svg += `<text x="${L - 4}" y="${y + 3}" text-anchor="end">${esc(cell(10 ** e, unitLabel))}</text>`;
   }
   for (let e = x0; e <= x1; e++) {
     const x = sx(10 ** e);
@@ -238,13 +251,13 @@ function chart(lines, unitLabel) {
     svg += `<text x="${x}" y="${H - B + 13}" text-anchor="middle">${fmtSize(10 ** e)}</text>`;
   }
   svg += `<text x="${W - R}" y="${H - 2}" text-anchor="end">entities</text>`;
-  svg += `<text x="2" y="${T - 10}">${esc(unitLabel)}</text>`;
+  svg += `<text x="2" y="${T - 10}">${esc(unitName(unitLabel))}</text>`;
   for (const l of lines) {
     const pts = l.points.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(' ');
     svg += `<polyline points="${pts}" fill="none" stroke="${l.color}" stroke-width="2"/>`;
     for (const [x, y] of l.points) {
       svg += `<circle cx="${sx(x)}" cy="${sy(y)}" r="3" fill="${l.color}">` +
-        `<title>${esc(l.name)}\n${fmtSize(x)} entities: ${fmt(y)} ${esc(unitLabel)}</title></circle>`;
+        `<title>${esc(l.name)}\n${fmtSize(x)} entities: ${esc(withUnit(y, unitLabel))}</title></circle>`;
     }
   }
   return svg + '</svg>';
@@ -280,9 +293,9 @@ function renderSection(op) {
     points: sizes.map(n => [n, find(s, n)]).filter(([, r]) => r)
       .map(([n, r]) => [n, value(r)]).filter(([x, y]) => x > 0 && y > 0 && Number.isFinite(y))
   }));
-  html += `<div class="comparison"><figure><figcaption>${esc(unitLabel)} by number of entities</figcaption>` +
+  html += `<div class="comparison"><figure><figcaption>${esc(unitName(unitLabel))} by number of entities</figcaption>` +
     chart(lines, unitLabel) + '<p class="muted">Both axes use a logarithmic scale. Hover over a point for its value.</p></figure>';
-  html += `<div class="table-wrap"><table><caption>Values in ${esc(unitLabel)}, lower is better</caption>` +
+  html += `<div class="table-wrap"><table><caption>Values in ${esc(unitName(unitLabel))}, lower is better</caption>` +
     `<thead><tr><th scope="col">Solution / entities</th>` +
     sizes.map(n => `<th scope="col">${fmtSize(n)}</th>`).join('') + '</tr></thead><tbody>';
   for (const s of visible) {
@@ -300,8 +313,8 @@ function renderSection(op) {
         ratio = `<span class="ratio ${cls}">×${q.toFixed(2)}</span>`;
       }
       const samples = r.mode === 'footprint' && r.metric.rawData?.[0]?.length > 1
-        ? ` title="Samples: ${esc(r.metric.rawData[0].map(fmt).join(', '))}"` : '';
-      html += `<td${samples}>${fmt(v)}${ratio}</td>`;
+        ? ` title="Samples: ${esc(r.metric.rawData[0].map(x => withUnit(x, unitLabel)).join(', '))}"` : '';
+      html += `<td${samples}>${esc(cell(v, unitLabel))}${ratio}</td>`;
     }
     html += '</tr>';
   }
