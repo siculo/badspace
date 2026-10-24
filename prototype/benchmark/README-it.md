@@ -5,7 +5,8 @@
 Questo modulo misura la velocità e la memoria degli indici spaziali di una
 partizione. Usa [JMH](https://github.com/openjdk/jmh) e lavora sul contratto
 pubblico del nodo (`PartitionNode2`), quindi misura anche il costo dello
-storage, non solo quello dell'indice. Per ora solo 2D.
+storage, non solo quello dell'indice. Per ora solo 2D, tranne i benchmark
+della [persistenza](#persistenza), che misurano anche il 3D.
 
 La scansione lineare è il riferimento: ogni nuovo indice si confronta con lei.
 
@@ -37,7 +38,7 @@ avvisi di JMH con i JDK recenti.
 ## Eseguire i benchmark
 
 ```
-./bench.sh run [quick|full] [--index NOME1,NOME2] [--include REGEX] [--param NOME=V1,V2] [--percentiles] [--output FILE]
+./bench.sh run [quick|full] [--index NOME1,NOME2] [--include REGEX] [--param NOME=V1,V2] [--percentiles] [--output FILE] [--save-directory DIR]
 ./bench.sh run --plan FILE
 ```
 
@@ -50,6 +51,7 @@ avvisi di JMH con i JDK recenti.
 | `--param NOME=V1,V2` | Cambia i valori di un parametro, per esempio `--param size=1000,1000000`. Si può ripetere. |
 | `--percentiles` | Misura anche i percentili di latenza (p50, p90, p99). Raddoppia la durata dell'esecuzione. |
 | `--output FILE` | Dove scrivere i risultati. Default: `results/<data>-<profilo>.json`. |
+| `--save-directory DIR` | Dove i benchmark della [persistenza](#persistenza) scrivono i loro file. Default: `target/save-benchmarks`. |
 | `--plan FILE` | Esegue le run di un file di piano, senza altre opzioni (vedi [Piani](#piani)). |
 
 Alla fine dell'esecuzione viene scritto anche il report dei risultati, nella
@@ -119,7 +121,7 @@ i risultati di tutte le sue run. Per esempio:
 | `profile` | `quick` (default) o `full`, per tutte le run del gruppo. |
 | `report` | Nome facoltativo del report del gruppo: `results/<data>-<report>-<profilo>.html`. |
 | `name` | Nome della run, obbligatorio: lettere, cifre e `. _ + -`. |
-| `index`, `include`, `params`, `percentiles`, `output` | Come le opzioni di `run`. Un valore singolo si può scrivere senza array, e i numeri con o senza virgolette. Output di default: `results/<data>-<nome>-<profilo>.json`. |
+| `index`, `include`, `params`, `percentiles`, `output`, `saveDirectory` | Come le opzioni di `run` (`saveDirectory` è `--save-directory`). Un valore singolo si può scrivere senza array, e i numeri con o senza virgolette. Output di default: `results/<data>-<nome>-<profilo>.json`. |
 
 La data è l'inizio del piano, la stessa per tutti i suoi file. Ogni run
 scrive anche il suo report, come con le opzioni.
@@ -142,6 +144,10 @@ nohup ./bench.sh run --plan plans/index-comparison-full.json > plan.log 2>&1 &
 snapshot](#commit-e-snapshot)) con la scansione lineare, la grid uniforme e
 la griglia di quadtree, in un unico report. Dura circa 10-15 minuti.
 
+`persistence-cost-quick.json` e `persistence-cost-full.json` misurano i costi
+della [persistenza](#persistenza) in 2D e 3D, in un unico report. Quello rapido
+dura circa 10 minuti, quello completo circa 1 ora.
+
 ## Cosa si misura
 
 | Benchmark | Cosa misura | Unità |
@@ -157,6 +163,11 @@ la griglia di quadtree, in un unico report. Dura circa 10-15 minuti.
 | `CommitBenchmark.commitTick` | Un tick del writer: spostare una frazione delle entità, fare il commit e avanzare il tick. | µs per chiamata |
 | `CommitBenchmark.movesWithoutCommit` | Gli stessi spostamenti senza commit, riferimento per `commitTick`. | µs per chiamata |
 | `CommitBenchmark.acquireAndRelease` | Acquisire l'ultimo snapshot e rilasciarlo. | µs per chiamata |
+| `PersistenceBenchmark2.copy`, `PersistenceBenchmark3.copy` | Copiare lo snapshot pubblicato per un salvataggio. | ms per chiamata |
+| `PersistenceBenchmark2.write`, `PersistenceBenchmark3.write` | Scrivere una copia in un nuovo file di salvataggio. | ms per chiamata |
+| `PersistenceBenchmark2.load`, `PersistenceBenchmark3.load` | Caricare un salvataggio in una nuova partizione. | ms per chiamata |
+| `PersistenceSizes2.fileBytes`, `PersistenceSizes3.fileBytes` | Dimensione del file di salvataggio, totale e per entità (`fileBytesPerEntity`). | byte |
+| `PersistenceSizes2.copyBytes`, `PersistenceSizes3.copyBytes` | Memoria trattenuta dalla copia dello snapshot, totale e per entità (`copyBytesPerEntity`). È una stima. | byte |
 
 Più basso è sempre meglio.
 
@@ -181,6 +192,96 @@ l'ultimo snapshot, chiedono le 10 entità più vicine a un punto e lo
 rilasciano, in continuazione: tengono vivi degli snapshot, così i commit
 trovano meno buffer nel pool, e competono con il writer.
 
+### Persistenza
+
+I benchmark della persistenza misurano le fasi di un salvataggio e di un
+caricamento di una partizione, ognuna per conto suo: il tempo di una fase non
+viene mai dalla differenza di due benchmark. Come quelli dei commit, non sono
+nel run di default: si chiedono con un pattern, per esempio
+`--include Persistence`, o con i piani `plans/persistence-cost-quick.json` e
+`plans/persistence-cost-full.json`.
+
+| Misura | Cosa comprende | Cosa resta fuori |
+|---|---|---|
+| `copy` | Acquisizione dello snapshot pubblicato, copia autonoma di ID, posizioni e metadati, rilascio, come fa il nodo per un salvataggio. | Creazione, popolamento e pubblicazione dello snapshot. |
+| `write` | `PartitionSave2.write()` o `PartitionSave3.write()` completo: codifica, CRC, scrittura del file temporaneo, sincronizzazione del file, rename e sincronizzazione della directory (non su Windows, dove Java non può aprire una directory). | Creazione della copia; eliminazione del file dopo ogni chiamata. |
+| `load` | `loadPartition()` completo: lettura e controlli del file, ricostruzione dello storage e dell'indice, aggiunta della partizione al nodo. | Creazione del file di salvataggio e del nodo vuoto; il nodo con la partizione caricata si scarta dopo ogni chiamata. |
+| `fileBytes` | Dimensione reale del file completo dopo un salvataggio del nodo. | |
+| `copyBytes` | Heap in uso con le copie meno quello senza, dopo una garbage collection. | Lo snapshot di origine, vivo in entrambe le osservazioni, e gli oggetti temporanei della copia. |
+
+La partizione è la stessa per tutte le misure, da seed fissi: ID da 1 a
+`size`, posizioni uniformi in un quadrato (2D) o in un cubo (3D) di lato 10000,
+e i metadati del parametro `metadata`:
+
+- `NONE`: nessun metadato.
+- `FIXED`: ogni entità ha le 4 chiavi `health`, `owner`, `score` e `team`
+  (da 4 a 6 caratteri ASCII), ognuna con un valore casuale di 64 bit.
+
+I piani usano 1000, 10000 e 100000 entità; senza piano le dimensioni sono
+quelle del profilo, quindi il profilo completo ha anche 1000000: conviene
+controllare prima memoria e durata con un'esecuzione più piccola.
+
+Copia e scrittura usano la scansione lineare, l'indice di riferimento, perché
+non dipendono dall'indice. Il caricamento usa gli indici del parametro `index`
+(`GRID_QUADTREE_<lato della cella>` in 3D è la griglia di octree).
+
+Note sulle misure:
+
+- La scrittura crea sempre un file nuovo: il benchmark elimina il file dopo
+  ogni chiamata, fuori dal tempo misurato, e tiene la directory della
+  partizione. Su alcuni filesystem la sincronizzazione della scrittura
+  successiva paga anche quell'eliminazione.
+- Il caricamento legge lo stesso file a ogni chiamata, che quindi di solito è
+  nella cache del sistema operativo: i tempi sono di una lettura a caldo, non
+  di un recupero dopo un riavvio della macchina.
+- Il tempo di scrittura comprende la sincronizzazione chiesta dal nodo, ma non
+  è una promessa di durabilità: cosa garantisce la sincronizzazione dipende da
+  sistema operativo, filesystem e disco (vedi la decisione sulla persistenza
+  nella documentazione).
+- I benchmark usano la modalità `AverageTime` con iterazioni di 1 secondo,
+  perché una chiamata può durare centinaia di millisecondi; il profilo
+  completo ha 3 fork, perché il tempo del filesystem cambia di più tra una JVM
+  e l'altra. Il profiler `gc` di JMH aggiunge ai risultati i byte allocati per
+  chiamata (`gc.alloc.rate.norm`) e le collection durante le iterazioni
+  (`gc.count`, `gc.time`), per vedere l'effetto della preparazione e della
+  spazzatura delle chiamate precedenti.
+- La memoria della copia è una stima, misurata nel processo del runner come
+  `Footprint`: ogni campione tiene insieme copie per almeno 100000 entità, e il
+  risultato ha tutti i 5 campioni. Se differiscono di più del 10% o non sono
+  positivi, viene stampato un avviso. La copia condivide con lo snapshot le
+  stringhe delle chiavi e la mappa vuota delle entità senza metadati.
+
+I file vanno in una nuova directory della run dentro la directory dei
+salvataggi (`--save-directory`, o `saveDirectory` in un piano; default
+`target/save-benchmarks`, relativa alla directory di lavoro). Ogni trial usa
+una sua directory al suo interno. La run elimina la sua directory alla fine,
+anche se un benchmark fallisce o la JVM viene fermata; non tocca mai altri
+file. I risultati registrano la directory dei salvataggi e il suo filesystem
+(`environment` nel JSON), ma non il disco: va annotato insieme ai risultati.
+
+```
+# Compilazione, poi il piano rapido e, dopo un controllo, quello completo
+mvn -f .. install -DskipTests
+./bench.sh run --plan plans/persistence-cost-quick.json
+./bench.sh run --plan plans/persistence-cost-full.json
+
+# Solo i caricamenti in 3D, su un disco scelto
+./bench.sh run quick --include "PersistenceBenchmark3\.load" --index LINEAR_SCAN,GRID_QUADTREE_128 --param size=1000,100000 --save-directory /mnt/data/save-benchmarks
+
+# Il report di alcuni risultati
+./bench.sh report --output results/persistence.html results/<file>.json results/<altro file>.json
+```
+
+Su Windows:
+
+```
+mvn -f .. install -DskipTests
+.\bench.ps1 run --plan plans\persistence-cost-quick.json
+.\bench.ps1 run --plan plans\persistence-cost-full.json
+.\bench.ps1 run quick --include "PersistenceBenchmark3\.load" --index LINEAR_SCAN,GRID_QUADTREE_128 --param size=1000,100000 --save-directory D:\save-benchmarks
+.\bench.ps1 report --output results\persistence.html results\<file>.json results\<altro file>.json
+```
+
 ## Parametri
 
 | Parametro | Usato da | Profilo rapido | Profilo completo |
@@ -197,6 +298,7 @@ trovano meno buffer nel pool, e competono con il writer.
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
 | `movingFraction` | commitTick, movesWithoutCommit | 0, 0.01, 0.1, 1 | gli stessi |
 | `readers` | commitTick, movesWithoutCommit, acquireAndRelease | 0, 2 | gli stessi |
+| `metadata` | persistenza | `NONE`, `FIXED` | gli stessi |
 
 Il nome di un indice dà l'indice e i suoi parametri:
 
@@ -353,6 +455,12 @@ piano inviato dalla macchina di sviluppo. La pagina web e l'API REST offrono
 avanzamento, arresto, storico e download, senza trasferire piani e risultati
 tramite commit Git.
 
+Il servizio esegue un piano nella directory del job, quindi la directory dei
+salvataggi di default dei benchmark della persistenza è
+`<job>/target/save-benchmarks`, sul disco dei risultati del servizio. Per
+misurare un altro disco, si indica un `saveDirectory` assoluto in ogni run del
+piano.
+
 ## Risultati nel repository
 
 Il repository conserva alcuni risultati JSON e report HTML in `results/`.
@@ -373,7 +481,9 @@ Le altre misure da conservare si chiamano
 
 I test unitari di questo modulo controllano i generatori dei dati, il
 dimensionamento delle region e che i benchmark lascino la partizione come
-l'hanno trovata. Girano con gli altri test del progetto:
+l'hanno trovata. Per la persistenza controllano che copia, salvataggio e
+caricamento conservino ID, posizioni e metadati, che le chiamate si possano
+ripetere senza conflitti né file rimasti, e le dimensioni dei file salvati. Girano con gli altri test del progetto:
 
 ```
 mvn -f .. test

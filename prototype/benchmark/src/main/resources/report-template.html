@@ -69,13 +69,35 @@ const RUNS = /*DATA*/[];
 // Parameters that are on the axes or in the series, so they are not filters.
 const AXES = ['index', 'distribution', 'size'];
 const ORDER = ['build', 'insert', 'remove', 'update', 'get', 'findInRegion', 'findNearest', 'bytesPerEntity',
-  'commitTick', 'movesWithoutCommit', 'acquireAndRelease'];
+  'commitTick', 'movesWithoutCommit', 'acquireAndRelease',
+  'copy', 'write', 'load', 'fileBytes', 'fileBytesPerEntity', 'copyBytes', 'copyBytesPerEntity'];
 const TITLES = {
   build: 'Build (all entities in one call)', insert: 'Insert', remove: 'Remove', update: 'Update',
   get: 'Get by ID', findInRegion: 'Range query', findNearest: 'k-nearest query', bytesPerEntity: 'Memory per entity',
   commitTick: 'Tick with a commit (moves, commit, move of the tick)',
   movesWithoutCommit: 'Moves without a commit (reference for the tick)',
-  acquireAndRelease: 'Acquisition and release of the latest snapshot'
+  acquireAndRelease: 'Acquisition and release of the latest snapshot',
+  copy: 'Persistence: copy of the snapshot', write: 'Persistence: write of a save', load: 'Persistence: load of a save',
+  fileBytes: 'Persistence: size of the save file', fileBytesPerEntity: 'Persistence: size of the save file per entity',
+  copyBytes: 'Persistence: memory kept by the copy (estimate)',
+  copyBytesPerEntity: 'Persistence: memory kept by the copy per entity (estimate)'
+};
+// What each measure includes, when the title is not enough.
+const PERSISTENCE = 'Uniform positions; with metadata FIXED, 4 pairs per entity. ';
+const DESCRIPTIONS = {
+  copy: PERSISTENCE + 'Acquisition of the published snapshot, autonomous copy of IDs, positions and metadata, release. ' +
+    'Not measured: the creation, the filling and the publication of the snapshot. Index of the source: linear scan.',
+  write: PERSISTENCE + 'PartitionSave.write() of a copy to a new file: encoding, CRC, write of the temporary file, sync, rename and ' +
+    'sync of the directory (not on Windows). Not measured: the copy, the deletion of the file after each call.',
+  load: PERSISTENCE + 'loadPartition() of a save into a new partition: read, checks, rebuild of the storage and of the index, ' +
+    'addition to the node. The file is read again at each call, so it is usually in the cache of the operating system. ' +
+    'Not measured: the creation of the save file and of the empty node.',
+  fileBytes: PERSISTENCE + 'Real size of the complete file after a save of the node.',
+  fileBytesPerEntity: PERSISTENCE + 'Real size of the complete file after a save of the node, divided by the number of entities.',
+  copyBytes: PERSISTENCE + 'Heap in use with the copies minus without them, after a garbage collection, with the source snapshot ' +
+    'alive in both. An estimate: the table shows the median, hover over a value for the samples.',
+  copyBytesPerEntity: PERSISTENCE + 'The memory kept by the copy divided by the number of entities. An estimate: the table shows ' +
+    'the median, hover over a value for the samples.'
 };
 const COLORS = ['#94d8ff', '#ffb078', '#71d69a', '#ff92bd', '#b9a1ff', '#a9d9dd', '#f2d479', '#c7d2df'];
 const PERCENTILES = { p50: '50.0', p90: '90.0', p99: '99.0' };
@@ -88,10 +110,15 @@ for (const run of RUNS) {
       op: r.benchmark.substring(r.benchmark.lastIndexOf('.') + 1),
       mode: r.mode,
       params: p,
-      series: run.label + ' · ' + (p.index || '?'),
+      // A digit at the end of the class gives the dimensions, as in PersistenceBenchmark3.
+      series: run.label + (p.index ? ' · ' + p.index : '') + dimensions(r.benchmark),
       metric: r.primaryMetric
     });
   }
+}
+function dimensions(benchmark) {
+  const match = benchmark.match(/([23])\.[^.]+$/);
+  return match ? ' · ' + match[1] + 'D' : '';
 }
 const unique = values => [...new Set(values)];
 const numericSort = values => values.sort((a, b) => (isNaN(a) || isNaN(b)) ? String(a).localeCompare(b) : a - b);
@@ -112,7 +139,8 @@ const state = { operation: operations[0], distribution: '', metric: 'mean', base
 for (const [name, values] of Object.entries(filters)) state.filters[name] = values[0];
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-const fmt = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v.toPrecision(3);
+// The estimates of the memory can be negative.
+const fmt = v => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toPrecision(3);
 const fmtSize = n => n >= 1e6 ? n / 1e6 + 'M' : n >= 1e3 ? n / 1e3 + 'k' : String(n);
 const color = s => COLORS[series.indexOf(s) % COLORS.length];
 
@@ -240,7 +268,8 @@ function renderSection(op) {
   }));
   let html = `<h2>${esc(TITLES[op] || op)} · ${esc(state.distribution || 'Not specified')}</h2>` +
     `<p class="muted">${esc(subtitle || 'no other parameters')}` +
-    `${state.metric !== 'mean' && !matching.some(r => r.mode === 'sample') ? ' · mean only' : ''}</p>`;
+    `${state.metric !== 'mean' && !matching.some(r => r.mode === 'sample') ? ' · mean only' : ''}</p>` +
+    (DESCRIPTIONS[op] ? `<p class="muted">${esc(DESCRIPTIONS[op])}</p>` : '');
   if (matching.length === 0) return html + '<p class="muted">No data for these filters.</p>';
   if (data.length === 0) return html + '<p class="muted">All solutions are hidden. Select a solution above to show its results.</p>';
   const unitLabel = unit(data[0]);
@@ -270,7 +299,9 @@ function renderSection(op) {
         const cls = q < 0.9 ? 'better' : q > 1.1 ? 'worse' : 'muted';
         ratio = `<span class="ratio ${cls}">×${q.toFixed(2)}</span>`;
       }
-      html += `<td>${fmt(v)}${ratio}</td>`;
+      const samples = r.mode === 'footprint' && r.metric.rawData?.[0]?.length > 1
+        ? ` title="Samples: ${esc(r.metric.rawData[0].map(fmt).join(', '))}"` : '';
+      html += `<td${samples}>${fmt(v)}${ratio}</td>`;
     }
     html += '</tr>';
   }

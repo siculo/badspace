@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class BenchmarkPlanTest {
 
@@ -155,6 +156,67 @@ class BenchmarkPlanTest {
                 ] }
                 """, DATE);
         assertEquals(2, plan.runCount());
+    }
+
+    @Test
+    void persistenceBenchmarksRunOnlyWhenTheIncludePatternChoosesThem() {
+        BenchmarkPlan plan = BenchmarkPlan.parse("""
+                { "groups": [ { "runs": [
+                  { "name": "default" },
+                  { "name": "persistence", "include": "Persistence" },
+                  { "name": "load", "include": "PersistenceBenchmark[23]\\\\.load$" },
+                  { "name": "sizes", "include": "PersistenceSizes3\\\\.file" }
+                ] } ] }
+                """, DATE);
+        List<RunOptions> runs = plan.groups().get(0).runs();
+        assertEquals(List.of(), runs.get(0).persistenceBenchmarks());
+        assertEquals(List.of(), runs.get(0).persistenceSizes());
+        assertFalse(runs.get(0).usesSaveDirectory());
+
+        assertEquals(6, runs.get(1).persistenceBenchmarks().size());
+        assertEquals(PersistenceSizes.BENCHMARKS, runs.get(1).persistenceSizes());
+        assertEquals(List.of(), runs.get(1).operationBenchmarks());
+        assertTrue(runs.get(1).usesSaveDirectory());
+
+        assertEquals(List.of(PersistenceBenchmark2.class.getName() + ".load", PersistenceBenchmark3.class.getName() + ".load"),
+                runs.get(2).persistenceBenchmarks());
+        assertEquals(List.of(), runs.get(2).persistenceSizes());
+
+        assertEquals(List.of(), runs.get(3).persistenceBenchmarks());
+        assertEquals(List.of("badspace.benchmark.PersistenceSizes3.fileBytes",
+                "badspace.benchmark.PersistenceSizes3.fileBytesPerEntity"), runs.get(3).persistenceSizes());
+    }
+
+    @Test
+    void readsTheSaveDirectoryOfARun() {
+        BenchmarkPlan plan = BenchmarkPlan.parse("""
+                { "groups": [ { "runs": [
+                  { "name": "default", "include": "Persistence" },
+                  { "name": "other", "include": "Persistence", "saveDirectory": "saves/nvme",
+                    "params": { "metadata": ["NONE", "FIXED"], "size": 1000 } }
+                ] } ] }
+                """, DATE);
+        assertEquals(SaveDestination.DEFAULT, plan.groups().get(0).runs().get(0).saveDirectory());
+        RunOptions other = plan.groups().get(0).runs().get(1);
+        assertEquals(Path.of("saves", "nvme"), other.saveDirectory());
+        assertEquals(List.of("NONE", "FIXED"), other.params().get("metadata"));
+    }
+
+    @Test
+    void rejectsBadPersistenceOptions(@TempDir Path directory) throws Exception {
+        Path file = Files.writeString(directory.resolve("file.txt"), "");
+        String[] plans = {
+                "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"include\": \"Persistence\","
+                        + " \"params\": { \"metadata\": \"SOME\" } } ] } ] }",
+                "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"include\": \"Persistence\","
+                        + " \"params\": { \"size\": 0 } } ] } ] }",
+                "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"include\": \"Persistence\", \"saveDirectory\": 1 } ] } ] }",
+                "{ \"groups\": [ { \"runs\": [ { \"name\": \"a\", \"include\": \"Persistence\", \"saveDirectory\": \""
+                        + file.toString().replace("\\", "\\\\") + "\" } ] } ] }",
+        };
+        for (String plan : plans) {
+            assertThrows(IllegalArgumentException.class, () -> BenchmarkPlan.parse(plan, DATE), plan);
+        }
     }
 
     @Test

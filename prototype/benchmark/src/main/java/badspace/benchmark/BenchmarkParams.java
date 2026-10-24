@@ -57,6 +57,10 @@ final class BenchmarkParams {
             if (Integer.parseInt(value) < 0) {
                 throw new IllegalArgumentException("The number of readers must not be negative");
             }
+        } else if (name.equals("size")) {
+            if (Integer.parseInt(value) < 1) {
+                throw new IllegalArgumentException("The size must be at least 1");
+            }
         } else if (type == int.class) {
             Integer.parseInt(value);
         } else if (type == double.class) {
@@ -70,6 +74,8 @@ final class BenchmarkParams {
         List<Class<?>> states = new ArrayList<>(List.of(BuildBenchmark.class.getDeclaredClasses()));
         states.addAll(List.of(PartitionBenchmark.class.getDeclaredClasses()));
         states.addAll(List.of(CommitBenchmark.class.getDeclaredClasses()));
+        states.addAll(List.of(PersistenceBenchmark2.class.getDeclaredClasses()));
+        states.addAll(List.of(PersistenceBenchmark3.class.getDeclaredClasses()));
         Map<String, Class<?>> types = new TreeMap<>();
         for (Class<?> state : states) {
             for (Class<?> c = state; c != null; c = c.getSuperclass()) {
