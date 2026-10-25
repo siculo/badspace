@@ -1,6 +1,12 @@
 # Bundle Update Log
 
 ## 2026-10-25
+* **Edit**: Rivista l’esposizione del [commit della partizione](/current/architecture/partition-commit.md):
+  introdotta subito la distinzione tra conferma e pubblicazione, affidati
+  ai tre esempi visivi i casi temporali e raccolte dopo i diagrammi le
+  regole d’uso non rappresentate nelle figure. Ridotte le ripetizioni su
+  commit cumulativi, batch, snapshot e letture del writer; mantenuti
+  invariati i diagrammi e le ancore dei collegamenti esistenti.
 * **Edit**: Corretti i [diagrammi temporali dei commit](/current/architecture/partition-commit.md#esempio-temporale-su-più-tick)
   dopo la verifica del rendering: sostituiti i Gantt con griglie Mermaid
   a posizioni esplicite, con un asse orizzontale continuo, commit
