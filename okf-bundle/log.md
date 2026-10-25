@@ -1,6 +1,18 @@
 # Bundle Update Log
 
 ## 2026-10-25
+* **Edit**: Adottati per tutti i diagrammi del bundle disegni ASCII in
+  blocchi `text`, leggibili direttamente nel Markdown e conformi alle
+  convenzioni Svgbob. Convertiti i sei diagrammi Mermaid rimasti su
+  architettura, componenti dell’API, commit, rimozione e vita degli snapshot;
+  rimosso l’SVG della prova e il relativo riferimento. Aggiornato `AGENTS.md`
+  con convenzioni, controllo degli allineamenti e uso dei soli sorgenti
+  testuali, senza immagini generate durante questa fase.
+* **Edit**: Avviata nel [primo esempio di commit](/current/architecture/partition-commit.md#un-commit-e-un-commit-senza-nuove-scritture)
+  una prova di diagramma ASCII leggibile direttamente nel Markdown,
+  affiancato dall’SVG generato con Svgbob e verificato visivamente.
+  Conservati gli altri due diagrammi Mermaid per confrontare le soluzioni;
+  le indicazioni generali sui diagrammi restano invariate durante la prova.
 * **Edit**: Rivista l’esposizione del [commit della partizione](/current/architecture/partition-commit.md):
   introdotta subito la distinzione tra conferma e pubblicazione, affidati
   ai tre esempi visivi i casi temporali e raccolte dopo i diagrammi le

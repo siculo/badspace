@@ -4,7 +4,7 @@ title: Conservazione degli snapshot
 description: "Snapshot per tick, finestra di conservazione, acquisizione e rilascio con scadenza, vita degli snapshot e coordinamento interno."
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T09:31:37Z }
+generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
 ---
 
 # Primitiva
@@ -166,26 +166,36 @@ restare vivo anche dopo il rilascio dell’ultima acquisizione, se una
 query è ancora in corso. Lo stato eliminabile non implica che il GC
 abbia già liberato la memoria.
 
-```mermaid
-stateDiagram-v2
-    state "Nella finestra" as InWindow
-    state "Pinnato" as Pinned
-    state "Eliminabile" as Finished
-    [*] --> InWindow
-    InWindow --> Pinned: Ultimo tick fuori finestra, utilizzi presenti
-    InWindow --> Finished: Ultimo tick fuori finestra, nessun utilizzo
-    Pinned --> Finished: Termina l'ultimo utilizzo
-    Finished --> [*]
-    note right of InWindow
-        Ammette nuove acquisizioni.
-        Il rilascio non basta a farlo finire.
-    end note
-    note right of Pinned
-        Nessuna nuova acquisizione.
-        Le acquisizioni valide ammettono query.
-        Le query già ammesse possono finire.
-    end note
+```text
+                  +-----------------------+
+                  | Nella finestra        |
+                  +-----------------------+
+                              |
+              Ultimo tick fuori dalla finestra
+                              |
+                    "Utilizzi presenti?"
+                              |
+            +-----------------+---------------------+
+            |                                       |
+           si                                      no
+            v                                       |
++-----------------------+                           |
+| Pinnato               |                           |
++-----------------------+                           |
+            |                                       |
+Fine dell'ultimo utilizzo                           |
+            |                                       |
+            +---------------------------------------+
+                                                    |
+                                                    v
+                                        +-----------------------+
+                                        | Eliminabile           |
+                                        +-----------------------+
 ```
+
+Nella finestra il rilascio non basta a far finire lo snapshot. Da
+pinnato non ammette nuove acquisizioni, ma le acquisizioni valide
+permettono ancora di avviare query e quelle già ammesse possono finire.
 
 **Fine di uno snapshot.** Il passaggio a eliminabile è un momento
 preciso, che la partizione rileva: succede una sola volta, nel primo

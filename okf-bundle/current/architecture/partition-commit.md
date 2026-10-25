@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: conferma dello stato, pubblicazione al tick successivo e sequenza interna per il copy-on-write."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T15:23:58Z }
+generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
 ---
 
 # Primitiva
@@ -24,9 +24,9 @@ regola si applica a frequenze diverse di scrittura e commit.
 ## Esempio temporale su più tick
 
 Il tempo procede **da sinistra a destra**. I segni verticali delimitano
-i tick; le frecce dall’alto indicano commit completati. Le barre azzurre
-mostrano gli intervalli di scrittura; i riquadri verdi gli snapshot che
-diventano acquisibili al confine indicato dalla linea tratteggiata.
+i tick; le frecce dall’alto indicano commit completati. Le barre sotto
+l’asse mostrano gli intervalli di scrittura; gli snapshot diventano
+acquisibili al confine indicato dalla linea tratteggiata.
 
 Le distanze sono illustrative e la durata interna del commit non è
 mostrata. Ogni esempio parte da `S(9)` vuoto, con lo stesso proprietario
@@ -39,34 +39,17 @@ Il commit di A nel tick 10 prepara `S(10)`, visibile dall’inizio del
 tick 11. Il commit senza nuove scritture nel tick 11 è valido e produce
 `S(11)` con lo stesso contenuto, visibile dal tick 12.
 
-```mermaid
-block-beta
-    columns 12
-    tick10["Tick 10"] space:2 commitA["Commit A"] tick11["Tick 11"] space:2 commitSame["Commit"] tick12["Tick 12"] space:3
-    start10((" ")) space:2 pointA((" ")) start11((" ")) space:2 pointSame((" ")) start12((" ")) space:2 axisEnd[" "]
-    space writeA["Scritture A"]:2 space:9
-    snapshot9["S(9)<br/>vuoto"] space:3 snapshot10["S(10)<br/>con A"] space:3 snapshot11["S(11)<br/>con A"] space:3
-    start10 --- pointA
-    pointA --- start11
-    start11 --- pointSame
-    pointSame --- start12
-    start12 --> axisEnd
-    commitA --> pointA
-    commitSame --> pointSame
-    tick10 --- start10
-    tick11 --- start11
-    tick12 --- start12
-    start10 -.-> snapshot9
-    start11 -.-> snapshot10
-    start12 -.-> snapshot11
-    classDef label fill:none,stroke:none,color:#222
-    classDef point fill:#222,stroke:#222
-    classDef write fill:#e8f0ff,stroke:#5276b5
-    classDef snapshot fill:#eaf5ec,stroke:#54815c
-    class tick10,tick11,tick12,commitA,commitSame,axisEnd label
-    class start10,start11,start12,pointA,pointSame point
-    class writeA write
-    class snapshot9,snapshot10,snapshot11 snapshot
+```text
+        Tick 10            Commit A     Tick 11             Commit      Tick 12
+           |                   |           |                   |           |
+           |                   v           |                   v           |
+tempo -----+-------------------*-----------+-------------------*-----------+---->
+           :                               :                               :
+           :  +-------------+              :                               :
+           :  | Scritture A |              :                               :
+           :  +-------------+              :                               :
+           v                               v                               v
+     "S(9) vuoto"                     "S(10): A"                      "S(11): A"
 ```
 
 ### Più commit nello stesso tick
@@ -75,36 +58,17 @@ I commit sono cumulativi: il secondo conserva A e aggiunge B. Solo il
 contenuto dell’ultimo commit del tick diventa acquisibile. C, scritta
 dopo quel commit, resta non confermata fino al commit del tick 11.
 
-```mermaid
-block-beta
-    columns 15
-    tick10["Tick 10"] space commitA["Commit"] space commitAB["Commit"] space tick11["Tick 11"] space:2 commitABC["Commit"] space:2 tick12["Tick 12"] space:2
-    start10((" ")) space pointA((" ")) space pointAB((" ")) space start11((" ")) space:2 pointABC((" ")) space:2 start12((" ")) space axisEnd[" "]
-    space writeA["Scritture A"] space writeB["Scritture B"] space writeC["Scritture C"] space:9
-    snapshot9["S(9)<br/>vuoto"] space:5 snapshot10["S(10)<br/>A e B"] space:5 snapshot11["S(11)<br/>A, B e C"] space:2
-    start10 --- pointA
-    pointA --- pointAB
-    pointAB --- start11
-    start11 --- pointABC
-    pointABC --- start12
-    start12 --> axisEnd
-    commitA --> pointA
-    commitAB --> pointAB
-    commitABC --> pointABC
-    tick10 --- start10
-    tick11 --- start11
-    tick12 --- start12
-    start10 -.-> snapshot9
-    start11 -.-> snapshot10
-    start12 -.-> snapshot11
-    classDef label fill:none,stroke:none,color:#222
-    classDef point fill:#222,stroke:#222
-    classDef write fill:#e8f0ff,stroke:#5276b5
-    classDef snapshot fill:#eaf5ec,stroke:#54815c
-    class tick10,tick11,tick12,commitA,commitAB,commitABC,axisEnd label
-    class start10,start11,start12,pointA,pointAB,pointABC point
-    class writeA,writeB,writeC write
-    class snapshot9,snapshot10,snapshot11 snapshot
+```text
+        Tick 10   Commit    Commit      Tick 11             Commit      Tick 12
+           |         |         |           |                   |           |
+           |         v         v           |                   v           |
+tempo -----+---------*---------*-----------+-------------------*-----------+---->
+           :                               :                               :
+           :  +-----+   +-----+   +-----+  :                               :
+           :  |  A  |   |  B  |   |  C  |  :                               :
+           :  +-----+   +-----+   +-----+  :                               :
+           v                               v                               v
+     "S(9) vuoto"                   "S(10): A e B"                 "S(11): A, B e C"
 ```
 
 ### Scritture su più tick prima del commit
@@ -117,35 +81,18 @@ dal tick 13.
 La barra lunga rappresenta una serie di scritture, non una singola
 chiamata che trattiene il lock durante gli avanzamenti del tick.
 
-```mermaid
-block-beta
-    columns 16
-    tick10["Tick 10"] space:3 tick11["Tick 11"] space:3 tick12["Tick 12"] space commitBatch["Commit"] space tick13["Tick 13"] space:3
-    start10((" ")) space:3 start11((" ")) space:3 start12((" ")) space pointBatch((" ")) space start13((" ")) space:2 axisEnd[" "]
-    space writeBatch["Scritture del batch A"]:9 space:6
-    snapshot9["S(9)<br/>vuoto"] space:3 snapshot10["S(10)<br/>vuoto"] space:3 snapshot11["S(11)<br/>vuoto"] space:3 snapshot12["S(12)<br/>batch A"] space:3
-    start10 --- start11
-    start11 --- start12
-    start12 --- pointBatch
-    pointBatch --- start13
-    start13 --> axisEnd
-    commitBatch --> pointBatch
-    tick10 --- start10
-    tick11 --- start11
-    tick12 --- start12
-    tick13 --- start13
-    start10 -.-> snapshot9
-    start11 -.-> snapshot10
-    start12 -.-> snapshot11
-    start13 -.-> snapshot12
-    classDef label fill:none,stroke:none,color:#222
-    classDef point fill:#222,stroke:#222
-    classDef write fill:#e8f0ff,stroke:#5276b5
-    classDef snapshot fill:#eaf5ec,stroke:#54815c
-    class tick10,tick11,tick12,tick13,commitBatch,axisEnd label
-    class start10,start11,start12,start13,pointBatch point
-    class writeBatch write
-    class snapshot9,snapshot10,snapshot11,snapshot12 snapshot
+```text
+     Tick 10               Tick 11               Tick 12     Commit    Tick 13
+        |                     |                     |           |         |
+        |                     |                     |           v         |
+tempo --+---------------------+---------------------+-----------*---------+--------->
+        :                     :                     :                     :
+        :  +-------------------------------------------------+            :
+        :  |             Scritture del batch A               |            :
+        :  +-------------------------------------------------+            :
+        :                     :                     :                     :
+        v                     v                     v                     v
+   "S(9) vuoto"          "S(10) vuoto"         "S(11) vuoto"       "S(12): batch A"
 ```
 
 ## Regole d’uso

@@ -4,7 +4,7 @@ title: "Architettura a livelli"
 description: "Software, API pubblica e nodi locali del prototipo Java: responsabilità, dipendenze e organizzazione dei moduli."
 tags: [badspace, documentation]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T09:31:37Z }
+generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
 ---
 
 # Livelli
@@ -50,27 +50,37 @@ Il diagramma segue le chiamate dal software a due partizioni di uno
 stesso nodo locale. I riquadri delle partizioni evidenziano la separazione
 dei loro dati; tutti i componenti sono nello stesso processo.
 
-```mermaid
-flowchart TB
-    subgraph process["Stesso processo"]
-        software["Software"]
-        api["API pubblica"]
-        node["Nodo locale"]
-        subgraph partitionA["Partizione A"]
-            storageA["Storage e snapshot di A"]
-            indexA["Indice di A"]
-        end
-        subgraph partitionB["Partizione B"]
-            storageB["Storage e snapshot di B"]
-            indexB["Indice di B"]
-        end
-        software -->|Chiamate applicative| api
-        api -->|Contratto dei nodi| node
-        node --> storageA
-        node --> storageB
-        storageA --- indexA
-        storageB --- indexB
-    end
+```text
++--------------------------------------------------------------------------+
+| Stesso processo                                                          |
+|                                                                          |
+|     +----------------------+                                             |
+|     | Software             |                                             |
+|     +----------------------+                                             |
+|                 |                                                        |
+|       Chiamate applicative                                               |
+|                 v                                                        |
+|     +----------------------+                                             |
+|     | API pubblica         |                                             |
+|     +----------------------+                                             |
+|                 |                                                        |
+|        Contratto dei nodi                                                |
+|                 v                                                        |
+|   +------------------------------------------------------------------+   |
+|   | Nodo locale                                                      |   |
+|   |                                                                  |   |
+|   |  +---------------------------+   +---------------------------+   |   |
+|   |  | Partizione A              |   | Partizione B              |   |   |
+|   |  |                           |   |                           |   |   |
+|   |  | Storage e snapshot        |   | Storage e snapshot        |   |   |
+|   |  |         |                 |   |         |                 |   |   |
+|   |  | Indice spaziale           |   | Indice spaziale           |   |   |
+|   |  |                           |   |                           |   |   |
+|   |  +---------------------------+   +---------------------------+   |   |
+|   |                                                                  |   |
+|   +------------------------------------------------------------------+   |
+|                                                                          |
++--------------------------------------------------------------------------+
 ```
 
 Il proxy `Partition2` o `Partition3` conosce nodo e ID della partizione;

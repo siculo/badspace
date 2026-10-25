@@ -4,7 +4,7 @@ title: "Componenti dell’API"
 description: "Spazio, partizione, writer e snapshot acquisito: ruolo, problemi risolti e sequenza d’uso nell’API corrente."
 tags: [badspace, documentation]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T09:31:37Z }
+generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
 ---
 
 # Prima di iniziare
@@ -104,15 +104,25 @@ Il ramo del writer presuppone che `claim` riesca; il ramo di lettura
 richiede uno snapshot già pubblicato e ancora acquisibile. Il proxy
 della partizione permette entrambi gli usi, che hanno handle distinti.
 
-```mermaid
-flowchart LR
-    space["Spazio"]
-    partition["Partizione"]
-    writer["Handle del writer: scritture e commit"]
-    snapshot["Snapshot acquisito: letture e query"]
-    space -->|createPartition| partition
-    partition -->|claim, poi writer con il token| writer
-    partition -->|acquire oppure acquireLatest| snapshot
+```text
+                         +----------------+
+                         | Spazio         |
+                         +----------------+
+                                 |
+                         createPartition
+                                 v
+                         +----------------+
+                         | Partizione     |
+                         +----------------+
+                                 |
+              +------------------+-----------------------+
+              |                                          |
+ "claim, poi writer(token)"                "acquire / acquireLatest"
+              v                                          v
+ +--------------------------+               +--------------------------+
+ | Handle del writer        |               | Snapshot acquisito       |
+ | Scritture e commit       |               | Letture e query          |
+ +--------------------------+               +--------------------------+
 ```
 
 1. Creare spazio e nodo locale, con i generatori di ID condivisi.

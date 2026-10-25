@@ -36,13 +36,28 @@ le eventuali estensioni ancora future, evitando descrizioni duplicate o
 superate. Aggiornare contestualmente indici, collegamenti, glossari e
 casi d’uso interessati.
 
-I diagrammi esplicativi si scrivono in Mermaid, in blocchi di codice
-`mermaid` nei documenti Markdown, così gli agenti possono modificarli
-insieme al testo. Devono arricchire le spiegazioni esistenti: ogni
-diagramma chiarisce una relazione o un meccanismo preciso, con etichette
-in italiano e una breve spiegazione del suo perimetro. Preferire
-diagrammi piccoli e sintassi semplice; mantenerli allineati al testo e
-alla distinzione tra `current/` e `future/` durante lo sviluppo.
-Verificare il rendering dei diagrammi modificati, non soltanto il
-sorgente. Nei diagrammi temporali mantenere un asse orizzontale e
-allineare eventi e disponibilità degli snapshot ai confini dei tick.
+I diagrammi esplicativi si scrivono direttamente nei documenti Markdown
+come disegni ASCII in blocchi di codice `text`, seguendo le convenzioni
+di Svgbob. Il disegno deve essere leggibile nel sorgente con un carattere
+monospaziato, senza viewer, plugin o conversioni. Per il momento non
+usare Mermaid e non generare o conservare file SVG o altre immagini dei
+diagrammi nel bundle, salvo richiesta esplicita.
+
+Usare spazi, mai tabulazioni; allineare bordi, collegamenti e frecce.
+Per i riquadri usare `+`, `-` e `|`; per le frecce usare `-->`, `<--`,
+`v` e `^`; per eventi puntuali usare `*` e per guide tratteggiate `:`.
+Racchiudere tra virgolette doppie le etichette che contengono caratteri
+interpretabili come geometria, per esempio `"S(10): A"` o `"writer(token)"`.
+Le virgolette delimitano il testo secondo le convenzioni Svgbob.
+Preferire figure entro circa 90 colonne; dividere quelle troppo larghe
+o complesse in più esempi, anziché ridurre la leggibilità delle etichette.
+
+I diagrammi arricchiscono le spiegazioni: ciascuno chiarisce una relazione
+o un meccanismo preciso, con etichette in italiano e una breve spiegazione
+del suo perimetro. Mantenerli allineati al testo e alla distinzione tra
+`current/` e `future/` durante lo sviluppo. Rileggerli direttamente nel
+Markdown per verificare allineamenti, direzione dei collegamenti e
+condizioni delle transizioni. Nei diagrammi temporali mantenere un asse
+orizzontale, mostrare la durata delle scritture e allineare la disponibilità
+degli snapshot ai confini dei tick; indicare quando le distanze non sono
+in scala.

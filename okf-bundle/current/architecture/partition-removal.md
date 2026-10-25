@@ -4,7 +4,7 @@ title: Rimozione della partizione
 description: "Richiesta di rimozione, ritiro al primo avanzamento del tick, letture storiche e distruzione dopo la fine degli utilizzi."
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T09:31:37Z }
+generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
 ---
 
 # Primitiva
@@ -29,25 +29,31 @@ rimozione può essere rifiutata, per esempio se `REQUIRE_EMPTY` trova
 entità nello stato confermato: in quel caso la partizione resta attiva.
 Le condizioni per la distruzione sono dettagliate nelle sezioni successive.
 
-```mermaid
-stateDiagram-v2
-    state "Attiva" as Active
-    state "In rimozione" as Pending
-    state "Ritirata" as Retired
-    state "Distrutta" as Destroyed
-    [*] --> Active
-    Active --> Pending: removePartition() accettata
-    Pending --> Retired: Primo avanzamento del tick
-    Retired --> Destroyed: Nessun tick valido nella finestra e nessun utilizzo
-    Destroyed --> [*]
-    note right of Pending
-        Niente scritture, commit o claim.
-        Restano acquisibili gli snapshot nella finestra.
-    end note
-    note right of Retired
-        Solo snapshot precedenti a removalTick.
-        Le acquisizioni valide restano leggibili.
-    end note
+```text
+                 +-----------------------+
+                 | Attiva                |
+                 +-----------------------+
+                             |
+              "removePartition() accettata"
+                             |
+                             v
+                 +-----------------------+
+                 | In rimozione          |
+                 +-----------------------+
+                             |
+               Primo avanzamento del tick
+                             |
+                             v
+                 +-----------------------+
+                 | Ritirata              |
+                 +-----------------------+
+                             |
+           Nessun tick valido nella finestra
+                     e nessun utilizzo
+                             v
+                 +-----------------------+
+                 | Distrutta             |
+                 +-----------------------+
 ```
 
 # Richiesta di rimozione
