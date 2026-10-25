@@ -43,3 +43,6 @@ diagramma chiarisce una relazione o un meccanismo preciso, con etichette
 in italiano e una breve spiegazione del suo perimetro. Preferire
 diagrammi piccoli e sintassi semplice; mantenerli allineati al testo e
 alla distinzione tra `current/` e `future/` durante lo sviluppo.
+Verificare il rendering dei diagrammi modificati, non soltanto il
+sorgente. Nei diagrammi temporali mantenere un asse orizzontale e
+allineare eventi e disponibilità degli snapshot ai confini dei tick.

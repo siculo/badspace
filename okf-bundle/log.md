@@ -1,6 +1,35 @@
 # Bundle Update Log
 
 ## 2026-10-25
+* **Edit**: Corretti i [diagrammi temporali dei commit](/current/architecture/partition-commit.md#esempio-temporale-su-più-tick)
+  dopo la verifica del rendering: sostituiti i Gantt con griglie Mermaid
+  a posizioni esplicite, con un asse orizzontale continuo, commit
+  indicati dall’alto, intervalli di scrittura sotto l’asse e snapshot
+  allineati ai confini dei tick in cui diventano acquisibili. Verificati
+  i tre diagrammi renderizzati; aggiunto in `AGENTS.md` il controllo
+  visivo dei diagrammi modificati.
+* **Edit**: Sostituiti i sequence diagram del
+  [commit della partizione](/current/architecture/partition-commit.md#esempio-temporale-su-più-tick)
+  con tre diagrammi temporali orizzontali Mermaid: blocchi per i tick,
+  barre per le scritture, rombi per i commit e righe allineate per lo stato
+  in attesa e gli snapshot visibili. Separati gli esempi di commit
+  singolo o senza nuove scritture, commit multipli e batch su più tick;
+  mantenute le spiegazioni della semantica.
+* **Edit**: Aggiunto al [commit della partizione](/current/architecture/partition-commit.md#esempio-temporale-su-più-tick)
+  un diagramma Mermaid su più tick: assenza di commit, un commit,
+  più commit cumulativi nello stesso tick, scritture non confermate
+  portate al tick successivo e commit senza nuove scritture. Distinti
+  snapshot in attesa e ultimo snapshot acquisibile dopo l’avanzamento,
+  mantenendo il testo e il diagramma già presenti.
+* **Edit**: Chiariti nella [proprietà della partizione](/current/architecture/partition-ownership.md)
+  il recupero dal blocco del codice applicativo del writer, distinto da
+  un blocco interno a BADSPACE, e il rilascio ordinato dopo un commit
+  esplicito del lavoro completo. Documentato il
+  [limite di visibilità nello stesso tick](/current/architecture/partition-ownership.md#visibilità-nel-tick-del-passaggio):
+  il nuovo proprietario conserva i commit del predecessore ma legge solo
+  snapshot pubblicati. Aggiunti un esempio e un richiamo dal
+  [commit](/current/architecture/partition-commit.md#commit-e-tick), senza
+  modificare codice o semantica; aggiornato l’indice dell’architettura.
 * **Edit**: Aggiunti diagrammi Mermaid, con spiegazioni del loro perimetro,
   nell’[architettura](/current/architecture/layers.md#nodi), nei
   [componenti dell’API](/current/api/components.md#sequenza-duso), nel

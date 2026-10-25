@@ -1,10 +1,10 @@
 ---
 type: Architecture Primitive
 title: Proprietà della partizione
-description: "Proprietà single-writer con generazione e fencing token: presa, passaggio, revoca e rilascio; scritture non confermate scartate al cambio."
+description: "Proprietà single-writer con fencing token: passaggio, revoca e rilascio; recupero del writer applicativo e limite di visibilità dei commit nello stesso tick."
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: codex/gpt-6, at: 2026-10-25T14:24:40Z }
 ---
 
 # Primitiva
@@ -15,9 +15,9 @@ proprietà passa da un writer all'altro lo decide il software (vedi
 [schemi costruiti sopra](#schemi-costruiti-sopra)).
 
 Senza questa primitiva un writer rallentato che ha perso la proprietà
-potrebbe ancora scrivere: per esempio un writer fermo per una pausa del
-GC, che riprende quando la
-partizione è già passata a un altro writer. Con il **fencing token** è
+potrebbe ancora scrivere: per esempio un writer bloccato nel codice
+applicativo, che riprende quando la partizione è già passata a un altro
+writer. Con il **fencing token** è
 la partizione a rifiutare le sue scritture, anche se lui non sa ancora
 di aver perso la proprietà.
 
@@ -98,6 +98,10 @@ Restano fuori dal fencing:
   definisce lo snapshot del tick (vedi [commit](/current/architecture/partition-commit.md#commit-e-tick)).
 - **Rilascio senza commit.** Un writer può decidere di non confermare le
   sue scritture e rilasciare il token: le scritture si scartano.
+- **Rilascio ordinato.** Se il lavoro è completo e valido, il writer fa
+  commit prima di rilasciare o passare la proprietà, così il successore
+  ne conserva gli effetti. Non c’è un commit automatico al rilascio:
+  abbandonare un lavoro incompleto deve poter scartare le scritture.
 - **Nessuna via di mezzo.** Grazie al lock, ogni operazione del vecchio
   writer avviene tutta prima del cambio oppure è rifiutata: il writer sa
   con esattezza quali dei suoi commit sono entrati.
@@ -107,6 +111,52 @@ Restano fuori dal fencing:
   rimuovere una partizione di cui non è proprietario fa prima `claim`.
   Dalla [rimozione](/current/architecture/partition-removal.md) in poi `claim`
   è rifiutato.
+
+## Visibilità nel tick del passaggio
+
+Il nuovo proprietario eredita l’ultimo stato confermato, ma può leggere
+solo gli snapshot già pubblicati. Se A fa commit nel tick T e la
+proprietà passa a B nello stesso tick, le scritture di B si applicano
+allo stato che comprende quel commit. L’ultimo snapshot acquisibile da B
+è ancora `S(T − 1)`, se disponibile: `claim` non pubblica il commit di A
+e non ne restituisce il contenuto. Il limite vale sia per il passaggio cooperativo sia per
+la revoca forzata, anche dopo un rilascio preceduto da commit.
+
+Per esempio, `S(T − 1)` contiene una posizione x = 0. A la porta a 1 e
+fa commit; B prende la proprietà, legge ancora 0 e calcola un incremento
+di 1. Scrivendo x = 1 conferma di nuovo quel valore, senza conoscere
+l’incremento già confermato da A. Il sistema non somma gli incrementi:
+riceve e applica due assegnazioni della posizione.
+
+Con scritture indipendenti, che non richiedono di conoscere gli effetti
+del predecessore, questo limite può non creare problemi. Se B deve
+continuare o ripetere un’elaborazione che dipende da quegli effetti,
+il software deve tenerne conto nel coordinamento. Un passaggio
+cooperativo può comunicare le informazioni necessarie attraverso un
+canale del software; la sola acquisizione del token non le fornisce.
+
+La semantica corrente conserva i commit già completati: la revoca non
+annulla i commit del tick corrente e non rende leggibile lo stato
+confermato ancora in attesa di pubblicazione.
+
+# Recupero di un writer bloccato
+
+Il caso previsto è il blocco del **codice applicativo del writer**, fuori
+da una chiamata a BADSPACE. Il coordinatore può chiamare `claim` senza
+attendere una risposta o un rilascio del vecchio proprietario. Il cambio
+scarta le scritture non confermate e conserva i commit completati; se
+il vecchio writer riparte, le sue operazioni con il token precedente
+sono rifiutate. Un blocco applicativo non rende da solo inconsistenti
+i commit già completati.
+
+La revoca non interrompe il thread del writer né una chiamata a BADSPACE
+in corso. `claim` prende lo stesso lock delle scritture, dei commit e
+dell’avanzamento del tick della partizione: un’operazione già in corso
+deve terminarne la sezione protetta prima del cambio di proprietà.
+Un blocco interno a BADSPACE che trattiene quel lock impedirebbe anche
+la revoca. È un problema di correttezza e disponibilità dell’implementazione
+da prevenire e correggere, distinto dal recupero del codice applicativo
+su cui BADSPACE non ha controllo.
 
 # Schemi costruiti sopra
 
