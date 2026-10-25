@@ -2,28 +2,12 @@
 okf_version: "0.2"
 ---
 
-# Bundle di conoscenza BADSPACE
+# Documentazione di BADSPACE
 
-* [Panoramica](./overview.md) - BADSPACE come framework per costruire lo strato di gestione di una base dati real-time di entità in 2D o 3D del proprio software, e le sue decisioni architetturali principali.
-* [Casi d'uso](./use-cases.md) - i casi d'uso da supportare, con configurazione delle partizioni e meccanismi attivi.
-* [Glossario](./glossary.md) - definizioni dei termini ricorrenti di BADSPACE.
+* [Implementazione corrente](./current/index.md) - Il prototipo Java così com’è: filosofia d’uso, architettura, API e approfondimenti.
+* [Sviluppi futuri](./future/index.md) - Funzionalità non implementate, direzioni già scelte e alternative ancora aperte.
 
-# Decisioni di progetto
+# Processo e storia
 
-* [Decisioni](./decisions/) - le singole decisioni architetturali e i trade-off ancora aperti.
-
-# Indici spaziali
-
-* [Indici spaziali](./indices/) - un documento per ogni indice: come funziona, problematiche e decisioni.
-
-# Architettura
-
-* [Architettura](./architecture/) - i livelli del sistema e le primitive minime del layer delle partizioni.
-
-# Meccanismi
-
-* [Meccanismi](./mechanisms/) - i meccanismi costruiti sopra le primitive: migrazione, letture coerenti, aggregazione, ribilanciamento.
-
-# Processo
-
-* [Processo](./process/) - la metodologia di sviluppo usata per affrontare le decisioni.
+* [Processo](./process/index.md) - Sviluppo incrementale, test, benchmark e manutenzione della documentazione.
+* [Registro delle modifiche](./log.md) - Storia del bundle; le voci passate non descrivono necessariamente il comportamento corrente.

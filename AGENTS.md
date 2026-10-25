@@ -10,3 +10,36 @@ Lo sviluppo è incrementale (vedi `okf-bundle/process/development-approach.md`):
 Nel codice si usa solo l'inglese, a livello B2 (semplice e chiaro): identificatori, commenti, Javadoc, messaggi e stringhe. La documentazione del bundle OKF resta in italiano.
 
 Il codice Java del prototipo segue le linee guida in `./prototype/coding-guidelines.md`.
+
+La documentazione del bundle distingue `okf-bundle/current/`, che descrive
+BADSPACE così com’è nell’implementazione corrente, e `okf-bundle/future/`,
+che raccoglie funzionalità da realizzare, direzioni già scelte e proposte
+ancora da valutare. Il processo di sviluppo resta in `okf-bundle/process/`.
+Verificare sul codice e sui test ciò che si presenta come disponibile;
+non dedurlo dal solo stato di una decisione o di un TODO. Nella parte
+corrente limitare i riferimenti al futuro ai casi motivati, necessari per
+spiegare un limite o una scelta attuale, indicandoli chiaramente come futuri.
+
+Organizzare la documentazione in modo progressivo, introducendo i concetti
+principali prima di quelli che ne richiedono la comprensione. Il percorso
+di riferimento è: filosofia d’uso di BADSPACE; architettura generale;
+componenti principali dell’API; problemi risolti e motivazioni delle
+scelte; approfondimenti dei meccanismi specifici. Adattare l’ordine quando
+serve alla comprensione: problemi e motivazioni possono seguire ciascun
+componente, insieme ai relativi meccanismi, evitando anticipazioni e
+rinvii che obbligano a conoscere concetti non ancora introdotti.
+
+Durante lo sviluppo aggiornare la documentazione man mano: quando una
+funzionalità viene implementata, rimuoverne la descrizione da `future/`
+e integrarla in `current/` nel percorso di lettura appropriato. Separare
+le eventuali estensioni ancora future, evitando descrizioni duplicate o
+superate. Aggiornare contestualmente indici, collegamenti, glossari e
+casi d’uso interessati.
+
+I diagrammi esplicativi si scrivono in Mermaid, in blocchi di codice
+`mermaid` nei documenti Markdown, così gli agenti possono modificarli
+insieme al testo. Devono arricchire le spiegazioni esistenti: ogni
+diagramma chiarisce una relazione o un meccanismo preciso, con etichette
+in italiano e una breve spiegazione del suo perimetro. Preferire
+diagrammi piccoli e sintassi semplice; mantenerli allineati al testo e
+alla distinzione tra `current/` e `future/` durante lo sviluppo.

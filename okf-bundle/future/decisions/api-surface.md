@@ -1,0 +1,71 @@
+---
+type: Design Decision
+title: "Estensioni dell’API"
+description: "Operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
+tags: [badspace, documentation]
+status: draft
+generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+---
+
+# Stato
+
+Questa pagina descrive estensioni dell’API. Il [contratto attuale](/current/api/operations.md)
+espone operazioni su singole partizioni. Le firme future si definiscono
+quando si introduce il relativo concetto, senza anticiparle nel codice.
+
+# Operazioni previste
+
+| Ambito | Estensione | Stato |
+|---|---|---|
+| Query | Aggregazione di range e k-nearest su più partizioni | Da implementare; forma delle chiamate aperta |
+| Query | Raycast: primo hit e tutti gli hit | Da progettare per entità puntiformi; richiede di riprendere il lavoro sugli indici |
+| Metadati | Metadati di sistema, condizioni, tombstone e loro eliminazione | Da introdurre con i protocolli di migrazione |
+| Persistenza | Esposizione dell’ultimo tick persistito e salvataggio asincrono | Rimandati a durabilità osservabile e nodi remoti |
+| Coordinamento | Lettura allo stesso tick su più partizioni, verifica e acquisizione con esito senza eccezione | Da valutare con le letture coerenti |
+| Migrazione | Operazione di supporto per spostare entità tra partizioni | Protocollo progettato, API di dettaglio aperta |
+
+# Altre estensioni da valutare
+
+- Overload con array separati per le coordinate, se il costo dei record lo richiede.
+- Altre regioni di query: capsula, frustum e poligono.
+- Più query o commit di più partizioni in una chiamata al nodo.
+- Scadenza massima delle acquisizioni configurabile sul nodo.
+- Controllo anticipato della scadenza nella view per risparmiare chiamate remote.
+- Copia autonoma dello snapshot esposta al software, distinta dalla copia interna per i salvataggi.
+
+# Gruppi di partizioni
+
+Punto aperto. Un **gruppo di partizioni** ha una configurazione
+condivisa (indice, k, politica di rimozione), così non va ripetuta per
+ogni partizione. È distinto dall'insieme di partizioni da interrogare
+in una query, che il software sceglie caso per caso.
+
+L'API dei gruppi si costruisce **sopra** l'API che lavora sulle singole
+partizioni: le implementazioni di quest'ultima non ragionano sui
+gruppi. Nel prototipo i gruppi vengono dopo i meccanismi su più
+partizioni.
+
+# Vincoli dal partizionamento
+
+Il [partizionamento del DB](/current/decisions/partitioning.md) e l'[architettura
+a livelli](/current/architecture/layers.md) sono i prerequisiti già
+implementati. Le estensioni devono conservarne le responsabilità:
+
+- **Partizioni esplicite**: una scrittura indica la partizione di
+  destinazione; una futura query aggregata indicherà l’insieme di
+  partizioni da interrogare.
+- **Generazione degli [ID](/current/decisions/entity-ids.md)** a carico
+  dell'API comune.
+- **Creazione e configurazione delle partizioni**, incluso l'indice da
+  usare per ciascuna e il [nodo](/current/architecture/layers.md#nodi) che la
+  ospita, scelto dal software.
+- **[Aggregazione](/future/mechanisms/query-aggregation.md)** dei risultati di
+  query su più partizioni.
+- **Commit e scritture condizionate** del livello base (vedi
+  [architettura minima](/future/architecture/minimal-core.md)).
+- **[API dei metadati](/future/architecture/entity-metadata.md#api-dei-metadati)**.
+- Primitiva di comodo **"sposta da A a B"**, che implementa la
+  [migrazione](/future/mechanisms/entity-migration.md).
+
+Le responsabilità di dettaglio dell'API comune e la forma delle
+chiamate restano da definire.

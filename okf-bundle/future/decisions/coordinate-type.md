@@ -1,0 +1,99 @@
+---
+type: Design Decision
+title: "Coordinate nell’implementazione finale"
+description: Nei prototipi le coordinate sono double; la scelta per l'implementazione finale (double, interi a 64 bit o tipo generico) è rimandata, con i limiti di precisione, rappresentazione e determinismo di ciascuna opzione.
+tags: [badspace, design, coordinates, precision]
+status: draft
+generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+---
+
+# Stato
+
+Il prototipo usa `double`. Il tipo per l’implementazione finale è ancora da scegliere tra `double`, interi a 64 bit e tipo generico.
+
+# Alternativa: interi a 64 bit
+
+Coordinate come interi con segno a 64 bit in centimetri: limite 2⁶³ cm
+≈ **9,2·10¹⁶ m ≈ 9,7 anni luce**, circa 1300 volte l'intervallo del
+`double` a parità di precisione.
+
+- **Pro**: precisione uniforme su tutto lo spazio; confronti esatti;
+  risultati identici su qualunque piattaforma (utile per repliche e
+  cluster).
+- **Contro**: il quadrato delle distanze (x² + y² + z²) va in overflow
+  già intorno a 3·10⁹ m, quindi serve un tipo più largo (128 bit o
+  `double`) per i calcoli; unità e precisione diventano fisse per tutto
+  lo spazio.
+
+# Rappresentazione e portabilità
+
+- **Occupazione**: 8 byte sia per `double` sia per l'intero a 64 bit.
+  Un'entità 3D occupa 24 byte di coordinate più 8 di
+  [ID](/current/decisions/entity-ids.md): 32 byte, circa 32 MB per un milione di
+  entità, indice escluso.
+- **Standard**: `double` è IEEE 754 binary64 in Java per specifica e su
+  tutte le architetture in uso in C, C++ e Rust; l'intero a 64 bit è in
+  complemento a due.
+- **In C usare `int64_t`**, non `long`: su Windows `long` è a 32 bit.
+- **Ordine dei byte**: i bit sono gli stessi, l'ordine in memoria no
+  (x86 e ARM little-endian; la serializzazione Java big-endian). Il
+  formato di [persistenza](/current/decisions/persistence.md) e di rete deve
+  fissarlo; gRPC/protobuf lo fa già.
+- **Determinismo dei calcoli**: `+ − × ÷ √` sono arrotondate
+  correttamente e danno risultati identici ovunque. Le differenze
+  vengono da contrazione in FMA e `-ffast-math` in C/C++, e dalle
+  funzioni trascendenti (`sin`, `cos`, `exp`) che variano tra librerie
+  matematiche; Java offre `StrictMath`.
+- **Overflow degli interi**: in Java il valore riparte dall'altro
+  estremo; in C/C++ su interi con segno è comportamento indefinito; in
+  Rust panic in debug e riavvolgimento in release.
+
+# Rinviare la scelta
+
+Come si può tenere aperto il tipo nei diversi linguaggi:
+
+- **Java**: i generici non vanno bene. Funzionano solo con oggetti
+  (boxing di ogni coordinata, niente `double[]` compatto), non
+  permettono aritmetica sul parametro di tipo e rendono le prestazioni
+  ancora meno rappresentative. Il progetto Valhalla non è disponibile in
+  Java 25. Soluzione: `double` confinato in pochi punti.
+- **C**: `typedef` scelto in compilazione (per esempio `bs_coord` e
+  `bs_coord_wide`), come `btScalar` di Bullet Physics. Nessun costo in
+  esecuzione, ma una sola scelta per tutto l'eseguibile.
+- **Rust e C++**: generici (trait o template) monomorfizzati, senza
+  costo in esecuzione, con un tipo associato "largo" per distanze e
+  quadrati (per esempio `f64 → f64`, `i64 → i128`). Le varianti possono
+  convivere nello stesso programma.
+
+Il costo reale del rinvio non è il tipo ma la **semantica diversa**:
+overflow, tipo largo per le distanze, confronti esatti contro
+tolleranze. Gli algoritmi di [indice](/current/decisions/spatial-indexing.md) e
+di query devono essere pensati per entrambi i casi.
+
+# Mitigazione
+
+Nei casi d'uso con aree non contigue (per esempio sistemi solari
+separati; vedi [casi d'uso](/future/use-cases.md)) ogni area può avere il suo
+spazio o la sua partizione con **coordinate locali**: dentro un
+sistema il `double` basta, e il passaggio tra aree è una
+[migrazione](/future/mechanisms/entity-migration.md).
+
+# Punti aperti
+
+- Tipo delle coordinate nell'implementazione finale: `double`, intero a
+  64 bit o generico.
+- Unità di misura: fissata dalla libreria o scelta dal software.
+- Esigenza di determinismo tra macchine diverse.
+- Esistenza di casi d'uso con uno spazio continuo oltre qualche
+  centinaio di UA.
+
+# Correlati
+
+- Il [linguaggio](/current/decisions/language.md) determina come si può
+  rendere generico il tipo; il [confronto tra C e
+  Rust](/future/decisions/c-vs-rust.md) mostra overflow e generici nei due
+  linguaggi.
+- Il [supporto a 2D e 3D](/current/decisions/2d-3d-support.md) moltiplica le
+  varianti: dimensioni per tipo delle coordinate.
+- L'[indicizzazione spaziale](/current/decisions/spatial-indexing.md) dipende
+  dalla semantica del tipo (overflow, confronti).
