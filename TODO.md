@@ -155,7 +155,6 @@ Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandat
 ### Query su più partizioni [↑](#blocchi)
 
 - [ ] Aggregazione delle query su più partizioni (range e k-nearest)
-- [ ] Deduplica per ID nell'aggregazione (l'epoca si aggiunge con la [migrazione](#fare-migrazione))
 - [ ] Più partizioni con indici diversi (statiche e dinamiche) interrogate insieme
 
 <a id="fare-grpc"></a>
@@ -170,6 +169,7 @@ Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandat
 
 - [ ] Ribilanciamento tramite trasferimento dell'esclusività
 - [ ] Split di una partizione
+- [ ] Deduplica per ID nell'aggregazione durante lo split (l'epoca si aggiunge con la [migrazione](#fare-migrazione))
 
 <a id="fare-migrazione"></a>
 ### Tombstone e migrazione [↑](#blocchi)

@@ -1,6 +1,12 @@
 # Bundle Update Log
 
 ## 2026-10-26
+* **Edit**: Chiarito nel [contratto del generatore degli ID](/current/decisions/entity-ids.md#contratto-del-generatore)
+  che la scelta dello schema dipende dalla soluzione e che un cambio
+  successivo deve evitare conflitti con tutti gli ID già assegnati.
+* **Edit**: Precisato nel [contratto del generatore degli ID](/current/decisions/entity-ids.md#contratto-del-generatore)
+  che l'univocità vale nel tempo anche per gli ID delle entità salvate e
+  ricaricate; aggiunto un rimando nel [caricamento](/current/decisions/persistence.md#caricamento).
 * **Edit**: Aggiornate nel [processo di sviluppo](/process/development-approach.md#test-di-integrazione-e-client-desempio)
   le linee guida dei client d’esempio: API al centro, codice lineare,
   pochi meccanismi applicativi propri, pochi casi brevi dello stesso tema

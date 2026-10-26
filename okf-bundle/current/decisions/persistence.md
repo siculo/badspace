@@ -188,9 +188,15 @@ Il nodo carica i salvataggi presenti nella propria directory configurata.
 
 Lo spazio dell'API offre `loadPartition(node, config, saved)`: il nodo
 crea una nuova partizione già con il contenuto di un salvataggio, cioè
-con le entità con gli stessi ID, posizioni e metadati. La partizione
-caricata ha il nome del salvataggio e un ID di runtime nuovo; Il caricamento fa il commit del contenuto al tick di
-creazione, senza un commit del software: il contenuto è nello snapshot
+con le entità con gli stessi ID, posizioni e metadati.
+
+Il [contratto del generatore degli ID](/current/decisions/entity-ids.md#contratto-del-generatore)
+richiede che i nuovi ID delle entità restino diversi anche da quelli
+conservati nel salvataggio e ricaricati.
+
+La partizione caricata ha il nome del salvataggio e un ID di runtime
+nuovo; il caricamento fa il commit del contenuto al tick di creazione,
+senza un commit del software: il contenuto è nello snapshot
 di quel tick e diventa acquisibile al successivo avanzamento del tick,
 senza stati intermedi visibili. Un writer che vuole cambiare il
 contenuto prima che i reader lo vedano prende la proprietà, scrive e fa

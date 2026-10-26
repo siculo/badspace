@@ -35,10 +35,12 @@ contratto:
 - Una sola operazione: restituisce un **nuovo ID**, un intero a 64 bit
   (`long`).
 - Gli ID sono **univoci su tutte le partizioni e su tutti gli spazi**
-  del processo, e il generatore non restituisce mai due volte lo stesso
-  ID, neanche dopo un riavvio dell'istanza. L'univocità vale per un
-  tipo di ID: ID di entità e ID di partizioni vengono da generatori
-  diversi e possono avere lo stesso valore.
+  del processo e nel tempo: anche dopo un riavvio, un nuovo generatore
+  non deve produrre un ID già assegnato da un generatore precedente dello
+  stesso tipo. Questo include gli ID delle entità conservate nei
+  salvataggi e poi ricaricate. L'univocità vale per un tipo di ID: ID di
+  entità e ID di partizioni vengono da generatori diversi e possono
+  avere lo stesso valore.
 - L'ID **non indica la partizione**.
 - **Nessuna garanzia di ordine né di segno**: qualunque valore `long` è
   un ID valido, e nessuna parte del sistema deve dipendere dall'ordine,
@@ -52,12 +54,15 @@ contratto:
 - La scelta dello schema e la sua configurazione (per Snowflake il
   `generatorId`) sono di chi crea il generatore, non degli spazi.
 
-Il contratto esiste perché lo schema si possa sostituire quando un
-deployment lo richiede: per esempio blocchi di ID presi in lease da un
-contatore centrale (ID densi, nessuna dipendenza dall'orologio), una
-sequenza di un DB, o un contatore semplice nei test. Il tipo `long`
-esclude gli schemi più larghi di 64 bit, come gli UUID, perché gli ID
-stanno in array primitivi.
+Il contratto permette di scegliere il generatore più adatto alla
+soluzione che si intende sviluppare: per esempio blocchi di ID presi
+in lease da un contatore centrale (ID densi, nessuna dipendenza
+dall'orologio), una sequenza di un DB, o un contatore semplice nei
+test. Cambiare generatore in seguito richiede di mantenere l'univocità
+rispetto a tutti gli ID già assegnati dello stesso tipo, inclusi quelli
+delle entità presenti nel DB o conservate nei salvataggi: il cambio non
+azzera la storia degli ID. Il tipo `long` esclude gli schemi più larghi
+di 64 bit, come gli UUID, perché gli ID stanno in array primitivi.
 
 # Schema Snowflake
 
