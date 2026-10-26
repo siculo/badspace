@@ -9,7 +9,7 @@ generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
 
 # Stato e prerequisiti
 
-Questo documento descrive uno sviluppo futuro, non una funzionalità disponibile nel prototipo. Le primitive già implementate si consultano nella [documentazione corrente](/current/index.md).
+Questo documento descrive uno sviluppo futuro: le strutture dati specializzate per entità statiche (build-once) e dinamiche non sono ancora nel prototipo. È già disponibile la query congiunta su partizioni con indici diversi, con l’[insieme di snapshot](/current/architecture/multi-partition-queries.md). Le primitive già implementate si consultano nella [documentazione corrente](/current/index.md).
 
 # Decisione
 
@@ -27,8 +27,9 @@ categorie insieme.
 
 Con il [partizionamento del DB](/current/decisions/partitioning.md) la
 separazione diventa un caso particolare: due partizioni con indici
-diversi, interrogate insieme tramite l'[aggregazione dei
-risultati](/future/mechanisms/query-aggregation.md).
+diversi, interrogate insieme con un [insieme di
+snapshot](/current/architecture/multi-partition-queries.md), che già
+aggrega range e k-nearest.
 
 # Correlati
 

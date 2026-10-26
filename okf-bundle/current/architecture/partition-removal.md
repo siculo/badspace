@@ -145,9 +145,13 @@ Gli [ID delle partizioni](/current/decisions/entity-ids.md#id-delle-partizioni)
 **non si riusano mai**: la partizione resta sul nodo con il suo ID fino
 alla distruzione, letture e rilascio la trovano per ID, e il nodo
 rifiuta una nuova partizione con quell'ID. Dopo la distruzione il nodo
-non conosce più l'ID: risponde con un errore generico, senza
-distinguere una partizione mai esistita da una distrutta, e un rilascio
-non fa niente.
+non conosce più l'ID: risponde con `UnknownPartitionException`, la
+stessa eccezione di un ID sconosciuto, senza distinguere una partizione
+mai esistita da una distrutta, e un rilascio non fa niente. Chi ha
+l'handle di una partizione sa che è esistita, quindi per lui
+l'eccezione vuol dire distrutta: l'[insieme di
+snapshot](/current/architecture/multi-partition-queries.md#che-cosa-è-un-fallimento)
+la tratta come un fallimento, al pari di uno snapshot non disponibile.
 
 # Nel prototipo
 
@@ -180,7 +184,8 @@ stato in un campo `volatile`.
   operazioni del writer dopo la rimozione con `IllegalStateException`;
   acquisizioni, `tick()`, `creationTick()` e `ownership()` rispondono
   finché la partizione non è distrutta e poi falliscono con
-  `IllegalArgumentException`.
+  `UnknownPartitionException`, sottoclasse di `IllegalArgumentException`
+  in `common`.
 
 I test verificano gli esempi di questa pagina (rimozione chiesta al
 tick 102 e primo avanzamento a 105; con k = 5 al tick 109 resta

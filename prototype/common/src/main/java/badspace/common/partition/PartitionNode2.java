@@ -54,7 +54,7 @@ import java.util.Optional;
  * of the tick and the reads take no token.
  * <p>
  * Partition IDs are never used again, so the node cannot tell an unknown partition from
- * a destroyed one: the operations of the partition fail with IllegalArgumentException,
+ * a destroyed one: the operations of the partition fail with {@link UnknownPartitionException},
  * and in an acquisition the release does nothing and the reads fail with
  * IllegalStateException, like for a released acquisition.
  * <p>
@@ -152,7 +152,7 @@ public interface PartitionNode2 {
      *
      * @param partitionId the ID of the partition
      * @return the tick of the partition
-     * @throws IllegalArgumentException if the partition is unknown
+     * @throws UnknownPartitionException if the partition is unknown
      */
     long tick(PartitionId partitionId);
 
@@ -161,7 +161,7 @@ public interface PartitionNode2 {
      *
      * @param partitionId the ID of the partition
      * @return the creation tick of the partition
-     * @throws IllegalArgumentException if the partition is unknown
+     * @throws UnknownPartitionException if the partition is unknown
      */
     long creationTick(PartitionId partitionId);
 
@@ -171,7 +171,7 @@ public interface PartitionNode2 {
      * fails, the partition does not change.
      *
      * @param token the token of the owner of the partition
-     * @throws IllegalArgumentException if the partition of the token is unknown
+     * @throws UnknownPartitionException if the partition of the token is unknown
      * @throws IllegalStateException if the last commit has entities or the removal was already
      *     requested
      * @throws OwnershipChangedException if the token is not the current one
@@ -184,7 +184,7 @@ public interface PartitionNode2 {
      * the partition does not change.
      *
      * @param token the token of the owner of the partition
-     * @throws IllegalArgumentException if the partition of the token is unknown
+     * @throws UnknownPartitionException if the partition of the token is unknown
      * @throws IllegalStateException if the removal was already requested
      * @throws OwnershipChangedException if the token is not the current one
      */
@@ -197,7 +197,7 @@ public interface PartitionNode2 {
      *
      * @param partitionId the ID of the partition
      * @return the generation of the ownership and whether the partition has an owner
-     * @throws IllegalArgumentException if the partition is unknown
+     * @throws UnknownPartitionException if the partition is unknown
      */
     Ownership ownership(PartitionId partitionId);
 
@@ -213,8 +213,8 @@ public interface PartitionNode2 {
      * @param expectedGeneration the generation that the ownership must have
      * @return the token of the new generation, or empty if the generation is not the expected
      *     one; in this case nothing changes
-     * @throws IllegalArgumentException if expectedGeneration is negative or the partition is
-     *     unknown
+     * @throws IllegalArgumentException if expectedGeneration is negative
+     * @throws UnknownPartitionException if the partition is unknown
      * @throws IllegalStateException if the removal of the partition was requested
      */
     Optional<WriteToken> claim(PartitionId partitionId, long expectedGeneration);
@@ -320,7 +320,8 @@ public interface PartitionNode2 {
      * @param tick the tick of the snapshot
      * @param options the timeout of the acquisition
      * @return the acquisition, for the reads and the release
-     * @throws IllegalArgumentException if tick is negative or the partition is unknown
+     * @throws IllegalArgumentException if tick is negative
+     * @throws UnknownPartitionException if the partition is unknown
      * @throws SnapshotNotAvailableException with the reason, if the snapshot is not published
      *     yet, is older than the window, is before the creation of the partition or is at its
      *     removal tick or after it
@@ -334,7 +335,7 @@ public interface PartitionNode2 {
      * @param partitionId the ID of the partition
      * @param options the timeout of the acquisition
      * @return the acquisition, for the reads and the release
-     * @throws IllegalArgumentException if the partition is unknown
+     * @throws UnknownPartitionException if the partition is unknown
      * @throws SnapshotNotAvailableException if the tick of the partition has not moved since
      *     its creation, so no snapshot is published yet, or if the partition did not exist at
      *     that tick any more
@@ -418,7 +419,7 @@ public interface PartitionNode2 {
      *
      * @param partitionId the ID of the partition
      * @return the limits of the coordinates
-     * @throws IllegalArgumentException if the partition is unknown
+     * @throws UnknownPartitionException if the partition is unknown
      * @throws IllegalStateException if the removal of the partition was requested
      */
     CoordinateLimits limits(PartitionId partitionId);
@@ -436,7 +437,8 @@ public interface PartitionNode2 {
      * @param partitionId the ID of the partition
      * @param tick the tick of the snapshot
      * @return the reference to the save, with the name of the partition and the tick
-     * @throws IllegalArgumentException if tick is negative or the partition is unknown
+     * @throws IllegalArgumentException if tick is negative
+     * @throws UnknownPartitionException if the partition is unknown
      * @throws SnapshotNotAvailableException like {@link #acquire}, if the snapshot is not
      *     available; then nothing is written
      * @throws IllegalStateException if the node has no save destination
@@ -451,7 +453,7 @@ public interface PartitionNode2 {
      *
      * @param partitionId the ID of the partition
      * @return the reference to the save, with the name of the partition and the tick
-     * @throws IllegalArgumentException if the partition is unknown
+     * @throws UnknownPartitionException if the partition is unknown
      * @throws SnapshotNotAvailableException like {@link #acquireLatest}, if no snapshot is
      *     available; then nothing is written
      * @throws IllegalStateException if the node has no save destination

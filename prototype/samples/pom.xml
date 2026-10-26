@@ -31,6 +31,7 @@
         <module>snapshot-isolation</module>
         <module>snapshot-retention</module>
         <module>acquisition-timeouts</module>
+        <module>multi-partition-queries</module>
         <module>ownership-handoff</module>
         <module>partition-removal</module>
         <module>entity-metadata</module>

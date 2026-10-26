@@ -216,8 +216,9 @@ spazio crea le partizioni senza proprietario.
 - **Rimozione e distruzione.** Dalla richiesta di rimozione `claim`
   fallisce con `IllegalStateException` e `release` non fa niente;
   `ownership` risponde finché la partizione non è distrutta. Dopo la
-  distruzione `ownership` e `claim` falliscono con l'errore generico,
-  come per un ID sconosciuto, e `release` non fa niente.
+  distruzione `ownership` e `claim` falliscono con
+  `UnknownPartitionException`, come per un ID sconosciuto, e `release`
+  non fa niente.
 
 I test verificano la generazione iniziale, `claim` con la generazione
 giusta, vecchia e futura, il passaggio con il vecchio token che non

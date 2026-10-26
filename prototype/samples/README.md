@@ -54,6 +54,7 @@ class.
 | [`snapshot-isolation`](snapshot-isolation) (`SnapshotIsolation`) | Does a snapshot change while the writer publishes new positions? | Commits and ticks |
 | [`snapshot-retention`](snapshot-retention) (`SnapshotRetention`) | How do I read past ticks, and what happens when they leave the retention window? | Commits and ticks |
 | [`acquisition-timeouts`](acquisition-timeouts) (`AcquisitionTimeouts`) | How does an acquisition end, by release or by timeout? | Acquired snapshot |
+| [`multi-partition-queries`](multi-partition-queries) (`MultiPartitionQueries`) | How do I query the snapshots of the same tick on more partitions, also with different indexes, and what happens to a partition without that snapshot? | Snapshot queries, retention window |
 
 ## Life of a partition and metadata
 

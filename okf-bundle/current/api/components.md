@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Componenti dell’API"
-description: "Spazio, partizione, writer e snapshot acquisito: ruolo, problemi risolti e sequenza d’uso nell’API corrente."
+description: "Spazio, partizione, writer, snapshot acquisito e insieme di snapshot: ruolo, problemi risolti e sequenza d’uso nell’API corrente."
 tags: [badspace, documentation]
 status: stable
 generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
@@ -10,8 +10,9 @@ generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
 # Prima di iniziare
 
 L’[architettura](/current/architecture/layers.md) distingue il software,
-l’API e i nodi locali. Nell’API ci sono quattro oggetti principali:
-spazio, partizione, handle del writer e snapshot acquisito. Le varianti
+l’API e i nodi locali. Nell’API ci sono cinque oggetti principali:
+spazio, partizione, handle del writer, snapshot acquisito e insieme di
+snapshot. Le varianti
 `2` e `3` lavorano rispettivamente in due e tre dimensioni.
 
 # Spazio: creare e coordinare le partizioni
@@ -75,6 +76,21 @@ Ha una scadenza obbligatoria per evitare che un lettore abbandonato
 trattenga memoria per sempre. Dettagli e formule sono nella
 [conservazione degli snapshot](/current/architecture/snapshot-retention.md).
 
+# Insieme di snapshot: interrogare più partizioni
+
+Il software sceglie quali partizioni interrogare; l’API aggrega i
+risultati. `SnapshotSet2.acquire(partitions, n)` (e `SnapshotSet3`)
+acquisisce lo snapshot del tick n su ogni partizione della lista e offre
+`findInRegion` e `findNearest` su tutti gli snapshot acquisiti, anche
+con indici diversi. Come la view, è `AutoCloseable` e rilascia tutte le
+acquisizioni con `close()`.
+
+Una partizione senza lo snapshot di n non ferma le altre: l’insieme la
+restituisce tra i fallimenti, con il motivo, e il chiamante decide se il
+risultato parziale basta. Le [query su più
+partizioni](/current/architecture/multi-partition-queries.md) spiegano
+fallimenti, scelta del tick e aggregazione.
+
 # Dati e metadati
 
 `Point2`/`Point3` rappresentano la posizione; `Entity2`/`Entity3` associano
@@ -99,7 +115,9 @@ diventano leggibili al successivo avanzamento del tick.
 
 # Sequenza d’uso
 
-Il diagramma riassume come si ottengono i quattro oggetti principali.
+Il diagramma riassume come si ottengono spazio, partizione, handle del
+writer e snapshot acquisito; l’insieme di snapshot raccoglie gli snapshot
+acquisiti di più partizioni dello stesso tick.
 Il ramo del writer presuppone che `claim` riesca; il ramo di lettura
 richiede uno snapshot già pubblicato e ancora acquisibile. Il proxy
 della partizione permette entrambi gli usi, che hanno handle distinti.
@@ -130,7 +148,8 @@ della partizione permette entrambi gli usi, che hanno handle distinti.
 3. Prendere la proprietà e costruire l’handle del writer.
 4. Scrivere e chiamare `commit()`.
 5. Far avanzare il tick dello spazio.
-6. Acquisire lo snapshot, interrogarlo e chiuderlo.
+6. Acquisire lo snapshot, interrogarlo e chiuderlo; per più partizioni,
+   acquisire un insieme di snapshot dello stesso tick.
 
 Per firme, risultati ed errori si consulta il [contratto dell’API](/current/api/operations.md).
 Per esempi eseguibili si parte dai [casi d’uso](/current/use-cases.md).

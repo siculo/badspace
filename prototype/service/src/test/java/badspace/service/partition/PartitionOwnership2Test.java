@@ -17,6 +17,7 @@ import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.UnknownPartitionException;
 import badspace.common.partition.WriteToken;
 import badspace.service.index.SpatialIndexes;
 import badspace.service.partition.slots.CoordinateBufferPool;
@@ -214,11 +215,11 @@ class PartitionOwnership2Test {
         node.removePartition(token);
         node.setTick(2);
         node.setTick(3);
-        assertThrows(IllegalArgumentException.class, () -> node.ownership(P1));
-        assertThrows(IllegalArgumentException.class, () -> node.claim(P1, 1));
+        assertThrows(UnknownPartitionException.class, () -> node.ownership(P1));
+        assertThrows(UnknownPartitionException.class, () -> node.claim(P1, 1));
         assertDoesNotThrow(() -> node.release(token));
-        assertThrows(IllegalArgumentException.class, () -> node.ownership(P2));
-        assertThrows(IllegalArgumentException.class, () -> node.claim(P2, 0));
+        assertThrows(UnknownPartitionException.class, () -> node.ownership(P2));
+        assertThrows(UnknownPartitionException.class, () -> node.claim(P2, 0));
         assertDoesNotThrow(() -> node.release(new WriteToken(P2, 1)));
     }
 

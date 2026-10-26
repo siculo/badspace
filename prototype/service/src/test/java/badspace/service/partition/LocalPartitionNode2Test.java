@@ -23,6 +23,7 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.UnknownPartitionException;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.snapshot.MonotonicClock;
 import java.time.Duration;
@@ -453,7 +454,7 @@ class LocalPartitionNode2Test {
         node.dropPartition(owner(node, P1));
         node.setTick(2);
         node.setTick(3);
-        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
+        assertThrows(UnknownPartitionException.class, () -> node.tick(P1));
     }
 
     @Test
@@ -516,7 +517,7 @@ class LocalPartitionNode2Test {
         node.dropPartition(owner(node, P1));
         node.setTick(3);
         node.setTick(4);
-        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
+        assertThrows(UnknownPartitionException.class, () -> node.tick(P1));
     }
 
     @Test
@@ -631,7 +632,7 @@ class LocalPartitionNode2Test {
         node.setTick(3);
         assertEquals(3, node.tick(P1));
         node.release(kept);
-        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
+        assertThrows(UnknownPartitionException.class, () -> node.tick(P1));
         assertThrows(IllegalArgumentException.class, () -> node.acquireLatest(P1, defaultTimeout()));
     }
 
@@ -642,7 +643,7 @@ class LocalPartitionNode2Test {
         node.setTick(2);
         assertEquals(2, node.tick(P1));
         node.setTick(3);
-        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
+        assertThrows(UnknownPartitionException.class, () -> node.tick(P1));
         assertThrows(IllegalArgumentException.class, () -> node.acquireLatest(P1, defaultTimeout()));
     }
 
@@ -726,7 +727,7 @@ class LocalPartitionNode2Test {
         assertEquals(6, node.tick(P1));
         assertEquals(List.of(entity(1, 1, 1)), node.getAll(acquisition, new long[] {1}));
         node.release(acquisition);
-        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
+        assertThrows(UnknownPartitionException.class, () -> node.tick(P1));
         assertThrows(IllegalStateException.class, () -> node.size(acquisition));
         // A release after the destruction does nothing, like the close of the view.
         node.release(acquisition);
@@ -744,7 +745,7 @@ class LocalPartitionNode2Test {
         assertEquals(3, node.tick(P1));
         assertEquals(0, node.size(second));
         node.release(second);
-        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
+        assertThrows(UnknownPartitionException.class, () -> node.tick(P1));
     }
 
     @Test
@@ -939,7 +940,7 @@ class LocalPartitionNode2Test {
         assertEquals(0, storage.liveSnapshotCount());
         assertEquals(0, storage.acquisitionCount());
         assertEquals(0, storage.pooledBufferCount());
-        assertThrows(IllegalArgumentException.class, () -> node.tick(P1));
+        assertThrows(UnknownPartitionException.class, () -> node.tick(P1));
         assertThrows(IllegalStateException.class, () -> node.size(acquisition));
         node.setTick(node.tick() + 1);
     }

@@ -25,9 +25,9 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Persistenza](okf-bundle/current/decisions/persistence.md), [Durabilità osservabile](okf-bundle/future/architecture/observable-durability.md), [Conservazione degli snapshot](okf-bundle/current/architecture/snapshot-retention.md).
 
-- [ ] **Query su più partizioni:** aggregazione dei risultati per tipo di query. → [cose da fare](#fare-query) · [decisioni](#decisioni-query)
+- [x] **Query su più partizioni:** aggregazione dei risultati per tipo di query. → [cose da fare](#fare-query) · [decisioni](#decisioni-query)
 
-  Documenti: [Aggregazione delle query su più partizioni](okf-bundle/future/mechanisms/query-aggregation.md), [Estensioni dell’API](okf-bundle/future/decisions/api-surface.md), [Entità statiche vs dinamiche](okf-bundle/future/decisions/static-vs-dynamic-entities.md), [Casi d'uso](okf-bundle/future/use-cases.md).
+  Documenti: [Query su più partizioni](okf-bundle/current/architecture/multi-partition-queries.md), [Contratto dell’API](okf-bundle/current/api/operations.md#query-su-più-partizioni), [Estensioni dell’aggregazione](okf-bundle/future/mechanisms/query-aggregation.md), [Entità statiche vs dinamiche](okf-bundle/future/decisions/static-vs-dynamic-entities.md).
 
 - [ ] **Nodo gRPC:** nodo remoto dietro il contratto dei nodi. → [cose da fare](#fare-grpc) · [decisioni](#decisioni-grpc)
 
@@ -154,8 +154,10 @@ Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandat
 <a id="fare-query"></a>
 ### Query su più partizioni [↑](#blocchi)
 
-- [ ] Aggregazione delle query su più partizioni (range e k-nearest)
-- [ ] Più partizioni con indici diversi (statiche e dinamiche) interrogate insieme
+- [x] Insieme di snapshot `SnapshotSet2`/`SnapshotSet3` (`AutoCloseable`): acquisizione di `S(N)` sulle partizioni di una lista di handle, fallimenti come esito (`SnapshotNotAvailableException` e `UnknownPartitionException`) e ogni altro errore propagato dopo il rilascio, controllo del tick condiviso con il nodo (`RetentionWindow.checkAcquiredTick`)
+- [x] `UnknownPartitionException` (sottoclasse di `IllegalArgumentException`, in `common`) nel contratto del nodo per le partizioni sconosciute o distrutte
+- [x] Aggregazione delle query su più partizioni (range e k-nearest) sull'insieme di snapshot
+- [x] Più partizioni con indici diversi (statiche e dinamiche) interrogate insieme: test di integrazione contro una partizione unica ed esempio `multi-partition-queries`
 
 <a id="fare-grpc"></a>
 ### Nodo gRPC [↑](#blocchi)
@@ -194,8 +196,8 @@ Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandat
 ### Letture coerenti [↑](#blocchi)
 
 - [ ] Barriera sul gTick (il tick è già nel livello base, con `Space.setTick`)
-- [ ] Lettura al tick N: acquisizione esatta di `S(N)` su ogni partizione, nuovo tentativo se N esce dalla finestra di una partizione, rilascio alla fine della lettura
-- [ ] Verifica e acquisizione in un passo (`tryAcquire` con un risultato sealed, se serve) e, se ancora servono, `partitionExistsAt` e `canAcquireSnapshot`
+- [ ] Lettura al tick N: scelta di N e nuovo tentativo se N esce dalla finestra di una partizione; l'acquisizione esatta di `S(N)` su ogni partizione e il rilascio ci sono già con l'[insieme di snapshot](okf-bundle/current/architecture/multi-partition-queries.md)
+- [ ] Verifica e acquisizione in un passo (`tryAcquire` con un risultato sealed, se serve) e, se ancora servono, `partitionExistsAt` e `canAcquireSnapshot`; l'insieme di snapshot dà già i fallimenti senza eccezione
 - [ ] Rimozione differita delle entità come alternativa alle letture al tick N
 
 <a id="fare-gruppi"></a>
@@ -281,7 +283,7 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 <a id="decisioni-query"></a>
 ### Query su più partizioni [↑](#blocchi)
 
-- [ ] Forma delle chiamate per le query su più partizioni
+- [x] Forma delle chiamate: insieme di snapshot dello stesso tick, scelto dal chiamante, su una lista di handle (vuota ammessa); i fallimenti di disponibilità sono un esito e non un'eccezione, senza modalità "tutti o nessuno", perché la decisione è del chiamante; un solo tick per tutte le partizioni; nessun registro dei nomi nello spazio → [Query su più partizioni](okf-bundle/current/architecture/multi-partition-queries.md)
 
 <a id="decisioni-migrazione"></a>
 ### Tombstone e migrazione [↑](#blocchi)

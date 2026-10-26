@@ -9,7 +9,7 @@ generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
 
 # Stato e prerequisiti
 
-Questo documento descrive uno sviluppo futuro, non una funzionalità disponibile nel prototipo. Le primitive già implementate si consultano nella [documentazione corrente](/current/index.md).
+Questo documento descrive uno sviluppo futuro, non una funzionalità disponibile nel prototipo. Le primitive già implementate si consultano nella [documentazione corrente](/current/index.md). L'acquisizione esatta di `S(N)` su un insieme di partizioni c'è già, con l'[insieme di snapshot](/current/architecture/multi-partition-queries.md), che restituisce come fallimenti le partizioni senza `S(N)`; qui restano la scelta di N, il nuovo tentativo e la barriera.
 
 # Problema
 
@@ -106,6 +106,7 @@ deterministico) serve la lettura al tick N.
 
 # Correlati
 
-- [Aggregazione dei risultati](/future/mechanisms/query-aggregation.md).
+- [Query su più partizioni](/current/architecture/multi-partition-queries.md) e
+  [estensioni dell'aggregazione](/future/mechanisms/query-aggregation.md).
 - [Architettura minima](/future/architecture/minimal-core.md) — nei casi con
   aree non contigue questo meccanismo non serve.

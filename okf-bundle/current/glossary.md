@@ -1,7 +1,7 @@
 ---
 type: Glossary
 title: "Glossario dell’implementazione corrente"
-description: "Definizioni dei termini usati dal prototipo corrente: spazi, partizioni, writer, tick, snapshot, acquisizioni, metadati e salvataggi."
+description: "Definizioni dei termini usati dal prototipo corrente: spazi, partizioni, writer, tick, snapshot, acquisizioni, insiemi di snapshot, metadati e salvataggi."
 tags: [badspace, glossary]
 status: stable
 generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
@@ -44,6 +44,7 @@ generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
 | Catalogo degli snapshot | Gli snapshot di una partizione tenuti dal nodo per la finestra di conservazione, con il tick da cui vale ciascuno; si pubblica tutto insieme all'avanzamento del tick. Vedi [conservazione degli snapshot](/current/architecture/snapshot-retention.md#nel-prototipo). |
 | Acquisizione | Diritto, solo logico e con identità propria, di interrogare uno snapshot; più acquisizioni dello stesso snapshot sono indipendenti. Le tiene il nodo. Vedi [conservazione degli snapshot](/current/architecture/snapshot-retention.md#acquisizione-e-rilascio). |
 | Rilascio | Chiusura di una sola acquisizione: idempotente; dopo il rilascio le nuove letture attraverso quell'acquisizione falliscono, e lo snapshot non viene per forza eliminato. |
+| Insieme di snapshot | Snapshot dello stesso tick acquisiti su una lista di partizioni scelta dal software, con le query aggregate su tutti; le partizioni il cui snapshot non è disponibile, anche perché distrutte, sono fallimenti dell'insieme e non fermano le altre. `close()` rilascia tutte le acquisizioni. Nel codice `SnapshotSet2`/`SnapshotSet3`. Vedi [query su più partizioni](/current/architecture/multi-partition-queries.md). |
 | Salvataggio | File con il contenuto di uno snapshot di una partizione (ID, posizioni e metadati applicativi delle entità), identificato dal nome della partizione e dal tick; lo scrive il nodo, da una copia autonoma dello snapshot, nella destinazione configurata sul nodo, e da un salvataggio si carica una nuova partizione. Vedi [persistenza](/current/decisions/persistence.md). |
 | Pin | Stato di uno snapshot uscito dalla finestra di conservazione ma ancora tenuto da acquisizioni valide o da query già ammesse: si legge, ma non si può più acquisire. Vedi [conservazione degli snapshot](/current/architecture/snapshot-retention.md#vita-di-uno-snapshot). |
 | Pool dei buffer degli snapshot | Buffer delle coordinate degli snapshot finiti di una partizione, pronti per i commit successivi: un commit copia le coordinate in un buffer del pool invece di allocarne uno nuovo, e ne alloca uno solo se il pool non ne ha di abbastanza grandi, così il writer non aspetta mai un reader. Vedi [isolamento delle letture](/current/decisions/read-isolation.md#gli-slot). |

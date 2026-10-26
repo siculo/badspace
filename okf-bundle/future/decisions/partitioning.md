@@ -31,13 +31,14 @@ Questa pagina raccoglie proposte e decisioni ancora da attuare. Le operazioni gi
 # Punti aperti
 
 - Se una partizione può avere più di un indice.
-- Forma delle query su insiemi espliciti di partizioni e delle chiamate
-  di migrazione. Le scritture e le query sulla singola partizione sono
+- Forma delle chiamate di migrazione. Le scritture, le query sulla
+  singola partizione e quelle su insiemi espliciti di partizioni sono
   già nel [contratto corrente](/current/api/operations.md).
 
 # Verifica proposta
 
 Un prototipo mirato, secondo l'[approccio di
-sviluppo](/process/development-approach.md): più partizioni con indici
-diversi, query range, k-nearest e raycast su più partizioni con
-aggregazione, migrazione di entità tra partizioni con writer diversi.
+sviluppo](/process/development-approach.md): raycast su più partizioni
+con aggregazione e migrazione di entità tra partizioni con writer
+diversi. Più partizioni con indici diversi e query range e k-nearest su
+più partizioni sono già [verificate](/current/architecture/multi-partition-queries.md#nel-prototipo).

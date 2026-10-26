@@ -10,18 +10,20 @@ generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
 # Stato
 
 Questa pagina descrive estensioni dell’API. Il [contratto attuale](/current/api/operations.md)
-espone operazioni su singole partizioni. Le firme future si definiscono
+espone operazioni su singole partizioni e, con `SnapshotSet2`/`SnapshotSet3`,
+l’acquisizione dello stesso tick e le query range e k-nearest su più
+partizioni, con i fallimenti restituiti come esito (vedi [query su più
+partizioni](/current/architecture/multi-partition-queries.md)). Le firme future si definiscono
 quando si introduce il relativo concetto, senza anticiparle nel codice.
 
 # Operazioni previste
 
 | Ambito | Estensione | Stato |
 |---|---|---|
-| Query | Aggregazione di range e k-nearest su più partizioni | Da implementare; forma delle chiamate aperta |
-| Query | Raycast: primo hit e tutti gli hit | Da progettare per entità puntiformi; richiede di riprendere il lavoro sugli indici |
+| Query | Raycast: primo hit e tutti gli hit, anche aggregati su più partizioni | Da progettare per entità puntiformi; richiede di riprendere il lavoro sugli indici |
 | Metadati | Metadati di sistema, condizioni, tombstone e loro eliminazione | Da introdurre con i protocolli di migrazione |
 | Persistenza | Esposizione dell’ultimo tick persistito e salvataggio asincrono | Rimandati a durabilità osservabile e nodi remoti |
-| Coordinamento | Lettura allo stesso tick su più partizioni, verifica e acquisizione con esito senza eccezione | Da valutare con le letture coerenti |
+| Coordinamento | Scelta del tick N comune, nuovo tentativo quando N esce dalla finestra di una partizione, eventuale barriera; verifica e acquisizione con esito senza eccezione sulla singola partizione | Da valutare con le letture coerenti |
 | Migrazione | Operazione di supporto per spostare entità tra partizioni | Protocollo progettato, API di dettaglio aperta |
 
 # Altre estensioni da valutare
@@ -52,15 +54,17 @@ a livelli](/current/architecture/layers.md) sono i prerequisiti già
 implementati. Le estensioni devono conservarne le responsabilità:
 
 - **Partizioni esplicite**: una scrittura indica la partizione di
-  destinazione; una futura query aggregata indicherà l’insieme di
-  partizioni da interrogare.
+  destinazione; una query su più partizioni indica l’insieme di
+  partizioni da interrogare, come già fa l’[insieme di
+  snapshot](/current/architecture/multi-partition-queries.md).
 - **Generazione degli [ID](/current/decisions/entity-ids.md)** a carico
   dell'API comune.
 - **Creazione e configurazione delle partizioni**, incluso l'indice da
   usare per ciascuna e il [nodo](/current/architecture/layers.md#nodi) che la
   ospita, scelto dal software.
-- **[Aggregazione](/future/mechanisms/query-aggregation.md)** dei risultati di
-  query su più partizioni.
+- **Aggregazione** dei risultati di query su più partizioni: range e
+  k-nearest sono [disponibili](/current/architecture/multi-partition-queries.md),
+  raycast e deduplica sono [estensioni future](/future/mechanisms/query-aggregation.md).
 - **Commit e scritture condizionate** del livello base (vedi
   [architettura minima](/future/architecture/minimal-core.md)).
 - **[API dei metadati](/future/architecture/entity-metadata.md#api-dei-metadati)**.
