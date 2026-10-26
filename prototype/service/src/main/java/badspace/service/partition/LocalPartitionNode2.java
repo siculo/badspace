@@ -19,6 +19,7 @@ import badspace.common.partition.RetentionWindow;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.UnknownPartitionException;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.snapshot.MonotonicClock;
 import badspace.service.partition.snapshot.SnapshotCatalog2;
@@ -302,9 +303,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public Acquisition acquire(PartitionId partitionId, long tick, AcquireOptions options) {
         Objects.requireNonNull(options);
-        if (tick < 0) {
-            throw new IllegalArgumentException("Negative tick: " + tick);
-        }
+        RetentionWindow.checkAcquiredTick(tick);
         return acquire(partitionId, options, false, tick);
     }
 
@@ -430,7 +429,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     private PartitionName nameOf(PartitionId partitionId) {
         PartitionName name = names.get(partitionId);
         if (name == null) {
-            throw new IllegalArgumentException("Unknown partition: " + partitionId);
+            throw new UnknownPartitionException(partitionId);
         }
         return name;
     }
@@ -547,13 +546,13 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     /**
      * Returns the storage of a partition, also if it is removed, for the readers and the
-     * ticks. Fails with IllegalArgumentException if the partition is unknown: never created
+     * ticks. Fails with UnknownPartitionException if the partition is unknown: never created
      * on this node, or already destroyed.
      */
     private PartitionStorage2 findAny(PartitionId partitionId) {
         PartitionStorage2 storage = partitions.get(partitionId);
         if (storage == null) {
-            throw new IllegalArgumentException("Unknown partition: " + partitionId);
+            throw new UnknownPartitionException(partitionId);
         }
         return storage;
     }

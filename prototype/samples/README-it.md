@@ -55,6 +55,7 @@ classe.
 | [`snapshot-isolation`](snapshot-isolation) (`SnapshotIsolation`) | Uno snapshot cambia mentre il writer pubblica nuove posizioni? | Commit e tick |
 | [`snapshot-retention`](snapshot-retention) (`SnapshotRetention`) | Come si leggono i tick passati, e che cosa succede quando escono dalla finestra di retention? | Commit e tick |
 | [`acquisition-timeouts`](acquisition-timeouts) (`AcquisitionTimeouts`) | Come finisce un'acquisizione, con il rilascio o con la scadenza? | Snapshot acquisito |
+| [`multi-partition-queries`](multi-partition-queries) (`MultiPartitionQueries`) | Come si interrogano gli snapshot dello stesso tick di più partizioni, anche con indici diversi, e che cosa succede a una partizione senza quello snapshot? | Query sullo snapshot, finestra di retention |
 
 ## Ciclo di vita della partizione e metadati
 

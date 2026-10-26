@@ -22,8 +22,8 @@ import java.util.Optional;
  * The proxy keeps no state of the partition: the node knows the ownership and the state of
  * the removal. After the removal the acquisitions, {@link #tick()}, {@link #creationTick()}
  * and {@link #ownership()} still go to the node, which gives the snapshots of the ticks before
- * the removal while they are in the retention window; after the destruction they fail like for
- * an unknown partition.
+ * the removal while they are in the retention window; after the destruction they fail with
+ * {@link badspace.common.partition.UnknownPartitionException}, like for an unknown partition.
  */
 public final class Partition2 implements Partition {
 

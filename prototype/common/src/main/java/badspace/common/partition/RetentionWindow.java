@@ -15,4 +15,17 @@ public final class RetentionWindow {
 
     private RetentionWindow() {
     }
+
+    /**
+     * Checks the tick asked for in an acquisition, before looking at the window. The node and
+     * the API run the same check, so a wrong tick fails in the same way in both.
+     *
+     * @param tick the tick of the snapshot to acquire
+     * @throws IllegalArgumentException if tick is negative
+     */
+    public static void checkAcquiredTick(long tick) {
+        if (tick < 0) {
+            throw new IllegalArgumentException("Negative tick: " + tick);
+        }
+    }
 }

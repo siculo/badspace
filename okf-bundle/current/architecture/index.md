@@ -8,3 +8,4 @@
 * [Conservazione degli snapshot](./snapshot-retention.md) - Snapshot per tick, finestra di conservazione, acquisizione e rilascio con scadenza, vita degli snapshot e coordinamento interno.
 * [Rimozione della partizione](./partition-removal.md) - Richiesta di rimozione, ritiro al primo avanzamento del tick, letture storiche e distruzione dopo la fine degli utilizzi.
 * [Metadati applicativi e scritture condizionate](./entity-metadata.md) - Metadati con chiavi stringa e valori long, letti dagli snapshot e scritti dal writer; batch condizionati atomici su posizioni e metadati.
+* [Query su più partizioni](./multi-partition-queries.md) - Insieme di snapshot dello stesso tick su partizioni scelte dal software: acquisizione, fallimenti come esito, rilascio e aggregazione di range e k-nearest.

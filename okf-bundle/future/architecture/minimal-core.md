@@ -26,7 +26,7 @@ primitive mancanti si introducono quando un protocollo ne ha bisogno.
 
 | Meccanismo | Dipendenze e problemi risolti |
 |---|---|
-| [Aggregazione](/future/mechanisms/query-aggregation.md) | Fan-out di query; unione secondo il tipo e deduplica quando ci sono copie in migrazione |
+| [Aggregazione](/future/mechanisms/query-aggregation.md) | Fan-out di query e unione secondo il tipo, già [disponibili](/current/architecture/multi-partition-queries.md) per range e k-nearest; da aggiungere raycast e deduplica quando ci sono copie in migrazione o split |
 | [Letture coerenti](/future/mechanisms/consistent-reads.md) | Acquisizione dello stesso tick su ogni partizione; eventuale barriera decisa dal software |
 | [Migrazione](/future/mechanisms/entity-migration.md) | Commit, metadati di sistema, tombstone e conferme durevoli; trasporto con reinvio |
 | [Ribilanciamento e split](/future/mechanisms/rebalancing-and-split.md) | Passaggio di proprietà e operazioni in blocco sui dati; gestione dei guasti da definire |

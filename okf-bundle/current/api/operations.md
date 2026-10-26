@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: "Contratto dell’API corrente"
-description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, partizioni, proprietà, tick, snapshot e salvataggi."
+description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
 generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
@@ -181,8 +181,10 @@ ritirata. Il nome il nodo lo usa solo per la persistenza; tutte le
 altre operazioni del contratto usano l'ID. La
 rimozione ha due operazioni, una per le partizioni con lo stato
 confermato vuoto e una che scarta anche le entità. Dopo la distruzione
-l'ID è sconosciuto, e le operazioni falliscono con un errore generico,
-senza distinguere una partizione mai esistita da una distrutta.
+l'ID è sconosciuto, e le operazioni falliscono con
+`UnknownPartitionException`, sottoclasse di `IllegalArgumentException`
+in `common`, senza distinguere una partizione mai esistita da una
+distrutta.
 L'API passa al nodo l'indice e k della configurazione. Le due
 operazioni di rimozione ricevono il token di scrittura.
 
@@ -228,7 +230,7 @@ rimozione ricevono il token al posto dell'ID della partizione.
 | `claim` dalla rimozione in poi | `IllegalStateException` |
 | Generazione attesa negativa | `IllegalArgumentException` |
 | `writer(token)` con il token di un'altra partizione | `IllegalArgumentException` |
-| Operazione su una partizione distrutta o mai esistita | Errore generico, come per le acquisizioni |
+| Operazione su una partizione distrutta o mai esistita | `UnknownPartitionException`, come per le acquisizioni |
 
 ## Commit
 
@@ -337,7 +339,7 @@ nodo, non il processo del reader,.
 | Snapshot non acquisibile: tick non ancora pubblicato (≥ T), fuori dalla finestra, prima della creazione, dalla rimozione in poi | `SnapshotNotAvailableException`, eccezione di dominio dedicata, con il motivo; nessuna acquisizione creata |
 | Tick negativo; durata zero o negativa | `IllegalArgumentException` |
 | Lettura attraverso un'acquisizione rilasciata o scaduta | `IllegalStateException`, con lo stesso messaggio nei due casi: dopo l'eliminazione di un'acquisizione scaduta il nodo non sa più se era stata rilasciata |
-| Acquisizione su una partizione distrutta o mai esistita | Errore generico: il nodo non distingue i due casi |
+| Acquisizione su una partizione distrutta o mai esistita | `UnknownPartitionException`, sottoclasse di `IllegalArgumentException`: il nodo non distingue i due casi |
 | Rilascio o lettura con un identificatore mai emesso o di un'altra partizione, nel contratto del nodo | `IllegalArgumentException`; le altre acquisizioni non cambiano |
 | Lettura con un identificatore di una partizione che il nodo non ha, nel contratto del nodo | `IllegalStateException`, come per un'acquisizione rilasciata; il rilascio non fa niente. Gli ID delle partizioni non si riusano, quindi il nodo non distingue una partizione mai esistita da una già distrutta |
 | Lettura con un identificatore il cui tick non è quello acquisito, nel contratto del nodo | `IllegalArgumentException` |
@@ -360,6 +362,39 @@ Scelte di dettaglio:
   snapshot dei tick precedenti a `removalTick` che sono nella finestra,
   e le acquisizioni già fatte restano leggibili; il nodo trova la
   partizione per ID fino alla distruzione, e l'ID non torna mai.
+
+### Query su più partizioni
+
+La semantica è nelle [query su più
+partizioni](/current/architecture/multi-partition-queries.md). L'insieme
+di snapshot `SnapshotSet2`/`SnapshotSet3` acquisisce lo snapshot dello
+stesso tick su una lista di partizioni e aggrega le query sugli snapshot
+acquisiti. È `AutoCloseable`, da usare con `try`-with-resources.
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Acquisizione | `SnapshotSet2.acquire(List<Partition2>, long tick)`, `acquire(partitions, tick, options)` | Acquisisce `S(tick)` su ogni partizione, nell'ordine della lista, come `acquire(tick, options)`; senza opzioni vale `defaultTimeout()`. Una lista vuota dà un insieme vuoto e completo |
+| Risultato | `tick()`, `snapshots()`, `failures()`, `isComplete()` | Il tick richiesto; gli snapshot acquisiti e i fallimenti, nell'ordine della lista; `isComplete()` è vero se non ci sono fallimenti |
+| Fallimento | Record `SnapshotSet2.Failure`/`SnapshotSet3.Failure` | La partizione e l'eccezione; `reason()` dà il motivo di `SnapshotNotAvailableException`, vuoto per una partizione distrutta |
+| Query di range | `findInRegion(Region)` | Unione dei risultati degli snapshot acquisiti, in ordine non definito |
+| Query k-nearest | `findNearest(Point, count)` | Al più `count` entità degli snapshot acquisiti, ordinate per distanza dal punto e a parità di distanza per ID |
+| Rilascio | `close()` | Rilascia tutte le acquisizioni, anche se un rilascio fallisce, e poi lancia il primo errore; una seconda chiamata non fa niente |
+
+I fallimenti non sono eccezioni della chiamata: una partizione il cui
+snapshot non è disponibile non ferma le altre.
+
+| Caso | Esito |
+|---|---|
+| Snapshot non acquisibile: non ancora pubblicato, fuori dalla finestra, prima della creazione, dalla rimozione in poi | Fallimento con `SnapshotNotAvailableException` e il suo motivo |
+| Partizione distrutta | Fallimento con `UnknownPartitionException`, senza motivo |
+| Lista o un suo elemento nulli, opzioni nulle | `NullPointerException`, prima di ogni acquisizione |
+| Tick negativo, partizione ripetuta nella lista | `IllegalArgumentException`, prima di ogni acquisizione |
+| Ogni altro errore durante le acquisizioni | Propagato, dopo il rilascio degli snapshot già acquisiti |
+| `count` negativo in `findNearest` | `IllegalArgumentException`, anche senza snapshot |
+| Query dopo il rilascio o la scadenza di un'acquisizione | `IllegalStateException`, come sulla view |
+
+Non c'è un'operazione nuova nel contratto del nodo: l'insieme usa le
+acquisizioni e le query sulle singole partizioni.
 
 ### Salvataggio
 
@@ -387,7 +422,7 @@ finestra; i salvataggi restano dopo la distruzione della partizione.
 | Snapshot non acquisibile | `SnapshotNotAvailableException`, come l'acquisizione corrispondente; nessun file scritto |
 | Tick negativo | `IllegalArgumentException` |
 | Nodo senza destinazione dei salvataggi | `IllegalStateException` |
-| Partizione distrutta o mai esistita | Errore generico, come per l'acquisizione |
+| Partizione distrutta o mai esistita | `UnknownPartitionException`, come per l'acquisizione |
 | Errore nella scrittura del file | `UncheckedIOException`; i salvataggi già presenti non cambiano. |
 | Fallimento di un salvataggio contemporaneo dello stesso snapshot, di cui si aspettava la fine | `UncheckedIOException` |
 

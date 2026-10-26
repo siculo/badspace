@@ -27,8 +27,9 @@ categorie insieme.
 
 Con il [partizionamento del DB](/current/decisions/partitioning.md) la
 separazione diventa un caso particolare: due partizioni con indici
-diversi, interrogate insieme tramite l'[aggregazione dei
-risultati](/future/mechanisms/query-aggregation.md).
+diversi, interrogate insieme con un [insieme di
+snapshot](/current/architecture/multi-partition-queries.md), che già
+aggrega range e k-nearest.
 
 # Correlati
 

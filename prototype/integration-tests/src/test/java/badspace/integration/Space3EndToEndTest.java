@@ -27,6 +27,7 @@ import badspace.common.partition.PartitionName;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
+import badspace.common.partition.UnknownPartitionException;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.LocalPartitionNode3;
 import badspace.service.persistence.PartitionCopy3;
@@ -176,8 +177,8 @@ class Space3EndToEndTest {
         assertEquals(4, partition.tick());
         kept.close();
         // Destroyed: the node no longer knows the partition.
-        assertThrows(IllegalArgumentException.class, partition::tick);
-        assertThrows(IllegalArgumentException.class, partition::acquireLatest);
+        assertThrows(UnknownPartitionException.class, partition::tick);
+        assertThrows(UnknownPartitionException.class, partition::acquireLatest);
         kept.close();
     }
 

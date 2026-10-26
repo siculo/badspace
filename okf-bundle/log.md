@@ -1,6 +1,17 @@
 # Bundle Update Log
 
 ## 2026-10-26
+* **Edit**: Implementate le [query su più partizioni](/current/architecture/multi-partition-queries.md):
+  l’insieme di snapshot `SnapshotSet2`/`SnapshotSet3` acquisisce lo
+  stesso tick su una lista di partizioni, restituisce come fallimenti le
+  partizioni senza lo snapshot e aggrega range e k-nearest. Aggiunta
+  `UnknownPartitionException` per le partizioni sconosciute o distrutte.
+  Aggiornati il [contratto dell’API](/current/api/operations.md#query-su-più-partizioni),
+  i [componenti](/current/api/components.md), il glossario, i casi d’uso,
+  la [rimozione](/current/architecture/partition-removal.md) e la
+  [proprietà](/current/architecture/partition-ownership.md); ridotto il
+  documento futuro alle [estensioni dell’aggregazione](/future/mechanisms/query-aggregation.md)
+  (raycast e deduplica) e allineati i documenti futuri collegati.
 * **Edit**: Chiarito nel [contratto del generatore degli ID](/current/decisions/entity-ids.md#contratto-del-generatore)
   che la scelta dello schema dipende dalla soluzione e che un cambio
   successivo deve evitare conflitti con tutti gli ID già assegnati.
