@@ -52,14 +52,18 @@ public final class SaveAndLoad {
         System.out.printf("Saved %s at tick %d%n", saved.name().value(), saved.tick());
 
         // A new run, here in the same process: a new space at tick 0 and a new node on the same
-        // directory. The node has no partitions; the software finds the latest save of the name.
+        // directory. The node has no partitions; the software finds the save among the saves of
+        // the name. The directory can have other saves of the name, for example of earlier runs.
         Space2 restarted = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(1), new SnowflakeIdGenerator(1)));
         LocalPartitionNode2 node = new LocalPartitionNode2(directory);
-        SavedPartition latest = restarted.saves(node, WORLD).getLast();
+        SavedPartition found = restarted.saves(node, WORLD).stream()
+                .filter(saved::equals)
+                .findFirst()
+                .orElseThrow();
         // The index and the retention window come from the software, not from the save.
-        Partition2 loaded = restarted.loadPartition(node, PartitionConfig.defaults(), latest);
+        Partition2 loaded = restarted.loadPartition(node, PartitionConfig.defaults(), found);
         System.out.printf("Loaded the save of tick %d into a new partition, created at tick %d of the new run%n",
-                latest.tick(), loaded.creationTick());
+                found.tick(), loaded.creationTick());
 
         // The load commits the content at the creation tick: the next move of the tick publishes it.
         restarted.setTick(loaded.creationTick() + 1);
