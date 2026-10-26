@@ -10,8 +10,9 @@ generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
 # Prima di iniziare
 
 L’[architettura](/current/architecture/layers.md) distingue il software,
-l’API e i nodi locali. Nell’API ci sono quattro oggetti principali:
-spazio, partizione, handle del writer e snapshot acquisito. Le varianti
+l’API e i nodi locali. Nell’API ci sono cinque oggetti principali:
+spazio, partizione, handle del writer, snapshot acquisito e insieme di
+snapshot. Le varianti
 `2` e `3` lavorano rispettivamente in due e tre dimensioni.
 
 # Spazio: creare e coordinare le partizioni
@@ -114,7 +115,9 @@ diventano leggibili al successivo avanzamento del tick.
 
 # Sequenza d’uso
 
-Il diagramma riassume come si ottengono i quattro oggetti principali.
+Il diagramma riassume come si ottengono spazio, partizione, handle del
+writer e snapshot acquisito; l’insieme di snapshot raccoglie gli snapshot
+acquisiti di più partizioni dello stesso tick.
 Il ramo del writer presuppone che `claim` riesca; il ramo di lettura
 richiede uno snapshot già pubblicato e ancora acquisibile. Il proxy
 della partizione permette entrambi gli usi, che hanno handle distinti.

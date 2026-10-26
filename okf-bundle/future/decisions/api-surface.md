@@ -10,7 +10,10 @@ generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
 # Stato
 
 Questa pagina descrive estensioni dell’API. Il [contratto attuale](/current/api/operations.md)
-espone operazioni su singole partizioni. Le firme future si definiscono
+espone operazioni su singole partizioni e, con `SnapshotSet2`/`SnapshotSet3`,
+l’acquisizione dello stesso tick e le query range e k-nearest su più
+partizioni, con i fallimenti restituiti come esito (vedi [query su più
+partizioni](/current/architecture/multi-partition-queries.md)). Le firme future si definiscono
 quando si introduce il relativo concetto, senza anticiparle nel codice.
 
 # Operazioni previste
@@ -20,7 +23,7 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 | Query | Raycast: primo hit e tutti gli hit, anche aggregati su più partizioni | Da progettare per entità puntiformi; richiede di riprendere il lavoro sugli indici |
 | Metadati | Metadati di sistema, condizioni, tombstone e loro eliminazione | Da introdurre con i protocolli di migrazione |
 | Persistenza | Esposizione dell’ultimo tick persistito e salvataggio asincrono | Rimandati a durabilità osservabile e nodi remoti |
-| Coordinamento | Lettura allo stesso tick su più partizioni, verifica e acquisizione con esito senza eccezione | Da valutare con le letture coerenti |
+| Coordinamento | Scelta del tick N comune, nuovo tentativo quando N esce dalla finestra di una partizione, eventuale barriera; verifica e acquisizione con esito senza eccezione sulla singola partizione | Da valutare con le letture coerenti |
 | Migrazione | Operazione di supporto per spostare entità tra partizioni | Protocollo progettato, API di dettaglio aperta |
 
 # Altre estensioni da valutare
