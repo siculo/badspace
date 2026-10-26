@@ -4,7 +4,7 @@ title: Approccio di sviluppo
 description: BADSPACE viene sviluppato per prototipi minimali, verificati da test di integrazione e accompagnati da client d'esempio costruiti man mano, per validare le decisioni di progettazione sul campo; si assume che gli sviluppatori sappiano quello che fanno e i controlli li aiutano a prevenire errori; lo sviluppo è incrementale, ogni concetto nuovo porta con sé le estensioni che richiede e i meccanismi si implementano una volta e si estendono quando servono nuovi dati; i test partono dalla semantica, preferiscono componenti reali e verificano effetti, risorse e concorrenza; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
 tags: [badspace, methodology, prototyping]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-19T14:17:50Z }
+generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
 ---
 
 # Approccio
@@ -14,7 +14,7 @@ gestione della base dati del software che lo usa**, dedicato a entità
 spaziali aggiornate in tempo reale. Si introducono primitive e
 meccanismi componibili attraverso l'API, lasciando agli sviluppatori
 le politiche e il coordinamento del proprio software secondo
-l'[architettura a livelli](/architecture/layers.md). Questo ruolo guida
+l'[architettura a livelli](/current/architecture/layers.md). Questo ruolo guida
 la scelta di cosa offrire come supporto comune e cosa lasciare al
 software.
 
@@ -33,7 +33,7 @@ BADSPACE è un componente integrato nel software che lo usa. Si parte
 dal principio che gli sviluppatori **sappiano quello che fanno** e
 conoscano le conseguenze delle operazioni che richiedono. Il modello
 d'uso è quello di un unico software, anche con più processi e writer,
-come descritto in [Accesso](/decisions/tool-type.md#accesso).
+come descritto in [Accesso](/current/decisions/tool-type.md#accesso).
 
 L'isolamento tra utenti indipendenti che usano un DB per ambiti diversi,
 proteggendo ciascuno dalle attività degli altri e il sistema nel suo
@@ -51,7 +51,7 @@ del nodo e lo storage sono interfacce interne: non si duplicano nei
 livelli sottostanti le restrizioni dell'API per proteggere da chiamate
 dirette. I controlli si collocano dove servono a prevenire l'errore o a
 garantire la correttezza dell'operazione. Per esempio, l'API distingue
-i [metadati](/architecture/entity-metadata.md) applicativi da quelli di
+i [metadati](/current/architecture/entity-metadata.md) applicativi da quelli di
 sistema, mentre verifica e applicazione di una scrittura condizionata
 avvengono atomicamente nella partizione.
 
@@ -72,7 +72,7 @@ concetti che ancora non esistono.
 Per esempio, alla creazione di una partizione si sceglie l'indice; il
 numero k di commit passati da conservare si aggiunge alla
 configurazione della partizione solo quando arrivano i
-[commit](/architecture/partition-commit.md) e quindi gli snapshot,
+[commit](/current/architecture/partition-commit.md) e quindi gli snapshot,
 perché prima k non ha significato.
 
 ## Meccanismi prima, estesi man mano
@@ -80,7 +80,7 @@ perché prima k non ha significato.
 Un meccanismo si implementa una volta, appena serve, con l'insieme
 minimo di dati che esistono in quel momento, e poi si estende quando
 arrivano nuovi dati da gestire, invece di aspettare che ci siano
-tutti. Per esempio la [persistenza](/decisions/persistence.md) si
+tutti. Per esempio la [persistenza](/current/decisions/persistence.md) si
 implementa dopo i metadati, così salva già un insieme minimo ma
 significativo di informazioni, e si estende alle tombstone quando
 arrivano. Il primo passo salva e carica il contenuto di una singola
@@ -108,9 +108,9 @@ prototipo:
 
 Quanti e quali client servano non è deciso: si costruiscono man mano,
 accanto ai prototipi che li richiedono, per esempio uno scenario con
-aree non contigue per la [migrazione](/mechanisms/entity-migration.md)
+aree non contigue per la [migrazione](/future/mechanisms/entity-migration.md)
 e uno con zone contigue per le [letture
-coerenti](/mechanisms/consistent-reads.md).
+coerenti](/future/mechanisms/consistent-reads.md).
 
 # Scrittura e revisione dei test
 
@@ -129,7 +129,7 @@ esistenti, nei moduli unitari e nei test di integrazione descritti sopra.
 # Benchmark
 
 Le scelte che dipendono dalle prestazioni, come quella degli [indici
-spaziali](/indices/), si prendono sulla base di misure:
+spaziali](/current/indices/index.md), si prendono sulla base di misure:
 
 - **Strumento.** Un modulo di benchmark con JMH misura velocità e
   memoria attraverso il contratto del nodo, quindi anche il costo dello
@@ -138,7 +138,7 @@ spaziali](/indices/), si prendono sulla base di misure:
   scritture senza commit, così i nodi dell'indice cambiano sul posto.
 - **Misure relative.** Il prototipo Java non dà tempi rappresentativi
   dell'implementazione finale, quindi ogni indice si confronta con un
-  riferimento, la [scansione lineare](/indices/linear-scan.md), e si
+  riferimento, la [scansione lineare](/current/indices/linear-scan.md), e si
   ragiona sui rapporti.
 - **Profili.** Un profilo rapido (circa 15 minuti) per controllare
   durante lo sviluppo, e un profilo completo (alcune ore) per le misure
@@ -152,12 +152,30 @@ spaziali](/indices/), si prendono sulla base di misure:
   misurato, e un report HTML accompagna i dati.
 - **Scenari di riferimento.** I parametri si ricavano da scenari
   concreti, come lo [scenario del sistema
-  solare](/indices/solar-system-scenario.md), e da modelli come la
-  [capacità degli aggiornamenti per tick](/indices/update-capacity.md).
+  solare](/current/indices/solar-system-scenario.md), e da modelli come la
+  [capacità degli aggiornamenti per tick](/current/indices/update-capacity.md).
 
 # Correlati
 
-- Tutte le [decisioni](/decisions/) sono destinate a essere rivalutate
+- Tutte le [decisioni](/current/decisions/index.md) sono destinate a essere rivalutate
   man mano che i prototipi portano nuove informazioni.
-- Il [linguaggio](/decisions/language.md) dei prototipi è scelto per
+- Il [linguaggio](/current/decisions/language.md) dei prototipi è scelto per
   iterare in fretta.
+
+# Manutenzione della documentazione
+
+Il bundle distingue [implementazione corrente](/current/index.md) e
+[sviluppi futuri](/future/index.md). Durante ogni attività di sviluppo si
+aggiorna anche la documentazione: ciò che viene implementato si rimuove
+da `future/` e si integra in `current/`, nel percorso appropriato.
+In `future/` restano solo le estensioni ancora mancanti e le decisioni
+aperte. Si aggiornano indici, glossari, casi d’uso e collegamenti.
+
+La parte corrente si verifica sul codice e sui test; lo stato dei TODO
+aiuta a orientarsi ma non sostituisce questa verifica. I rinvii al futuro
+si limitano a quelli necessari per capire un limite o una scelta attuale.
+
+L’esposizione procede dalla filosofia d’uso all’architettura, poi ai
+componenti dell’API e agli approfondimenti. Per ogni componente si
+spiegano prima ruolo e utilizzo, poi problemi, motivazioni e meccanismi.
+Si può adattare l’ordine quando una dipendenza concettuale lo richiede.

@@ -12,3 +12,54 @@ Lo sviluppo è incrementale (vedi `okf-bundle/process/development-approach.md`):
 Nel codice si usa solo l'inglese, a livello B2 (semplice e chiaro): identificatori, commenti, Javadoc, messaggi e stringhe. La documentazione del bundle OKF resta in italiano.
 
 Il codice Java del prototipo segue le linee guida in `./prototype/coding-guidelines.md`.
+
+La documentazione del bundle distingue `okf-bundle/current/`, che descrive
+BADSPACE così com’è nell’implementazione corrente, e `okf-bundle/future/`,
+che raccoglie funzionalità da realizzare, direzioni già scelte e proposte
+ancora da valutare. Il processo di sviluppo resta in `okf-bundle/process/`.
+Verificare sul codice e sui test ciò che si presenta come disponibile;
+non dedurlo dal solo stato di una decisione o di un TODO. Nella parte
+corrente limitare i riferimenti al futuro ai casi motivati, necessari per
+spiegare un limite o una scelta attuale, indicandoli chiaramente come futuri.
+
+Organizzare la documentazione in modo progressivo, introducendo i concetti
+principali prima di quelli che ne richiedono la comprensione. Il percorso
+di riferimento è: filosofia d’uso di BADSPACE; architettura generale;
+componenti principali dell’API; problemi risolti e motivazioni delle
+scelte; approfondimenti dei meccanismi specifici. Adattare l’ordine quando
+serve alla comprensione: problemi e motivazioni possono seguire ciascun
+componente, insieme ai relativi meccanismi, evitando anticipazioni e
+rinvii che obbligano a conoscere concetti non ancora introdotti.
+
+Durante lo sviluppo aggiornare la documentazione man mano: quando una
+funzionalità viene implementata, rimuoverne la descrizione da `future/`
+e integrarla in `current/` nel percorso di lettura appropriato. Separare
+le eventuali estensioni ancora future, evitando descrizioni duplicate o
+superate. Aggiornare contestualmente indici, collegamenti, glossari e
+casi d’uso interessati.
+
+I diagrammi esplicativi si scrivono direttamente nei documenti Markdown
+come disegni ASCII in blocchi di codice `text`, seguendo le convenzioni
+di Svgbob. Il disegno deve essere leggibile nel sorgente con un carattere
+monospaziato, senza viewer, plugin o conversioni. Per il momento non
+usare Mermaid e non generare o conservare file SVG o altre immagini dei
+diagrammi nel bundle, salvo richiesta esplicita.
+
+Usare spazi, mai tabulazioni; allineare bordi, collegamenti e frecce.
+Per i riquadri usare `+`, `-` e `|`; per le frecce usare `-->`, `<--`,
+`v` e `^`; per eventi puntuali usare `*` e per guide tratteggiate `:`.
+Racchiudere tra virgolette doppie le etichette che contengono caratteri
+interpretabili come geometria, per esempio `"S(10): A"` o `"writer(token)"`.
+Le virgolette delimitano il testo secondo le convenzioni Svgbob.
+Preferire figure entro circa 90 colonne; dividere quelle troppo larghe
+o complesse in più esempi, anziché ridurre la leggibilità delle etichette.
+
+I diagrammi arricchiscono le spiegazioni: ciascuno chiarisce una relazione
+o un meccanismo preciso, con etichette in italiano e una breve spiegazione
+del suo perimetro. Mantenerli allineati al testo e alla distinzione tra
+`current/` e `future/` durante lo sviluppo. Rileggerli direttamente nel
+Markdown per verificare allineamenti, direzione dei collegamenti e
+condizioni delle transizioni. Nei diagrammi temporali mantenere un asse
+orizzontale, mostrare la durata delle scritture e allineare la disponibilità
+degli snapshot ai confini dei tick; indicare quando le distanze non sono
+in scala.
