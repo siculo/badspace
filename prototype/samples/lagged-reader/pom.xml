@@ -12,7 +12,7 @@
 
     <artifactId>badspace-sample-lagged-reader</artifactId>
     <name>BADSPACE prototype - sample lagged-reader</name>
-    <description>A reader that draws frames between the snapshots of two past ticks, like a game client.</description>
+    <description>A reader that draws more frames than ticks, a little in the past, between two snapshots.</description>
 
     <properties>
         <exec.mainClass>badspace.samples.laggedreader.LaggedReader</exec.mainClass>

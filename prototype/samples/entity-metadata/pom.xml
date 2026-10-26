@@ -12,7 +12,7 @@
 
     <artifactId>badspace-sample-entity-metadata</artifactId>
     <name>BADSPACE prototype - sample entity-metadata</name>
-    <description>The application metadata of the entities: writes on the writer handle, reads by ID on the acquired snapshot, all-or-nothing batches and the removal of an entity.</description>
+    <description>The application metadata of the entities, committed together with the positions.</description>
 
     <properties>
         <exec.mainClass>badspace.samples.entitymetadata.EntityMetadata</exec.mainClass>

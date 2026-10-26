@@ -12,7 +12,7 @@
 
     <artifactId>badspace-sample-periodic-saves</artifactId>
     <name>BADSPACE prototype - sample periodic-saves</name>
-    <description>A simulation that saves its world while it runs: a saver thread saves every few ticks while the writer goes on, keeps the latest saves, and a restart loads the latest one into a new partition.</description>
+    <description>Saves on a second thread while the writer goes on.</description>
 
     <properties>
         <exec.mainClass>badspace.samples.periodicsaves.PeriodicSaves</exec.mainClass>

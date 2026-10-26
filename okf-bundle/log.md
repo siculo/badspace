@@ -1,5 +1,14 @@
 # Bundle Update Log
 
+## 2026-10-26
+* **Edit**: Aggiornate nel [processo di sviluppo](/process/development-approach.md#test-di-integrazione-e-client-desempio)
+  le linee guida dei client d’esempio: API al centro, codice lineare,
+  pochi meccanismi applicativi propri, pochi casi brevi dello stesso tema
+  e progetti autonomi per gli scenari complessi, sottomoduli tematici solo
+  su richiesta. Aggiornati i riferimenti agli esempi riorganizzati nei
+  [casi d’uso](/current/use-cases.md) e nella [conservazione degli
+  snapshot](/current/architecture/snapshot-retention.md).
+
 ## 2026-10-25
 * **Edit**: Adottati per tutti i diagrammi del bundle disegni ASCII in
   blocchi `text`, leggibili direttamente nel Markdown e conformi alle

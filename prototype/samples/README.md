@@ -3,12 +3,14 @@
 *[Italiano](README-it.md)*
 
 Small clients that show how to use BADSPACE as an embedded library, with
-local nodes. Each sample is a module with one `main` class. The first ones
-show one part of the API each; the last ones are small programs for a use
-case, with more threads.
+local nodes. Each sample is a module with one program, a class with `main`,
+that answers one question about the API. The code is linear and keeps the
+API calls in sight: each sample repeats its short setup and uses a few
+entities with explicit coordinates.
 
-Read them in this order: each sample uses only what the ones before it
-explain.
+Each sample builds and runs on its own. The order below is a suggested
+reading order: the prerequisites of a sample are the concepts it uses, not
+the other samples.
 
 ## Running a sample
 
@@ -19,68 +21,62 @@ mvn install -DskipTests
 mvn -pl samples/<name> exec:java
 ```
 
+The persistence samples take an optional save directory; without it they use
+a new temporary directory, and they print the directory they use:
+
+```
+mvn -pl samples/save-and-load exec:java -Dexec.args=<directory>
+```
+
 In IntelliJ IDEA each sample has a run configuration with the name of its
 class.
 
-## Parts of the API
+## First steps
 
-1. [`spaces-and-partitions`](spaces-and-partitions) (`SpacesAndPartitions`):
-   the generators of the IDs, shared by all the spaces of the process; 2D and
-   3D spaces; partitions on local nodes, with the name that the software gives
-   them and their configuration (index, removal policy, retained ticks); the limits of the coordinates; the
-   operations shared by 2D and 3D.
-2. [`writes-and-commits`](writes-and-commits) (`WritesAndCommits`): the
-   writer claims a partition and writes through the handle of its token;
-   single and batch writes; a batch that fails changes nothing; the commit
-   confirms the writes in the current tick and the move of the tick publishes
-   them.
-3. [`snapshot-reads`](snapshot-reads) (`SnapshotReads`): reads by ID and
-   queries (box, circle, nearest entities) on an acquired snapshot, which does
-   not see the commits after it.
-4. [`ticks-and-retention`](ticks-and-retention) (`TicksAndRetention`): the
-   retention window, the snapshots of past ticks, skipped ticks, and why a
-   snapshot is not available.
-5. [`acquisition-timeouts`](acquisition-timeouts) (`AcquisitionTimeouts`):
-   the release of an acquisition and its timeout.
-6. [`ownership-handoff`](ownership-handoff) (`OwnershipHandoff`): the
-   generations of the ownership, the handoff to another writer, the revocation
-   by a coordinator, and the release that discards the writes not committed.
-7. [`partition-removal`](partition-removal) (`PartitionRemoval`): the two
-   removal policies, the readers after the removal, and the destruction of the
-   partition when no snapshot is left.
-8. [`entity-metadata`](entity-metadata) (`EntityMetadata`): the application
-   metadata of the entities, written through the handle of the writer in the
-   same commit as the positions and read by ID on an acquired snapshot; a
-   batch that fails changes nothing; conditional writes, like a
-   compare-and-set or the reservation of two entities, that change nothing
-   and return the false conditions when a condition is false; removing an
-   entity deletes its metadata.
-9. [`partition-saves`](partition-saves) (`PartitionSaves`): the saves of
-   three partitions of a node at two ticks, with the synchronous
-   `saveLatest()` and `save(tick)` and the reference they return, with the
-   name of the partition and the tick; the files in the save directory of the
-   node, one per partition name and tick; what a new node
-   on the same directory finds after a restart. Pass a directory as argument
-   to keep the saves there.
+| Sample | Question | Prerequisites |
+|---|---|---|
+| [`getting-started`](getting-started) (`GettingStarted`) | What is the shortest complete path: space, partition, claim and writer, insert, commit, move of the tick, read and release? | None |
+| [`partition-configuration`](partition-configuration) (`PartitionConfiguration`) | How do I choose the index, the removal policy and the retained ticks of a partition, and what limits do the coordinates have? | Spaces and partitions |
+| [`three-dimensional-space`](three-dimensional-space) (`ThreeDimensionalSpace`) | What changes in a 3D space? | The complete path |
 
-## Use cases
+## Writes and ticks
 
-10. [`random-updater`](random-updater) (`RandomUpdater`): one writer and one
-    reader on two threads; the writer moves the entities at random at each
-    tick, the reader shows the latest snapshot.
-11. [`multi-writer`](multi-writer) (`MultiWriter`): many partitions on one
-    node, each with its writer on its own thread, and a tick shared by all of
-    them, like the loop of a game server.
-12. [`lagged-reader`](lagged-reader) (`LaggedReader`): a reader that draws
-    more frames than there are ticks, a little in the past, between the
-    snapshots of two retained ticks, like a game client.
-13. [`writer-failover`](writer-failover) (`WriterFailover`): a coordinator
-    takes the ownership away from a stuck writer and gives it to a new one,
-    which goes on from the latest snapshot; the fencing token rejects the old
-    writer when it wakes up.
-14. [`periodic-saves`](periodic-saves) (`PeriodicSaves`): a simulation that
-    saves its world while it runs; a saver thread saves every few ticks while
-    the writer goes on, and keeps only the latest saves; after a restart the
-    software loads the latest save into a new partition, with another index,
-    and a writer claims it and goes on. Pass a directory as argument to keep
-    the saves there.
+| Sample | Question | Prerequisites |
+|---|---|---|
+| [`batch-writes`](batch-writes) (`BatchWrites`) | How do I insert, update and remove many entities in one call, and what happens when a batch is rejected? | Writer and commit |
+| [`commits-and-ticks`](commits-and-ticks) (`CommitsAndTicks`) | When do readers see a commit? What happens with more commits in a tick, and with writes after the last commit? | Writer and commit |
+
+## Snapshots
+
+| Sample | Question | Prerequisites |
+|---|---|---|
+| [`snapshot-queries`](snapshot-queries) (`SnapshotQueries`) | How do I read by ID and query by box, circle and nearest entities? | Acquired snapshot |
+| [`snapshot-isolation`](snapshot-isolation) (`SnapshotIsolation`) | Does a snapshot change while the writer publishes new positions? | Commits and ticks |
+| [`snapshot-retention`](snapshot-retention) (`SnapshotRetention`) | How do I read past ticks, and what happens when they leave the retention window? | Commits and ticks |
+| [`acquisition-timeouts`](acquisition-timeouts) (`AcquisitionTimeouts`) | How does an acquisition end, by release or by timeout? | Acquired snapshot |
+
+## Life of a partition and metadata
+
+| Sample | Question | Prerequisites |
+|---|---|---|
+| [`ownership-handoff`](ownership-handoff) (`OwnershipHandoff`) | How does a writer pass the ownership to another writer? | Claim and writer |
+| [`partition-removal`](partition-removal) (`PartitionRemoval`) | How do I remove a partition with `REQUIRE_EMPTY` or `DISCARD_ENTITIES`, and when does the removal become effective? | Commits and ticks, retention window |
+| [`entity-metadata`](entity-metadata) (`EntityMetadata`) | How do I write, read and delete the metadata of the entities? | Writer and commit |
+| [`conditional-writes`](conditional-writes) (`ConditionalWrites`) | How do I write only if conditions on the metadata are true? | Entity metadata |
+
+## Persistence
+
+| Sample | Question | Prerequisites |
+|---|---|---|
+| [`save-and-load`](save-and-load) (`SaveAndLoad`) | How do I save a partition and load it in a later run? | Commits and ticks, entity metadata |
+| [`save-management`](save-management) (`SaveManagement`) | How do I save a past tick, list the saves and delete the older ones? | Retention window |
+
+## Concurrency
+
+| Sample | Question | Prerequisites |
+|---|---|---|
+| [`concurrent-reader-writer`](concurrent-reader-writer) (`ConcurrentReaderWriter`) | How do a writer and a reader work on two threads? | Commits and ticks |
+| [`multi-writer`](multi-writer) (`MultiWriter`) | How do writers of different partitions share the tick of the space? | Commits and ticks |
+| [`lagged-reader`](lagged-reader) (`LaggedReader`) | How does a reader draw more frames than ticks, between two past snapshots? | Retention window |
+| [`writer-failover`](writer-failover) (`WriterFailover`) | How does a coordinator replace a stuck writer? | Ownership handoff |
+| [`periodic-saves`](periodic-saves) (`PeriodicSaves`) | How do I save on a second thread while the writer goes on? | Save management |

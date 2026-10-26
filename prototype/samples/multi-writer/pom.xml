@@ -12,7 +12,7 @@
 
     <artifactId>badspace-sample-multi-writer</artifactId>
     <name>BADSPACE prototype - sample multi-writer</name>
-    <description>Many partitions on one node, each with its writer on its own thread, and a shared tick.</description>
+    <description>Two partitions, each with its writer on its own thread, and a tick shared by both.</description>
 
     <properties>
         <exec.mainClass>badspace.samples.multiwriter.MultiWriter</exec.mainClass>

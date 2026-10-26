@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>badspace</groupId>
+        <artifactId>badspace-samples</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>badspace-sample-snapshot-isolation</artifactId>
+    <name>BADSPACE prototype - sample snapshot-isolation</name>
+    <description>An acquired snapshot does not change while the writer publishes new positions.</description>
+
+    <properties>
+        <exec.mainClass>badspace.samples.snapshotisolation.SnapshotIsolation</exec.mainClass>
+    </properties>
+</project>

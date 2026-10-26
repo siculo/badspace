@@ -14,15 +14,15 @@ già presenti. Il software sceglie le politiche e costruisce il coordinamento.
 
 | Esigenza | Come si realizza oggi | Esempio in `prototype/samples` |
 |---|---|---|
-| Aggiornare posizioni e leggerne lo stato confermato | Writer, commit, avanzamento del tick e acquisizione dell’ultimo snapshot | `random-updater`, `writes-and-commits`, `snapshot-reads` |
+| Aggiornare posizioni e leggerne lo stato confermato | Writer, commit, avanzamento del tick e acquisizione dell’ultimo snapshot | `getting-started`, `commits-and-ticks`, `snapshot-queries`, `snapshot-isolation`, `concurrent-reader-writer` |
 | Aggiornare partizioni in parallelo | Un writer per partizione su thread diversi, con tick comune | `multi-writer` |
 | Passare una partizione a un altro writer | `claim` sulla generazione attesa, consegna del token nuovo | `ownership-handoff` |
 | Sostituire un writer che non risponde | Il coordinatore prende la proprietà; il nodo rifiuta il token vecchio | `writer-failover` |
-| Leggere un tick precedente | Configurare `retainedTicks`, acquisire il tick nella finestra, rilasciare la view | `lagged-reader`, `ticks-and-retention` |
+| Leggere un tick precedente | Configurare `retainedTicks`, acquisire il tick nella finestra, rilasciare la view | `snapshot-retention`, `lagged-reader` |
 | Limitare quanto un reader trattiene memoria | Scadenza obbligatoria delle acquisizioni e rilascio esplicito | `acquisition-timeouts` |
 | Rimuovere partizioni lasciando finire i reader | Richiesta del writer, ritiro al tick successivo e distruzione dopo gli ultimi utilizzi | `partition-removal` |
-| Usare valori applicativi e scritture condizionate | Metadati per entità, confronto dei valori attesi e modifica atomica | `entity-metadata` |
-| Salvare e ricaricare dati | Copia dello snapshot, salvataggio sul nodo e creazione di una nuova partizione dai dati salvati | `partition-saves`, `periodic-saves`, `my-saves` |
+| Usare valori applicativi e scritture condizionate | Metadati per entità, confronto dei valori attesi e modifica atomica | `entity-metadata`, `conditional-writes` |
+| Salvare e ricaricare dati | Copia dello snapshot, salvataggio sul nodo e creazione di una nuova partizione dai dati salvati | `save-and-load`, `save-management`, `periodic-saves` |
 
 # Politiche costruibili sui dati attuali
 
@@ -44,7 +44,10 @@ ne descrivono costi e limiti.
 
 # Come leggere gli esempi
 
-`spaces-and-partitions` introduce creazione e configurazione. Gli esempi
-successivi mostrano aspetti separati dell’API; i test di integrazione ne
-verificano le garanzie insieme ai nodi locali. Il metodo di sviluppo è
+`getting-started` mostra il percorso completo più breve, dalla creazione
+della partizione alla lettura di uno snapshot. Gli altri esempi rispondono
+ciascuno a una domanda sull’API e si eseguono da soli; il README di
+`prototype/samples` li ordina per tema e ne indica i prerequisiti
+concettuali. I test di integrazione verificano le garanzie mostrate
+insieme ai nodi locali. Il metodo di sviluppo è
 descritto nel [processo](/process/development-approach.md).
