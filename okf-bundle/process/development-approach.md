@@ -101,10 +101,22 @@ prototipo:
   così l'API non dipende dal servizio nemmeno nei suoi test. La
   semantica in dettaglio resta nei test unitari di ogni modulo.
 - **Client d'esempio.** Mostrano come si usa BADSPACE. Ogni esempio è
-  un modulo a sé, con un solo programma, invece di più programmi nello
-  stesso modulo: per esempio un giro dell'API (spazi, partizioni,
-  operazioni batch, query, tick e rimozione) e un writer che muove le
-  entità a ogni tick mentre un reader mostra l'ultimo snapshot.
+  un modulo a sé, con un solo programma, e risponde a una domanda
+  concreta sull'uso dell'API.
+
+Nei client d'esempio l'API sta al centro. Il codice è lineare e si legge
+dall'alto verso il basso; il codice applicativo si limita ai pochi
+meccanismi propri che il caso d'uso richiede, senza moduli comuni, classi
+base, wrapper dell'API o framework di esecuzione. Ogni esempio ripete il
+suo breve setup, usa poche entità con coordinate esplicite e la
+configurazione predefinita, salvo le opzioni necessarie al concetto
+mostrato. Un esempio riunisce pochi casi brevi dello stesso tema; uno
+scenario che richiede spiegazioni o meccanismi applicativi propri, come
+la concorrenza fra thread o il recupero di un writer bloccato, diventa
+un progetto autonomo. Ogni esempio si compila e si esegue da solo: i
+prerequisiti fra esempi sono concetti, non dipendenze. I moduli stanno
+direttamente sotto `prototype/samples`, ordinati per tema nel README;
+aree tematiche in sottomoduli si introducono solo quando richiesto.
 
 Quanti e quali client servano non è deciso: si costruiscono man mano,
 accanto ai prototipi che li richiedono, per esempio uno scenario con

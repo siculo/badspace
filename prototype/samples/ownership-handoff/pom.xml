@@ -12,7 +12,7 @@
 
     <artifactId>badspace-sample-ownership-handoff</artifactId>
     <name>BADSPACE prototype - sample ownership-handoff</name>
-    <description>Ownership of a partition: claim, cooperative handoff, revocation and release.</description>
+    <description>The handoff of the ownership to another writer, and the rejection of the old one.</description>
 
     <properties>
         <exec.mainClass>badspace.samples.ownershiphandoff.OwnershipHandoff</exec.mainClass>

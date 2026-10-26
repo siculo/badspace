@@ -12,7 +12,7 @@
 
     <artifactId>badspace-sample-partition-removal</artifactId>
     <name>BADSPACE prototype - sample partition-removal</name>
-    <description>Removal of a partition with its two policies, and readers after the removal.</description>
+    <description>The removal of a partition with the REQUIRE_EMPTY and DISCARD_ENTITIES policies.</description>
 
     <properties>
         <exec.mainClass>badspace.samples.partitionremoval.PartitionRemoval</exec.mainClass>

@@ -481,8 +481,8 @@ riceve in `SpaceConfig`. I reader leggono gli snapshot solo attraverso
 le acquisizioni; il nodo accede internamente al catalogo dello storage.
 Non ci sono accessi diretti agli snapshot nel contratto del nodo.
 
-Il client d'esempio `RandomUpdater` fa un commit e un avanzamento del tick a
-ogni tick, e il reader mostra l'ultimo snapshot. Nell'API, due spazi con
+Il client d'esempio `ConcurrentReaderWriter` fa un commit e un
+avanzamento del tick a ogni tick, e il reader mostra l'ultimo snapshot. Nell'API, due spazi con
 gli stessi generatori danno ID di partizione diversi.
 
 # Correlati

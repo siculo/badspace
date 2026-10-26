@@ -12,7 +12,7 @@
 
     <artifactId>badspace-sample-writer-failover</artifactId>
     <name>BADSPACE prototype - sample writer-failover</name>
-    <description>A coordinator that takes the ownership away from a stuck writer and gives it to a new one.</description>
+    <description>A coordinator gives the ownership of a stuck writer to a new one, and the old token is rejected.</description>
 
     <properties>
         <exec.mainClass>badspace.samples.writerfailover.WriterFailover</exec.mainClass>

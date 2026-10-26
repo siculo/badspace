@@ -13,27 +13,35 @@
     <artifactId>badspace-samples</artifactId>
     <packaging>pom</packaging>
     <name>BADSPACE prototype - samples</name>
-    <description>Sample clients that show how to use BADSPACE: one module for each aspect of the API and for each use case.</description>
+    <description>Sample clients that show how to use BADSPACE: one module with one program for each question about the API, in reading order.</description>
 
-    <!-- To run a sample, from the prototype directory:
+    <!-- Each sample builds and runs on its own. To run one, from the prototype directory:
          mvn install -DskipTests
-         mvn -pl samples/<name> exec:java -->
+         mvn -pl samples/<name> exec:java
+         The persistence samples take an optional save directory:
+         mvn -pl samples/<name> exec:java -Dexec.args=<directory> -->
 
     <modules>
-        <module>spaces-and-partitions</module>
-        <module>writes-and-commits</module>
-        <module>snapshot-reads</module>
-        <module>ticks-and-retention</module>
+        <module>getting-started</module>
+        <module>partition-configuration</module>
+        <module>three-dimensional-space</module>
+        <module>batch-writes</module>
+        <module>commits-and-ticks</module>
+        <module>snapshot-queries</module>
+        <module>snapshot-isolation</module>
+        <module>snapshot-retention</module>
         <module>acquisition-timeouts</module>
         <module>ownership-handoff</module>
         <module>partition-removal</module>
         <module>entity-metadata</module>
-        <module>partition-saves</module>
+        <module>conditional-writes</module>
+        <module>save-and-load</module>
+        <module>save-management</module>
+        <module>concurrent-reader-writer</module>
         <module>multi-writer</module>
+        <module>lagged-reader</module>
         <module>writer-failover</module>
         <module>periodic-saves</module>
-        <module>lagged-reader</module>
-        <module>random-updater</module>
     </modules>
 
     <dependencies>

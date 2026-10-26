@@ -12,7 +12,7 @@
 
     <artifactId>badspace-sample-acquisition-timeouts</artifactId>
     <name>BADSPACE prototype - sample acquisition-timeouts</name>
-    <description>Timeouts and release of the acquisitions of the snapshots.</description>
+    <description>The release of an acquisition and its timeout.</description>
 
     <properties>
         <exec.mainClass>badspace.samples.acquisitiontimeouts.AcquisitionTimeouts</exec.mainClass>
