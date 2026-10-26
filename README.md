@@ -2,14 +2,19 @@
 
 [Italiano](README.it.md)
 
-BADSPACE is a project for a real-time database of entities in a 2D or 3D space, designed as a foundation for simulation, monitoring or gaming software. The goal is to track entity positions and answer proximity queries (range, k-nearest, raycasting) while thousands of entities move at every tick. Scalability is based on dividing the world into partitions that are created and removed dynamically, each with a single writer.
+BADSPACE is a project for a real-time database of entities in a 2D or 3D space, designed as a foundation for simulation, monitoring or gaming software. The goal is to track entity positions and answer proximity queries while thousands of entities move at every tick. Scalability is based on dividing the world into partitions that are created and removed dynamically, each with a single writer.
 
-The goal is a flexible tool that developers can adapt to their own needs. The design allows for use as a library or as a service, a choice of partitioning and clustering strategies, and APIs on which to build application logic. BADSPACE is aimed at developers looking for the tools to build their own solution.
+The goal is a flexible tool that developers can adapt to their own needs. The software chooses how to partition entities, where to place each partition and which spatial index to use. BADSPACE provides the operations and guarantees on which to build application logic.
 
-The project is at the prototype stage: the Java prototype (`prototype/`) is used to validate the design decisions, documented in the [OKF bundle](okf-bundle/index.md). Current status:
+The project is at the prototype stage. The Java [prototype](prototype/) is an embedded library with local nodes, used to validate the design decisions. The [OKF bundle](okf-bundle/index.md) separates the [current implementation](okf-bundle/current/index.md) from [future work](okf-bundle/future/index.md). Current status:
 
-- **Done:** embedded library with 2D and 3D spaces, partitions on local nodes, spatial indexes chosen when a partition is created, insert, update and removal of entities. Partition commit, with one writer and many concurrent readers on the same partition: readers acquire the snapshot of a completed tick, and the snapshots of the last ticks are retained. Ownership of a partition with a fencing token, so that a writer can pass it to another one or a coordinator can take it away. Removal of a partition while readers still use its snapshots.
-- **Next:** system and application metadata of the entities.
+- **Spaces and partitions:** 2D and 3D spaces; partitions created and removed on local nodes; spatial index, removal policy and snapshot retention chosen per partition. Entity IDs use a Snowflake-style generator.
+- **Writes and reads:** batch entity writes, partition commits and logical ticks. One writer owns a partition through a fencing token; readers acquire stable snapshots of completed ticks. Published snapshots remain available within the configured retention window, and acquired snapshots can outlive partition removal.
+- **Metadata:** application metadata for entities, with conditional writes that can update positions and metadata together.
+- **Persistence:** synchronous saving of one partition's published snapshot to a node directory, listing and deleting saves, and loading its entities and metadata into a new partition. The software schedules saves and chooses which ones to keep.
+- **Queries:** reads by entity ID, range and k-nearest queries on a partition; range and k-nearest aggregation across snapshots of the same tick on selected partitions. The caller chooses the tick and handles unavailable snapshots.
+
+The [prototype TODO](TODO.md) tracks the next blocks, starting with a remote gRPC node. Raycasting, migration between partitions and coordinated recovery are future work. The current save and load mechanism covers one partition at a time; it does not provide recovery of a whole space after a crash.
 
 The [samples](prototype/samples/README.md) show how to use the API, in the order needed to understand it.
 
