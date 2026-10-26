@@ -375,7 +375,7 @@ acquisiti. È `AutoCloseable`, da usare con `try`-with-resources.
 |---|---|---|
 | Acquisizione | `SnapshotSet2.acquire(List<Partition2>, long tick)`, `acquire(partitions, tick, options)` | Acquisisce `S(tick)` su ogni partizione, nell'ordine della lista, come `acquire(tick, options)`; senza opzioni vale `defaultTimeout()`. Una lista vuota dà un insieme vuoto e completo |
 | Risultato | `tick()`, `snapshots()`, `failures()`, `isComplete()` | Il tick richiesto; gli snapshot acquisiti e i fallimenti, nell'ordine della lista; `isComplete()` è vero se non ci sono fallimenti |
-| Fallimento | Record `SnapshotSet2.Failure`/`SnapshotSet3.Failure` | La partizione e l'eccezione; `reason()` dà il motivo di `SnapshotNotAvailableException`, vuoto per una partizione distrutta |
+| Fallimento | Record `SnapshotSet2.Failure`/`SnapshotSet3.Failure` | La partizione, il motivo `reason()` e l'eccezione `error()`. Il motivo è l'enum `FailureReason` dell'API: i quattro motivi di `SnapshotNotAvailableException` e `UNKNOWN_PARTITION` per una partizione che il nodo non conosce, cioè distrutta per un handle creato dallo spazio |
 | Query di range | `findInRegion(Region)` | Unione dei risultati degli snapshot acquisiti, in ordine non definito |
 | Query k-nearest | `findNearest(Point, count)` | Al più `count` entità degli snapshot acquisiti, ordinate per distanza dal punto e a parità di distanza per ID |
 | Rilascio | `close()` | Rilascia tutte le acquisizioni, anche se un rilascio fallisce, e poi lancia il primo errore; una seconda chiamata non fa niente |
@@ -385,8 +385,8 @@ snapshot non è disponibile non ferma le altre.
 
 | Caso | Esito |
 |---|---|
-| Snapshot non acquisibile: non ancora pubblicato, fuori dalla finestra, prima della creazione, dalla rimozione in poi | Fallimento con `SnapshotNotAvailableException` e il suo motivo |
-| Partizione distrutta | Fallimento con `UnknownPartitionException`, senza motivo |
+| Snapshot non acquisibile: non ancora pubblicato, fuori dalla finestra, prima della creazione, dalla rimozione in poi | Fallimento con lo stesso motivo e `SnapshotNotAvailableException` |
+| Partizione distrutta | Fallimento con `UNKNOWN_PARTITION` e `UnknownPartitionException` |
 | Lista o un suo elemento nulli, opzioni nulle | `NullPointerException`, prima di ogni acquisizione |
 | Tick negativo, partizione ripetuta nella lista | `IllegalArgumentException`, prima di ogni acquisizione |
 | Ogni altro errore durante le acquisizioni | Propagato, dopo il rilascio degli snapshot già acquisiti |

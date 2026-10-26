@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.api.AcquiredSnapshot2;
+import badspace.api.FailureReason;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
 import badspace.api.PartitionWriter2;
@@ -19,13 +20,11 @@ import badspace.common.geometry.Region2;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionName;
-import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.UnknownPartitionException;
 import badspace.service.partition.LocalPartitionNode2;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
@@ -112,11 +111,29 @@ class SnapshotSet2EndToEndTest {
         try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(kept, shortWindow, removed, late), 0)) {
             assertEquals(1, set.snapshots().size());
             assertEquals(List.of(shortWindow, removed, late), set.failures().stream().map(SnapshotSet2.Failure::partition).toList());
-            assertEquals(Optional.of(Reason.OUT_OF_RETENTION), set.failures().get(0).reason());
+            assertEquals(FailureReason.OUT_OF_RETENTION, set.failures().get(0).reason());
             assertInstanceOf(UnknownPartitionException.class, set.failures().get(1).error());
-            assertEquals(Optional.empty(), set.failures().get(1).reason());
-            assertEquals(Optional.of(Reason.BEFORE_CREATION), set.failures().get(2).reason());
+            assertEquals(FailureReason.UNKNOWN_PARTITION, set.failures().get(1).reason());
+            assertEquals(FailureReason.BEFORE_CREATION, set.failures().get(2).reason());
             assertEquals(List.of(new Entity2(entityId, new Point2(1, 1))), set.findNearest(new Point2(0, 0), 5));
+        }
+    }
+
+    @Test
+    void retiredPartitionHasNoSnapshotFromTheRemovalOn() {
+        Partition2 retired = space.createPartition(new LocalPartitionNode2(), nextName(),
+                PartitionConfig.defaults().withRetainedTicks(3).withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES));
+        writer(retired).removePartition();
+        space.setTick(1);
+        space.setTick(2);
+
+        // The removal is effective at tick 1. At tick 2 the snapshot of tick 0 is still in the
+        // window, so the partition is retired and not destroyed.
+        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(retired), 1)) {
+            assertEquals(FailureReason.AFTER_REMOVAL, set.failures().getFirst().reason());
+        }
+        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(retired), 0)) {
+            assertTrue(set.isComplete());
         }
     }
 
@@ -125,7 +142,7 @@ class SnapshotSet2EndToEndTest {
         Partition2 partition = space.createPartition(new LocalPartitionNode2(), nextName());
         space.setTick(1);
         try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(partition), 1)) {
-            assertEquals(Optional.of(Reason.NOT_YET_PUBLISHED), set.failures().getFirst().reason());
+            assertEquals(FailureReason.NOT_YET_PUBLISHED, set.failures().getFirst().reason());
         }
     }
 

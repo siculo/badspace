@@ -35,7 +35,7 @@ loro handle, e offre le query su tutti gli snapshot acquisiti. È
 È un’utility generica: non sceglie N e non decide se un risultato
 parziale basta. Acquisisce quello che può e restituisce, insieme agli
 snapshot, i **fallimenti**: le partizioni di cui lo snapshot di N non è
-disponibile, ciascuna con l’eccezione che lo dice. Il chiamante decide
+disponibile, ciascuna con il motivo e l’eccezione. Il chiamante decide
 cosa farne: accettare il risultato parziale, riprovare con un altro
 tick o rinunciare.
 
@@ -64,15 +64,25 @@ B. Con `isComplete()` il chiamante sa se manca qualche partizione.
 
 ## Che cosa è un fallimento
 
-Un fallimento è un caso in cui lo snapshot non è disponibile:
+Un fallimento è un caso in cui lo snapshot non è disponibile. Il suo
+motivo dice perché dalla partizione non si hanno dati al tick N, e
+riunisce due eccezioni del nodo:
 
-- `SnapshotNotAvailableException`, con il motivo: non ancora pubblicato,
-  fuori dalla finestra, prima della creazione, dalla rimozione in poi;
-- `UnknownPartitionException`, per una partizione già distrutta. Il nodo
-  non distingue una partizione distrutta da una mai esistita (vedi
-  [rimozione della partizione](/current/architecture/partition-removal.md#distruzione)),
-  ma un handle viene sempre da una partizione creata, quindi per chi lo
-  usa vuol dire distrutta. Nel fallimento il motivo è vuoto.
+- `SnapshotNotAvailableException`, con lo stesso motivo: non ancora
+  pubblicato, fuori dalla finestra, prima della creazione, dalla
+  rimozione in poi. Dalla rimozione in poi vale finché la partizione è
+  ritirata, cioè finché ha ancora snapshot nella finestra;
+- `UnknownPartitionException`, con il motivo «partizione sconosciuta»:
+  il nodo non conosce la partizione. Il nodo non distingue una
+  partizione distrutta da una mai esistita (vedi [rimozione della
+  partizione](/current/architecture/partition-removal.md#distruzione)),
+  e il motivo non dice più di quello che il nodo sa. Con un handle
+  creato dallo spazio, che viene sempre da una partizione creata, vuol
+  dire che la partizione è distrutta.
+
+Il motivo dell’eccezione del nodo descrive solo lo snapshot di una
+partizione che il nodo conosce; il motivo del fallimento descrive la
+partizione vista dall’insieme, quindi è un tipo a parte.
 
 Ogni altro errore è un difetto o un uso sbagliato, non un esito: ferma
 la chiamata, che prima rilascia gli snapshot già acquisiti e poi
@@ -124,14 +134,18 @@ degli snapshot. `acquire(partitions, tick)` usa la scadenza di default,
 tutte le acquisizioni. Il risultato espone `tick()`, `snapshots()` e
 `failures()` nell’ordine della lista e `isComplete()`; il fallimento è
 il record `SnapshotSet2.Failure`/`SnapshotSet3.Failure`, con la
-partizione, l’eccezione e `reason()`. `close()` va avanti anche se un
+partizione, il motivo `reason()` e l’eccezione `error()`. Il motivo è
+l’enum `FailureReason`, comune a 2D e 3D: `NOT_YET_PUBLISHED`,
+`OUT_OF_RETENTION`, `BEFORE_CREATION`, `AFTER_REMOVAL` e
+`UNKNOWN_PARTITION`. `close()` va avanti anche se un
 rilascio fallisce e poi lancia il primo errore.
 
 I test del modulo `api` verificano acquisizioni, fallimenti, rilascio e
 aggregazione con i nodi simulati; i test di integrazione confrontano le
 query su tre partizioni con indici diversi (scansione lineare, grid
 uniforme, griglia di alberi) con quelle su una partizione che contiene
-le stesse entità, e verificano i fallimenti reali. L’esempio
+le stesse entità, e verificano i fallimenti reali, compresa una
+partizione ritirata e una distrutta. L’esempio
 `multi-partition-queries` mostra una partizione statica e una dinamica
 interrogate insieme e una partizione creata dopo il tick richiesto.
 

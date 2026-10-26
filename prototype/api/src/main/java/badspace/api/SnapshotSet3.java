@@ -6,7 +6,6 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.RetentionWindow;
 import badspace.common.partition.SnapshotNotAvailableException;
-import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.UnknownPartitionException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -14,7 +13,6 @@ import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -90,8 +88,10 @@ public final class SnapshotSet3 implements AutoCloseable {
             for (Partition3 partition : partitions) {
                 try {
                     snapshots.add(partition.acquire(tick, options));
-                } catch (SnapshotNotAvailableException | UnknownPartitionException e) {
-                    failures.add(new Failure(partition, e));
+                } catch (SnapshotNotAvailableException e) {
+                    failures.add(new Failure(partition, FailureReason.of(e.reason()), e));
+                } catch (UnknownPartitionException e) {
+                    failures.add(new Failure(partition, FailureReason.UNKNOWN_PARTITION, e));
                 }
             }
         } catch (Throwable e) {
@@ -201,23 +201,17 @@ public final class SnapshotSet3 implements AutoCloseable {
      * A partition whose snapshot is not available.
      *
      * @param partition the partition
-     * @param error why the snapshot is not available: a SnapshotNotAvailableException, or an
-     *     UnknownPartitionException if the partition is destroyed
+     * @param reason why the snapshot is not available
+     * @param error the error of the acquisition: a SnapshotNotAvailableException, or an
+     *     UnknownPartitionException if the node does not know the partition
      */
-    public record Failure(Partition3 partition, RuntimeException error) {
+    public record Failure(Partition3 partition, FailureReason reason, RuntimeException error) {
 
-        /** Fails with NullPointerException if partition or error is null. */
+        /** Fails with NullPointerException if partition, reason or error is null. */
         public Failure {
             Objects.requireNonNull(partition);
+            Objects.requireNonNull(reason);
             Objects.requireNonNull(error);
-        }
-
-        /**
-         * Returns the reason of the SnapshotNotAvailableException, or empty if the partition is
-         * destroyed.
-         */
-        public Optional<Reason> reason() {
-            return error instanceof SnapshotNotAvailableException e ? Optional.of(e.reason()) : Optional.empty();
         }
     }
 }

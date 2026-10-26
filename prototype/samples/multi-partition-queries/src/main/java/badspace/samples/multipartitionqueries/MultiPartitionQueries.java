@@ -56,7 +56,7 @@ public final class MultiPartitionQueries {
             try (SnapshotSet2 set = SnapshotSet2.acquire(partitions, tick)) {
                 System.out.printf("Tick %d: %d snapshots, complete: %b%n", tick, set.snapshots().size(), set.isComplete());
                 for (SnapshotSet2.Failure failure : set.failures()) {
-                    System.out.printf("  no snapshot of %s: %s%n", failure.partition().name().value(), failure.reason().orElseThrow());
+                    System.out.printf("  no snapshot of %s: %s%n", failure.partition().name().value(), failure.reason());
                 }
                 // The entities of all the acquired snapshots, in an order that is not defined.
                 System.out.printf("  in the box (0,-5)-(25,10): %s%n", set.findInRegion(area));

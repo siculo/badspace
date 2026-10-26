@@ -1,6 +1,11 @@
 # Bundle Update Log
 
 ## 2026-10-26
+* **Edit**: Il motivo dei fallimenti delle [query su più
+  partizioni](/current/architecture/multi-partition-queries.md#che-cosa-è-un-fallimento)
+  è ora l’enum `FailureReason` dell’API, sempre presente, con
+  `UNKNOWN_PARTITION` per una partizione che il nodo non conosce; aggiornato il [contratto
+  dell’API](/current/api/operations.md#query-su-più-partizioni).
 * **Edit**: Implementate le [query su più partizioni](/current/architecture/multi-partition-queries.md):
   l’insieme di snapshot `SnapshotSet2`/`SnapshotSet3` acquisisce lo
   stesso tick su una lista di partizioni, restituisce come fallimenti le

@@ -27,7 +27,6 @@ import badspace.common.partition.UnknownPartitionException;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
@@ -93,18 +92,17 @@ class SnapshotSet3Test {
         try (SnapshotSet3 set = SnapshotSet3.acquire(List.of(a, b, c), TICK)) {
             assertFalse(set.isComplete());
             assertEquals(2, set.snapshots().size());
-            assertEquals(List.of(new SnapshotSet3.Failure(b, notAvailable)), set.failures());
-            assertEquals(Optional.of(Reason.OUT_OF_RETENTION), set.failures().getFirst().reason());
+            assertEquals(List.of(new SnapshotSet3.Failure(b, FailureReason.OUT_OF_RETENTION, notAvailable)), set.failures());
         }
     }
 
     @Test
-    void destroyedPartitionIsAFailureWithoutReason() {
+    void destroyedPartitionIsAFailure() {
         UnknownPartitionException destroyed = new UnknownPartitionException(acquisitionA.partitionId());
         when(nodeA.acquire(any(), anyLong(), any())).thenThrow(destroyed);
         try (SnapshotSet3 set = SnapshotSet3.acquire(List.of(a), TICK)) {
             assertSame(destroyed, set.failures().getFirst().error());
-            assertEquals(Optional.empty(), set.failures().getFirst().reason());
+            assertEquals(FailureReason.UNKNOWN_PARTITION, set.failures().getFirst().reason());
             assertEquals(List.of(), set.snapshots());
         }
     }
