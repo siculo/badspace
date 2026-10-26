@@ -285,6 +285,12 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 
 - [x] Forma delle chiamate: insieme di snapshot dello stesso tick, scelto dal chiamante, su una lista di handle (vuota ammessa); i fallimenti di disponibilità sono un esito e non un'eccezione, senza modalità "tutti o nessuno", perché la decisione è del chiamante; un solo tick per tutte le partizioni; nessun registro dei nomi nello spazio → [Query su più partizioni](okf-bundle/current/architecture/multi-partition-queries.md)
 
+<a id="decisioni-grpc"></a>
+### Nodo gRPC [↑](#blocchi)
+
+- [ ] Chiamate a lotti ed errori remoti nel contratto dei nodi
+- [ ] Nodi condivisi tra spazi e ID globali delle partizioni
+
 <a id="decisioni-migrazione"></a>
 ### Tombstone e migrazione [↑](#blocchi)
 
@@ -310,12 +316,6 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 ### Raycast [↑](#blocchi)
 
 - [ ] Raycast su entità puntiformi (raggio di hit, estensione delle entità o altro), in base ai possibili usi
-
-<a id="decisioni-grpc"></a>
-### Nodo gRPC [↑](#blocchi)
-
-- [ ] Chiamate a lotti ed errori remoti nel contratto dei nodi
-- [ ] Nodi condivisi tra spazi e ID globali delle partizioni
 
 <a id="decisioni-lungo-termine"></a>
 ### Senza blocco, a lungo termine [↑](#blocchi)
