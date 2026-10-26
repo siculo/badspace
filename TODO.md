@@ -21,13 +21,17 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Metadati delle entità](okf-bundle/current/architecture/entity-metadata.md), [Architettura minima](okf-bundle/current/architecture/minimal-core.md).
 
-- [ ] **Persistenza:** salvataggio periodico e caricamento del contenuto di una singola partizione, da una copia autonoma dello snapshot; misure dei costi. → [cose da fare](#fare-persistenza) · [decisioni](#decisioni-persistenza)
+- [x] **Persistenza:** salvataggio periodico e caricamento del contenuto di una singola partizione, da una copia autonoma dello snapshot; misure dei costi. → [cose da fare](#fare-persistenza) · [decisioni](#decisioni-persistenza)
 
   Documenti: [Persistenza](okf-bundle/current/decisions/persistence.md), [Durabilità osservabile](okf-bundle/future/architecture/observable-durability.md), [Conservazione degli snapshot](okf-bundle/current/architecture/snapshot-retention.md).
 
 - [ ] **Query su più partizioni:** aggregazione dei risultati per tipo di query. → [cose da fare](#fare-query) · [decisioni](#decisioni-query)
 
   Documenti: [Aggregazione delle query su più partizioni](okf-bundle/future/mechanisms/query-aggregation.md), [Estensioni dell’API](okf-bundle/future/decisions/api-surface.md), [Entità statiche vs dinamiche](okf-bundle/future/decisions/static-vs-dynamic-entities.md), [Casi d'uso](okf-bundle/future/use-cases.md).
+
+- [ ] **Nodo gRPC:** nodo remoto dietro il contratto dei nodi. → [cose da fare](#fare-grpc) · [decisioni](#decisioni-grpc)
+
+  Documenti: [Nodi remoti e distribuzione](okf-bundle/future/decisions/tool-type.md), [Architettura a livelli](okf-bundle/current/architecture/layers.md).
 
 - [ ] **Ribilanciamento e split:** trasferimento dell'esclusività tra writer. → [cose da fare](#fare-ribilanciamento)
 
@@ -48,10 +52,6 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 - [ ] **Raycast:** primo hit e tutti gli hit. Richiede di riprendere il lavoro sugli indici. → [cose da fare](#fare-raycast) · [decisioni](#decisioni-raycast)
 
   Documenti: [Estensioni dell’API](okf-bundle/future/decisions/api-surface.md), [Aggregazione delle query su più partizioni](okf-bundle/future/mechanisms/query-aggregation.md), [Indicizzazione spaziale](okf-bundle/current/decisions/spatial-indexing.md).
-
-- [ ] **Nodo gRPC:** nodo remoto dietro il contratto dei nodi. → [cose da fare](#fare-grpc) · [decisioni](#decisioni-grpc)
-
-  Documenti: [Nodi remoti e distribuzione](okf-bundle/future/decisions/tool-type.md), [Architettura a livelli](okf-bundle/current/architecture/layers.md).
 
 **Tema trasversale:** i client di test si costruiscono man mano, accanto ai blocchi che li richiedono. → [cose da fare](#fare-client)
 
@@ -158,6 +158,13 @@ Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandat
 - [ ] Deduplica per ID nell'aggregazione (l'epoca si aggiunge con la [migrazione](#fare-migrazione))
 - [ ] Più partizioni con indici diversi (statiche e dinamiche) interrogate insieme
 
+<a id="fare-grpc"></a>
+### Nodo gRPC [↑](#blocchi)
+
+- [ ] Nodo remoto via gRPC
+- [ ] Salvataggio asincrono nel contratto del nodo (avvio e poi interrogazione dello stato), se una chiamata sincrona lunga pesa sulla chiamata remota e sul suo timeout (vedi [persistenza](okf-bundle/current/decisions/persistence.md#chiamate))
+- [ ] Durata della scadenza nel record `Acquisition` e controllo anticipato della scadenza nella view dell'API, se serve a risparmiare chiamate remote destinate a fallire (oggi controlla solo il nodo)
+
 <a id="fare-ribilanciamento"></a>
 ### Ribilanciamento e split [↑](#blocchi)
 
@@ -201,13 +208,6 @@ Durabilità osservabile e recupero coerente dei nodi dopo un crash sono rimandat
 
 - [ ] Raycast negli indici (da aggiungere al [TODO degli indici](TODO-indices.md) quando si arriva qui)
 - [ ] Raycast nel nodo e nell'API (primo hit e tutti gli hit), con l'aggregazione su più partizioni
-
-<a id="fare-grpc"></a>
-### Nodo gRPC [↑](#blocchi)
-
-- [ ] Nodo remoto via gRPC
-- [ ] Salvataggio asincrono nel contratto del nodo (avvio e poi interrogazione dello stato), se una chiamata sincrona lunga pesa sulla chiamata remota e sul suo timeout (vedi [persistenza](okf-bundle/current/decisions/persistence.md#chiamate))
-- [ ] Durata della scadenza nel record `Acquisition` e controllo anticipato della scadenza nella view dell'API, se serve a risparmiare chiamate remote destinate a fallire (oggi controlla solo il nodo)
 
 <a id="fare-client"></a>
 ### Client di test (tema trasversale) [↑](#blocchi)
