@@ -42,9 +42,9 @@ class SnapshotSet2Test {
     private final PartitionNode2 nodeA = mock(PartitionNode2.class);
     private final PartitionNode2 nodeB = mock(PartitionNode2.class);
     private final PartitionNode2 nodeC = mock(PartitionNode2.class);
-    private final Partition2 a = space.createPartition(nodeA, new PartitionName("a"));
-    private final Partition2 b = space.createPartition(nodeB, new PartitionName("b"));
-    private final Partition2 c = space.createPartition(nodeC, new PartitionName("c"));
+    private final Partition2 a = space.createPartition(space.createNode(() -> nodeA), new PartitionName("a"));
+    private final Partition2 b = space.createPartition(space.createNode(() -> nodeB), new PartitionName("b"));
+    private final Partition2 c = space.createPartition(space.createNode(() -> nodeC), new PartitionName("c"));
     private final Acquisition acquisitionA = new Acquisition(new PartitionId(101), 1, TICK);
     private final Acquisition acquisitionB = new Acquisition(new PartitionId(102), 1, TICK);
     private final Acquisition acquisitionC = new Acquisition(new PartitionId(103), 1, TICK);

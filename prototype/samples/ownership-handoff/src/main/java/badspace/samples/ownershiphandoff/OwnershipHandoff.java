@@ -3,6 +3,7 @@ package badspace.samples.ownershiphandoff;
 import static badspace.common.partition.PartitionName.partitionName;
 
 import badspace.api.AcquiredSnapshot2;
+import badspace.api.Node2;
 import badspace.api.Partition2;
 import badspace.api.PartitionWriter2;
 import badspace.api.Space2;
@@ -21,7 +22,8 @@ public final class OwnershipHandoff {
 
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Partition2 partition = space.createPartition(new LocalPartitionNode2(), partitionName("world"));
+        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Partition2 partition = space.createPartition(node, partitionName("world"));
 
         PartitionWriter2 first = partition.writer(partition.claim(0).orElseThrow());
         first.insert(1, 1);

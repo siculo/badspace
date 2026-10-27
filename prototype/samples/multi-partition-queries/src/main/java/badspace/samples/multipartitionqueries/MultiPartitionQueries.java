@@ -3,6 +3,7 @@ package badspace.samples.multipartitionqueries;
 import static badspace.common.geometry.Point2.point;
 import static badspace.common.partition.PartitionName.partitionName;
 
+import badspace.api.Node2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
 import badspace.api.PartitionWriter2;
@@ -26,7 +27,7 @@ public final class MultiPartitionQueries {
 
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        LocalPartitionNode2 node = new LocalPartitionNode2();
+        Node2 node = space.createNode(LocalPartitionNode2::new);
         // Two retained ticks, so the snapshot of tick 0 is still there at tick 2.
         PartitionConfig config = PartitionConfig.defaults().withRetainedTicks(2);
         Partition2 buildings = space.createPartition(node, partitionName("buildings"),

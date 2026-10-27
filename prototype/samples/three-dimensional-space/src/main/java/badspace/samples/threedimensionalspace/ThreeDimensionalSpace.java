@@ -4,6 +4,7 @@ import static badspace.common.geometry.Point3.point;
 import static badspace.common.partition.PartitionName.partitionName;
 
 import badspace.api.AcquiredSnapshot3;
+import badspace.api.Node3;
 import badspace.api.Partition3;
 import badspace.api.PartitionWriter3;
 import badspace.api.Space3;
@@ -20,7 +21,8 @@ public final class ThreeDimensionalSpace {
 
     public static void main(String[] args) {
         Space3 space = new Space3(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), partitionName("sky"));
+        Node3 node = space.createNode(LocalPartitionNode3::new);
+        Partition3 partition = space.createPartition(node, partitionName("sky"));
 
         try (PartitionWriter3 writer = partition.writer(partition.claim(0).orElseThrow())) {
             writer.insert(10, 10, 0);

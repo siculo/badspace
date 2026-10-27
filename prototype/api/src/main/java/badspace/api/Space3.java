@@ -17,20 +17,19 @@ import java.util.concurrent.locks.ReentrantLock;
  * shared by all the spaces of the process, so they are unique across spaces and never
  * used again. Its partitions can live on different nodes.
  * <p>
- * The space has a tick, which it gives to its nodes: the nodes it created and the nodes on
- * which it created partitions. A lock orders the moves to a new tick, the addition of a node and
- * the creation of partitions, so a new node never misses a tick. A load takes the lock only to
- * add the node, so the moves of the tick do not wait for it.
+ * The space creates its nodes and gives its tick to all of them, also to the nodes with no
+ * partitions. A lock orders the moves to a new tick, the addition of a node and the creation of
+ * partitions, so a new node never misses a tick. A load does not take the lock, so the moves of
+ * the tick do not wait for it.
  */
-public final class Space3 implements Space<PartitionNode3, Partition3, PartitionNodeFactory3, Node3> {
+public final class Space3 implements Space<Node3, Partition3, PartitionNodeFactory3> {
 
     // Partitions may have writers on different threads, and they share the generators.
     private final SpaceConfig config;
-    // Orders setTick, the addition of a created node, createPartition and the addition of the
-    // node of a load: they run while holding it.
+    // Orders setTick, the addition of a node and createPartition: they run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
-    // The nodes created by this space and the nodes on which it created partitions; each new
-    // tick goes to all of them. Read and written while holding tickLock.
+    // The nodes created by this space; each new tick goes to all of them. Read and written while
+    // holding tickLock.
     private final Set<PartitionNode3> nodes = Collections.newSetFromMap(new IdentityHashMap<>());
     // The tick of the space. Written by setTick while holding tickLock, read by any thread.
     private volatile long tick;
@@ -66,47 +65,47 @@ public final class Space3 implements Space<PartitionNode3, Partition3, Partition
     }
 
     @Override
-    public Partition3 createPartition(PartitionNode3 node, PartitionName name, PartitionConfig config) {
+    public Partition3 createPartition(Node3 node, PartitionName name, PartitionConfig config) {
+        PartitionNode3 partitionNode = nodeOf(node);
         Objects.requireNonNull(name);
         Objects.requireNonNull(config);
         tickLock.lock();
         try {
-            PartitionId id = newPartitionId(node);
-            node.createPartition(id, name, config.index(), config.retainedTicks());
-            return new Partition3(this, node, id, name, config);
+            PartitionId id = newPartitionId();
+            partitionNode.createPartition(id, name, config.index(), config.retainedTicks());
+            return new Partition3(this, partitionNode, id, name, config);
         } finally {
             tickLock.unlock();
         }
     }
 
     @Override
-    public Partition3 loadPartition(PartitionNode3 node, PartitionConfig config, SavedPartition saved) {
+    public Partition3 loadPartition(Node3 node, PartitionConfig config, SavedPartition saved) {
+        PartitionNode3 partitionNode = nodeOf(node);
         Objects.requireNonNull(config);
         Objects.requireNonNull(saved);
-        PartitionId id;
-        tickLock.lock();
-        try {
-            id = newPartitionId(node);
-        } finally {
-            tickLock.unlock();
-        }
-        // Outside the lock: the moves of the tick do not wait for the load. The node is already
+        // Without the lock: the moves of the tick do not wait for the load. The node is already
         // among the nodes of the space, so it gets them, and it creates the partition at its tick.
-        node.loadPartition(id, saved, config.index(), config.retainedTicks());
-        return new Partition3(this, node, id, saved.name(), config);
+        PartitionId id = newPartitionId();
+        partitionNode.loadPartition(id, saved, config.index(), config.retainedTicks());
+        return new Partition3(this, partitionNode, id, saved.name(), config);
+    }
+
+    /** Returns the ID of a new partition. The generator is safe across threads. */
+    private PartitionId newPartitionId() {
+        return new PartitionId(config.partitionIds().nextId());
     }
 
     /**
-     * Returns the ID of a new partition on the node, after moving the node to the tick of the
-     * space if the space has no partition on it yet. The caller holds tickLock.
+     * Returns the node of the handle. Fails with IllegalArgumentException if the handle belongs
+     * to another space: the check uses the identity of the space, so two spaces with the same
+     * configuration are still different.
      */
-    private PartitionId newPartitionId(PartitionNode3 node) {
-        if (!nodes.contains(node)) {
-            // A new node starts at tick 0, or at a tick the space gave it before.
-            node.setTick(tick);
-            nodes.add(node);
+    private PartitionNode3 nodeOf(Node3 node) {
+        if (node.space() != this) {
+            throw new IllegalArgumentException("The node belongs to another space");
         }
-        return new PartitionId(config.partitionIds().nextId());
+        return node.node();
     }
 
     @Override
@@ -131,18 +130,18 @@ public final class Space3 implements Space<PartitionNode3, Partition3, Partition
     }
 
     @Override
-    public List<SavedPartition> saves(PartitionNode3 node) {
-        return node.saves();
+    public List<SavedPartition> saves(Node3 node) {
+        return nodeOf(node).saves();
     }
 
     @Override
-    public List<SavedPartition> saves(PartitionNode3 node, PartitionName name) {
-        return node.saves(name);
+    public List<SavedPartition> saves(Node3 node, PartitionName name) {
+        return nodeOf(node).saves(name);
     }
 
     @Override
-    public void deleteSaves(PartitionNode3 node, List<SavedPartition> saves) {
-        node.deleteSaves(saves);
+    public void deleteSaves(Node3 node, List<SavedPartition> saves) {
+        nodeOf(node).deleteSaves(saves);
     }
 
     long nextEntityId() {

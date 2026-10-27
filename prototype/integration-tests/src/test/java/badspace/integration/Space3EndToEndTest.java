@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.api.AcquiredSnapshot3;
+import badspace.api.Node3;
 import badspace.api.Partition3;
 import badspace.api.PartitionConfig;
 import badspace.api.PartitionWriter3;
@@ -74,7 +75,7 @@ class Space3EndToEndTest {
 
     @Test
     void readerSeesACommitOnlyAfterTheMoveOfTheTick() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         long a = writer(partition).insert(1, 2, 0);
         long b = writer(partition).insert(5, 5, 0);
         writer(partition).commit();
@@ -92,7 +93,7 @@ class Space3EndToEndTest {
 
     @Test
     void snapshotsOfTheWindowKeepTheStateOfTheirTick() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName(),
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName(),
                 PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)).withRetainedTicks(3));
         long id = writer(partition).insert(0, 0, 0);
         for (int tick = 0; tick < 5; tick++) {
@@ -117,7 +118,7 @@ class Space3EndToEndTest {
 
     @Test
     void acquiredSnapshotStaysReadableAfterItLeavesTheWindow() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         long id = writer(partition).insert(1, 1, 0);
         writer(partition).commit();
         space.setTick(1);
@@ -136,17 +137,18 @@ class Space3EndToEndTest {
     @Test
     void partitionsOnDifferentNodesMoveWithTheSpace() {
         LocalPartitionNode3 first = new LocalPartitionNode3();
-        Partition3 a = space.createPartition(first, nextName());
-        Partition3 b = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 a = space.createPartition(space.createNode(() -> first), nextName());
+        Partition3 b = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         space.setTick(5);
         assertEquals(5, a.tick());
         assertEquals(5, b.tick());
         assertEquals(5, first.tick());
 
-        // A new node gets the tick of the space before the creation.
+        // A new node gets the tick of the space when the space creates it, before any partition.
         LocalPartitionNode3 later = new LocalPartitionNode3();
-        Partition3 c = space.createPartition(later, nextName());
+        Node3 laterHandle = space.createNode(() -> later);
         assertEquals(5, later.tick());
+        Partition3 c = space.createPartition(laterHandle, nextName());
         assertEquals(5, c.creationTick());
         assertEquals(0, a.creationTick());
         space.setTick(6);
@@ -155,7 +157,7 @@ class Space3EndToEndTest {
 
     @Test
     void removedPartitionGivesItsTicksUntilItIsDestroyed() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName(),
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName(),
                 PartitionConfig.defaults().withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES).withRetainedTicks(2));
         writer(partition).insert(1, 1, 0);
         writer(partition).commit();
@@ -184,7 +186,7 @@ class Space3EndToEndTest {
 
     @Test
     void saveWritesTheSnapshotOfTheTickAndReturnsItsReference(@TempDir Path directory) throws IOException {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(directory), nextName(),
+        Partition3 partition = space.createPartition(space.createNode(() -> new LocalPartitionNode3(directory)), nextName(),
                 PartitionConfig.defaults().withRetainedTicks(3));
         long a = writer(partition).insert(1, 2, 0);
         writer(partition).commit();
@@ -209,7 +211,7 @@ class Space3EndToEndTest {
 
     @Test
     void removedPartitionIsSavedWhileItsTicksAreInTheWindow(@TempDir Path directory) {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(directory), nextName(),
+        Partition3 partition = space.createPartition(space.createNode(() -> new LocalPartitionNode3(directory)), nextName(),
                 PartitionConfig.defaults().withRetainedTicks(2));
         writer(partition).commit();
         space.setTick(1);
@@ -221,7 +223,7 @@ class Space3EndToEndTest {
 
     @Test
     void loadedPartitionHasTheContentOfTheSaveAfterARestart(@TempDir Path directory) {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(directory), new PartitionName("north"));
+        Partition3 partition = space.createPartition(space.createNode(() -> new LocalPartitionNode3(directory)), new PartitionName("north"));
         long a = writer(partition).insert(1, 2, 0);
         long b = writer(partition).insert(3, 4, 0);
         writer(partition).putMetadata(a, "version", 7);
@@ -232,7 +234,7 @@ class Space3EndToEndTest {
         // A new run, at another tick: the loaded partition is created at the tick of the space.
         Space3 restarted = new Space3(SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet));
         restarted.setTick(100);
-        Partition3 loaded = restarted.loadPartition(new LocalPartitionNode3(directory),
+        Partition3 loaded = restarted.loadPartition(restarted.createNode(() -> new LocalPartitionNode3(directory)),
                 PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(2)), saved);
         assertEquals(partition.name(), loaded.name());
         assertEquals(100, loaded.creationTick());
@@ -249,17 +251,17 @@ class Space3EndToEndTest {
 
     @Test
     void nameOfAPartitionIsUniqueOnItsNode() {
-        LocalPartitionNode3 node = new LocalPartitionNode3();
+        Node3 node = space.createNode(LocalPartitionNode3::new);
         Partition3 north = space.createPartition(node, new PartitionName("north"));
         assertEquals(new PartitionName("north"), north.name());
         assertThrows(IllegalArgumentException.class, () -> space.createPartition(node, new PartitionName("north")));
         // Names are checked only on the same node: the software keeps them unique across nodes.
-        space.createPartition(new LocalPartitionNode3(), new PartitionName("north"));
+        space.createPartition(space.createNode(LocalPartitionNode3::new), new PartitionName("north"));
     }
 
     @Test
     void savesAreListedAndDeletedAlsoByANewSpaceAfterARestart(@TempDir Path directory) {
-        LocalPartitionNode3 node = new LocalPartitionNode3(directory);
+        Node3 node = space.createNode(() -> new LocalPartitionNode3(directory));
         Partition3 north = space.createPartition(node, new PartitionName("north"),
                 PartitionConfig.defaults().withRetainedTicks(3));
         Partition3 south = space.createPartition(node, new PartitionName("south"),
@@ -276,7 +278,7 @@ class Space3EndToEndTest {
 
         // A new run: the space and the node are new, and the space has no partition on the node.
         Space3 restarted = new Space3(SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet));
-        LocalPartitionNode3 restartedNode = new LocalPartitionNode3(directory);
+        Node3 restartedNode = restarted.createNode(() -> new LocalPartitionNode3(directory));
         assertEquals(List.of(north1, south0, south1), restarted.saves(restartedNode));
         // The partition north was removed: the software deletes its saves, and the older saves of south.
         restarted.deleteSaves(restartedNode, List.of(north1, south0));
@@ -287,14 +289,14 @@ class Space3EndToEndTest {
 
     @Test
     void saveNeedsANodeWithASaveDestination() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         space.setTick(1);
         assertThrows(IllegalStateException.class, partition::saveLatest);
     }
 
     @Test
     void removalThatRequiresEmptyLooksAtTheLastCommit() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         long id = writer(partition).insert(1, 1, 0);
         writer(partition).commit();
         assertThrows(IllegalStateException.class, () -> writer(partition).removePartition());
@@ -311,7 +313,7 @@ class Space3EndToEndTest {
 
     @Test
     void getUpdateAndRemoveUseTheEntityId() {
-        Partition3 p = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 p = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         long[] ids = writer(p).insertAll(List.of(new Point3(1, 1, 1), new Point3(2, 2, 2)));
         try (AcquiredSnapshot3 snapshot = publish(p)) {
             assertEquals(Optional.of(new Point3(1, 1, 1)), snapshot.get(ids[0]));
@@ -336,7 +338,7 @@ class Space3EndToEndTest {
 
     @Test
     void metadataAreReadFromTheSnapshotOfTheCommitThatWroteThem() {
-        Partition3 p = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 p = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         long[] ids = writer(p).insertAll(List.of(new Point3(1, 1, 1), new Point3(2, 2, 2)));
         writer(p).putMetadata(ids[0], "version", 1);
         writer(p).putMetadata(ids[0], "owner", 7);
@@ -361,7 +363,7 @@ class Space3EndToEndTest {
 
     @Test
     void metadataWriteOnAMissingEntityChangesNothing() {
-        Partition3 p = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 p = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         long id = writer(p).insert(new Point3(1, 1, 1));
         assertThrows(NoSuchElementException.class, () -> writer(p).updateMetadataAll(
                 List.of(MetadataWrite.put(id, "version", 1), MetadataWrite.put(id + 1000, "version", 1))));
@@ -372,7 +374,7 @@ class Space3EndToEndTest {
 
     @Test
     void conditionalWritesApplyOnlyWhenTheirConditionsAreTrue() {
-        Partition3 p = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 p = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         long[] ids = writer(p).insertAll(List.of(new Point3(1, 1, 1), new Point3(2, 2, 2)));
         writer(p).putMetadata(ids[0], "version", 1);
         assertTrue(writer(p).compareAndSetMetadata(ids[0], "version", 1, 2));
@@ -397,7 +399,7 @@ class Space3EndToEndTest {
 
     @Test
     void removalDiscardsUncommittedInsertionsWhenTheLastCommitIsEmpty() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         writer(partition).insert(new Point3(1, 2, 3));
         writer(partition).removePartition();
         space.setTick(1);
@@ -408,7 +410,7 @@ class Space3EndToEndTest {
 
     @Test
     void closingAViewTwiceReleasesItAndKeepsItsTick() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         space.setTick(1);
         AcquiredSnapshot3 snapshot = partition.acquireLatest();
         snapshot.close();
@@ -428,8 +430,10 @@ class Space3EndToEndTest {
         SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
         LocalPartitionNode3 first = new LocalPartitionNode3();
         LocalPartitionNode3 second = new LocalPartitionNode3();
-        Partition3 a = new Space3(config).createPartition(first, nextName());
-        Partition3 b = new Space3(config).createPartition(second, nextName());
+        Space3 one = new Space3(config);
+        Space3 two = new Space3(config);
+        Partition3 a = one.createPartition(one.createNode(() -> first), nextName());
+        Partition3 b = two.createPartition(two.createNode(() -> second), nextName());
         assertEquals(1, writer(a).insert(new Point3(1, 2, 3)));
         assertEquals(2, writer(b).insert(new Point3(1, 2, 3)));
         assertEquals(0, first.creationTick(new PartitionId(1)));
@@ -438,10 +442,10 @@ class Space3EndToEndTest {
 
     @Test
     void writesAndQueriesStayOnTheChosenPartitionAndNode() {
-        LocalPartitionNode3 node = new LocalPartitionNode3();
+        Node3 node = space.createNode(LocalPartitionNode3::new);
         Partition3 first = space.createPartition(node, nextName());
         Partition3 sameNode = space.createPartition(node, nextName());
-        Partition3 otherNode = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 otherNode = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         Point3 position = new Point3(1, 2, 3);
         long id = writer(first).insert(position);
         Box3 region = new Box3(position, position);
@@ -464,7 +468,7 @@ class Space3EndToEndTest {
     @Test
     void repeatingTheTickDoesNotPublishAnUnfinishedTick() {
         assertEquals(0, space.tick());
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         space.setTick(4);
         writer(partition).insert(new Point3(1, 2, 3));
         writer(partition).commit();
@@ -488,7 +492,7 @@ class Space3EndToEndTest {
      */
     @Test
     void writersOfPartitionsOnTheSameNodeWorkOnTheirOwnThreads() throws Exception {
-        LocalPartitionNode3 node = new LocalPartitionNode3();
+        Node3 node = space.createNode(LocalPartitionNode3::new);
         List<Partition3> partitions = List.of(space.createPartition(node, nextName()), space.createPartition(node, nextName()));
         int batches = 50;
         int batchSize = 20;
@@ -539,7 +543,7 @@ class Space3EndToEndTest {
 
     @Test
     void newPartitionHasNoOwnerUntilAWriterClaimsIt() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         assertEquals(new Ownership(0, false), partition.ownership());
         WriteToken token = partition.claim(0).orElseThrow();
         assertEquals(new Ownership(1, true), partition.ownership());
@@ -553,7 +557,7 @@ class Space3EndToEndTest {
 
     @Test
     void ownerPassesTheOwnershipWithATokenThatTheNextWriterUses() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         PartitionWriter3 first = partition.writer(partition.claim(0).orElseThrow());
         long a = first.insert(new Point3(1, 1, 1));
         first.commit();
@@ -576,7 +580,7 @@ class Space3EndToEndTest {
 
     @Test
     void coordinatorTakesTheOwnershipAwayAndTheWritesNotCommittedAreLost() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         PartitionWriter3 slow = partition.writer(partition.claim(0).orElseThrow());
         long kept = slow.insert(new Point3(1, 1, 1));
         slow.commit();
@@ -593,7 +597,7 @@ class Space3EndToEndTest {
 
     @Test
     void closeAfterAnExceptionDiscardsTheWritesNotCommitted() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         long[] ids = new long[2];
         assertThrows(IllegalStateException.class, () -> {
             try (PartitionWriter3 writer = partition.writer(partition.claim(0).orElseThrow())) {
@@ -613,7 +617,7 @@ class Space3EndToEndTest {
 
     @Test
     void closeAfterTheDestructionOfThePartitionDoesNothing() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         PartitionWriter3 writer = partition.writer(partition.claim(0).orElseThrow());
         writer.removePartition();
         writer.close();

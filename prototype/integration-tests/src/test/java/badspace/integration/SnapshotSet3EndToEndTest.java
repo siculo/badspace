@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.api.AcquiredSnapshot3;
 import badspace.api.FailureReason;
+import badspace.api.Node3;
 import badspace.api.Partition3;
 import badspace.api.PartitionConfig;
 import badspace.api.PartitionWriter3;
@@ -50,12 +51,12 @@ class SnapshotSet3EndToEndTest {
     void partitionsWithDifferentIndexesGiveTheResultsOfASinglePartition() {
         // The same entities in one partition and split by x among three partitions, each with
         // a different index and on its own node.
-        Partition3 single = space.createPartition(new LocalPartitionNode3(), nextName());
-        Partition3 left = space.createPartition(new LocalPartitionNode3(), nextName(),
+        Partition3 single = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
+        Partition3 left = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName(),
                 PartitionConfig.defaults().withIndex(IndexConfig.linearScan()));
-        Partition3 middle = space.createPartition(new LocalPartitionNode3(), nextName(),
+        Partition3 middle = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName(),
                 PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)));
-        Partition3 right = space.createPartition(new LocalPartitionNode3(), nextName(),
+        Partition3 right = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName(),
                 PartitionConfig.defaults().withIndex(IndexConfig.gridQuadtree(8, 4)));
         PartitionWriter3 singleWriter = writer(single);
         PartitionWriter3 leftWriter = writer(left);
@@ -93,7 +94,7 @@ class SnapshotSet3EndToEndTest {
 
     @Test
     void failuresTellWhichPartitionsHaveNoSnapshotOfTheTick() {
-        LocalPartitionNode3 node = new LocalPartitionNode3();
+        Node3 node = space.createNode(LocalPartitionNode3::new);
         Partition3 kept = space.createPartition(node, nextName(), PartitionConfig.defaults().withRetainedTicks(3));
         Partition3 shortWindow = space.createPartition(node, nextName());
         Partition3 removed = space.createPartition(node, nextName(),
@@ -121,7 +122,7 @@ class SnapshotSet3EndToEndTest {
 
     @Test
     void retiredPartitionHasNoSnapshotFromTheRemovalOn() {
-        Partition3 retired = space.createPartition(new LocalPartitionNode3(), nextName(),
+        Partition3 retired = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName(),
                 PartitionConfig.defaults().withRetainedTicks(3).withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES));
         writer(retired).removePartition();
         space.setTick(1);
@@ -139,7 +140,7 @@ class SnapshotSet3EndToEndTest {
 
     @Test
     void tickNotYetPublishedIsAFailure() {
-        Partition3 partition = space.createPartition(new LocalPartitionNode3(), nextName());
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         space.setTick(1);
         try (SnapshotSet3 set = SnapshotSet3.acquire(List.of(partition), 1)) {
             assertEquals(FailureReason.NOT_YET_PUBLISHED, set.failures().getFirst().reason());
