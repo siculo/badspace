@@ -29,6 +29,8 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Query su più partizioni](okf-bundle/current/architecture/multi-partition-queries.md), [Contratto dell’API](okf-bundle/current/api/operations.md#query-su-più-partizioni), [Estensioni dell’aggregazione](okf-bundle/future/mechanisms/query-aggregation.md), [Entità statiche vs dinamiche](okf-bundle/future/decisions/static-vs-dynamic-entities.md).
 
+- [ ] **Relazione Space e nodi:** creazione tramite factory, handle esclusivi dello Space e insiemi di snapshot creati dallo Space. Indicazioni e verifiche in [nodes-spaces-refactoring.md](nodes-spaces-refactoring.md).
+
 - [ ] **Nodo gRPC:** nodo remoto dietro il contratto dei nodi. → [cose da fare](#fare-grpc) · [decisioni](#decisioni-grpc)
 
   Documenti: [Nodi remoti e distribuzione](okf-bundle/future/decisions/tool-type.md), [Architettura a livelli](okf-bundle/current/architecture/layers.md).
@@ -289,7 +291,7 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 ### Nodo gRPC [↑](#blocchi)
 
 - [ ] Chiamate a lotti ed errori remoti nel contratto dei nodi
-- [ ] Nodi condivisi tra spazi e ID globali delle partizioni
+- [ ] Eventuale hosting di più nodi, ciascuno riservato a uno Space, nello stesso servizio remoto; identità e ciclo di vita da valutare → [Nodi, servizi e Space](okf-bundle/future/architecture/nodes-and-spaces.md)
 
 <a id="decisioni-migrazione"></a>
 ### Tombstone e migrazione [↑](#blocchi)
@@ -310,7 +312,7 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 <a id="decisioni-gruppi"></a>
 ### Gruppi di partizioni [↑](#blocchi)
 
-- [ ] Gruppi di partizioni con configurazione condivisa (indice, k, politica di rimozione), distinti dagli insiemi di partizioni da interrogare
+- [ ] Gruppi per configurazione condivisa e gestione degli insiemi da interrogare; eventuali sottogruppi, relazione tra configurazione e selezione da progettare → [Gruppi di partizioni](okf-bundle/future/decisions/api-surface.md#gruppi-di-partizioni)
 
 <a id="decisioni-raycast"></a>
 ### Raycast [↑](#blocchi)

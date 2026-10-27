@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-27
+* **Edit**: Documentate le [evoluzioni di nodi, servizi e Space](/future/architecture/nodes-and-spaces.md), distinguendo il refactoring concordato ma non implementato da hosting remoto, dismissione e operazioni tra Space. Estesi i [gruppi](/future/decisions/api-surface.md#gruppi-di-partizioni) alla possibile gestione degli insiemi da interrogare e dei sottogruppi; aggiornati nodi remoti, glossario, casi d’uso e indici futuri.
+
 ## 2026-10-26
 * **Edit**: Aggiunto in [Architettura a livelli](/current/architecture/layers.md#nodi)
   un diagramma dei riferimenti fra `Space2`, `Partition2` e

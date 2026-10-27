@@ -4,7 +4,7 @@ title: "Estensioni dell’API"
 description: "Operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
 tags: [badspace, documentation]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
 ---
 
 # Stato
@@ -37,15 +37,23 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 
 # Gruppi di partizioni
 
-Punto aperto. Un **gruppo di partizioni** ha una configurazione
-condivisa (indice, k, politica di rimozione), così non va ripetuta per
-ogni partizione. È distinto dall'insieme di partizioni da interrogare
-in una query, che il software sceglie caso per caso.
+I gruppi sono un tema futuro. Possono semplificare sia la configurazione
+condivisa delle partizioni (indice, k, politica di rimozione), sia la
+gestione degli insiemi su cui eseguire interrogazioni. Si potrà valutare
+una gerarchia di gruppi e sottogruppi.
 
-L'API dei gruppi si costruisce **sopra** l'API che lavora sulle singole
-partizioni: le implementazioni di quest'ultima non ragionano sui
-gruppi. Nel prototipo i gruppi vengono dopo i meccanismi su più
-partizioni.
+Il raggruppamento organizzativo non coincide necessariamente con una
+configurazione uniforme: per esempio un sistema solare può contenere
+partizioni statiche e dinamiche con indici differenti. Relazione tra
+configurazione e selezione, ereditarietà delle impostazioni, appartenenze
+multiple e composizione dei sottogruppi sono punti da progettare in seguito,
+non requisiti già fissati.
+
+L'API dei gruppi si costruisce sopra quella delle singole partizioni e
+degli insiemi di snapshot. Selezionare un gruppo non rende confrontabili
+coordinate di riferimenti diversi e non introduce query tra Space. La
+relazione con Space e tempi indipendenti è descritta nelle
+[evoluzioni di nodi e Space](/future/architecture/nodes-and-spaces.md).
 
 # Vincoli dal partizionamento
 

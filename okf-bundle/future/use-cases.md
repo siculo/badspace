@@ -4,7 +4,7 @@ title: Casi d'uso
 description: I casi d'uso che BADSPACE vuole supportare, ciascuno con la sua configurazione delle partizioni e i soli meccanismi che gli servono.
 tags: [badspace, use-cases, partitioning]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
 ---
 
 # Stato e prerequisiti
@@ -24,11 +24,19 @@ Gli scenari specifici dei giochi sono indicati con "Gioco".
 
 | Caso d'uso | Come si configura | Meccanismi attivi |
 |---|---|---|
-| Gioco: aree non contigue, per esempio sistemi solari separati da distanze enormi | Una partizione per area, tutte con il tick comune dello spazio; k = 1; il viaggio di una nave tra sistemi è una migrazione | Solo [migrazione](/future/mechanisms/entity-migration.md) |
+| Gioco: aree non contigue, per esempio sistemi solari separati da distanze enormi | Una o più partizioni per area, tutte con il tick comune dello spazio; k = 1; insiemi scelti dal software, eventualmente aiutato da futuri gruppi; il viaggio di una nave tra sistemi è una migrazione | Solo [migrazione](/future/mechanisms/entity-migration.md) |
 | Gioco: mondo a zone contigue con confini | Partizioni per zona, gTick, k > 1 sulle partizioni di confine; le query vicino al confine interrogano più zone | Migrazione, [letture coerenti al tick N](/future/mechanisms/consistent-reads.md), [query su più partizioni](/current/architecture/multi-partition-queries.md) |
 | Gioco: strategia mista per tipo di entità | Geometria statica divisa per zone con indice build-once; proiettili (molte scritture, poche query, densità regolare) in un'unica partizione globale con una grid uniforme a celle grandi, l'indice più economico nelle scritture; giocatori (molte query, spesso raccolti in gruppi densi) con una griglia di quadtree, che non crolla nelle query con i dati a cluster ma costa di più nelle scritture | Aggregazione tra partizioni con indici diversi |
 | Carico sbilanciato tra zone | Si cede un'intera partizione calda a un altro writer, o la si divide | [Ribilanciamento e split](/future/mechanisms/rebalancing-and-split.md) |
 | Server distribuito o cluster | Partizioni su [nodi](/current/architecture/layers.md#nodi) separati (processi o macchine), contratto dei nodi esposto via gRPC; l'API resta nel processo del software | Tutti, con coordinamento esterno del gTick |
+
+# Space indipendenti e risorse condivise
+
+Un caso distinto sono simulazioni con tempi indipendenti, rappresentate da
+Space diversi. L'eventuale hosting dei loro nodi nello stesso servizio
+remoto e il trasferimento di entità tra simulazioni sono evoluzioni
+separate: vedi [nodi, servizi e Space](/future/architecture/nodes-and-spaces.md).
+Non sono prerequisiti del caso dei sistemi solari con un tick comune.
 
 # Ricerche di base
 
