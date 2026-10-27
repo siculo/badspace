@@ -4,7 +4,7 @@ title: "Salvataggio e caricamento delle partizioni"
 description: "Persistenza implementata nel nodo locale: copia autonoma dello snapshot, file binario, elenco ed eliminazione, caricamento e misure dei costi."
 tags: [badspace, design, persistence, partitioning]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
 ---
 
 # Perimetro attuale
@@ -129,8 +129,9 @@ salvataggio e gestisce l'esito.
 Il nodo offre meccanismi generici: l'elenco dei salvataggi, di tutti i
 nomi o di un nome, e l'eliminazione di un insieme di salvataggi. Le
 chiamate lavorano sui file della destinazione e non richiedono una
-partizione viva, così servono anche dopo un riavvio, prima di
-qualsiasi caricamento, e per i salvataggi delle partizioni rimosse.
+partizione viva, così servono anche dopo un riavvio, su un nodo appena
+creato e prima di qualsiasi caricamento, e per i salvataggi delle
+partizioni rimosse.
 Il nodo non ha regole su quali salvataggi conservare: quanti e quali
 lo decide il software, che può adottare politiche diverse. Alcuni
 esempi:
@@ -169,8 +170,13 @@ competerebbe con un salvataggio che le crea.
 
 I dati persistiti vanno su una **destinazione configurata sul nodo**
 che gestisce la partizione, non su un volume del software che usa
-l'API. Nel prototipo la destinazione è una directory. L'API comanda il
-salvataggio e riceve l'esito: completamento o errore.
+l'API. Nel prototipo la destinazione è una directory, che la [factory
+dei nodi](/current/architecture/layers.md#nodi) passa al nodo locale
+quando lo spazio lo crea. Nodi usati insieme, anche di spazi diversi,
+hanno directory diverse: così elenchi, caricamenti ed eliminazioni di
+un nodo non toccano i salvataggi di un altro, anche con gli stessi
+nomi. La fine della vita di un nodo non elimina i suoi salvataggi.
+L'API comanda il salvataggio e riceve l'esito: completamento o errore.
 
 Il nodo conserva i dati e realizza il salvataggio; l’API riceve solo il
 riferimento al file. Questo mantiene la rappresentazione dello storage
@@ -186,8 +192,8 @@ Il nodo carica i salvataggi presenti nella propria directory configurata.
 
 # Caricamento
 
-Lo spazio dell'API offre `loadPartition(node, config, saved)`: il nodo
-crea una nuova partizione già con il contenuto di un salvataggio, cioè
+Lo spazio dell'API offre `loadPartition(node, config, saved)`, con
+l'handle di un nodo creato dallo spazio: il nodo crea una nuova partizione già con il contenuto di un salvataggio, cioè
 con le entità con gli stessi ID, posizioni e metadati.
 
 Il [contratto del generatore degli ID](/current/decisions/entity-ids.md#contratto-del-generatore)

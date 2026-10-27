@@ -8,7 +8,7 @@ L'obiettivo è uno strumento flessibile, che i programmatori possono adattare al
 
 Il progetto è in fase prototipale. Il [prototipo Java](prototype/) è una libreria embedded con nodi locali e serve a validare le decisioni di progetto. Il [bundle OKF](okf-bundle/index.md) distingue l'[implementazione corrente](okf-bundle/current/index.md) dagli [sviluppi futuri](okf-bundle/future/index.md). Stato attuale:
 
-- **Spazi e partizioni:** spazi 2D e 3D; partizioni create e rimosse su nodi locali; indice spaziale, politica di rimozione e finestra degli snapshot scelti per partizione. Gli ID delle entità usano un generatore in stile Snowflake.
+- **Spazi e partizioni:** spazi 2D e 3D con tick indipendenti; ogni spazio crea i propri nodi locali con una factory, e le partizioni si creano e si rimuovono su questi nodi; indice spaziale, politica di rimozione e finestra degli snapshot scelti per partizione. Gli ID delle entità usano un generatore in stile Snowflake.
 - **Scritture e letture:** scritture batch delle entità, commit delle partizioni e tick logici. Un writer possiede la partizione tramite fencing token; i reader acquisiscono snapshot stabili dei tick completati. Gli snapshot pubblicati restano disponibili nella finestra configurata e quelli acquisiti possono sopravvivere alla rimozione della partizione.
 - **Metadati:** metadati applicativi delle entità, con scritture condizionate che possono modificare insieme posizioni e metadati.
 - **Persistenza:** salvataggio sincrono dello snapshot pubblicato di una partizione nella directory del nodo, elenco ed eliminazione dei salvataggi, e caricamento di entità e metadati in una nuova partizione. Il software decide quando salvare e quali salvataggi conservare.

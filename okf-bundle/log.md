@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-27
+* **Edit**: Implementata la relazione tra Space e nodi. Lo spazio crea i propri nodi con una [factory dei nodi](/current/architecture/layers.md#nodi) e restituisce l’handle del nodo (`Node2`/`Node3`); registra il nodo e gli dà il tick alla creazione, anche senza partizioni, e rifiuta gli handle degli altri spazi. Gli [insiemi di snapshot](/current/architecture/multi-partition-queries.md#insieme-di-snapshot) li crea lo spazio, solo con le proprie partizioni. Aggiornati [architettura a livelli](/current/architecture/layers.md), [tick logico](/current/architecture/logical-time.md), [componenti](/current/api/components.md), [contratto dell’API](/current/api/operations.md#nodi-dello-spazio), [persistenza](/current/decisions/persistence.md#destinazione), glossario, panoramica, casi d’uso e indici; nel documento futuro sulle [evoluzioni di nodi e Space](/future/architecture/nodes-and-spaces.md) la base risulta ora implementata.
 * **Edit**: Documentate le [evoluzioni di nodi, servizi e Space](/future/architecture/nodes-and-spaces.md), distinguendo il refactoring concordato ma non implementato da hosting remoto, dismissione e operazioni tra Space. Estesi i [gruppi](/future/decisions/api-surface.md#gruppi-di-partizioni) alla possibile gestione degli insiemi da interrogare e dei sottogruppi; aggiornati nodi remoti, glossario, casi d’uso e indici futuri.
 
 ## 2026-10-26

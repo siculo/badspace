@@ -4,18 +4,17 @@ title: "Evoluzioni di nodi, servizi e Space"
 description: "Hosting di più nodi in un servizio remoto, recupero dei nodi vuoti e possibili operazioni tra Space con tempi e coordinate espliciti."
 tags: [badspace, architecture, partitioning, distribution]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
 ---
 
 # Stato e base della proposta
 
 Questa pagina raccoglie evoluzioni da valutare, non funzionalità disponibili.
-La direzione adottata per il prossimo refactoring è un nodo riservato a
-un solo Space, creato dallo Space tramite factory e identificato nell'API
-con un handle; anche gli insiemi di snapshot saranno creati dallo Space,
-verificando l'appartenenza delle partizioni. Questo refactoring non è
-ancora implementato. Il comportamento disponibile resta descritto
-nell'[architettura corrente](/current/architecture/layers.md).
+La base è già implementata: ogni nodo è riservato a un solo Space, che lo
+crea tramite factory e lo identifica nell'API con un handle, e gli insiemi
+di snapshot sono creati dallo Space, che verifica l'appartenenza delle
+partizioni (vedi [architettura a livelli](/current/architecture/layers.md#nodi)).
+Le evoluzioni seguenti partono da questa base.
 
 Un **nodo** ospita partizioni di un solo Space e ne segue il tick. Un
 **processo o servizio** può ospitare più nodi. Questa distinzione permette
@@ -68,7 +67,8 @@ renda il nodo nuovamente necessario durante la dismissione. Validità degli
 handle, notifiche o ricreazione dopo la dismissione restano punti aperti.
 I salvataggi su disco hanno una vita distinta: rimuovere il nodo non
 significa eliminare i salvataggi. Nessun meccanismo di dismissione viene
-richiesto dal refactoring iniziale.
+richiesto dalla base attuale: i nodi restano allo Space per tutta la sua
+vita.
 
 # Integrazione e trasferimenti tra Space
 

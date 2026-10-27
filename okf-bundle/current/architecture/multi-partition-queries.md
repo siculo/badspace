@@ -4,7 +4,7 @@ title: "Query su più partizioni"
 description: "Insieme di snapshot dello stesso tick su partizioni scelte dal software: acquisizione, fallimenti come esito, rilascio e aggregazione di range e k-nearest."
 tags: [badspace, partitioning, queries]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
 ---
 
 # Principio
@@ -29,8 +29,9 @@ stessi risultati.
 
 L’**insieme di snapshot** (`SnapshotSet2`/`SnapshotSet3`) acquisisce lo
 snapshot dello stesso tick N su una lista di partizioni, indicate con i
-loro handle, e offre le query su tutti gli snapshot acquisiti. È
-`AutoCloseable`: `close()` rilascia tutte le acquisizioni.
+loro handle, e offre le query su tutti gli snapshot acquisiti. Lo crea
+lo spazio con `acquire(partitions, tick)`, solo con partizioni proprie.
+È `AutoCloseable`: `close()` rilascia tutte le acquisizioni.
 
 È un’utility generica: non sceglie N e non decide se un risultato
 parziale basta. Acquisisce quello che può e restituisce, insieme agli
@@ -44,7 +45,7 @@ creata al tick 5; le partizioni pubblicano ciascuna per conto suo, e
 l’insieme le acquisisce una dopo l’altra.
 
 ```text
-                  "SnapshotSet2.acquire([A, B, C], 4)"
+                     "space.acquire([A, B, C], 4)"
                                    |
             +----------------------+----------------------+
             |                      |                      |
@@ -87,8 +88,12 @@ partizione vista dall’insieme, quindi è un tipo a parte.
 Ogni altro errore è un difetto o un uso sbagliato, non un esito: ferma
 la chiamata, che prima rilascia gli snapshot già acquisiti e poi
 propaga l’errore. I parametri si controllano prima di acquisire
-qualunque cosa: lista o elementi nulli, opzioni nulle, tick negativo e
-partizione ripetuta nella lista. Il controllo del tick è lo stesso del
+qualunque cosa: lista o elementi nulli, opzioni nulle, tick negativo,
+partizione di un altro spazio e partizione ripetuta nella lista. Una
+partizione di un altro spazio è un uso sbagliato, non un fallimento:
+lo spazio la rifiuta con `IllegalArgumentException` anche quando segue
+partizioni valide, senza acquisire niente. Il controllo usa l’identità
+dello spazio, non la sua configurazione. Il controllo del tick è lo stesso del
 nodo, condiviso in `common`. Una lista vuota dà un insieme vuoto e
 completo.
 
@@ -104,6 +109,12 @@ N può essere già pubblicato su alcune partizioni e non ancora su altre,
 e uno snapshot vecchio può uscire dalla finestra di una partizione con
 k piccolo. In questi casi l’insieme dà un fallimento, non attende né
 riprova.
+
+Lo stesso spazio garantisce il tempo comune: spazi diversi avanzano in
+modo indipendente, e lo stesso numero di tick non indica lo stesso
+istante. Non garantisce invece che le coordinate di partizioni diverse
+siano confrontabili: scegliere partizioni che hanno senso insieme resta
+compito del software.
 
 # Aggregazione per tipo di query
 
@@ -129,9 +140,10 @@ partizioni, e la strategia del software serve a limitarlo.
 # Nel prototipo
 
 `SnapshotSet2`/`SnapshotSet3` sono nel modulo `api`, accanto alle view
-degli snapshot. `acquire(partitions, tick)` usa la scadenza di default,
-`acquire(partitions, tick, options)` quella delle opzioni, uguale per
-tutte le acquisizioni. Il risultato espone `tick()`, `snapshots()` e
+degli snapshot; li crea `Space2`/`Space3`, perché la funzione statica
+che acquisisce è interna al package. `acquire(partitions, tick)` dello
+spazio usa la scadenza di default, `acquire(partitions, tick, options)`
+quella delle opzioni, uguale per tutte le acquisizioni. Il risultato espone `tick()`, `snapshots()` e
 `failures()` nell’ordine della lista e `isComplete()`; il fallimento è
 il record `SnapshotSet2.Failure`/`SnapshotSet3.Failure`, con la
 partizione, il motivo `reason()` e l’eccezione `error()`. Il motivo è
@@ -145,7 +157,8 @@ aggregazione con i nodi simulati; i test di integrazione confrontano le
 query su tre partizioni con indici diversi (scansione lineare, grid
 uniforme, griglia di alberi) con quelle su una partizione che contiene
 le stesse entità, e verificano i fallimenti reali, compresa una
-partizione ritirata e una distrutta. L’esempio
+partizione ritirata e una distrutta, e il rifiuto di una partizione di
+un altro spazio senza acquisizioni rimaste. L’esempio
 `multi-partition-queries` mostra una partizione statica e una dinamica
 interrogate insieme e una partizione creata dopo il tick richiesto.
 
