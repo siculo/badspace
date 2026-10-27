@@ -41,6 +41,11 @@ public final class Partition2 implements Partition {
         this.config = config;
     }
 
+    /** Returns the space that created the partition. */
+    Space2 space() {
+        return space;
+    }
+
     @Override
     public PartitionName name() {
         return name;

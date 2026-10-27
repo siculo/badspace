@@ -1,5 +1,6 @@
 package badspace.api;
 
+import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode3;
@@ -127,6 +128,38 @@ public final class Space3 implements Space<Node3, Partition3, PartitionNodeFacto
     @Override
     public long tick() {
         return tick;
+    }
+
+    /**
+     * Acquires the snapshot of the given tick on each partition with the default timeout, like
+     * {@link #acquire(List, long, AcquireOptions)}.
+     */
+    public SnapshotSet3 acquire(List<Partition3> partitions, long tick) {
+        return acquire(partitions, tick, AcquireOptions.defaultTimeout());
+    }
+
+    /**
+     * Acquires the snapshot of the given tick on each partition of this space, in the order of
+     * the list, like {@link Partition3#acquire(long, AcquireOptions)}. The space checks the whole
+     * list before the first acquisition, so a wrong list acquires nothing. A partition whose
+     * snapshot is not available is a failure of the set and does not stop the others: the
+     * snapshot is not published yet, is out of the retention window, is before the creation or
+     * at the removal of the partition or after it, or the partition is destroyed. Any other
+     * error stops the call: the set releases the snapshots acquired before and throws the error.
+     * An empty list gives an empty, complete set. The partitions of the same space share the
+     * tick, so the snapshots are of the same moment; the space does not check that the
+     * coordinates of different partitions can be compared. Any thread can call it.
+     *
+     * @param partitions the partitions of this space, each one only once
+     * @param tick the tick of the snapshots
+     * @param options the timeout of each acquisition
+     * @return the acquired snapshots and the failures
+     * @throws NullPointerException if partitions, one of its elements or options is null
+     * @throws IllegalArgumentException if tick is negative, a partition belongs to another space
+     *     or a partition is in the list more than once
+     */
+    public SnapshotSet3 acquire(List<Partition3> partitions, long tick, AcquireOptions options) {
+        return SnapshotSet3.acquire(this, partitions, tick, options);
     }
 
     @Override

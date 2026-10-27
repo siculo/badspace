@@ -79,7 +79,7 @@ class SnapshotSet2EndToEndTest {
                 new Circle2(new Point2(15, -20), 18), new Box2(new Point2(-SIDE, -SIDE), new Point2(SIDE, SIDE)));
         List<Point2> points = List.of(new Point2(0, 0), new Point2(-17, 3), new Point2(16.5, 40), new Point2(90, -90));
         try (AcquiredSnapshot2 reference = single.acquire(0);
-                SnapshotSet2 set = SnapshotSet2.acquire(List.of(left, middle, right), 0)) {
+                SnapshotSet2 set = space.acquire(List.of(left, middle, right), 0)) {
             assertTrue(set.isComplete());
             for (Region2 region : regions) {
                 assertEquals(positionSet(reference.findInRegion(region)), positionSet(set.findInRegion(region)));
@@ -109,7 +109,7 @@ class SnapshotSet2EndToEndTest {
 
         // At tick 3 the window of shortWindow has only tick 2, and late was created at tick 1.
         // The removal of removed is effective at tick 1, and with k = 1 it is then destroyed.
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(kept, shortWindow, removed, late), 0)) {
+        try (SnapshotSet2 set = space.acquire(List.of(kept, shortWindow, removed, late), 0)) {
             assertEquals(1, set.snapshots().size());
             assertEquals(List.of(shortWindow, removed, late), set.failures().stream().map(SnapshotSet2.Failure::partition).toList());
             assertEquals(FailureReason.OUT_OF_RETENTION, set.failures().get(0).reason());
@@ -130,10 +130,10 @@ class SnapshotSet2EndToEndTest {
 
         // The removal is effective at tick 1. At tick 2 the snapshot of tick 0 is still in the
         // window, so the partition is retired and not destroyed.
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(retired), 1)) {
+        try (SnapshotSet2 set = space.acquire(List.of(retired), 1)) {
             assertEquals(FailureReason.AFTER_REMOVAL, set.failures().getFirst().reason());
         }
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(retired), 0)) {
+        try (SnapshotSet2 set = space.acquire(List.of(retired), 0)) {
             assertTrue(set.isComplete());
         }
     }
@@ -142,7 +142,7 @@ class SnapshotSet2EndToEndTest {
     void tickNotYetPublishedIsAFailure() {
         Partition2 partition = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName());
         space.setTick(1);
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(partition), 1)) {
+        try (SnapshotSet2 set = space.acquire(List.of(partition), 1)) {
             assertEquals(FailureReason.NOT_YET_PUBLISHED, set.failures().getFirst().reason());
         }
     }

@@ -54,7 +54,7 @@ public final class MultiPartitionQueries {
         List<Partition2> partitions = List.of(buildings, vehicles, drones);
         Box2 area = new Box2(point(0, -5), point(25, 10));
         for (long tick = 0; tick <= 1; tick++) {
-            try (SnapshotSet2 set = SnapshotSet2.acquire(partitions, tick)) {
+            try (SnapshotSet2 set = space.acquire(partitions, tick)) {
                 System.out.printf("Tick %d: %d snapshots, complete: %b%n", tick, set.snapshots().size(), set.isComplete());
                 for (SnapshotSet2.Failure failure : set.failures()) {
                     System.out.printf("  no snapshot of %s: %s%n", failure.partition().name().value(), failure.reason());

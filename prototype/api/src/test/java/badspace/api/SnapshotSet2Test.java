@@ -54,7 +54,7 @@ class SnapshotSet2Test {
         AcquireOptions options = AcquireOptions.timeout(Duration.ofSeconds(5));
         acquirable(nodeA, acquisitionA, options);
         acquirable(nodeB, acquisitionB, options);
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(a, b), TICK, options)) {
+        try (SnapshotSet2 set = space.acquire(List.of(a, b), TICK, options)) {
             assertEquals(TICK, set.tick());
             assertTrue(set.isComplete());
             assertEquals(List.of(), set.failures());
@@ -67,7 +67,7 @@ class SnapshotSet2Test {
     @Test
     void withoutOptionsEachAcquisitionHasTheDefaultTimeout() {
         acquirable(nodeA, acquisitionA, AcquireOptions.defaultTimeout());
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(a), TICK)) {
+        try (SnapshotSet2 set = space.acquire(List.of(a), TICK)) {
             assertTrue(set.isComplete());
         }
         verify(nodeA).acquire(acquisitionA.partitionId(), TICK, AcquireOptions.defaultTimeout());
@@ -75,7 +75,7 @@ class SnapshotSet2Test {
 
     @Test
     void emptyListGivesAnEmptyCompleteSet() {
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(), TICK)) {
+        try (SnapshotSet2 set = space.acquire(List.of(), TICK)) {
             assertTrue(set.isComplete());
             assertEquals(List.of(), set.snapshots());
             assertEquals(List.of(), set.findInRegion(ALL));
@@ -89,7 +89,7 @@ class SnapshotSet2Test {
         acquirable(nodeA, acquisitionA, AcquireOptions.defaultTimeout());
         when(nodeB.acquire(any(), anyLong(), any())).thenThrow(notAvailable);
         acquirable(nodeC, acquisitionC, AcquireOptions.defaultTimeout());
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(a, b, c), TICK)) {
+        try (SnapshotSet2 set = space.acquire(List.of(a, b, c), TICK)) {
             assertFalse(set.isComplete());
             assertEquals(2, set.snapshots().size());
             assertEquals(List.of(new SnapshotSet2.Failure(b, FailureReason.OUT_OF_RETENTION, notAvailable)), set.failures());
@@ -100,7 +100,7 @@ class SnapshotSet2Test {
     void destroyedPartitionIsAFailure() {
         UnknownPartitionException destroyed = new UnknownPartitionException(acquisitionA.partitionId());
         when(nodeA.acquire(any(), anyLong(), any())).thenThrow(destroyed);
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(a), TICK)) {
+        try (SnapshotSet2 set = space.acquire(List.of(a), TICK)) {
             assertSame(destroyed, set.failures().getFirst().error());
             assertEquals(FailureReason.UNKNOWN_PARTITION, set.failures().getFirst().reason());
             assertEquals(List.of(), set.snapshots());
@@ -112,20 +112,33 @@ class SnapshotSet2Test {
         IllegalStateException bug = new IllegalStateException("bug");
         acquirable(nodeA, acquisitionA, AcquireOptions.defaultTimeout());
         when(nodeB.acquire(any(), anyLong(), any())).thenThrow(bug);
-        assertSame(bug, assertThrows(IllegalStateException.class, () -> SnapshotSet2.acquire(List.of(a, b, c), TICK)));
+        assertSame(bug, assertThrows(IllegalStateException.class, () -> space.acquire(List.of(a, b, c), TICK)));
         verify(nodeA).release(acquisitionA);
         verify(nodeC, never()).acquire(any(), anyLong(), any());
     }
 
     @Test
     void wrongArgumentsFailBeforeAnyAcquisition() {
-        assertThrows(NullPointerException.class, () -> SnapshotSet2.acquire(null, TICK));
-        assertThrows(NullPointerException.class, () -> SnapshotSet2.acquire(Arrays.asList(a, null), TICK));
-        assertThrows(NullPointerException.class, () -> SnapshotSet2.acquire(List.of(a), TICK, null));
-        assertThrows(IllegalArgumentException.class, () -> SnapshotSet2.acquire(List.of(a), -1));
-        assertThrows(IllegalArgumentException.class, () -> SnapshotSet2.acquire(List.of(a, b, a), TICK));
+        assertThrows(NullPointerException.class, () -> space.acquire(null, TICK));
+        assertThrows(NullPointerException.class, () -> space.acquire(Arrays.asList(a, null), TICK));
+        assertThrows(NullPointerException.class, () -> space.acquire(List.of(a), TICK, null));
+        assertThrows(IllegalArgumentException.class, () -> space.acquire(List.of(a), -1));
+        assertThrows(IllegalArgumentException.class, () -> space.acquire(List.of(a, b, a), TICK));
         verify(nodeA, never()).acquire(any(), anyLong(), any());
         verify(nodeB, never()).acquire(any(), anyLong(), any());
+    }
+
+    @Test
+    void partitionOfAnotherSpaceFailsBeforeAnyAcquisition() {
+        Space2 other = new Space2(SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet));
+        PartitionNode2 otherNode = mock(PartitionNode2.class);
+        Partition2 foreign = other.createPartition(other.createNode(() -> otherNode), new PartitionName("foreign"));
+        acquirable(nodeA, acquisitionA, AcquireOptions.defaultTimeout());
+        assertThrows(IllegalArgumentException.class, () -> space.acquire(List.of(foreign, a), TICK));
+        assertThrows(IllegalArgumentException.class, () -> space.acquire(List.of(a, foreign), TICK));
+        verify(nodeA, never()).acquire(any(), anyLong(), any());
+        verify(nodeA, never()).release(any(Acquisition.class));
+        verify(otherNode, never()).acquire(any(), anyLong(), any());
     }
 
     @Test
@@ -134,7 +147,7 @@ class SnapshotSet2Test {
         acquirable(nodeB, acquisitionB, AcquireOptions.defaultTimeout());
         IllegalStateException failure = new IllegalStateException("release");
         doThrow(failure).when(nodeA).release(acquisitionA);
-        SnapshotSet2 set = SnapshotSet2.acquire(List.of(a, b), TICK);
+        SnapshotSet2 set = space.acquire(List.of(a, b), TICK);
         assertSame(failure, assertThrows(IllegalStateException.class, set::close));
         verify(nodeB).release(acquisitionB);
     }
@@ -145,7 +158,7 @@ class SnapshotSet2Test {
         acquirable(nodeB, acquisitionB, AcquireOptions.defaultTimeout());
         when(nodeA.findInRegion(acquisitionA, ALL)).thenReturn(List.of(Entity2.entity(1, 1, 1)));
         when(nodeB.findInRegion(acquisitionB, ALL)).thenReturn(List.of(Entity2.entity(2, 2, 2), Entity2.entity(3, 3, 3)));
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(a, b), TICK)) {
+        try (SnapshotSet2 set = space.acquire(List.of(a, b), TICK)) {
             assertEquals(List.of(Entity2.entity(1, 1, 1), Entity2.entity(2, 2, 2), Entity2.entity(3, 3, 3)),
                     set.findInRegion(ALL));
         }
@@ -159,7 +172,7 @@ class SnapshotSet2Test {
                 .thenReturn(List.of(Entity2.entity(7, 1, 0), Entity2.entity(1, 3, 0), Entity2.entity(2, 4, 0)));
         when(nodeB.findNearest(acquisitionB, ORIGIN, 3))
                 .thenReturn(List.of(Entity2.entity(5, 0, 1), Entity2.entity(6, 0, 2), Entity2.entity(8, 0, 5)));
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(a, b), TICK)) {
+        try (SnapshotSet2 set = space.acquire(List.of(a, b), TICK)) {
             // 5 and 7 are at the same distance: the lower ID comes first.
             assertEquals(List.of(Entity2.entity(5, 0, 1), Entity2.entity(7, 1, 0), Entity2.entity(6, 0, 2)),
                     set.findNearest(ORIGIN, 3));
@@ -168,7 +181,7 @@ class SnapshotSet2Test {
 
     @Test
     void findNearestWithANegativeCountFailsAlsoWithoutSnapshots() {
-        try (SnapshotSet2 set = SnapshotSet2.acquire(List.of(), TICK)) {
+        try (SnapshotSet2 set = space.acquire(List.of(), TICK)) {
             assertThrows(IllegalArgumentException.class, () -> set.findNearest(ORIGIN, -1));
         }
     }
