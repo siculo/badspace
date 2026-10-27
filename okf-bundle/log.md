@@ -1,6 +1,10 @@
 # Bundle Update Log
 
 ## 2026-10-26
+* **Edit**: Aggiunto in [Architettura a livelli](/current/architecture/layers.md#nodi)
+  un diagramma dei riferimenti fra `Space2`, `Partition2` e
+  `PartitionNode2`, con la spiegazione di quali oggetti registrano o
+  conservano i nodi e i proxy delle partizioni.
 * **Edit**: Il motivo dei fallimenti delle [query su più
   partizioni](/current/architecture/multi-partition-queries.md#che-cosa-è-un-fallimento)
   è ora l’enum `FailureReason` dell’API, sempre presente, con

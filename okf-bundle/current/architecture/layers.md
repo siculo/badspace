@@ -89,6 +89,32 @@ il software usa il nome pubblico della partizione. Il contratto
 identificatori delle acquisizioni. Il nodo si fida dell’univocità degli
 ID generati dall’API e non verifica quelli presenti su altri nodi.
 
+Il diagramma seguente mostra i riferimenti fra gli oggetti dell’API per
+uno spazio 2D. Per lo spazio 3D valgono le stesse relazioni, con i tipi `3`.
+Le frecce dal proxy indicano i riferimenti che conserva dopo la creazione.
+
+```text
++----------+          "setTick(tick)"          +------------------+
+| Space2   | --------------------------------> | PartitionNode2   |
++----------+                                   +------------------+
+     ^                                                 ^
+     | riferimento a Space                             | riferimento al nodo
+     |                                                 |
+     +------------------+    +-------------------------+
+                        |    |
+                   +----------------------------+
+                   | Partition2                 |
+                   | ID, nome, configurazione   |
+                   +----------------------------+
+```
+
+Il software passa il nodo a `Space2.createPartition` o a
+`Space2.loadPartition` e può usarlo anche direttamente. Lo spazio registra
+il nodo per propagargli i tick, ma non conserva i proxy delle partizioni.
+Il proxy restituito conserva lo spazio e lo stesso oggetto nodo ricevuto
+alla creazione o al caricamento. Il nodo conserva lo stato interno della
+partizione, raggiunto tramite l’ID, non il proxy `Partition2`.
+
 Il tick dello spazio viene propagato ai nodi e alle loro partizioni.
 La propagazione non è atomica tra partizioni: durante l’avanzamento una
 partizione può essere ancora al tick precedente. Il dettaglio è nel
