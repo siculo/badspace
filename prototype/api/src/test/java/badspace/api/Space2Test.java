@@ -244,6 +244,128 @@ class Space2Test {
     }
 
     @Test
+    void createdNodeStartsAtTheTickOfTheSpaceAndBelongsToIt() {
+        Node2 handle = space.createNode(() -> node);
+        assertSame(space, handle.space());
+        assertSame(node, handle.node());
+        verify(node).setTick(0);
+        PartitionNode2 later = mock(PartitionNode2.class);
+        space.setTick(5);
+        space.createNode(() -> later);
+        verify(later).setTick(5);
+        verifyNoMoreInteractions(later);
+    }
+
+    @Test
+    void createdNodeWithoutPartitionsReceivesEveryMoveOfTheTick() {
+        space.createNode(() -> node);
+        space.setTick(3);
+        space.setTick(7);
+        var order = inOrder(node);
+        order.verify(node).setTick(0);
+        order.verify(node).setTick(3);
+        order.verify(node).setTick(7);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    void firstPartitionDoesNotMoveACreatedNodeAgain() {
+        space.createNode(() -> node);
+        space.setTick(5);
+        space.createPartition(node, NAME);
+        var order = inOrder(node);
+        order.verify(node).setTick(0);
+        order.verify(node).setTick(5);
+        order.verify(node).createPartition(PARTITION_ID, NAME, IndexConfig.linearScan(), 1);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    void moveOfTheTickWhileTheFactoryRunsReachesTheNewNode() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        PartitionNodeFactory2 factory = () -> {
+            entered.countDown();
+            await(finish);
+            return node;
+        };
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Node2> creation = executor.submit(() -> space.createNode(factory));
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            space.setTick(5);
+            finish.countDown();
+            creation.get(10, TimeUnit.SECONDS);
+            verify(node).setTick(5);
+            verifyNoMoreInteractions(node);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void moveOfTheTickWaitsForTheAdditionOfANode() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            await(finish);
+            return null;
+        }).when(node).setTick(0);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Node2> creation = executor.submit(() -> space.createNode(() -> node));
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            Future<?> move = executor.submit(() -> space.setTick(5));
+            // The node is moving to tick 0 while the space holds the lock: the move cannot end yet.
+            assertFalse(move.isDone());
+            finish.countDown();
+            creation.get(10, TimeUnit.SECONDS);
+            move.get(10, TimeUnit.SECONDS);
+            var order = inOrder(node);
+            order.verify(node).setTick(0);
+            order.verify(node).setTick(5);
+            order.verifyNoMoreInteractions();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void errorOfTheFactoryIsThrown() {
+        IllegalStateException error = new IllegalStateException("No save directory");
+        assertSame(error, assertThrows(IllegalStateException.class, () -> space.createNode(() -> {
+            throw error;
+        })));
+    }
+
+    @Test
+    void nodeThatFailsToMoveToTheTickIsNotAdded() {
+        space.setTick(4);
+        RuntimeException error = new RuntimeException("Node down");
+        doThrow(error).when(node).setTick(4);
+        assertSame(error, assertThrows(RuntimeException.class, () -> space.createNode(() -> node)));
+        space.setTick(6);
+        verify(node, never()).setTick(6);
+    }
+
+    @Test
+    void factoryThatReturnsNoNodeIsRejected() {
+        assertThrows(NullPointerException.class, () -> space.createNode(null));
+        assertThrows(IllegalArgumentException.class, () -> space.createNode(() -> null));
+    }
+
+    @Test
+    void factoryThatReturnsANodeOfTheSpaceAgainIsRejected() {
+        space.createNode(() -> node);
+        assertThrows(IllegalArgumentException.class, () -> space.createNode(() -> node));
+        space.setTick(3);
+        verify(node).setTick(0);
+        verify(node).setTick(3);
+        verifyNoMoreInteractions(node);
+    }
+
+    @Test
     void limitsPassThePartitionId() {
         Partition2 partition = space.createPartition(node, NAME);
         when(node.limits(PARTITION_ID)).thenReturn(IndexConfig.uniformGrid(4).limits());
@@ -374,5 +496,15 @@ class Space2Test {
         assertThrows(NullPointerException.class, () -> PartitionConfig.defaults().withRemovalPolicy(null));
         assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedTicks(0));
         assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedTicks(-1));
+    }
+
+    /** Waits for the latch in code that cannot throw InterruptedException, like a factory. */
+    private static void await(CountDownLatch latch) {
+        try {
+            assertTrue(latch.await(10, TimeUnit.SECONDS));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
     }
 }

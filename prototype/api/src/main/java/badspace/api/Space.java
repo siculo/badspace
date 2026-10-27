@@ -9,8 +9,28 @@ import java.util.List;
  *
  * @param <N> the type of node that hosts the partitions of this space
  * @param <P> the type of partition of this space
+ * @param <F> the type of factory that builds the nodes of this space
+ * @param <H> the type of handle of a node created by this space
  */
-public interface Space<N, P extends Partition> {
+public interface Space<N, P extends Partition, F, H> {
+
+    /**
+     * Builds a node with the factory and adds it to this space, at the tick of the space. From
+     * then on, each {@link #setTick(long)} of the space reaches the node, also when it has no
+     * partitions. The node stays with the space for the whole life of the space. The factory
+     * runs outside the lock of the tick; the space then moves the node to its tick and adds it
+     * while holding the lock, so the node misses no move of the tick. Any thread can call it.
+     *
+     * @param factory the factory of the node; each call must return a new node, empty and at
+     *     tick 0, that no other space uses
+     * @return the handle of the new node, which belongs to this space
+     * @throws NullPointerException if factory is null
+     * @throws IllegalArgumentException if the factory returns null or a node that is already in
+     *     this space; in this case the space adds no node
+     * @throws RuntimeException any error of the factory, or of the node when it moves to the
+     *     tick of the space; in this case the space adds no node
+     */
+    H createNode(F factory);
 
     /**
      * Creates a partition with the given name on the given node, with the
@@ -60,8 +80,9 @@ public interface Space<N, P extends Partition> {
     P loadPartition(N node, PartitionConfig config, SavedPartition saved);
 
     /**
-     * Moves the tick of the space forward to the given tick, and then the tick of each node on
-     * which the space created partitions; each node moves its partitions. The partitions move
+     * Moves the tick of the space forward to the given tick, and then the tick of each node of
+     * the space: the nodes created by {@link #createNode} and the nodes on which the space
+     * created partitions. Each node moves its partitions. The partitions move
      * one after the other, not all at the same moment. The same tick again does nothing, and
      * ticks can be skipped. Fails with IllegalArgumentException if the tick is less than the
      * tick of the space; in this case nothing changes.

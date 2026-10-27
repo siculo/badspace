@@ -17,20 +17,20 @@ import java.util.concurrent.locks.ReentrantLock;
  * shared by all the spaces of the process, so they are unique across spaces and never
  * used again. Its partitions can live on different nodes.
  * <p>
- * The space has a tick, which it gives to the nodes on which it created partitions. A lock
- * orders the moves to a new tick and the creation of partitions, so a new node never misses
- * a tick. A load takes the lock only to add the node, so the moves of the tick do not wait
- * for it.
+ * The space has a tick, which it gives to its nodes: the nodes it created and the nodes on
+ * which it created partitions. A lock orders the moves to a new tick, the addition of a node and
+ * the creation of partitions, so a new node never misses a tick. A load takes the lock only to
+ * add the node, so the moves of the tick do not wait for it.
  */
-public final class Space2 implements Space<PartitionNode2, Partition2> {
+public final class Space2 implements Space<PartitionNode2, Partition2, PartitionNodeFactory2, Node2> {
 
     // Partitions may have writers on different threads, and they share the generators.
     private final SpaceConfig config;
-    // Orders setTick, createPartition and the addition of the node of a load: they run while
-    // holding it.
+    // Orders setTick, the addition of a created node, createPartition and the addition of the
+    // node of a load: they run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
-    // The nodes on which this space created partitions; each new tick goes to all of them.
-    // Read and written while holding tickLock.
+    // The nodes created by this space and the nodes on which it created partitions; each new
+    // tick goes to all of them. Read and written while holding tickLock.
     private final Set<PartitionNode2> nodes = Collections.newSetFromMap(new IdentityHashMap<>());
     // The tick of the space. Written by setTick while holding tickLock, read by any thread.
     private volatile long tick;
@@ -41,6 +41,28 @@ public final class Space2 implements Space<PartitionNode2, Partition2> {
      */
     public Space2(SpaceConfig config) {
         this.config = Objects.requireNonNull(config);
+    }
+
+    @Override
+    public Node2 createNode(PartitionNodeFactory2 factory) {
+        Objects.requireNonNull(factory);
+        // Outside the lock: building a node can take time, and no other thread sees it yet.
+        PartitionNode2 node = factory.create();
+        if (node == null) {
+            throw new IllegalArgumentException("The factory returned no node");
+        }
+        tickLock.lock();
+        try {
+            if (nodes.contains(node)) {
+                throw new IllegalArgumentException("The factory returned a node that is already in the space");
+            }
+            // Added only after the move: a node that fails to move is not in the space.
+            node.setTick(tick);
+            nodes.add(node);
+        } finally {
+            tickLock.unlock();
+        }
+        return new Node2(this, node);
     }
 
     @Override
