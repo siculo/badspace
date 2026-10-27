@@ -45,6 +45,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
@@ -309,9 +310,15 @@ class Space3Test {
         try {
             Future<Node3> creation = executor.submit(() -> space.createNode(() -> created));
             assertTrue(entered.await(10, TimeUnit.SECONDS));
-            Future<?> move = executor.submit(() -> space.setTick(5));
-            // The node is moving to tick 0 while the space holds the lock: the move cannot end yet.
-            assertFalse(move.isDone());
+            CountDownLatch moving = new CountDownLatch(1);
+            Future<?> move = executor.submit(() -> {
+                moving.countDown();
+                space.setTick(5);
+            });
+            assertTrue(moving.await(10, TimeUnit.SECONDS));
+            // The node is moving to tick 0 while the space holds the lock: the move waits for the
+            // lock and does not end. Without the lock it would end at once, without the new node.
+            assertThrows(TimeoutException.class, () -> move.get(200, TimeUnit.MILLISECONDS));
             finish.countDown();
             creation.get(10, TimeUnit.SECONDS);
             move.get(10, TimeUnit.SECONDS);
@@ -320,7 +327,9 @@ class Space3Test {
             order.verify(created).setTick(5);
             order.verifyNoMoreInteractions();
         } finally {
+            finish.countDown();
             executor.shutdownNow();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
         }
     }
 
