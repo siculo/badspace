@@ -33,6 +33,10 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Architettura a livelli](okf-bundle/current/architecture/layers.md), [Tick logico](okf-bundle/current/architecture/logical-time.md), [Query su più partizioni](okf-bundle/current/architecture/multi-partition-queries.md), [Contratto dell’API](okf-bundle/current/api/operations.md#nodi-dello-spazio), [Evoluzioni di nodi e Space](okf-bundle/future/architecture/nodes-and-spaces.md).
 
+- [ ] **Strutture transazionali:** contratto comune, rollback, fallimenti tutto-o-niente, recupero e letture confermate del writer. → [cose da fare](#fare-transazioni)
+
+  Documento: [Strutture transazionali, rollback e recupero](okf-bundle/future/architecture/transactional-components.md).
+
 - [ ] **Nodo gRPC:** nodo remoto dietro il contratto dei nodi. → [cose da fare](#fare-grpc) · [decisioni](#decisioni-grpc)
 
   Documenti: [Nodi remoti e distribuzione](okf-bundle/future/decisions/tool-type.md), [Architettura a livelli](okf-bundle/current/architecture/layers.md).
@@ -174,6 +178,18 @@ Il refactoring ha seguito le indicazioni concordate, ora descritte in [Architett
 - [x] Migrazione dei chiamanti dell'API (fatta con i passi precedenti, perché i cambi di firma la richiedevano; verificato che non restano altri chiamanti: README dei benchmark e linee guida citano solo il contratto del nodo): test unitari (`Space2Test`, `Space3Test`, `SnapshotSet2Test`, `SnapshotSet3Test`, con il nodo finto restituito dalla factory), test di integrazione (`Space2EndToEndTest`, `Space3EndToEndTest`, `SnapshotSet2EndToEndTest`, `SnapshotSet3EndToEndTest`) e tutti gli esempi in `samples` che costruiscono `LocalPartitionNode2`/`LocalPartitionNode3`, con `createNode` e `space.acquire`; i benchmark usano solo il contratto del nodo e non cambiano; i test del contratto interno del nodo non prendono restrizioni che sono solo dell'API
 - [x] Test di integrazione di accettazione con nodi locali reali (`SpaceNodes2EndToEndTest`/`SpaceNodes3EndToEndTest`), 2D e 3D, con latch o barriere e senza sleep: due Space nello stesso processo con nodi distinti e gli stessi generatori che avanzano indipendenti (tick, pubblicazione, conservazione e rimozione delle partizioni di B invariati quando avanza A); nodo creato dopo un avanzamento, che avanza anche senza partizioni e crea la prima al tick corretto; handle estraneo rifiutato senza cambiare partizioni o file; insieme con una partizione estranea; due nodi con directory distinte e partizioni omonime, con salvataggi, elenchi ed eliminazioni indipendenti, ed elenco sul nodo ancora vuoto. Poi la suite completa del prototipo
 - [x] Documentazione, dopo la verifica di codice e test: in `current/` [Architettura a livelli](okf-bundle/current/architecture/layers.md), [Tick logico](okf-bundle/current/architecture/logical-time.md), [Query su più partizioni](okf-bundle/current/architecture/multi-partition-queries.md), [Componenti dell'API](okf-bundle/current/api/components.md), [Contratto dell’API](okf-bundle/current/api/operations.md), [Persistenza](okf-bundle/current/decisions/persistence.md), glossario, casi d'uso e indici; i riferimenti a nodi creati fuori dallo Space, alla registrazione alla prima partizione e a `SnapshotSet*.acquire` (anche in Javadoc, esempi e [linee guida](prototype/coding-guidelines.md)); in `future/` solo il richiamo alla base adottata in [Nodi e Space](okf-bundle/future/architecture/nodes-and-spaces.md). Alla fine togliere `nodes-spaces-refactoring.md`, ormai superato, e il suo collegamento dal blocco
+
+<a id="fare-transazioni"></a>
+### Strutture transazionali [↑](#blocchi)
+
+Comportamento, proposta del contratto e criteri di verifica nel [bundle](okf-bundle/future/architecture/transactional-components.md). Ogni passo comprende 2D e 3D, i test pertinenti e l'aggiornamento della documentazione corrente; non richiede di riprendere il TODO degli indici.
+
+- [ ] Introdurre il contratto comune e la suite di test riutilizzabile per slot, indici e metadati, con ordine di ripristino esplicito
+- [ ] Coordinare preparazione e accettazione del commit tutto-o-niente, preservando la base confermata e gestendo le risorse delle preparazioni abbandonate
+- [ ] Introdurre segnalazioni strutturate, stato di recupero necessario consultabile e annullamento automatico della transazione dopo un fallimento
+- [ ] Esporre rollback e recupero dall'ultimo stato confermato; unificare il ripristino usato al rilascio e al trasferimento dell'ownership
+- [ ] Aggiungere letture dell'ultimo stato confermato tramite il writer, pending compreso, senza acquisizione e con verifica dell'ownership per chiamata
+- [ ] Completare test di fallimento e concorrenza e client d'esempio delle nuove operazioni
 
 <a id="fare-grpc"></a>
 ### Nodo gRPC [↑](#blocchi)
