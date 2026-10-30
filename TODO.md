@@ -39,7 +39,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
 - [ ] **Nodo gRPC:** nodo remoto dietro il contratto dei nodi. → [cose da fare](#fare-grpc) · [decisioni](#decisioni-grpc)
 
-  Documenti: [Nodi remoti e distribuzione](okf-bundle/future/decisions/tool-type.md), [Architettura a livelli](okf-bundle/current/architecture/layers.md).
+  Documenti: [Nodi remoti e distribuzione](okf-bundle/future/decisions/tool-type.md), [Analisi del nodo gRPC](okf-bundle/future/analyses/grpc-node.md), [Architettura a livelli](okf-bundle/current/architecture/layers.md).
 
 - [ ] **Ribilanciamento e split:** trasferimento dell'esclusività tra writer. → [cose da fare](#fare-ribilanciamento)
 

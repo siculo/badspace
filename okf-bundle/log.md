@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-30
+* **Edit**: Integrati come documenti di [analisi](/future/analyses/index.md) i due file prima presenti alla radice: [design del prototipo](/future/analyses/prototype-design.md) e [nodo gRPC](/future/analyses/grpc-node.md). Aggiunti metadati, indice e collegamenti; preservate le valutazioni distinguendole dalle decisioni adottate, con il richiamo al successivo progetto transazionale per la lettura del pending. Aggiornati il TODO e i riferimenti ai nodi remoti.
 * **Edit**: Documentata la proposta di [contratto delle strutture transazionali](/future/architecture/transactional-components.md): preparazione e accettazione del commit, ordine di ripristino, rollback esplicito, fallimenti tutto-o-niente, errori e recupero, letture confermate riservate al writer senza acquisizione e suite di test comune. Aggiornati indici, glossario futuro ed estensioni dell’API; aggiunto in `TODO.md` un blocco sintetico prima del nodo gRPC. Distinto il ripristino interno già presente dalle funzionalità ancora da implementare.
 
 ## 2026-10-27

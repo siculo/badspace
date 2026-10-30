@@ -4,7 +4,7 @@ title: "Nodi remoti e distribuzione"
 description: "Direzione scelta per i nodi gRPC, alternative considerate e questioni aperte del futuro confine di rete."
 tags: [badspace, documentation]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
+generated: { by: codex/gpt-6, at: 2026-10-30T15:48:41Z }
 ---
 
 # Stato
@@ -46,3 +46,10 @@ l'opzione ibrida: libreria sopra, servizio sotto.
 Il contratto dei nodi resta interno al sistema anche quando sarà remoto.
 Il software filtra gli accessi dei client esterni; fencing e controlli
 di dominio proteggono da errori e ritardi dei componenti affidabili.
+
+# Analisi di riferimento
+
+L'[analisi del nodo gRPC](/future/analyses/grpc-node.md) approfondisce
+esiti incerti, ripetizione e ordine delle richieste, deadline, propagazione
+del tick e risorse del collegamento. Conserva alternative da valutare,
+senza fissare già il protocollo o la politica dei tentativi.

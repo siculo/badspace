@@ -4,7 +4,7 @@ title: "Strutture transazionali, rollback e recupero"
 description: "Contratto comune per slot, indici e metadati; commit tutto-o-niente, rollback esplicito, errori e recupero dello stato di lavoro, letture confermate riservate al writer e test di contratto."
 tags: [badspace, transactions, snapshots, recovery, testing]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-30T14:51:33Z }
+generated: { by: codex/gpt-6, at: 2026-10-30T15:48:41Z }
 ---
 
 # Perimetro e obiettivo
@@ -254,3 +254,4 @@ latch o barriere per la concorrenza, senza sleep.
 - [Proprietà corrente della partizione](/current/architecture/partition-ownership.md).
 - [Estensioni dell'API](/future/decisions/api-surface.md).
 - [Approccio incrementale e test](/process/development-approach.md).
+- [Analisi del design del prototipo](/future/analyses/prototype-design.md): contesto e alternative; le letture del writer qui definite non richiedono la vista da conservare ipotizzata nell'analisi.

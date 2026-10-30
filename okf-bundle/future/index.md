@@ -15,6 +15,8 @@
 
 # Problemi, scelte e meccanismi
 
+* [Documenti di analisi](./analyses/index.md) - Valutazioni del design del prototipo e del nodo gRPC, con proposte da distinguere dalle decisioni adottate.
+
 * [Decisioni future](./decisions/index.md) - Recupero, linguaggio finale, coordinate, partizionamento e altri temi aperti.
 * [Meccanismi su più partizioni](./mechanisms/index.md) - Aggregazione, letture coerenti, migrazione e ribilanciamento.
 * [Estensioni delle primitive](./architecture/index.md) - Contratto transazionale, rollback, recupero, metadati di sistema, tombstone, durabilità e verifiche storiche.
