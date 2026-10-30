@@ -8,7 +8,7 @@ The goal is a flexible tool that developers can adapt to their own needs. The so
 
 The project is at the prototype stage. The Java [prototype](prototype/) is an embedded library with local nodes, used to validate the design decisions. The [OKF bundle](okf-bundle/index.md) separates the [current implementation](okf-bundle/current/index.md) from [future work](okf-bundle/future/index.md). Current status:
 
-- **Spaces and partitions:** 2D and 3D spaces; partitions created and removed on local nodes; spatial index, removal policy and snapshot retention chosen per partition. Entity IDs use a Snowflake-style generator.
+- **Spaces and partitions:** 2D and 3D spaces with independent ticks; each space creates its own local nodes through a factory, and partitions are created and removed on them; spatial index, removal policy and snapshot retention chosen per partition. Entity IDs use a Snowflake-style generator.
 - **Writes and reads:** batch entity writes, partition commits and logical ticks. One writer owns a partition through a fencing token; readers acquire stable snapshots of completed ticks. Published snapshots remain available within the configured retention window, and acquired snapshots can outlive partition removal.
 - **Metadata:** application metadata for entities, with conditional writes that can update positions and metadata together.
 - **Persistence:** synchronous saving of one partition's published snapshot to a node directory, listing and deleting saves, and loading its entities and metadata into a new partition. The software schedules saves and chooses which ones to keep.

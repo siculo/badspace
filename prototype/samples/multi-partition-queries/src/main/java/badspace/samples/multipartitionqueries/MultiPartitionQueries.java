@@ -3,6 +3,7 @@ package badspace.samples.multipartitionqueries;
 import static badspace.common.geometry.Point2.point;
 import static badspace.common.partition.PartitionName.partitionName;
 
+import badspace.api.Node2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
 import badspace.api.PartitionWriter2;
@@ -26,7 +27,7 @@ public final class MultiPartitionQueries {
 
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        LocalPartitionNode2 node = new LocalPartitionNode2();
+        Node2 node = space.createNode(LocalPartitionNode2::new);
         // Two retained ticks, so the snapshot of tick 0 is still there at tick 2.
         PartitionConfig config = PartitionConfig.defaults().withRetainedTicks(2);
         Partition2 buildings = space.createPartition(node, partitionName("buildings"),
@@ -53,7 +54,7 @@ public final class MultiPartitionQueries {
         List<Partition2> partitions = List.of(buildings, vehicles, drones);
         Box2 area = new Box2(point(0, -5), point(25, 10));
         for (long tick = 0; tick <= 1; tick++) {
-            try (SnapshotSet2 set = SnapshotSet2.acquire(partitions, tick)) {
+            try (SnapshotSet2 set = space.acquire(partitions, tick)) {
                 System.out.printf("Tick %d: %d snapshots, complete: %b%n", tick, set.snapshots().size(), set.isComplete());
                 for (SnapshotSet2.Failure failure : set.failures()) {
                     System.out.printf("  no snapshot of %s: %s%n", failure.partition().name().value(), failure.reason());

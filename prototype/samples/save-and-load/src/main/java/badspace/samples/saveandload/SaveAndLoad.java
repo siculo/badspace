@@ -3,6 +3,7 @@ package badspace.samples.saveandload;
 import static badspace.common.partition.PartitionName.partitionName;
 
 import badspace.api.AcquiredSnapshot2;
+import badspace.api.Node2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
 import badspace.api.PartitionWriter2;
@@ -39,7 +40,8 @@ public final class SaveAndLoad {
 
         // First run: a writer inserts a ship with its health, and the software saves the snapshot.
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Partition2 partition = space.createPartition(new LocalPartitionNode2(directory), WORLD);
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(directory));
+        Partition2 partition = space.createPartition(node, WORLD);
         long ship;
         try (PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow())) {
             ship = writer.insert(10, 20);
@@ -51,17 +53,17 @@ public final class SaveAndLoad {
         SavedPartition saved = partition.saveLatest();
         System.out.printf("Saved %s at tick %d%n", saved.name().value(), saved.tick());
 
-        // A new run, here in the same process: a new space at tick 0 and a new node on the same
-        // directory. The node has no partitions; the software finds the save among the saves of
-        // the name. The directory can have other saves of the name, for example of earlier runs.
+        // A new run, here in the same process: a new space at tick 0 creates a new node on the
+        // same directory. The node has no partitions; the software finds the save among the saves
+        // of the name. The directory can have other saves of the name, for example of earlier runs.
         Space2 restarted = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(1), new SnowflakeIdGenerator(1)));
-        LocalPartitionNode2 node = new LocalPartitionNode2(directory);
-        SavedPartition found = restarted.saves(node, WORLD).stream()
+        Node2 restartedNode = restarted.createNode(() -> new LocalPartitionNode2(directory));
+        SavedPartition found = restarted.saves(restartedNode, WORLD).stream()
                 .filter(saved::equals)
                 .findFirst()
                 .orElseThrow();
         // The index and the retention window come from the software, not from the save.
-        Partition2 loaded = restarted.loadPartition(node, PartitionConfig.defaults(), found);
+        Partition2 loaded = restarted.loadPartition(restartedNode, PartitionConfig.defaults(), found);
         System.out.printf("Loaded the save of tick %d into a new partition, created at tick %d of the new run%n",
                 found.tick(), loaded.creationTick());
 

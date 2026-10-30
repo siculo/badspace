@@ -16,8 +16,9 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * The snapshots of the same tick acquired on a set of 3D partitions, with the queries on all of
- * them. The caller chooses the partitions and the tick, and decides what to do with the
+ * The snapshots of the same tick acquired on a set of 3D partitions of a space, with the queries
+ * on all of them. The space creates it with {@link Space3#acquire(List, long)}, only with its own
+ * partitions. The caller chooses the partitions and the tick, and decides what to do with the
  * partitions whose snapshot is not available: the set acquires what it can and gives the
  * {@linkplain #failures() failures}, so the same set can give a complete or a partial result.
  * Use it with try-with-resources: {@link #close()} releases all the acquisitions.
@@ -47,38 +48,24 @@ public final class SnapshotSet3 implements AutoCloseable {
     }
 
     /**
-     * Acquires the snapshot of the given tick on each partition with the default timeout, like
-     * {@link #acquire(List, long, AcquireOptions)}.
+     * Acquires the snapshot of the given tick on each partition of the space, as described by
+     * {@link Space3#acquire(List, long, AcquireOptions)}. It checks the whole list before the
+     * first acquisition.
      */
-    public static SnapshotSet3 acquire(List<Partition3> partitions, long tick) {
-        return acquire(partitions, tick, AcquireOptions.defaultTimeout());
-    }
-
-    /**
-     * Acquires the snapshot of the given tick on each partition, in the order of the list, like
-     * {@link Partition3#acquire(long, AcquireOptions)}. A partition whose snapshot is not
-     * available is a failure of the set and does not stop the others: the snapshot is not
-     * published yet, is out of the retention window, is before the creation or at the removal
-     * of the partition or after it, or the partition is destroyed. Any other error stops the
-     * call: the set releases the snapshots acquired before and throws the error. An empty list
-     * gives an empty, complete set.
-     *
-     * @param partitions the partitions, each one only once
-     * @param tick the tick of the snapshots
-     * @param options the timeout of each acquisition
-     * @return the acquired snapshots and the failures
-     * @throws NullPointerException if partitions, one of its elements or options is null
-     * @throws IllegalArgumentException if tick is negative or a partition is in the list more
-     *     than once
-     */
-    public static SnapshotSet3 acquire(List<Partition3> partitions, long tick, AcquireOptions options) {
+    static SnapshotSet3 acquire(Space3 space, List<Partition3> partitions, long tick, AcquireOptions options) {
         Objects.requireNonNull(partitions);
         Objects.requireNonNull(options);
         RetentionWindow.checkAcquiredTick(tick);
         // The handles have no equals: the space makes one handle for each partition.
         Set<Partition3> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Partition3 partition : partitions) {
-            if (!seen.add(Objects.requireNonNull(partition))) {
+            Objects.requireNonNull(partition);
+            // The identity of the space, not its configuration: the same tick is the same moment
+            // only in the same space.
+            if (partition.space() != space) {
+                throw new IllegalArgumentException("Partition of another space: " + partition.name());
+            }
+            if (!seen.add(partition)) {
                 throw new IllegalArgumentException("Partition in the list more than once: " + partition.name());
             }
         }

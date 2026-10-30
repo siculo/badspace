@@ -1,5 +1,6 @@
 package badspace.api;
 
+import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode3;
@@ -17,20 +18,19 @@ import java.util.concurrent.locks.ReentrantLock;
  * shared by all the spaces of the process, so they are unique across spaces and never
  * used again. Its partitions can live on different nodes.
  * <p>
- * The space has a tick, which it gives to the nodes on which it created partitions. A lock
- * orders the moves to a new tick and the creation of partitions, so a new node never misses
- * a tick. A load takes the lock only to add the node, so the moves of the tick do not wait
- * for it.
+ * The space creates its nodes and gives its tick to all of them, also to the nodes with no
+ * partitions. A lock orders the moves to a new tick, the addition of a node and the creation of
+ * partitions, so a new node never misses a tick. A load does not take the lock, so the moves of
+ * the tick do not wait for it.
  */
-public final class Space3 implements Space<PartitionNode3, Partition3> {
+public final class Space3 implements Space<Node3, Partition3, PartitionNodeFactory3> {
 
     // Partitions may have writers on different threads, and they share the generators.
     private final SpaceConfig config;
-    // Orders setTick, createPartition and the addition of the node of a load: they run while
-    // holding it.
+    // Orders setTick, the addition of a node and createPartition: they run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
-    // The nodes on which this space created partitions; each new tick goes to all of them.
-    // Read and written while holding tickLock.
+    // The nodes created by this space; each new tick goes to all of them. Read and written while
+    // holding tickLock.
     private final Set<PartitionNode3> nodes = Collections.newSetFromMap(new IdentityHashMap<>());
     // The tick of the space. Written by setTick while holding tickLock, read by any thread.
     private volatile long tick;
@@ -44,47 +44,69 @@ public final class Space3 implements Space<PartitionNode3, Partition3> {
     }
 
     @Override
-    public Partition3 createPartition(PartitionNode3 node, PartitionName name, PartitionConfig config) {
+    public Node3 createNode(PartitionNodeFactory3 factory) {
+        Objects.requireNonNull(factory);
+        // Outside the lock: building a node can take time, and no other thread sees it yet.
+        PartitionNode3 node = factory.create();
+        if (node == null) {
+            throw new IllegalArgumentException("The factory returned no node");
+        }
+        tickLock.lock();
+        try {
+            if (nodes.contains(node)) {
+                throw new IllegalArgumentException("The factory returned a node that is already in the space");
+            }
+            // Added only after the move: a node that fails to move is not in the space.
+            node.setTick(tick);
+            nodes.add(node);
+        } finally {
+            tickLock.unlock();
+        }
+        return new Node3(this, node);
+    }
+
+    @Override
+    public Partition3 createPartition(Node3 node, PartitionName name, PartitionConfig config) {
+        PartitionNode3 partitionNode = nodeOf(node);
         Objects.requireNonNull(name);
         Objects.requireNonNull(config);
         tickLock.lock();
         try {
-            PartitionId id = newPartitionId(node);
-            node.createPartition(id, name, config.index(), config.retainedTicks());
-            return new Partition3(this, node, id, name, config);
+            PartitionId id = newPartitionId();
+            partitionNode.createPartition(id, name, config.index(), config.retainedTicks());
+            return new Partition3(this, partitionNode, id, name, config);
         } finally {
             tickLock.unlock();
         }
     }
 
     @Override
-    public Partition3 loadPartition(PartitionNode3 node, PartitionConfig config, SavedPartition saved) {
+    public Partition3 loadPartition(Node3 node, PartitionConfig config, SavedPartition saved) {
+        PartitionNode3 partitionNode = nodeOf(node);
         Objects.requireNonNull(config);
         Objects.requireNonNull(saved);
-        PartitionId id;
-        tickLock.lock();
-        try {
-            id = newPartitionId(node);
-        } finally {
-            tickLock.unlock();
-        }
-        // Outside the lock: the moves of the tick do not wait for the load. The node is already
+        // Without the lock: the moves of the tick do not wait for the load. The node is already
         // among the nodes of the space, so it gets them, and it creates the partition at its tick.
-        node.loadPartition(id, saved, config.index(), config.retainedTicks());
-        return new Partition3(this, node, id, saved.name(), config);
+        PartitionId id = newPartitionId();
+        partitionNode.loadPartition(id, saved, config.index(), config.retainedTicks());
+        return new Partition3(this, partitionNode, id, saved.name(), config);
+    }
+
+    /** Returns the ID of a new partition. The generator is safe across threads. */
+    private PartitionId newPartitionId() {
+        return new PartitionId(config.partitionIds().nextId());
     }
 
     /**
-     * Returns the ID of a new partition on the node, after moving the node to the tick of the
-     * space if the space has no partition on it yet. The caller holds tickLock.
+     * Returns the node of the handle. Fails with IllegalArgumentException if the handle belongs
+     * to another space: the check uses the identity of the space, so two spaces with the same
+     * configuration are still different.
      */
-    private PartitionId newPartitionId(PartitionNode3 node) {
-        if (!nodes.contains(node)) {
-            // A new node starts at tick 0, or at a tick the space gave it before.
-            node.setTick(tick);
-            nodes.add(node);
+    private PartitionNode3 nodeOf(Node3 node) {
+        if (node.space() != this) {
+            throw new IllegalArgumentException("The node belongs to another space");
         }
-        return new PartitionId(config.partitionIds().nextId());
+        return node.node();
     }
 
     @Override
@@ -108,19 +130,51 @@ public final class Space3 implements Space<PartitionNode3, Partition3> {
         return tick;
     }
 
-    @Override
-    public List<SavedPartition> saves(PartitionNode3 node) {
-        return node.saves();
+    /**
+     * Acquires the snapshot of the given tick on each partition with the default timeout, like
+     * {@link #acquire(List, long, AcquireOptions)}.
+     */
+    public SnapshotSet3 acquire(List<Partition3> partitions, long tick) {
+        return acquire(partitions, tick, AcquireOptions.defaultTimeout());
+    }
+
+    /**
+     * Acquires the snapshot of the given tick on each partition of this space, in the order of
+     * the list, like {@link Partition3#acquire(long, AcquireOptions)}. The space checks the whole
+     * list before the first acquisition, so a wrong list acquires nothing. A partition whose
+     * snapshot is not available is a failure of the set and does not stop the others: the
+     * snapshot is not published yet, is out of the retention window, is before the creation or
+     * at the removal of the partition or after it, or the partition is destroyed. Any other
+     * error stops the call: the set releases the snapshots acquired before and throws the error.
+     * An empty list gives an empty, complete set. The partitions of the same space share the
+     * tick, so the snapshots are of the same moment; the space does not check that the
+     * coordinates of different partitions can be compared. Any thread can call it.
+     *
+     * @param partitions the partitions of this space, each one only once
+     * @param tick the tick of the snapshots
+     * @param options the timeout of each acquisition
+     * @return the acquired snapshots and the failures
+     * @throws NullPointerException if partitions, one of its elements or options is null
+     * @throws IllegalArgumentException if tick is negative, a partition belongs to another space
+     *     or a partition is in the list more than once
+     */
+    public SnapshotSet3 acquire(List<Partition3> partitions, long tick, AcquireOptions options) {
+        return SnapshotSet3.acquire(this, partitions, tick, options);
     }
 
     @Override
-    public List<SavedPartition> saves(PartitionNode3 node, PartitionName name) {
-        return node.saves(name);
+    public List<SavedPartition> saves(Node3 node) {
+        return nodeOf(node).saves();
     }
 
     @Override
-    public void deleteSaves(PartitionNode3 node, List<SavedPartition> saves) {
-        node.deleteSaves(saves);
+    public List<SavedPartition> saves(Node3 node, PartitionName name) {
+        return nodeOf(node).saves(name);
+    }
+
+    @Override
+    public void deleteSaves(Node3 node, List<SavedPartition> saves) {
+        nodeOf(node).deleteSaves(saves);
     }
 
     long nextEntityId() {

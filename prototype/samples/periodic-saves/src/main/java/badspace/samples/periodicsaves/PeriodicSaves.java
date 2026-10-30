@@ -3,6 +3,7 @@ package badspace.samples.periodicsaves;
 import static badspace.common.geometry.Point2.point;
 import static badspace.common.partition.PartitionName.partitionName;
 
+import badspace.api.Node2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
 import badspace.api.PartitionWriter2;
@@ -52,7 +53,8 @@ public final class PeriodicSaves {
         System.out.printf("Save directory: %s%n", directory);
 
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Partition2 partition = space.createPartition(new LocalPartitionNode2(directory), partitionName("simulation"),
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(directory));
+        Partition2 partition = space.createPartition(node, partitionName("simulation"),
                 PartitionConfig.defaults().withRetainedTicks(RETAINED_TICKS));
 
         // The ticks to save, from the writer to the saver.

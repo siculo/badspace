@@ -1,18 +1,18 @@
 ---
 type: Reference
 title: "Componenti dell’API"
-description: "Spazio, partizione, writer, snapshot acquisito e insieme di snapshot: ruolo, problemi risolti e sequenza d’uso nell’API corrente."
+description: "Spazio, handle del nodo, partizione, writer, snapshot acquisito e insieme di snapshot: ruolo, problemi risolti e sequenza d’uso nell’API corrente."
 tags: [badspace, documentation]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
 ---
 
 # Prima di iniziare
 
 L’[architettura](/current/architecture/layers.md) distingue il software,
-l’API e i nodi locali. Nell’API ci sono cinque oggetti principali:
-spazio, partizione, handle del writer, snapshot acquisito e insieme di
-snapshot. Le varianti
+l’API e i nodi locali. Nell’API ci sono sei oggetti principali:
+spazio, handle del nodo, partizione, handle del writer, snapshot
+acquisito e insieme di snapshot. Le varianti
 `2` e `3` lavorano rispettivamente in due e tre dimensioni.
 
 # Spazio: creare e coordinare le partizioni
@@ -21,10 +21,21 @@ snapshot. Le varianti
 ai nodi. `SpaceConfig` riceve i generatori degli ID di entità e partizioni;
 ogni generatore va condiviso tra gli spazi del processo.
 
-Il software crea una partizione indicando nodo, nome e `PartitionConfig`.
+Lo spazio crea anche i propri nodi: il software gli passa una factory,
+per esempio `LocalPartitionNode2::new`, e riceve dalla chiamata
+`createNode(factory)` l’**handle del nodo** (`Node2`/`Node3`). Il nodo
+appartiene solo a quello spazio e ne segue il tick, anche prima di
+ospitare partizioni; per questo spazi diversi nello stesso processo
+avanzano in modo indipendente. Lo spazio rifiuta l’handle di un altro
+spazio.
+
+Il software crea una partizione indicando l’handle del nodo, il nome e
+la `PartitionConfig`.
 La configurazione fissa indice, politica di rimozione e numero di tick
 conservati. Il default usa scansione lineare, `REQUIRE_EMPTY` e un tick.
-Lo spazio offre anche caricamento, elenco ed eliminazione dei salvataggi.
+Lo spazio offre anche caricamento, elenco ed eliminazione dei salvataggi
+su un nodo indicato con il suo handle, e gli insiemi di snapshot sulle
+proprie partizioni.
 
 La scelta esplicita delle partizioni lascia al software la strategia
 di suddivisione: per zone, tipi di entità o carico. Lo spazio non sceglie
@@ -79,8 +90,9 @@ trattenga memoria per sempre. Dettagli e formule sono nella
 # Insieme di snapshot: interrogare più partizioni
 
 Il software sceglie quali partizioni interrogare; l’API aggrega i
-risultati. `SnapshotSet2.acquire(partitions, n)` (e `SnapshotSet3`)
-acquisisce lo snapshot del tick n su ogni partizione della lista e offre
+risultati. `space.acquire(partitions, n)` restituisce un `SnapshotSet2`
+o `SnapshotSet3`: acquisisce lo snapshot del tick n su ogni partizione
+della lista, che deve essere dello spazio, e offre
 `findInRegion` e `findNearest` su tutti gli snapshot acquisiti, anche
 con indici diversi. Come la view, è `AutoCloseable` e rilascia tutte le
 acquisizioni con `close()`.
@@ -108,16 +120,19 @@ corrispondono. Una condizione falsa è un risultato, non un’eccezione.
 Il nodo ne fa una copia autonoma e la scrive nella directory configurata;
 il writer continua a lavorare. La chiamata ritorna a salvataggio concluso.
 
-`space.loadPartition(node, config, saved)` crea una partizione con gli
+`space.loadPartition(node, config, saved)`, con l’handle di un nodo che
+vede il salvataggio, crea una partizione con gli
 stessi dati, il nome salvato, un ID di runtime nuovo e nessun proprietario.
 Il software sceglie indice e finestra di conservazione. I dati caricati
 diventano leggibili al successivo avanzamento del tick.
 
 # Sequenza d’uso
 
-Il diagramma riassume come si ottengono spazio, partizione, handle del
-writer e snapshot acquisito; l’insieme di snapshot raccoglie gli snapshot
-acquisiti di più partizioni dello stesso tick.
+Il diagramma riassume come si ottengono spazio, handle del nodo,
+partizione, handle del writer e snapshot acquisito; le chiamate
+`createNode` e `createPartition` sono dello spazio; l’insieme di
+snapshot raccoglie gli snapshot acquisiti di più partizioni dello
+stesso tick.
 Il ramo del writer presuppone che `claim` riesca; il ramo di lettura
 richiede uno snapshot già pubblicato e ancora acquisibile. Il proxy
 della partizione permette entrambi gli usi, che hanno handle distinti.
@@ -127,7 +142,13 @@ della partizione permette entrambi gli usi, che hanno handle distinti.
                          | Spazio         |
                          +----------------+
                                  |
-                         createPartition
+                       "createNode(factory)"
+                                 v
+                         +----------------+
+                         | Nodo (handle)  |
+                         +----------------+
+                                 |
+                  "createPartition(handle, ...)"
                                  v
                          +----------------+
                          | Partizione     |
@@ -143,7 +164,8 @@ della partizione permette entrambi gli usi, che hanno handle distinti.
  +--------------------------+               +--------------------------+
 ```
 
-1. Creare spazio e nodo locale, con i generatori di ID condivisi.
+1. Creare lo spazio con i generatori di ID condivisi e, con una factory,
+   i suoi nodi.
 2. Creare la partizione con nome e configurazione.
 3. Prendere la proprietà e costruire l’handle del writer.
 4. Scrivere e chiamare `commit()`.

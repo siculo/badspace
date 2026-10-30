@@ -4,7 +4,7 @@ title: "Filosofia d’uso di BADSPACE"
 description: "Che cosa offre il prototipo Java di BADSPACE, quali decisioni prende il software e come iniziare a leggerne la documentazione."
 tags: [badspace, documentation]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
 ---
 
 # Che cosa si costruisce con BADSPACE
@@ -18,7 +18,8 @@ può usarlo come parte della propria applicazione.
 Il software divide i dati in **partizioni**. Ogni partizione contiene le
 proprie entità, ha un indice spaziale e ammette un solo writer alla volta;
 più reader possono leggerne gli stati confermati. Uno **spazio** raccoglie
-partizioni della stessa dimensione. Un **nodo locale** ne ospita i dati.
+partizioni della stessa dimensione. Un **nodo locale**, creato dallo
+spazio e riservato a lui, ne ospita i dati.
 
 # Come si usa
 

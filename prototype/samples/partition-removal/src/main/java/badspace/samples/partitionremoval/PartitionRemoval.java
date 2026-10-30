@@ -3,6 +3,7 @@ package badspace.samples.partitionremoval;
 import static badspace.common.partition.PartitionName.partitionName;
 
 import badspace.api.AcquiredSnapshot2;
+import badspace.api.Node2;
 import badspace.api.Partition2;
 import badspace.api.PartitionConfig;
 import badspace.api.PartitionWriter2;
@@ -24,7 +25,7 @@ public final class PartitionRemoval {
 
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        LocalPartitionNode2 node = new LocalPartitionNode2();
+        Node2 node = space.createNode(LocalPartitionNode2::new);
         Partition2 empty = space.createPartition(node, partitionName("empty"));
         Partition2 discarded = space.createPartition(node, partitionName("discarded"),
                 PartitionConfig.defaults().withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES));

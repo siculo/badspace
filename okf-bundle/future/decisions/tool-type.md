@@ -4,7 +4,7 @@ title: "Nodi remoti e distribuzione"
 description: "Direzione scelta per i nodi gRPC, alternative considerate e questioni aperte del futuro confine di rete."
 tags: [badspace, documentation]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
 ---
 
 # Stato
@@ -37,7 +37,7 @@ l'opzione ibrida: libreria sopra, servizio sotto.
 # Decisioni da prendere
 
 - Errori remoti, timeout e chiamate a lotti nel contratto dei nodi.
-- Eventuale condivisione di un nodo tra più spazi: gli ID univoci non la impediscono, ma il tick richiede una semantica esplicita.
+- Eventuale hosting di più nodi, ciascuno riservato al proprio Space, nello stesso servizio remoto: identità, instradamento e ciclo di vita. Vedi [evoluzioni di nodi e Space](/future/architecture/nodes-and-spaces.md).
 - Eventuale servizio per assegnare generatorId, gTick e barriere.
 - Eventuale centralizzazione della destinazione dei salvataggi.
 

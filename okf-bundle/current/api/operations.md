@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: "Contratto dell’API corrente"
-description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
+description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
 ---
 
 # Contratto corrente
@@ -94,9 +94,10 @@ indici si misurano rispetto alla sua.
 
 Il [tick logico](/current/architecture/logical-time.md) avanza con
 `setTick(long t)`, che il software chiama sullo spazio, di solito con il
-gTick. Lo spazio tiene il suo tick e i nodi su cui ha creato
-partizioni, e lo propaga a ognuno; su un nodo nuovo chiama `setTick`
-prima di creare la partizione.
+gTick. Lo spazio tiene il suo tick e i nodi che ha creato, e lo propaga
+a ognuno, anche se non ha partizioni; un nodo nuovo riceve il tick dello
+spazio prima che lo spazio ne restituisca l'handle (vedi [nodi dello
+spazio](#nodi-dello-spazio)).
 
 | Operazione | Forma | Note |
 |---|---|---|
@@ -124,9 +125,40 @@ default: si costruisce con `SpaceConfig.of(entityIds, partitionIds)`, e
 `withEntityIds` e `withPartitionIds` ne fanno una copia con un
 generatore cambiato.
 
+### Nodi dello spazio
+
+Lo spazio crea i propri nodi con una **factory dei nodi**
+(`PartitionNodeFactory2`/`PartitionNodeFactory3`, interfaccia funzionale
+con `create()`), che il software scrive di solito come riferimento al
+costruttore del nodo locale: `LocalPartitionNode2::new`, oppure
+`() -> new LocalPartitionNode2(directory)` per un nodo con i salvataggi.
+Ogni chiamata della factory deve restituire un nodo nuovo, vuoto e al
+tick 0, che nessun altro spazio usa; nodi usati insieme hanno directory
+diverse. Lo spazio restituisce l'**handle del nodo** (`Node2`/`Node3`),
+con cui le altre operazioni scelgono il nodo (vedi [architettura a
+livelli](/current/architecture/layers.md#nodi)).
+
 | Operazione | Forma | Note |
 |---|---|---|
-| Creazione | `createPartition(node, name)`, `createPartition(node, name, PartitionConfig)` | Crea una partizione vuota con il [nome](/current/decisions/entity-ids.md#nome-della-partizione) scelto dal software sul [nodo](/current/architecture/layers.md#nodi) scelto dal software, che deve servire solo questo spazio, al tick corrente: `creationTick()` della partizione; senza configurazione vale quella di default. La partizione restituisce il nome con `name()` |
+| Creazione del nodo | `createNode(factory)` sullo spazio (`Space`) | Chiama la factory fuori dal lock dello spazio, poi sotto lock porta il nodo al tick dello spazio e lo registra; da allora il nodo riceve ogni `setTick`. Il nodo resta allo spazio per tutta la sua vita |
+
+| Errore | Eccezione |
+|---|---|
+| Factory nulla | `NullPointerException` |
+| Factory che restituisce `null` o un nodo già dello spazio | `IllegalArgumentException`; lo spazio non registra niente |
+| Errore della factory o del `setTick` del nodo | Propagato; lo spazio non registra il nodo |
+
+Le operazioni dello spazio che ricevono un handle (creazione e
+caricamento delle partizioni, elenco ed eliminazione dei salvataggi)
+rifiutano l'handle di un altro spazio con `IllegalArgumentException`,
+prima di generare ID, fare I/O o chiamare il nodo. Il controllo usa
+l'identità dello spazio, non la sua configurazione.
+
+### Partizioni
+
+| Operazione | Forma | Note |
+|---|---|---|
+| Creazione | `createPartition(node, name)`, `createPartition(node, name, PartitionConfig)` | Crea una partizione vuota con il [nome](/current/decisions/entity-ids.md#nome-della-partizione) scelto dal software sul nodo dell'handle `node`, creato da questo spazio, al tick corrente del nodo: `creationTick()` della partizione; senza configurazione vale quella di default. La partizione restituisce il nome con `name()` |
 | Rimozione | `removePartition()` sull'handle del writer | Ultima operazione del writer, con il token corrente (vedi [Rimozione della partizione](/current/architecture/partition-removal.md)) |
 
 La **configurazione della partizione** (`PartitionConfig`) si sceglie
@@ -171,6 +203,7 @@ conosce il nodo, e gli passano le chiamate.
 | Scrittura o commit dopo la rimozione | `IllegalStateException` |
 | k minore di 1 nella configurazione | `IllegalArgumentException` |
 | Nome che non rispetta le regole, o ancora presente sul nodo | `IllegalArgumentException` |
+| Handle del nodo di un altro spazio | `IllegalArgumentException`, senza consumare ID |
 
 Nel contratto del nodo la creazione riceve l'ID della partizione, il
 suo nome, la configurazione dell'indice (`IndexConfig`, scansione lineare se manca)
@@ -368,12 +401,13 @@ Scelte di dettaglio:
 La semantica è nelle [query su più
 partizioni](/current/architecture/multi-partition-queries.md). L'insieme
 di snapshot `SnapshotSet2`/`SnapshotSet3` acquisisce lo snapshot dello
-stesso tick su una lista di partizioni e aggrega le query sugli snapshot
-acquisiti. È `AutoCloseable`, da usare con `try`-with-resources.
+stesso tick su una lista di partizioni dello spazio e aggrega le query
+sugli snapshot acquisiti. Lo crea lo spazio: non c'è un altro modo
+pubblico di costruirlo. È `AutoCloseable`, da usare con `try`-with-resources.
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Acquisizione | `SnapshotSet2.acquire(List<Partition2>, long tick)`, `acquire(partitions, tick, options)` | Acquisisce `S(tick)` su ogni partizione, nell'ordine della lista, come `acquire(tick, options)`; senza opzioni vale `defaultTimeout()`. Una lista vuota dà un insieme vuoto e completo |
+| Acquisizione | `acquire(List<Partition2>, long tick)`, `acquire(partitions, tick, options)` su `Space2` (e `Space3`) | Acquisisce `S(tick)` su ogni partizione, nell'ordine della lista, come `acquire(tick, options)`; senza opzioni vale `defaultTimeout()`. Una lista vuota dà un insieme vuoto e completo |
 | Risultato | `tick()`, `snapshots()`, `failures()`, `isComplete()` | Il tick richiesto; gli snapshot acquisiti e i fallimenti, nell'ordine della lista; `isComplete()` è vero se non ci sono fallimenti |
 | Fallimento | Record `SnapshotSet2.Failure`/`SnapshotSet3.Failure` | La partizione, il motivo `reason()` e l'eccezione `error()`. Il motivo è l'enum `FailureReason` dell'API: i quattro motivi di `SnapshotNotAvailableException` e `UNKNOWN_PARTITION` per una partizione che il nodo non conosce, cioè distrutta per un handle creato dallo spazio |
 | Query di range | `findInRegion(Region)` | Unione dei risultati degli snapshot acquisiti, in ordine non definito |
@@ -388,7 +422,7 @@ snapshot non è disponibile non ferma le altre.
 | Snapshot non acquisibile: non ancora pubblicato, fuori dalla finestra, prima della creazione, dalla rimozione in poi | Fallimento con lo stesso motivo e `SnapshotNotAvailableException` |
 | Partizione distrutta | Fallimento con `UNKNOWN_PARTITION` e `UnknownPartitionException` |
 | Lista o un suo elemento nulli, opzioni nulle | `NullPointerException`, prima di ogni acquisizione |
-| Tick negativo, partizione ripetuta nella lista | `IllegalArgumentException`, prima di ogni acquisizione |
+| Tick negativo, partizione di un altro spazio, partizione ripetuta nella lista | `IllegalArgumentException`, prima di ogni acquisizione: lo spazio controlla tutta la lista |
 | Ogni altro errore durante le acquisizioni | Propagato, dopo il rilascio degli snapshot già acquisiti |
 | `count` negativo in `findNearest` | `IllegalArgumentException`, anche senza snapshot |
 | Query dopo il rilascio o la scadenza di un'acquisizione | `IllegalStateException`, come sulla view |
@@ -429,10 +463,11 @@ finestra; i salvataggi restano dopo la distruzione della partizione.
 L'elenco e l'eliminazione dei salvataggi non richiedono una partizione
 viva (vedi [periodicità e
 conservazione](/current/decisions/persistence.md#periodicità-e-conservazione)),
-quindi sono sull'interfaccia comune `Space`, con il nodo come
-parametro; lo spazio delega al nodo anche se non ci ha ancora creato
-partizioni, come dopo un riavvio. Nel contratto del nodo hanno la
-stessa forma, senza il nodo.
+quindi sono sull'interfaccia comune `Space`, con l'handle del nodo come
+parametro; lo spazio delega al nodo anche se il nodo non ha ancora
+partizioni, come un nodo nuovo dopo un riavvio. L'elenco non registra
+niente in più: il nodo è già dello spazio dalla sua creazione. Nel
+contratto del nodo hanno la stessa forma, senza il nodo.
 
 | Operazione | Forma | Note |
 |---|---|---|
@@ -443,14 +478,15 @@ stessa forma, senza il nodo.
 
 | Errore | Eccezione |
 |---|---|
+| Handle del nodo di un altro spazio | `IllegalArgumentException`, senza leggere o eliminare file |
 | Nodo senza destinazione dei salvataggi | `IllegalStateException` |
 | Errore nella lettura della directory o nell'eliminazione | `UncheckedIOException`; con l'eliminazione, i salvataggi prima di quello che fallisce sono già eliminati |
 
 ### Caricamento
 
 Il caricamento crea una partizione, come la creazione, quindi è
-sull'interfaccia comune `Space`, con il nodo come parametro. La
-semantica è nel [caricamento](/current/decisions/persistence.md#caricamento).
+sull'interfaccia comune `Space`, con l'handle del nodo come parametro.
+La semantica è nel [caricamento](/current/decisions/persistence.md#caricamento).
 
 | Operazione | Forma | Note |
 |---|---|---|
@@ -464,6 +500,7 @@ destinazione.
 | Errore | Eccezione |
 |---|---|
 | Nome o ID già in uso sul nodo, finestra minore di 1 | `IllegalArgumentException`, come la creazione |
+| Handle del nodo di un altro spazio | `IllegalArgumentException`, senza leggere il salvataggio |
 | Posizione del salvataggio fuori dai limiti dell'indice scelto | `IllegalArgumentException` |
 | Nodo senza destinazione dei salvataggi | `IllegalStateException` |
 | Salvataggio assente, corrotto o con un altro numero di dimensioni | `UncheckedIOException` |

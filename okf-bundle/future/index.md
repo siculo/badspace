@@ -5,6 +5,8 @@
 
 # Architettura ed estensioni dell’API
 
+* [Evoluzioni di nodi, servizi e Space](./architecture/nodes-and-spaces.md) - Hosting remoto di più nodi, recupero dei nodi vuoti e possibili operazioni tra Space con tempi indipendenti.
+
 * [Primitive richieste dai meccanismi futuri](./architecture/minimal-core.md) - Dipendenze tra il nucleo corrente e i protocolli futuri: metadati di sistema, tombstone, durabilità e coordinamento.
 * [Nodi remoti e distribuzione](./decisions/tool-type.md) - Direzione scelta per i nodi gRPC, alternative considerate e questioni aperte del futuro confine di rete.
 * [Estensioni dell’API](./decisions/api-surface.md) - Operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi.

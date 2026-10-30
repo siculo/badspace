@@ -45,6 +45,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
@@ -59,6 +60,7 @@ class Space3Test {
     private final SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
     private final Space3 space = new Space3(config);
     private final PartitionNode3 node = mock(PartitionNode3.class);
+    private final Node3 handle = space.createNode(() -> node);
 
     private static final Point3 A = new Point3(1, 2, 3);
     private static final Point3 B = new Point3(5, 6, 7);
@@ -66,7 +68,7 @@ class Space3Test {
     @Test
     void partitionCreationPassesTheGeneratedIdAndConfiguration() {
         PartitionConfig chosen = PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)).withRetainedTicks(3);
-        Partition3 partition = space.createPartition(node, NAME, chosen);
+        Partition3 partition = space.createPartition(handle, NAME, chosen);
         assertEquals(chosen, partition.config());
         var order = inOrder(node);
         order.verify(node).setTick(0);
@@ -79,10 +81,11 @@ class Space3Test {
         space.setTick(5);
         PartitionConfig chosen = PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)).withRetainedTicks(3);
         SavedPartition saved = new SavedPartition(new PartitionName("north"), 2);
-        Partition3 partition = space.loadPartition(node, chosen, saved);
+        Partition3 partition = space.loadPartition(handle, chosen, saved);
         assertEquals(new PartitionName("north"), partition.name());
         assertEquals(chosen, partition.config());
         var order = inOrder(node);
+        order.verify(node).setTick(0);
         order.verify(node).setTick(5);
         order.verify(node).loadPartition(PARTITION_ID, saved, chosen.index(), 3);
         order.verifyNoMoreInteractions();
@@ -100,7 +103,7 @@ class Space3Test {
         }).when(node).loadPartition(PARTITION_ID, saved, IndexConfig.linearScan(), 1);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            Future<Partition3> load = executor.submit(() -> space.loadPartition(node, PartitionConfig.defaults(), saved));
+            Future<Partition3> load = executor.submit(() -> space.loadPartition(handle, PartitionConfig.defaults(), saved));
             assertTrue(entered.await(10, TimeUnit.SECONDS));
             space.setTick(5);
             verify(node).setTick(5);
@@ -113,21 +116,21 @@ class Space3Test {
 
     @Test
     void nameIsPassedToTheNodeAndKeptByThePartition() {
-        Partition3 partition = space.createPartition(node, new PartitionName("north"));
+        Partition3 partition = space.createPartition(handle, new PartitionName("north"));
         assertEquals(new PartitionName("north"), partition.name());
         verify(node).createPartition(PARTITION_ID, new PartitionName("north"), IndexConfig.linearScan(), 1);
     }
 
     @Test
     void defaultConfigurationIsPassedToTheNode() {
-        Partition3 partition = space.createPartition(node, NAME);
+        Partition3 partition = space.createPartition(handle, NAME);
         assertEquals(PartitionConfig.defaults(), partition.config());
         verify(node).createPartition(PARTITION_ID, NAME, IndexConfig.linearScan(), 1);
     }
 
     @Test
     void insertAllMakesOneBatchWithGeneratedIdsInPositionOrder() {
-        PartitionWriter3 writer = space.createPartition(node, NAME).writer(TOKEN);
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
         clearInvocations(node);
         assertArrayEquals(new long[] {11, 12}, writer.insertAll(List.of(A, B)));
         verify(node).insertAll(TOKEN, List.of(new Entity3(11, A), new Entity3(12, B)));
@@ -137,7 +140,7 @@ class Space3Test {
     @Test
     void removalUsesTheConfiguredPolicy() {
         for (RemovalPolicy policy : RemovalPolicy.values()) {
-            Partition3 partition = space.createPartition(node, NAME, PartitionConfig.defaults().withRemovalPolicy(policy));
+            Partition3 partition = space.createPartition(handle, NAME, PartitionConfig.defaults().withRemovalPolicy(policy));
             PartitionId id = new PartitionId(partitionIds.get());
             clearInvocations(node);
             partition.writer(new WriteToken(id, 1)).removePartition();
@@ -152,7 +155,7 @@ class Space3Test {
 
     @Test
     void failedRemovalLeavesTheWriterUsable() {
-        PartitionWriter3 writer = space.createPartition(node, NAME).writer(TOKEN);
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
         doThrow(new IllegalStateException("Partition is not empty")).when(node).removePartition(TOKEN);
         assertThrows(IllegalStateException.class, writer::removePartition);
         writer.insert(A);
@@ -163,7 +166,7 @@ class Space3Test {
 
     @Test
     void acquisitionsPassDefaultAndExplicitTimeouts() {
-        Partition3 partition = space.createPartition(node, NAME);
+        Partition3 partition = space.createPartition(handle, NAME);
         AcquireOptions options = AcquireOptions.timeout(Duration.ofSeconds(5));
         Acquisition acquisition = new Acquisition(PARTITION_ID, 7, 2);
         when(node.acquireLatest(PARTITION_ID, AcquireOptions.defaultTimeout())).thenReturn(acquisition);
@@ -213,9 +216,10 @@ class Space3Test {
     @Test
     void setTickReachesEachNodeOnceEvenWithSeveralPartitions() {
         PartitionNode3 other = mock(PartitionNode3.class);
-        space.createPartition(node, NAME);
-        space.createPartition(node, NAME);
-        space.createPartition(other, NAME);
+        Node3 otherHandle = space.createNode(() -> other);
+        space.createPartition(handle, NAME);
+        space.createPartition(handle, NAME);
+        space.createPartition(otherHandle, NAME);
         clearInvocations(node, other);
         space.setTick(5);
         assertEquals(5, space.tick());
@@ -225,17 +229,8 @@ class Space3Test {
     }
 
     @Test
-    void newNodeReceivesTheSpaceTickBeforeCreation() {
-        space.setTick(5);
-        space.createPartition(node, NAME);
-        var order = inOrder(node);
-        order.verify(node).setTick(5);
-        order.verify(node).createPartition(PARTITION_ID, NAME, IndexConfig.linearScan(), 1);
-    }
-
-    @Test
     void earlierTickIsRejectedWithoutCallingTheNode() {
-        space.createPartition(node, NAME);
+        space.createPartition(handle, NAME);
         space.setTick(5);
         clearInvocations(node);
         assertThrows(IllegalArgumentException.class, () -> space.setTick(4));
@@ -244,21 +239,150 @@ class Space3Test {
     }
 
     @Test
+    void createdNodeStartsAtTheTickOfTheSpaceAndBelongsToIt() {
+        assertSame(space, handle.space());
+        assertSame(node, handle.node());
+        verify(node).setTick(0);
+        PartitionNode3 later = mock(PartitionNode3.class);
+        space.setTick(5);
+        space.createNode(() -> later);
+        verify(later).setTick(5);
+        verifyNoMoreInteractions(later);
+    }
+
+    @Test
+    void createdNodeWithoutPartitionsReceivesEveryMoveOfTheTick() {
+        space.setTick(3);
+        space.setTick(7);
+        var order = inOrder(node);
+        order.verify(node).setTick(0);
+        order.verify(node).setTick(3);
+        order.verify(node).setTick(7);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    void firstPartitionDoesNotMoveACreatedNodeAgain() {
+        space.setTick(5);
+        space.createPartition(handle, NAME);
+        var order = inOrder(node);
+        order.verify(node).setTick(0);
+        order.verify(node).setTick(5);
+        order.verify(node).createPartition(PARTITION_ID, NAME, IndexConfig.linearScan(), 1);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    void moveOfTheTickWhileTheFactoryRunsReachesTheNewNode() throws Exception {
+        PartitionNode3 created = mock(PartitionNode3.class);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        PartitionNodeFactory3 factory = () -> {
+            entered.countDown();
+            await(finish);
+            return created;
+        };
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Node3> creation = executor.submit(() -> space.createNode(factory));
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            space.setTick(5);
+            finish.countDown();
+            creation.get(10, TimeUnit.SECONDS);
+            verify(created).setTick(5);
+            verifyNoMoreInteractions(created);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void moveOfTheTickWaitsForTheAdditionOfANode() throws Exception {
+        PartitionNode3 created = mock(PartitionNode3.class);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            await(finish);
+            return null;
+        }).when(created).setTick(0);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Node3> creation = executor.submit(() -> space.createNode(() -> created));
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            CountDownLatch moving = new CountDownLatch(1);
+            Future<?> move = executor.submit(() -> {
+                moving.countDown();
+                space.setTick(5);
+            });
+            assertTrue(moving.await(10, TimeUnit.SECONDS));
+            // The node is moving to tick 0 while the space holds the lock: the move waits for the
+            // lock and does not end. Without the lock it would end at once, without the new node.
+            assertThrows(TimeoutException.class, () -> move.get(200, TimeUnit.MILLISECONDS));
+            finish.countDown();
+            creation.get(10, TimeUnit.SECONDS);
+            move.get(10, TimeUnit.SECONDS);
+            var order = inOrder(created);
+            order.verify(created).setTick(0);
+            order.verify(created).setTick(5);
+            order.verifyNoMoreInteractions();
+        } finally {
+            finish.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void errorOfTheFactoryIsThrown() {
+        IllegalStateException error = new IllegalStateException("No save directory");
+        assertSame(error, assertThrows(IllegalStateException.class, () -> space.createNode(() -> {
+            throw error;
+        })));
+    }
+
+    @Test
+    void nodeThatFailsToMoveToTheTickIsNotAdded() {
+        space.setTick(4);
+        PartitionNode3 failing = mock(PartitionNode3.class);
+        RuntimeException error = new RuntimeException("Node down");
+        doThrow(error).when(failing).setTick(4);
+        assertSame(error, assertThrows(RuntimeException.class, () -> space.createNode(() -> failing)));
+        space.setTick(6);
+        verify(failing, never()).setTick(6);
+    }
+
+    @Test
+    void factoryThatReturnsNoNodeIsRejected() {
+        assertThrows(NullPointerException.class, () -> space.createNode(null));
+        assertThrows(IllegalArgumentException.class, () -> space.createNode(() -> null));
+    }
+
+    @Test
+    void factoryThatReturnsANodeOfTheSpaceAgainIsRejected() {
+        assertThrows(IllegalArgumentException.class, () -> space.createNode(() -> node));
+        space.setTick(3);
+        verify(node).setTick(0);
+        verify(node).setTick(3);
+        verifyNoMoreInteractions(node);
+    }
+
+    @Test
     void limitsPassThePartitionId() {
-        Partition3 partition = space.createPartition(node, NAME);
+        Partition3 partition = space.createPartition(handle, NAME);
         when(node.limits(PARTITION_ID)).thenReturn(IndexConfig.uniformGrid(4).limits());
         assertEquals(IndexConfig.uniformGrid(4).limits(), partition.limits());
     }
 
     @Test
     void newPartitionIsNotClaimedByTheSpace() {
-        space.createPartition(node, NAME);
+        space.createPartition(handle, NAME);
         verify(node, never()).claim(any(), anyLong());
     }
 
     @Test
     void ownershipAndClaimPassThePartitionId() {
-        Partition3 partition = space.createPartition(node, NAME);
+        Partition3 partition = space.createPartition(handle, NAME);
         when(node.ownership(PARTITION_ID)).thenReturn(new Ownership(3, true));
         when(node.claim(PARTITION_ID, 3)).thenReturn(Optional.of(new WriteToken(PARTITION_ID, 4)));
         assertEquals(new Ownership(3, true), partition.ownership());
@@ -267,7 +391,7 @@ class Space3Test {
 
     @Test
     void writerPassesItsTokenInEveryOperation() {
-        PartitionWriter3 writer = space.createPartition(node, NAME).writer(TOKEN);
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
         clearInvocations(node);
         assertSame(TOKEN, writer.token());
         long entityId = writer.insert(A);
@@ -295,7 +419,7 @@ class Space3Test {
 
     @Test
     void conditionalWritesPassTheTokenAndReturnTheFalseConditions() {
-        PartitionWriter3 writer = space.createPartition(node, NAME).writer(TOKEN);
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
         MetadataCondition condition = MetadataCondition.valueIs(7, "version", 1);
         ConditionalWrite3 write = new ConditionalWrite3(List.of(condition), List.of(),
                 List.of(MetadataWrite.put(7, "version", 2)));
@@ -308,7 +432,7 @@ class Space3Test {
 
     @Test
     void writerOfATokenOfAnotherPartitionIsRejectedWithoutCallingTheNode() {
-        Partition3 partition = space.createPartition(node, NAME);
+        Partition3 partition = space.createPartition(handle, NAME);
         clearInvocations(node);
         assertThrows(IllegalArgumentException.class, () -> partition.writer(new WriteToken(new PartitionId(999), 1)));
         verifyNoInteractions(node);
@@ -316,7 +440,7 @@ class Space3Test {
 
     @Test
     void savesGoToTheNodeWithThePartitionIdAndReturnItsReference() {
-        Partition3 partition = space.createPartition(node, NAME);
+        Partition3 partition = space.createPartition(handle, NAME);
         when(node.save(PARTITION_ID, 2)).thenReturn(new SavedPartition(NAME, 2));
         when(node.saveLatest(PARTITION_ID)).thenReturn(new SavedPartition(NAME, 4));
         assertEquals(new SavedPartition(NAME, 2), partition.save(2));
@@ -324,21 +448,41 @@ class Space3Test {
     }
 
     @Test
-    void savesAndTheirDeletionGoToTheNodeAlsoWithoutPartitionsOnIt() {
+    void savesAndTheirDeletionGoToANodeWithoutPartitions() {
         List<SavedPartition> saves = List.of(new SavedPartition(NAME, 1), new SavedPartition(NAME, 2));
         when(node.saves()).thenReturn(saves);
         when(node.saves(NAME)).thenReturn(saves);
-        assertEquals(saves, space.saves(node));
-        assertEquals(saves, space.saves(node, NAME));
-        space.deleteSaves(node, saves);
+        assertEquals(saves, space.saves(handle));
+        assertEquals(saves, space.saves(handle, NAME));
+        space.deleteSaves(handle, saves);
+        verify(node).setTick(0);
+        verify(node).saves();
+        verify(node).saves(NAME);
         verify(node).deleteSaves(saves);
-        // The space does not take the node: it creates no partition and gives it no tick.
-        verify(node, never()).setTick(0);
+        verifyNoMoreInteractions(node);
+    }
+
+    @Test
+    void handleOfAnotherSpaceIsRejectedBeforeGeneratingIdsOrCallingTheNode() {
+        Space3 other = new Space3(config);
+        PartitionNode3 otherNode = mock(PartitionNode3.class);
+        Node3 foreign = other.createNode(() -> otherNode);
+        clearInvocations(otherNode);
+        long partitionId = partitionIds.get();
+        SavedPartition saved = new SavedPartition(NAME, 1);
+        assertThrows(IllegalArgumentException.class, () -> space.createPartition(foreign, NAME));
+        assertThrows(IllegalArgumentException.class, () -> space.createPartition(foreign, NAME, PartitionConfig.defaults()));
+        assertThrows(IllegalArgumentException.class, () -> space.loadPartition(foreign, PartitionConfig.defaults(), saved));
+        assertThrows(IllegalArgumentException.class, () -> space.saves(foreign));
+        assertThrows(IllegalArgumentException.class, () -> space.saves(foreign, NAME));
+        assertThrows(IllegalArgumentException.class, () -> space.deleteSaves(foreign, List.of(saved)));
+        assertEquals(partitionId, partitionIds.get());
+        verifyNoInteractions(otherNode);
     }
 
     @Test
     void savesOfAPartitionAreTheSavesOfItsName() {
-        Partition3 partition = space.createPartition(node, NAME);
+        Partition3 partition = space.createPartition(handle, NAME);
         List<SavedPartition> saves = List.of(new SavedPartition(NAME, 3));
         when(node.saves(NAME)).thenReturn(saves);
         assertEquals(saves, partition.saves());
@@ -346,7 +490,7 @@ class Space3Test {
 
     @Test
     void saveErrorsKeepTheirReasonThroughTheProxy() {
-        Partition3 partition = space.createPartition(node, NAME);
+        Partition3 partition = space.createPartition(handle, NAME);
         var failure = new SnapshotNotAvailableException(
                 SnapshotNotAvailableException.Reason.NOT_YET_PUBLISHED, "Tick is not published yet");
         when(node.saveLatest(PARTITION_ID)).thenThrow(failure);
@@ -355,7 +499,7 @@ class Space3Test {
 
     @Test
     void acquisitionErrorsKeepTheirReasonThroughTheProxy() {
-        Partition3 partition = space.createPartition(node, NAME);
+        Partition3 partition = space.createPartition(handle, NAME);
         var failure = new SnapshotNotAvailableException(
                 SnapshotNotAvailableException.Reason.OUT_OF_RETENTION, "Tick is outside the window");
         when(node.acquire(PARTITION_ID, 2, AcquireOptions.defaultTimeout())).thenThrow(failure);
@@ -368,11 +512,23 @@ class Space3Test {
         assertThrows(NullPointerException.class, () -> config.withEntityIds(null));
         assertThrows(NullPointerException.class, () -> config.withPartitionIds(null));
         assertThrows(NullPointerException.class, () -> new Space3(null));
-        assertThrows(NullPointerException.class, () -> space.createPartition(node, NAME, null));
-        assertThrows(NullPointerException.class, () -> space.createPartition(node, null, PartitionConfig.defaults()));
+        assertThrows(NullPointerException.class, () -> space.createPartition(handle, NAME, null));
+        assertThrows(NullPointerException.class, () -> space.createPartition(handle, null, PartitionConfig.defaults()));
+        assertThrows(NullPointerException.class, () -> space.createPartition(null, NAME));
+        assertThrows(NullPointerException.class, () -> space.loadPartition(null, PartitionConfig.defaults(), new SavedPartition(NAME, 1)));
         assertThrows(NullPointerException.class, () -> new PartitionConfig(null, RemovalPolicy.REQUIRE_EMPTY, 1));
         assertThrows(NullPointerException.class, () -> PartitionConfig.defaults().withRemovalPolicy(null));
         assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedTicks(0));
         assertThrows(IllegalArgumentException.class, () -> PartitionConfig.defaults().withRetainedTicks(-1));
+    }
+
+    /** Waits for the latch in code that cannot throw InterruptedException, like a factory. */
+    private static void await(CountDownLatch latch) {
+        try {
+            assertTrue(latch.await(10, TimeUnit.SECONDS));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
     }
 }

@@ -8,9 +8,9 @@
 
 # 3. Componenti principali dell’API
 
-* [Componenti dell’API](./api/components.md) - Spazio, partizione, writer, snapshot acquisito e insieme di snapshot: ruolo, problemi risolti e sequenza d’uso nell’API corrente.
+* [Componenti dell’API](./api/components.md) - Spazio, handle del nodo, partizione, writer, snapshot acquisito e insieme di snapshot: ruolo, problemi risolti e sequenza d’uso nell’API corrente.
 * [Casi d’uso attuali](./use-cases.md) - Scenari realizzabili con il prototipo corrente ed esempi eseguibili per esplorare l’API.
-* [Contratto dell’API corrente](./api/operations.md) - Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi.
+* [Contratto dell’API corrente](./api/operations.md) - Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi.
 
 # 4. Problemi e scelte
 
