@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-02
+* **Edit**: Il commit delle [strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali) è tutto-o-niente: preparazione, accettazione e abbandono separati. Un commit che fallisce lascia ultimo stato confermato, pending e scritture non confermate; il buffer del pending sostituito torna al pool solo dopo l'accettazione e quello di una preparazione abbandonata torna senza commit. Aggiornati [isolamento delle letture](/current/decisions/read-isolation.md), glossari, indici e il [documento futuro](/future/architecture/transactional-components.md), ora centrato su annullamento dopo un fallimento, rollback, segnalazioni, recupero e letture del writer.
 * **Edit**: Implementato il contratto comune delle [strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali): slot, indici e metadati implementano `TransactionalComponent` con preparazione dello snapshot e ripristino; lo storage li ripristina nell'ordine slot, indice, metadati, con gli slot nella numerazione del commit e l'indice al proprio snapshot, senza notifiche. Aggiornati [proprietà della partizione](/current/architecture/partition-ownership.md#nel-prototipo), [conservazione degli snapshot](/current/architecture/snapshot-retention.md#nel-prototipo), glossari e indici; il [documento futuro](/future/architecture/transactional-components.md) tiene solo accettazione, fallimenti, rollback e letture del writer.
 
 ## 2026-10-30

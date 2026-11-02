@@ -1,18 +1,19 @@
 ---
 type: Design Decision
 title: "Strutture transazionali, rollback e recupero"
-description: "Estensioni del contratto delle strutture transazionali: accettazione del commit tutto-o-niente, rollback esplicito, errori e recupero dello stato di lavoro, letture confermate riservate al writer e test di fallimento."
+description: "Estensioni del contratto delle strutture transazionali: annullamento delle scritture dopo un fallimento, rollback esplicito, errori e recupero dello stato di lavoro, letture confermate riservate al writer e test di fallimento."
 tags: [badspace, transactions, snapshots, recovery, testing]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T14:54:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T15:14:03Z }
 ---
 
 # Perimetro e obiettivo
 
 Questa pagina descrive le estensioni da implementare sopra il contratto
 delle [strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali)
-già presente: slot, indici e metadati preparano uno snapshot a ogni
-commit e si ripristinano all'ultimo commit in un ordine fisso. Le
+già presente: slot, indici e metadati preparano e accettano uno
+snapshot a ogni commit, tutto o niente, e si ripristinano all'ultimo
+commit in un ordine fisso. Le
 garanzie di comportamento sono la direzione scelta; nomi e firme Java
 sono una proposta da verificare nell'implementazione. La sequenza del
 lavoro è nel TODO del prototipo.
@@ -31,17 +32,19 @@ Le scritture successive modificano lo stato di lavoro e attraversano i
 tick senza essere pubblicate finché non vengono confermate.
 
 Slot, indici e metadati implementano `TransactionalComponent<S>` con
-`prepareCommit(long)` e `restore(S)`. Lo storage 2D e 3D li ripristina
-nell'ordine slot, indice, metadati in `discardUncommittedWrites()`, usato
-al rilascio e al trasferimento della proprietà; una suite di test comune
-verifica ogni struttura. La preparazione oggi conferma anche lo snapshot:
-azzera i segni delle modifiche e lo rende la base del commit successivo.
+preparazione, accettazione, abbandono e ripristino. Lo storage 2D e 3D
+accetta un commit solo dopo tutte le preparazioni; se una fallisce,
+abbandona gli snapshot preparati, lascia invariati ultimo stato
+confermato e pending e rilancia l'eccezione, con le scritture non
+confermate ancora nello stato di lavoro. Ripristina le strutture
+nell'ordine slot, indice, metadati in `discardUncommittedWrites()`,
+usato al rilascio e al trasferimento della proprietà.
 
-Non sono ancora disponibili l'accettazione separata dalla preparazione,
-un rollback pubblico, la gestione coordinata dei fallimenti con recupero
-esplicito e le letture del pending tramite il writer. Il ripristino
-esistente non è ancora provato con fallimenti durante il commit o
-durante il ripristino stesso.
+Non sono ancora disponibili l'annullamento automatico delle scritture
+dopo un fallimento, un rollback pubblico, le segnalazioni strutturate,
+il recupero esplicito e le letture del pending tramite il writer. Il
+ripristino non è ancora provato con fallimenti durante il ripristino
+stesso.
 
 # Stati e responsabilità
 
@@ -61,48 +64,15 @@ annulla lo stato di lavoro.
 Lo storage gestisce già ownership, sequenza dei commit, pending e
 pubblicazione; dovrà gestire anche la salute della partizione.
 
-# Contratto dei componenti
+# Annullamento dopo un fallimento
 
-L'estensione prevista separa la conferma dalla preparazione, con un
-metodo in più:
-
-```java
-interface TransactionalComponent<S> {
-    S prepareCommit(long commitSequence);
-    void acceptCommit(S prepared);   // da aggiungere
-    void restore(S confirmed);
-}
-```
-
-## Preparazione e accettazione
-
-`prepareCommit()` produce uno snapshot completo e immutabile dello
-stato di lavoro. Tutti i componenti ricevono la stessa sequenza del
-commit della partizione. La preparazione non sostituisce la base
-confermata e non rende visibile il nuovo pending. Scritture successive
-non devono alterare gli snapshot preparati né quelli confermati.
-
-La preparazione può cambiare dettagli interni dello stato di lavoro,
-per esempio congelando nodi copy-on-write. Se fallisce, l'ultimo stato
-confermato deve comunque restare integro; lo storage ripristina tutti
-i componenti, inclusi quelli la cui preparazione non era ancora iniziata.
-
-Solo dopo tutte le preparazioni e la costruzione dello snapshot completo
-lo storage accetta il commit. `acceptCommit()` deve essere un passaggio
-minimo, senza allocazioni, validazioni tardive o fallimenti previsti.
-Lo storage sostituisce ultimo stato confermato e pending solo al
-completamento dell'accettazione, sotto il coordinamento della partizione.
-Nessuna lettura può osservare una conferma parziale.
-
-La vecchia base deve restare disponibile fino al completamento del
-commit per consentire il ripristino in caso di fallimento. Le risorse
-degli snapshot preparati e poi abbandonati devono essere rilasciate
-senza liberare dati ancora condivisi. La forma concreta di questa
-gestione va definita insieme al ciclo di vita degli snapshot. Oggi lo
-storage restituisce il buffer delle coordinate del pending sostituito
-prima di preparare gli slot, perché il nuovo commit lo possa riusare:
-con l'accettazione separata il pending sostituito deve restare integro
-fino all'accettazione.
+Oggi un commit fallito lascia le scritture nello stato di lavoro. Il
+passo successivo è annullarle: dopo il fallimento di una preparazione,
+o di una modifica già iniziata, lo storage ripristina tutti i componenti
+dall'ultimo stato confermato, inclusi quelli la cui preparazione non era
+ancora iniziata, con lo stesso meccanismo del cambio di proprietà.
+L'esito del ripristino decide l'utilizzabilità della partizione (vedi
+[fallimenti e segnalazioni](#fallimenti-e-segnalazioni)).
 
 # Rollback e recupero espliciti
 
@@ -185,21 +155,15 @@ I reader ordinari continuano a leggere esclusivamente snapshot
 pubblicati e acquisiti. In stato di recupero necessario anche le
 eventuali letture del writer usano solo la base confermata integra.
 
-# Test di contratto e coordinamento
+# Test di coordinamento
 
-La suite comune già presente, con un adattatore per ogni struttura, va
-estesa agli scenari dell'accettazione:
-
-| Scenario comune | Garanzia da verificare |
-|---|---|
-| Preparazione senza accettazione | Base confermata invariata |
-| Accettazione seguita da altre scritture | Nuova base completa e protetta |
-
-I test dello storage verificano il coordinamento in 2D e 3D, usando
+La suite comune dei componenti e i test del commit tutto-o-niente sono
+già presenti. I test dello storage dovranno verificare in 2D e 3D, usando
 componenti controllabili per introdurre errori nei punti rilevanti:
 
-- Fallimento nella preparazione di ciascun componente: nessun pending
-  parziale, vecchia base integra, transazione interamente annullata.
+- Fallimento nella preparazione di ciascun componente, compresi i
+  metadati, che oggi non hanno un punto per introdurre l'errore: vecchia
+  base integra e transazione interamente annullata.
 - Fallimento nel ripristino di ciascun componente, anche dopo effetti
   parziali: stato consultabile, scritture e commit bloccati, diagnosi
   con entrambe le cause e successivo tentativo di recupero.
@@ -211,8 +175,8 @@ componenti controllabili per introdurre errori nei punti rilevanti:
 - Letture del writer prima della pubblicazione, assenza di scritture
   non confermate nei risultati, nuovo commit tra due chiamate, token
   scaduto e lettura concorrente a commit, tick o cambio di proprietà.
-- Risorse condivise protette durante le letture, preparazioni abbandonate
-  liberate e reader ordinari limitati agli snapshot pubblicati.
+- Risorse condivise protette durante le letture e reader ordinari
+  limitati agli snapshot pubblicati.
 
 Non provocare realmente un esaurimento della memoria per verificare
 questi percorsi. Testare gli effetti osservabili del contratto, usando

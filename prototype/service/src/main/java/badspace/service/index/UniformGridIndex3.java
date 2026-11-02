@@ -102,6 +102,16 @@ final class UniformGridIndex3 implements SpatialIndex3 {
      * snapshot is the last one and no notification came after it.
      */
     @Override
+    public void acceptCommit(IndexSnapshot3 prepared) {
+        // Nothing to do: the preparation already made the cells of the snapshot read-only.
+    }
+
+    @Override
+    public void abandonCommit(IndexSnapshot3 prepared) {
+        // Nothing to give back: the memory of the snapshot is freed when nobody refers to it.
+    }
+
+    @Override
     public void restore(IndexSnapshot3 confirmed) {
         if (!changed && confirmed.commitSequence() == lastCommitSequence) {
             return;

@@ -11,9 +11,11 @@ import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.RetentionWindow;
+import badspace.service.index.IndexSnapshot2;
 import badspace.service.index.SlotView2;
 import badspace.service.index.SpatialIndex2;
 import badspace.service.index.SpatialIndexes;
+import badspace.service.partition.metadata.MetadataSnapshot;
 import badspace.service.partition.metadata.MutableMetadata;
 import badspace.service.partition.slots.CoordinateBufferPool;
 import badspace.service.partition.slots.MutableSlots2;
@@ -58,7 +60,11 @@ import java.util.function.Function;
  * The slots, the index and the metadata are {@link TransactionalComponent}s: at each commit
  * the partition asks each of them for its snapshot, with the same commit sequence, and when
  * it discards the writes not committed it restores them to the last commit, in this order:
- * slots, index, metadata.
+ * slots, index, metadata. A commit is all or nothing: the partition accepts the snapshots
+ * only after all of them and the snapshot of the partition are ready. If a preparation
+ * fails, it abandons the snapshots already prepared and the exception goes to the caller:
+ * the last commit, the snapshot that waits for the move of the tick and the writes not
+ * committed stay as they were, so the writer can commit again.
  * <p>
  * Each write, commit and request of removal takes the generation of the owner and first
  * checks it, under the lock of the writer, together with all the input; then it applies
@@ -83,7 +89,8 @@ import java.util.function.Function;
  * The snapshot of the last commit of a tick is not published at the commit: the move of the
  * tick publishes it in the {@link SnapshotCatalog2}, as the snapshot of that tick and of the
  * ticks without a commit after it. A later commit in the same tick replaces the snapshot that
- * waits for the move, and gives back its buffer at once, because no reader ever saw it. The new
+ * waits for the move, and gives back its buffer when it is accepted, because no reader ever
+ * saw it; the next commit can take the buffer again. The new
  * partition has the empty snapshot as if it had a commit at its creation tick. A partition loaded
  * from a save has instead the snapshot of the loaded content (see {@link #load}). The catalog
  * holds the same snapshots, not copies, for the ticks of the retention window. Everyone, the
@@ -746,23 +753,52 @@ final class PartitionStorage2 {
      * writerLock.
      */
     private StorageSnapshot2 commitWrites() {
+        // A sequence is used once, also by a commit that fails: its preparation can have
+        // made read-only the nodes of the structures made with it.
         commitSequence++;
-        // Replaced before the move of the tick, if not null: no reader ever saw it.
+        SlotSnapshot2 slotSnapshot = slots.prepareCommit(commitSequence);
+        IndexSnapshot2 indexSnapshot = null;
+        MetadataSnapshot metadataSnapshot = null;
+        StorageSnapshot2 snapshot;
+        try {
+            indexSnapshot = index.prepareCommit(commitSequence);
+            metadataSnapshot = metadata.prepareCommit(commitSequence);
+            snapshot = new StorageSnapshot2(slotSnapshot, indexSnapshot, metadataSnapshot);
+        } catch (Throwable failure) {
+            abandon(slots, slotSnapshot, failure);
+            if (indexSnapshot != null) {
+                abandon(index, indexSnapshot, failure);
+            }
+            if (metadataSnapshot != null) {
+                abandon(metadata, metadataSnapshot, failure);
+            }
+            throw failure;
+        }
+        // The acceptance cannot fail: all the structures take the commit, and then the partition.
+        slots.acceptCommit(slotSnapshot);
+        index.acceptCommit(indexSnapshot);
+        metadata.acceptCommit(metadataSnapshot);
+        // Replaced before the move of the tick, if not null: no reader ever saw it. It gives
+        // back its buffer only now, so a commit that fails leaves it whole.
         StorageSnapshot2 replaced = pending;
-        if (replaced != null && slots.coordinatesChanged()) {
-            // Its buffer can go to this commit, with only the pages changed since.
-            lifetime.replaced(replaced);
-            replaced = null;
-        }
-        StorageSnapshot2 snapshot = new StorageSnapshot2(slots.prepareCommit(commitSequence),
-                index.prepareCommit(commitSequence), metadata.prepareCommit(commitSequence));
-        if (replaced != null) {
-            // After the new snapshot became a user of the shared buffer.
-            lifetime.replaced(replaced);
-        }
         lastCommitted = snapshot;
         pending = snapshot;
+        if (replaced != null) {
+            lifetime.replaced(replaced);
+        }
         return snapshot;
+    }
+
+    /**
+     * Gives back the resources of a snapshot that the commit does not accept. A failure here
+     * goes with the failure of the commit, which the caller gets.
+     */
+    private static <S> void abandon(TransactionalComponent<S> component, S prepared, Throwable failure) {
+        try {
+            component.abandonCommit(prepared);
+        } catch (Throwable abandonFailure) {
+            failure.addSuppressed(abandonFailure);
+        }
     }
 
     // Steps of the writes: the slots change first, then the index learns the change.

@@ -74,6 +74,16 @@ public final class MutableMetadata implements TransactionalComponent<MetadataSna
 
     /** Takes again the map of the snapshot: the cost does not depend on the number of entities. */
     @Override
+    public void acceptCommit(MetadataSnapshot prepared) {
+        // Nothing to do: the preparation already made the nodes of the snapshot read-only.
+    }
+
+    @Override
+    public void abandonCommit(MetadataSnapshot prepared) {
+        // Nothing to give back: the memory of the snapshot is freed when nobody refers to it.
+    }
+
+    @Override
     public void restore(MetadataSnapshot confirmed) {
         byEntity.revert(confirmed.byEntity());
     }

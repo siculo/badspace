@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T14:54:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T15:14:03Z }
 ---
 
 # Primitiva
@@ -139,7 +139,16 @@ ai commit, mentre le operazioni di modifica restano proprie di ciascuna.
 
 - **Preparazione.** A ogni commit lo storage chiede a ogni struttura uno
   snapshot completo e immutabile del suo stato di lavoro, con la stessa
-  sequenza del commit. Le scritture successive non lo modificano.
+  sequenza del commit. Le scritture successive non lo modificano. La
+  preparazione non cambia la base della struttura, cioè lo snapshot da
+  cui riparte il commit successivo.
+- **Accettazione.** Solo quando tutte le strutture hanno preparato il
+  proprio snapshot, e lo storage ha costruito quello della partizione,
+  ogni struttura lo accetta come nuova base. L’accettazione è un passo
+  minimo che non può fallire, quindi il commit è **tutto o niente**.
+- **Abbandono.** Se una preparazione fallisce, lo storage abbandona gli
+  snapshot già preparati: le strutture ne liberano le risorse senza
+  toccare i dati condivisi con altri snapshot.
 - **Ripristino.** Quando deve scartare le scritture non confermate, oggi
   al [cambio di proprietà](/current/architecture/partition-ownership.md#cambio-di-proprietà),
   lo storage riporta ogni struttura al contenuto dello snapshot
@@ -149,6 +158,15 @@ ai commit, mentre le operazioni di modifica restano proprie di ciascuna.
 
 Le strutture non conoscono il tick né il proprietario: sequenza dei
 commit, ultimo stato confermato e snapshot in attesa sono dello storage.
+
+Un commit che fallisce durante la preparazione non conferma niente:
+ultimo stato confermato e snapshot in attesa restano quelli di prima e
+sono ancora pubblicati al cambio di tick, e le scritture non confermate
+restano nello stato del writer, che può ripetere il commit. Il commit
+fallito usa comunque un numero della sequenza, che non torna indietro.
+Per ora l’eccezione arriva al chiamante così com’è; segnalazioni
+strutturate e annullamento automatico delle scritture sono futuri (vedi
+[strutture transazionali](/future/architecture/transactional-components.md)).
 
 L’ordine del ripristino è fisso: **slot, indice, metadati**. Gli slot
 tornano con la stessa numerazione dello snapshot, quindi l’indice può
@@ -180,7 +198,8 @@ pubblica il nuovo catalogo degli snapshot con una scrittura atomica.
 
 Il contratto delle strutture è l’interfaccia
 `TransactionalComponent<S>` del package `badspace.service.transaction`,
-con `prepareCommit(long)` e `restore(S)`; la implementano
+con `prepareCommit(long)`, `acceptCommit(S)`, `abandonCommit(S)` e
+`restore(S)`; la implementano
 `MutableSlots2`/`MutableSlots3`, gli indici attraverso
 `SpatialIndex2`/`SpatialIndex3` e `MutableMetadata`. Le strutture fanno
 il proprio ripristino:
@@ -194,6 +213,19 @@ il proprio ripristino:
   lineare non ha niente da ripristinare, perché legge gli slot;
 - i metadati riprendono la versione della loro mappa persistente.
 
+Per indici e metadati la preparazione rende già di sola lettura i nodi
+copy-on-write dello snapshot, quindi accettazione e abbandono non fanno
+niente: uno snapshot abbandonato si libera quando nessuno lo riferisce.
+Per gli slot l’accettazione azzera i segni delle modifiche e rende lo
+snapshot la base da condividere; l’abbandono toglie lo snapshot dagli
+utilizzatori del suo buffer delle coordinate. Un buffer preso dal pool
+torna nel pool senza commit, perché un ripristino successivo può
+riportare indietro pagine senza segnarle, e il commit dopo ci copia
+tutte le pagine; un buffer condiviso con la base resta alla base.
+Lo snapshot in attesa che un commit dello stesso tick sostituisce
+restituisce il suo buffer solo dopo l’accettazione: un commit fallito lo
+lascia intatto, e il buffer passa al commit successivo.
+
 Senza scritture dopo l’ultimo commit gli slot e gli indici non fanno
 niente, e i metadati riprendono solo la radice: il cambio di proprietà
 senza scritture non dipende dal numero di entità. Con delle scritture
@@ -206,12 +238,24 @@ ordine di slot, metadati per entità, per gli indici gli slot e i
 risultati di alcune query fisse. Gli scenari sono gli snapshot immutabili
 dopo nuove scritture, il ripristino dopo inserimenti, spostamenti e
 rimozioni, quello allo stato vuoto e quello senza scritture, il
-ripristino ripetuto, il commit senza scritture e i commit dopo un
+ripristino ripetuto, il commit senza scritture, i commit dopo un
 ripristino, uguali a quelli di una struttura che ha avuto solo le
-scritture non scartate. Per la griglia di quadtree e di octree la suite
+scritture non scartate, lo snapshot accettato come nuova base e la
+preparazione abbandonata, dopo la quale il ripristino torna alla base
+e i commit successivi hanno tutte le scritture. Per la griglia di quadtree e di octree la suite
 controlla anche la struttura interna dopo ogni ripristino. Gli indici
 sono provati insieme agli slot di prova dei loro test, che si
 ripristinano prima dell’indice come nello storage.
+
+I test dello storage, in 2D e 3D, fanno fallire la preparazione degli
+slot, con un pool dei buffer che fallisce, e quella dell’indice, con un
+indice dei test che fallisce: lo snapshot in attesa resta intatto e
+viene pubblicato, le scritture restano, il commit ripetuto le conferma.
+Un altro test abbandona un commit con più pagine di slot cambiate, poi
+il cambio di proprietà riporta indietro gli slot e il commit successivo
+riprende dal pool il buffer abbandonato: le coordinate sono quelle
+giuste anche nelle pagine che non cambia.
+
 Per strutture e garanzie, vedere
 [isolamento delle letture](/current/decisions/read-isolation.md) e
 [conservazione degli snapshot](/current/architecture/snapshot-retention.md#nel-prototipo).

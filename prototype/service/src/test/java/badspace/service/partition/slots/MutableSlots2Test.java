@@ -17,7 +17,8 @@ import java.util.Random;
  */
 class MutableSlots2Test extends TransactionalComponentContract<MutableSlots2, SlotSnapshot2> {
 
-    private static final long MAX_ID = 100;
+    // About 200 entities after many writes: more than one page of slots.
+    private static final long MAX_ID = 300;
     private static final int MAX_COORDINATE = 20;
 
     @Override

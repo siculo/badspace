@@ -47,6 +47,16 @@ final class LinearScanIndex2 implements SpatialIndex2 {
     }
 
     @Override
+    public void acceptCommit(IndexSnapshot2 prepared) {
+        // Nothing to do: the snapshot has no state of its own.
+    }
+
+    @Override
+    public void abandonCommit(IndexSnapshot2 prepared) {
+        // Nothing to give back: the memory of the snapshot is freed when nobody refers to it.
+    }
+
+    @Override
     public void restore(IndexSnapshot2 confirmed) {
         if (!(confirmed instanceof Snapshot)) {
             throw new IllegalArgumentException("Snapshot of another index: " + confirmed);

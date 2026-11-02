@@ -15,14 +15,15 @@ import org.junit.jupiter.params.provider.ValueSource;
  * The writes are random, with a fixed seed for each run, so a failure can be repeated. The
  * adapter must choose each write only from the random source and from the content: two
  * structures with the same content get the same write from two sources with the same seed.
- * The commit sequences start at 1 and grow by one at each commit, as in the partition storage.
+ * The commit sequences start at 1 and grow at each commit, also after an abandoned preparation,
+ * as in the partition storage. A commit is a preparation and its acceptance.
  *
  * @param <C> the type of the structure
  * @param <S> the type of its snapshots
  */
 public abstract class TransactionalComponentContract<C extends TransactionalComponent<S>, S> {
 
-    private static final int WRITES = 40;
+    private static final int WRITES = 200;
 
     /** Returns a new structure, with no content. */
     protected abstract C newComponent();
@@ -57,13 +58,17 @@ public abstract class TransactionalComponentContract<C extends TransactionalComp
         Random random = new Random(seed);
         C component = newComponent();
         writeMany(component, random, 1);
-        S first = component.prepareCommit(1);
+        S first = commit(component, 1);
         Object content = snapshotContent(first);
         assertEquals(workingContent(component), content);
         writeMany(component, random, 2);
-        component.prepareCommit(2);
+        S second = commit(component, 2);
+        Object secondContent = snapshotContent(second);
         writeMany(component, random, 3);
+        component.abandonCommit(component.prepareCommit(3));
+        writeMany(component, random, 4);
         assertEquals(content, snapshotContent(first));
+        assertEquals(secondContent, snapshotContent(second));
     }
 
     @ParameterizedTest
@@ -72,7 +77,7 @@ public abstract class TransactionalComponentContract<C extends TransactionalComp
         Random random = new Random(seed);
         C component = newComponent();
         writeMany(component, random, 1);
-        S confirmed = component.prepareCommit(1);
+        S confirmed = commit(component, 1);
         Object content = snapshotContent(confirmed);
         writeMany(component, random, 2);
         component.restore(confirmed);
@@ -99,7 +104,7 @@ public abstract class TransactionalComponentContract<C extends TransactionalComp
         Random random = new Random(seed);
         C component = newComponent();
         writeMany(component, random, 1);
-        S confirmed = component.prepareCommit(1);
+        S confirmed = commit(component, 1);
         component.restore(confirmed);
         assertEquals(snapshotContent(confirmed), workingContent(component));
         checkStructure(component);
@@ -111,7 +116,7 @@ public abstract class TransactionalComponentContract<C extends TransactionalComp
         Random random = new Random(seed);
         C component = newComponent();
         writeMany(component, random, 1);
-        S confirmed = component.prepareCommit(1);
+        S confirmed = commit(component, 1);
         writeMany(component, random, 2);
         component.restore(confirmed);
         component.restore(confirmed);
@@ -124,11 +129,11 @@ public abstract class TransactionalComponentContract<C extends TransactionalComp
     void commitWithoutWritesHasTheSameContent(long seed) {
         Random random = new Random(seed);
         C component = newComponent();
-        S withoutWrites = component.prepareCommit(1);
+        S withoutWrites = commit(component, 1);
         assertEquals(snapshotContent(emptySnapshot()), snapshotContent(withoutWrites));
         writeMany(component, random, 2);
-        S first = component.prepareCommit(2);
-        S second = component.prepareCommit(3);
+        S first = commit(component, 2);
+        S second = commit(component, 3);
         assertEquals(snapshotContent(first), snapshotContent(second));
         writeMany(component, random, 4);
         component.restore(second);
@@ -146,19 +151,102 @@ public abstract class TransactionalComponentContract<C extends TransactionalComp
         C tested = newComponent();
         C reference = newComponent();
         writeBoth(tested, reference, seed, 1);
-        S confirmed = tested.prepareCommit(1);
-        reference.prepareCommit(1);
+        S confirmed = commit(tested, 1);
+        commit(reference, 1);
         Object content = snapshotContent(confirmed);
         writeMany(tested, new Random(~seed), 2);
         tested.restore(confirmed);
-        for (long commit = 2; commit <= 4; commit++) {
-            writeBoth(tested, reference, seed * 31 + commit, commit);
+        for (long sequence = 2; sequence <= 4; sequence++) {
+            writeBoth(tested, reference, seed * 31 + sequence, sequence);
             checkStructure(tested);
-            assertEquals(workingContent(reference), workingContent(tested), "working state before commit " + commit);
-            assertEquals(snapshotContent(reference.prepareCommit(commit)), snapshotContent(tested.prepareCommit(commit)),
-                    "commit " + commit);
+            assertEquals(workingContent(reference), workingContent(tested), "working state before commit " + sequence);
+            assertEquals(snapshotContent(commit(reference, sequence)), snapshotContent(commit(tested, sequence)),
+                    "commit " + sequence);
         }
         assertEquals(content, snapshotContent(confirmed));
+    }
+
+    /**
+     * A preparation that the storage abandons does not change the base: the restore goes back
+     * to the last accepted snapshot, and the commits after it are the same as for a reference
+     * that never prepared the abandoned commit. The commits after the restore have one write
+     * each, so most of the state changed before the abandoned preparation does not change again.
+     */
+    @ParameterizedTest
+    @ValueSource(longs = {1, 2, 3, 4, 5})
+    void abandonedPreparationKeepsTheBase(long seed) {
+        C tested = newComponent();
+        C reference = newComponent();
+        writeBoth(tested, reference, seed, 1);
+        S confirmed = commit(tested, 1);
+        commit(reference, 1);
+        Object content = snapshotContent(confirmed);
+        writeMany(tested, new Random(~seed), 2);
+        tested.abandonCommit(tested.prepareCommit(2));
+        tested.restore(confirmed);
+        assertEquals(content, workingContent(tested));
+        checkStructure(tested);
+        for (long sequence = 3; sequence <= 5; sequence++) {
+            write(tested, new Random(seed * 31 + sequence), sequence);
+            write(reference, new Random(seed * 31 + sequence), sequence);
+            assertEquals(snapshotContent(commit(reference, sequence)), snapshotContent(commit(tested, sequence)),
+                    "commit " + sequence);
+        }
+        assertEquals(content, snapshotContent(confirmed));
+    }
+
+    /**
+     * After an abandoned preparation the writer commits again, at once and then after more
+     * writes: the commits have all the writes, also the ones before the abandoned preparation,
+     * as for a reference that never prepared it, and the later commits do not change the
+     * earlier snapshots.
+     */
+    @ParameterizedTest
+    @ValueSource(longs = {1, 2, 3, 4, 5})
+    void commitAfterAnAbandonedPreparationHasAllTheWrites(long seed) {
+        C tested = newComponent();
+        C reference = newComponent();
+        writeBoth(tested, reference, seed, 1);
+        commit(tested, 1);
+        commit(reference, 1);
+        writeBoth(tested, reference, seed + 1, 2);
+        tested.abandonCommit(tested.prepareCommit(2));
+        S retried = commit(tested, 3);
+        Object retriedContent = snapshotContent(retried);
+        assertEquals(snapshotContent(commit(reference, 3)), retriedContent);
+        writeBoth(tested, reference, seed + 2, 4);
+        S later = commit(tested, 4);
+        assertEquals(snapshotContent(commit(reference, 4)), snapshotContent(later));
+        assertEquals(retriedContent, snapshotContent(retried));
+        writeMany(tested, new Random(~seed), 5);
+        tested.restore(later);
+        assertEquals(snapshotContent(later), workingContent(tested));
+        checkStructure(tested);
+    }
+
+    /** An accepted snapshot is the new base: the restore goes back to it, not to the one before. */
+    @ParameterizedTest
+    @ValueSource(longs = {1, 2, 3, 4, 5})
+    void acceptedSnapshotIsTheNewBase(long seed) {
+        Random random = new Random(seed);
+        C component = newComponent();
+        writeMany(component, random, 1);
+        commit(component, 1);
+        writeMany(component, random, 2);
+        S accepted = commit(component, 2);
+        Object content = snapshotContent(accepted);
+        writeMany(component, random, 3);
+        component.restore(accepted);
+        assertEquals(content, workingContent(component));
+        assertEquals(content, snapshotContent(accepted));
+        checkStructure(component);
+    }
+
+    /** Prepares and accepts a commit, as the storage does when no preparation fails. */
+    private S commit(C component, long commitSequence) {
+        S prepared = component.prepareCommit(commitSequence);
+        component.acceptCommit(prepared);
+        return prepared;
     }
 
     private void writeMany(C component, Random random, long commit) {

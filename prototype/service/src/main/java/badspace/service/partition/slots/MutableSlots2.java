@@ -24,8 +24,10 @@ import java.util.Arrays;
  * no insertion or removal happened.
  * <p>
  * The slots are a {@link TransactionalComponent}: {@link #prepareCommit} makes the snapshot
- * of a commit, and {@link #restore} brings the slots back to a snapshot with the same
- * numbering, so the index can go back to its own snapshot of the same commit.
+ * of a commit, {@link #acceptCommit} makes it the base of the next one, {@link #abandonCommit}
+ * gives back the buffer of a snapshot that the commit does not accept, and {@link #restore}
+ * brings the slots back to a snapshot with the same numbering, so the index can go back to
+ * its own snapshot of the same commit.
  * <p>
  * Only the writer uses the slots, while it holds the lock of the partition: the slots take no
  * lock of their own. The snapshots they make never change, so other threads can read them.
@@ -46,8 +48,8 @@ public final class MutableSlots2 implements SlotView2, TransactionalComponent<Sl
     private int size;
     // The pool of the partition, where the commits take the buffers of the coordinates.
     private final CoordinateBufferPool coordinateBuffers;
-    // The snapshot of the last commit, or of the last restore: the next snapshot shares
-    // its IDs, its table and its buffer when they do not change.
+    // The snapshot of the last accepted commit, or of the last restore: the next snapshot
+    // shares its IDs, its table and its buffer when they do not change.
     private SlotSnapshot2 lastSnapshot = SlotSnapshot2.empty();
     // For each page of slots, the commit sequence of the commit that confirms its last change:
     // page p has the slots from p * PAGE_SLOTS.
@@ -90,12 +92,12 @@ public final class MutableSlots2 implements SlotView2, TransactionalComponent<Sl
         return slotById.get(entityId);
     }
 
-    /** Returns true if there are writes after the last snapshot or restore. */
+    /** Returns true if there are writes after the last accepted snapshot or restore. */
     public boolean hasChanges() {
         return idsChanged || coordinatesChanged;
     }
 
-    /** Returns true if the coordinates changed after the last snapshot or restore. */
+    /** Returns true if the coordinates changed after the last accepted snapshot or restore. */
     public boolean coordinatesChanged() {
         return coordinatesChanged;
     }
@@ -155,25 +157,43 @@ public final class MutableSlots2 implements SlotView2, TransactionalComponent<Sl
     }
 
     /**
-     * Returns the snapshot of the slots for the commit, and records that the slots have no
-     * changes after it. If the coordinates changed, the snapshot gets a buffer from the pool
-     * with the pages changed after the commit of the buffer; otherwise it shares the buffer
-     * of the last snapshot. Without insertions or removals, it shares the IDs and the table
-     * of the last snapshot. The storage gives back the buffer of a replaced snapshot before
-     * the call, so the commit can take it again.
+     * Returns the snapshot of the slots for the commit. If the coordinates changed, the
+     * snapshot gets a buffer from the pool with the pages changed after the commit of the
+     * buffer; otherwise it shares the buffer of the last accepted snapshot. Without insertions
+     * or removals, it shares the IDs and the table of the last accepted snapshot.
      */
     @Override
     public SlotSnapshot2 prepareCommit(long commitSequence) {
         CoordinateBuffer coordinates = coordinatesChanged
                 ? copyChangedPages(commitSequence)
                 : lastSnapshot.coordinateBuffer();
-        SlotSnapshot2 snapshot = idsChanged
+        return idsChanged
                 ? new SlotSnapshot2(Arrays.copyOf(slotEntityIds, size), coordinates, slotById.copy())
                 : lastSnapshot.withCoordinates(coordinates);
+    }
+
+    /** Records that the slots have no changes after the snapshot, which the next one can share. */
+    @Override
+    public void acceptCommit(SlotSnapshot2 prepared) {
         idsChanged = false;
         coordinatesChanged = false;
-        lastSnapshot = snapshot;
-        return snapshot;
+        lastSnapshot = prepared;
+    }
+
+    /**
+     * Removes the snapshot from the users of its buffer. A buffer that the snapshot took from
+     * the pool has no other users, so it goes back to the pool as a buffer that holds no
+     * commit: the slots can go back to an older commit without marking the pages that change,
+     * so the next commit must copy all the pages into it. A buffer shared with the last
+     * accepted snapshot keeps its other users.
+     */
+    @Override
+    public void abandonCommit(SlotSnapshot2 prepared) {
+        CoordinateBuffer coordinates = prepared.coordinateBuffer();
+        if (coordinates.removeUser()) {
+            coordinates.holdCommit(CoordinateBuffer.NO_COMMIT);
+            coordinateBuffers.giveBack(coordinates);
+        }
     }
 
     /**

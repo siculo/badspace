@@ -151,6 +151,16 @@ final class GridQuadtreeIndex2 implements SpatialIndex2 {
      * snapshot is the last one and no notification came after it.
      */
     @Override
+    public void acceptCommit(IndexSnapshot2 prepared) {
+        // Nothing to do: the preparation already made the nodes of the snapshot read-only.
+    }
+
+    @Override
+    public void abandonCommit(IndexSnapshot2 prepared) {
+        // Nothing to give back: the memory of the snapshot is freed when nobody refers to it.
+    }
+
+    @Override
     public void restore(IndexSnapshot2 confirmed) {
         if (!changed && confirmed.commitSequence() == lastCommitSequence) {
             return;

@@ -9,7 +9,8 @@ import badspace.service.index.SpatialIndex2;
 /**
  * A real index whose snapshots stop findInRegion at the gate, if there is one,
  * before they read the index. The commit stops at the commit gate, if there is one.
- * The restore gives the real index its own snapshots.
+ * The preparation of the commit throws the prepare failure, if there is one. The other
+ * methods give the real index its own snapshots.
  */
 final class GatedIndex2 implements SpatialIndex2 {
 
@@ -18,6 +19,9 @@ final class GatedIndex2 implements SpatialIndex2 {
     volatile Gate gate;
     // Set by the test thread before the commit starts, read by the writer thread.
     volatile Gate commitGate;
+    // Set by the test thread before the commit starts, read by the writer thread: if not
+    // null, the preparation of the commit throws it after the commit gate.
+    volatile RuntimeException prepareFailure;
 
     GatedIndex2(SpatialIndex2 index) {
         this.index = index;
@@ -53,7 +57,21 @@ final class GatedIndex2 implements SpatialIndex2 {
                 throw new IllegalStateException(e);
             }
         }
+        RuntimeException failure = prepareFailure;
+        if (failure != null) {
+            throw failure;
+        }
         return new GatedSnapshot(index.prepareCommit(n));
+    }
+
+    @Override
+    public void acceptCommit(IndexSnapshot2 prepared) {
+        index.acceptCommit(((GatedSnapshot) prepared).snapshot);
+    }
+
+    @Override
+    public void abandonCommit(IndexSnapshot2 prepared) {
+        index.abandonCommit(((GatedSnapshot) prepared).snapshot);
     }
 
     @Override

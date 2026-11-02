@@ -79,6 +79,16 @@ final class TestStorage3 implements SlotView3, TransactionalComponent<TestStorag
         return new Snapshot(index.prepareCommit(n), List.copyOf(entities));
     }
 
+    @Override
+    public void acceptCommit(Snapshot prepared) {
+        index.acceptCommit(prepared.index());
+    }
+
+    @Override
+    public void abandonCommit(Snapshot prepared) {
+        index.abandonCommit(prepared.index());
+    }
+
     /** Brings back the slots of the snapshot, in the same order, and then the index. */
     @Override
     public void restore(Snapshot confirmed) {
