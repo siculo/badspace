@@ -184,7 +184,7 @@ Il refactoring ha seguito le indicazioni concordate, ora descritte in [Architett
 
 Comportamento, proposta del contratto e criteri di verifica nel [bundle](okf-bundle/future/architecture/transactional-components.md). Ogni passo comprende 2D e 3D, i test pertinenti e l'aggiornamento della documentazione corrente; non richiede di riprendere il TODO degli indici.
 
-- [ ] Introdurre il contratto comune e la suite di test riutilizzabile per slot, indici e metadati, con ordine di ripristino esplicito
+- [x] Introdurre il contratto comune e la suite di test riutilizzabile per slot, indici e metadati, con ordine di ripristino esplicito
 - [ ] Coordinare preparazione e accettazione del commit tutto-o-niente, preservando la base confermata e gestendo le risorse delle preparazioni abbandonate
 - [ ] Introdurre segnalazioni strutturate, stato di recupero necessario consultabile e annullamento automatico della transazione dopo un fallimento
 - [ ] Esporre rollback e recupero dall'ultimo stato confermato; unificare il ripristino usato al rilascio e al trasferimento dell'ownership

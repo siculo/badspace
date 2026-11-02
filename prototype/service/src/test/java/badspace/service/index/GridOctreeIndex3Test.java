@@ -203,7 +203,7 @@ class GridOctreeIndex3Test {
         }
 
         Snapshots commit(long n) {
-            return new Snapshots(tested.commit(n), reference.commit(n));
+            return new Snapshots(tested.prepareCommit(n), reference.prepareCommit(n));
         }
 
         int maxDepth() {

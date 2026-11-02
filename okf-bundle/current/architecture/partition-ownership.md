@@ -4,7 +4,7 @@ title: Proprietà della partizione
 description: "Proprietà single-writer con fencing token: passaggio, revoca e rilascio; recupero del writer applicativo e limite di visibilità dei commit nello stesso tick."
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-25T14:24:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T14:54:29Z }
 ---
 
 # Primitiva
@@ -196,14 +196,13 @@ spazio crea le partizioni senza proprietario.
   della partizione, e `ownership(p)` lo legge da ogni thread senza
   lock, con generazione e proprietario sempre insieme.
 - **Scritture scartate.** A ogni cambio di generazione lo storage
-  riporta lo stato del writer all'ultimo commit con le stesse
-  operazioni delle scritture: toglie le entità che il commit non ha,
-  rimette quelle che ha tolto e riporta le altre alla posizione del
-  commit. L'indice riceve le notifiche come per ogni scrittura, quindi
-  il meccanismo vale per tutti gli indici senza operazioni nuove; gli
-  slot possono finire in un ordine diverso da quello del commit, e il
-  commit successivo copia quello che è cambiato. Senza scritture dopo
-  l'ultimo commit non fa niente.
+  riporta lo stato del writer all'ultimo commit con il ripristino delle
+  [strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali),
+  nell'ordine slot, indice, metadati: gli slot tornano con la
+  numerazione del commit e l'indice al proprio snapshot dello stesso
+  commit, senza notifiche per le scritture scartate. Il commit
+  successivo copia quello che è cambiato. Senza scritture dopo
+  l'ultimo commit slot e indice non fanno niente.
 - **Controllo del token.** Ogni scrittura, commit e richiesta di
   rimozione dello storage riceve la generazione e la confronta con lo
   stato di proprietà subito dopo aver preso il lock della partizione,
@@ -227,7 +226,9 @@ non confermate scartate a `claim` e a `release` con i commit
 precedenti confermati (anche prima del primo commit e nello stesso
 tick), sequenze casuali di scritture scartate con lo stato e l'indice
 uguali all'ultimo commit per la scansione lineare, la grid uniforme e
-la griglia di quadtree, la generazione negativa, la rimozione e la
+la griglia di quadtree, uno scarto con slot rinumerati che riporta
+posizioni, risultati delle query e metadati al commit e poi accetta le
+scritture del nuovo proprietario, la generazione negativa, la rimozione e la
 partizione distrutta. Per il token verificano che scritture, commit e
 rimozioni con un token vecchio o senza proprietario siano rifiutati
 senza cambiare la partizione, e, con latch e barriere, senza sleep: un

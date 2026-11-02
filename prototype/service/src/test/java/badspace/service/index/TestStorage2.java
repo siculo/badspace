@@ -4,6 +4,7 @@ import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.service.transaction.TransactionalComponent;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -16,8 +17,12 @@ import java.util.function.Function;
  * moves the last entity into the free slot. It does not check the writes, so
  * the tests must give known IDs, new IDs for the inserts, and positions in the
  * limits of the index.
+ * <p>
+ * Like the partition storage, it takes part in the commits as a whole: its snapshot has the
+ * snapshot of the index and a copy of the slots, and the restore brings back the slots with
+ * the same numbering and then the index.
  */
-final class TestStorage2 implements SlotView2 {
+final class TestStorage2 implements SlotView2, TransactionalComponent<TestStorage2.Snapshot> {
 
     private final List<Entity2> entities = new ArrayList<>();
     private final Map<Long, Integer> slotById = new HashMap<>();
@@ -69,8 +74,31 @@ final class TestStorage2 implements SlotView2 {
     }
 
     /** Closes a commit and returns the snapshot of the index with a copy of the slots of the commit. */
-    Snapshot commit(long n) {
-        return new Snapshot(index.commit(n), List.copyOf(entities));
+    @Override
+    public Snapshot prepareCommit(long n) {
+        return new Snapshot(index.prepareCommit(n), List.copyOf(entities));
+    }
+
+    /** Brings back the slots of the snapshot, in the same order, and then the index. */
+    @Override
+    public void restore(Snapshot confirmed) {
+        entities.clear();
+        entities.addAll(confirmed.entities());
+        slotById.clear();
+        for (int slot = 0; slot < entities.size(); slot++) {
+            slotById.put(entities.get(slot).id(), slot);
+        }
+        index.restore(confirmed.index());
+    }
+
+    /** Returns the snapshot before the first commit: no slots and the empty index. */
+    static Snapshot emptySnapshot() {
+        return new Snapshot(IndexSnapshot2.empty(), List.of());
+    }
+
+    /** Returns the index, so the tests can check its structure. */
+    SpatialIndex2 index() {
+        return index;
     }
 
     List<Entity2> findInRegion(Region2 region) {

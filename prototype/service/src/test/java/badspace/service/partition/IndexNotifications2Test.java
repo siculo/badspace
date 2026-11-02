@@ -107,9 +107,9 @@ class IndexNotifications2Test {
         storage.setTick(1);
         storage.commit(owner(storage));
         var order = inOrder(index);
-        order.verify(index).commit(1);
-        order.verify(index).commit(2);
-        order.verify(index).commit(3);
+        order.verify(index).prepareCommit(1);
+        order.verify(index).prepareCommit(2);
+        order.verify(index).prepareCommit(3);
         order.verifyNoMoreInteractions();
     }
 }

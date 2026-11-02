@@ -62,6 +62,8 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     /** For each slot, its place in the list of its leaf. */
     private int[] placeOf = new int[INITIAL_CAPACITY];
     private long lastCommitSequence;
+    /** True after a notification not yet in a snapshot. */
+    private boolean changed;
 
     /** The cell size must be a power of 2 and the leaf capacity positive, as in {@code IndexConfig.GridQuadtree}. */
     GridOctreeIndex3(SlotView3 storage, double cellSize, int leafCapacity) {
@@ -73,6 +75,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
 
     @Override
     public void inserted(int slot, Point3 position) {
+        changed = true;
         if (slot >= placeOf.length) {
             placeOf = Arrays.copyOf(placeOf, Math.max(slot + 1, placeOf.length * 2));
         }
@@ -81,6 +84,7 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
 
     @Override
     public void moved(int slot, Point3 from, Point3 to) {
+        changed = true;
         CellKey key = keyOf(from);
         if (!key.equals(keyOf(to))) {
             remove(slot, from);
@@ -116,11 +120,13 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
 
     @Override
     public void removed(int slot, Point3 position) {
+        changed = true;
         remove(slot, position);
     }
 
     @Override
     public void relocated(int from, int to, Point3 position) {
+        changed = true;
         CellKey key = keyOf(position);
         Node node = writable(key, cells.get(key));
         while (!node.isLeaf()) {
@@ -132,9 +138,29 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
     }
 
     @Override
-    public IndexSnapshot3 commit(long commitSequence) {
+    public IndexSnapshot3 prepareCommit(long commitSequence) {
         lastCommitSequence = commitSequence;
+        changed = false;
         return new Snapshot(commitSequence, cells.commit(commitSequence), cellSize);
+    }
+
+    /**
+     * Takes again the cells of the snapshot and rebuilds from them the place of each slot,
+     * which is not in the snapshot. The cells of the snapshot are older than the last commit,
+     * so the next writes copy them and the snapshot does not change. It does nothing if the
+     * snapshot is the last one and no notification came after it.
+     */
+    @Override
+    public void restore(IndexSnapshot3 confirmed) {
+        if (!changed && confirmed.commitSequence() == lastCommitSequence) {
+            return;
+        }
+        cells.revert(cellsOf(confirmed));
+        if (placeOf.length < storage.size()) {
+            placeOf = new int[storage.size()];
+        }
+        cells.view().forEachValue(this::placeAll);
+        changed = false;
     }
 
     @Override
@@ -498,6 +524,33 @@ final class GridOctreeIndex3 implements SpatialIndex3 {
 
     private static boolean isInt(long value) {
         return value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE;
+    }
+
+    /**
+     * Returns the cells of a snapshot of this kind of index, or no cells for the empty
+     * snapshot of a partition before its first commit.
+     */
+    private static HashTrie.View<CellKey, Node> cellsOf(IndexSnapshot3 snapshot) {
+        if (snapshot instanceof Snapshot own) {
+            return own.cells();
+        }
+        if (snapshot == IndexSnapshot3.empty()) {
+            return HashTrie.View.empty();
+        }
+        throw new IllegalArgumentException("Snapshot of another index: " + snapshot);
+    }
+
+    /** Sets the place of each slot of the subtree in the list of its leaf. */
+    private void placeAll(Node node) {
+        if (node.isLeaf()) {
+            for (int i = 0; i < node.slots.size(); i++) {
+                placeOf[node.slots.get(i)] = i;
+            }
+        } else {
+            for (Node child : node.children) {
+                placeAll(child);
+            }
+        }
     }
 
     /** The queries on the cells of a snapshot, which read the positions in the slots of the same snapshot. */

@@ -15,7 +15,6 @@ import badspace.service.index.SlotView2;
 import badspace.service.index.SpatialIndex2;
 import badspace.service.index.SpatialIndexes;
 import badspace.service.partition.metadata.MutableMetadata;
-import badspace.service.partition.slots.CoordinateBuffer;
 import badspace.service.partition.slots.CoordinateBufferPool;
 import badspace.service.partition.slots.MutableSlots2;
 import badspace.service.partition.slots.SlotSnapshot2;
@@ -25,6 +24,7 @@ import badspace.service.partition.snapshot.SnapshotCatalog2;
 import badspace.service.partition.snapshot.SnapshotLifetime2;
 import badspace.service.partition.snapshot.StorageSnapshot2;
 import badspace.service.persistence.PartitionCopy2;
+import badspace.service.transaction.TransactionalComponent;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -54,6 +54,11 @@ import java.util.function.Function;
  *   <li>{@link CoordinateBufferPool}: the buffers of the coordinates, which the commits take
  *       and the ended snapshots give back.</li>
  * </ul>
+ * <p>
+ * The slots, the index and the metadata are {@link TransactionalComponent}s: at each commit
+ * the partition asks each of them for its snapshot, with the same commit sequence, and when
+ * it discards the writes not committed it restores them to the last commit, in this order:
+ * slots, index, metadata.
  * <p>
  * Each write, commit and request of removal takes the generation of the owner and first
  * checks it, under the lock of the writer, together with all the input; then it applies
@@ -119,7 +124,7 @@ final class PartitionStorage2 {
     private final ReentrantLock writerLock;
     // The state of the writer, which the next commit confirms. Changed only while holding
     // writerLock; the index reads it through its view of the slots.
-    private final MutableSlots2 slots = new MutableSlots2();
+    private final MutableSlots2 slots;
     private final SpatialIndex2 index;
     // The application metadata of the writer, like the slots. Changed only while holding
     // writerLock; removing an entity deletes its metadata.
@@ -234,8 +239,9 @@ final class PartitionStorage2 {
             CoordinateBufferPool coordinateBuffers) {
         this.writerLock = writerLock;
         this.limits = limits;
-        this.index = indexFactory.apply(slots);
         this.coordinateBuffers = coordinateBuffers;
+        this.slots = new MutableSlots2(coordinateBuffers);
+        this.index = indexFactory.apply(slots);
         this.lifetime = new SnapshotLifetime2(coordinateBuffers);
         this.acquisitions = new SnapshotAcquisitions2(clock, lifetime);
         this.catalog = SnapshotCatalog2.empty(creationTick, retainedTicks);
@@ -592,40 +598,17 @@ final class PartitionStorage2 {
     }
 
     /**
-     * Brings the state of the writer back to the last commit: removes the entities that the
-     * commit does not have, inserts again the ones it has and moves the others back to their
-     * positions in it. It uses the same steps as the writes, so the index learns each change
-     * like for any write; the slots can end in a different order than in the commit. The next
-     * commit copies what changed, as after any write. The metadata go back to the ones of the
-     * last commit. It does nothing on the slots if they have no writes after the last commit.
-     * The caller holds writerLock.
+     * Brings the state of the writer back to the last commit. The slots go back first, with
+     * the numbering of the commit; then the index goes back to its snapshot of the same
+     * commit, on the restored slots; then the metadata. The index gets no notifications for
+     * the discarded writes. The next commit copies what changed, as after any write. The
+     * caller holds writerLock.
      */
     private void discardUncommittedWrites() {
-        metadata.revert(lastCommitted.metadata());
-        if (!slots.hasChanges()) {
-            return;
-        }
-        SlotSnapshot2 committed = lastCommitted.slots();
-        List<Long> added = new ArrayList<>();
-        for (int slot = 0; slot < slots.size(); slot++) {
-            if (committed.slotOf(slots.idAt(slot)) == SlotSnapshot2.NONE) {
-                added.add(slots.idAt(slot));
-            }
-        }
-        for (long entityId : added) {
-            remove(entityId);
-        }
-        slots.ensureCapacity(committed.size());
-        for (int committedSlot = 0; committedSlot < committed.size(); committedSlot++) {
-            long entityId = committed.idAt(committedSlot);
-            Point2 position = committed.positionAt(committedSlot);
-            int slot = slots.slotOf(entityId);
-            if (slot == SlotSnapshot2.NONE) {
-                insert(entityId, position);
-            } else if (!slots.positionAt(slot).equals(position)) {
-                move(slot, position);
-            }
-        }
+        StorageSnapshot2 confirmed = lastCommitted;
+        slots.restore(confirmed.slots());
+        index.restore(confirmed.index());
+        metadata.restore(confirmed.metadata());
     }
 
     // Information about the partition.
@@ -766,19 +749,13 @@ final class PartitionStorage2 {
         commitSequence++;
         // Replaced before the move of the tick, if not null: no reader ever saw it.
         StorageSnapshot2 replaced = pending;
-        CoordinateBuffer coordinates;
-        if (slots.coordinatesChanged()) {
-            if (replaced != null) {
-                // Its buffer can go to this commit, with only the pages changed since.
-                lifetime.replaced(replaced);
-                replaced = null;
-            }
-            coordinates = slots.copyChangedPages(coordinateBuffers, commitSequence);
-        } else {
-            coordinates = lastCommitted.slots().coordinateBuffer();
+        if (replaced != null && slots.coordinatesChanged()) {
+            // Its buffer can go to this commit, with only the pages changed since.
+            lifetime.replaced(replaced);
+            replaced = null;
         }
-        StorageSnapshot2 snapshot = new StorageSnapshot2(slots.snapshot(coordinates, lastCommitted.slots()),
-                index.commit(commitSequence), metadata.commit(commitSequence));
+        StorageSnapshot2 snapshot = new StorageSnapshot2(slots.prepareCommit(commitSequence),
+                index.prepareCommit(commitSequence), metadata.prepareCommit(commitSequence));
         if (replaced != null) {
             // After the new snapshot became a user of the shared buffer.
             lifetime.replaced(replaced);

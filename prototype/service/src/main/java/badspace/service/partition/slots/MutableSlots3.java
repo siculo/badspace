@@ -2,6 +2,7 @@ package badspace.service.partition.slots;
 
 import badspace.common.geometry.Point3;
 import badspace.service.index.SlotView3;
+import badspace.service.transaction.TransactionalComponent;
 import java.util.Arrays;
 
 /**
@@ -22,10 +23,14 @@ import java.util.Arrays;
  * the commit of the buffer it gets, and shares the IDs and the table of the last snapshot when
  * no insertion or removal happened.
  * <p>
+ * The slots are a {@link TransactionalComponent}: {@link #prepareCommit} makes the snapshot
+ * of a commit, and {@link #restore} brings the slots back to a snapshot with the same
+ * numbering, so the index can go back to its own snapshot of the same commit.
+ * <p>
  * Only the writer uses the slots, while it holds the lock of the partition: the slots take no
  * lock of their own. The snapshots they make never change, so other threads can read them.
  */
-public final class MutableSlots3 implements SlotView3 {
+public final class MutableSlots3 implements SlotView3, TransactionalComponent<SlotSnapshot3> {
 
     private static final int DIMENSIONS = 3;
     private static final int INITIAL_CAPACITY = 16;
@@ -37,8 +42,13 @@ public final class MutableSlots3 implements SlotView3 {
     // coords is always DIMENSIONS times the capacity of slotEntityIds.
     private long[] slotEntityIds = new long[INITIAL_CAPACITY];
     private double[] coords = new double[INITIAL_CAPACITY * DIMENSIONS];
-    private final SlotTable slotById = new SlotTable();
+    private SlotTable slotById = new SlotTable();
     private int size;
+    // The pool of the partition, where the commits take the buffers of the coordinates.
+    private final CoordinateBufferPool coordinateBuffers;
+    // The snapshot of the last commit, or of the last restore: the next snapshot shares
+    // its IDs, its table and its buffer when they do not change.
+    private SlotSnapshot3 lastSnapshot = SlotSnapshot3.empty();
     // For each page of slots, the commit sequence of the commit that confirms its last change:
     // page p has the slots from p * PAGE_SLOTS.
     private long[] pageChanges = new long[pageCount(INITIAL_CAPACITY)];
@@ -49,8 +59,14 @@ public final class MutableSlots3 implements SlotView3 {
     /** True after a change of the coordinates not yet in a snapshot. */
     private boolean coordinatesChanged;
 
-    /** Creates empty slots for the writer. */
-    public MutableSlots3() {
+    /**
+     * Creates empty slots for the writer.
+     *
+     * @param coordinateBuffers the pool of the partition, where the commits take the buffers
+     *     of the coordinates
+     */
+    public MutableSlots3(CoordinateBufferPool coordinateBuffers) {
+        this.coordinateBuffers = coordinateBuffers;
     }
 
     @Override
@@ -74,12 +90,12 @@ public final class MutableSlots3 implements SlotView3 {
         return slotById.get(entityId);
     }
 
-    /** Returns true if there are writes after the last snapshot. */
+    /** Returns true if there are writes after the last snapshot or restore. */
     public boolean hasChanges() {
         return idsChanged || coordinatesChanged;
     }
 
-    /** Returns true if the coordinates changed after the last snapshot. */
+    /** Returns true if the coordinates changed after the last snapshot or restore. */
     public boolean coordinatesChanged() {
         return coordinatesChanged;
     }
@@ -140,14 +156,58 @@ public final class MutableSlots3 implements SlotView3 {
     }
 
     /**
+     * Returns the snapshot of the slots for the commit, and records that the slots have no
+     * changes after it. If the coordinates changed, the snapshot gets a buffer from the pool
+     * with the pages changed after the commit of the buffer; otherwise it shares the buffer
+     * of the last snapshot. Without insertions or removals, it shares the IDs and the table
+     * of the last snapshot. The storage gives back the buffer of a replaced snapshot before
+     * the call, so the commit can take it again.
+     */
+    @Override
+    public SlotSnapshot3 prepareCommit(long commitSequence) {
+        CoordinateBuffer coordinates = coordinatesChanged
+                ? copyChangedPages(commitSequence)
+                : lastSnapshot.coordinateBuffer();
+        SlotSnapshot3 snapshot = idsChanged
+                ? new SlotSnapshot3(Arrays.copyOf(slotEntityIds, size), coordinates, slotById.copy())
+                : lastSnapshot.withCoordinates(coordinates);
+        idsChanged = false;
+        coordinatesChanged = false;
+        lastSnapshot = snapshot;
+        return snapshot;
+    }
+
+    /**
+     * Copies the IDs, the coordinates and the table of the snapshot, so each entity goes
+     * back to its slot in the snapshot. It does nothing if the snapshot is the last one and
+     * there are no writes after it. The pages keep the commit of their last change: a page
+     * changed after the snapshot holds its content again, and the next commit copies it,
+     * like after a write. The snapshot does not need to come from these slots.
+     */
+    @Override
+    public void restore(SlotSnapshot3 confirmed) {
+        if (confirmed == lastSnapshot && !hasChanges()) {
+            return;
+        }
+        int count = confirmed.size();
+        ensureCapacity(count);
+        confirmed.copyInto(slotEntityIds, coords);
+        slotById = confirmed.copyOfTable();
+        size = count;
+        idsChanged = false;
+        coordinatesChanged = false;
+        lastSnapshot = confirmed;
+    }
+
+    /**
      * Returns a buffer from the pool with the coordinates of the slots at the given commit.
      * It copies into the buffer the pages of slots changed after the commit of the state it
      * holds, and records that it holds the given commit. A new buffer holds no commit, so it
      * gets all the pages. The slots that the buffer did not have were inserted after its
      * commit, so their pages are changed too.
      */
-    public CoordinateBuffer copyChangedPages(CoordinateBufferPool pool, long commit) {
-        CoordinateBuffer buffer = pool.take(size * DIMENSIONS, coords.length);
+    private CoordinateBuffer copyChangedPages(long commit) {
+        CoordinateBuffer buffer = coordinateBuffers.take(size * DIMENSIONS, coords.length);
         double[] values = buffer.values();
         long held = buffer.commitSequence();
         int pages = pageCount(size);
@@ -161,20 +221,6 @@ public final class MutableSlots3 implements SlotView3 {
         }
         buffer.holdCommit(commit);
         return buffer;
-    }
-
-    /**
-     * Returns the snapshot of the slots with the given coordinates, and records that the
-     * slots have no changes after it. Without insertions or removals after the last snapshot,
-     * the new one shares its IDs and its table.
-     */
-    public SlotSnapshot3 snapshot(CoordinateBuffer coordinates, SlotSnapshot3 last) {
-        SlotSnapshot3 snapshot = idsChanged
-                ? new SlotSnapshot3(Arrays.copyOf(slotEntityIds, size), coordinates, slotById.copy())
-                : last.withCoordinates(coordinates);
-        idsChanged = false;
-        coordinatesChanged = false;
-        return snapshot;
     }
 
     /** Returns the number of pages that the snapshots copied into the buffers since the creation. */

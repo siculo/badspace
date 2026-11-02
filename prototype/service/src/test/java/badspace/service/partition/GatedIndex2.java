@@ -9,6 +9,7 @@ import badspace.service.index.SpatialIndex2;
 /**
  * A real index whose snapshots stop findInRegion at the gate, if there is one,
  * before they read the index. The commit stops at the commit gate, if there is one.
+ * The restore gives the real index its own snapshots.
  */
 final class GatedIndex2 implements SpatialIndex2 {
 
@@ -43,7 +44,7 @@ final class GatedIndex2 implements SpatialIndex2 {
     }
 
     @Override
-    public IndexSnapshot2 commit(long n) {
+    public IndexSnapshot2 prepareCommit(long n) {
         Gate currentCommitGate = commitGate;
         if (currentCommitGate != null) {
             try {
@@ -52,31 +53,12 @@ final class GatedIndex2 implements SpatialIndex2 {
                 throw new IllegalStateException(e);
             }
         }
-        IndexSnapshot2 snapshot = index.commit(n);
-        return new IndexSnapshot2() {
-            @Override
-            public long commitSequence() {
-                return snapshot.commitSequence();
-            }
+        return new GatedSnapshot(index.prepareCommit(n));
+    }
 
-            @Override
-            public int[] findInRegion(Region2 region, SlotView2 slots) {
-                Gate current = gate;
-                if (current != null) {
-                    try {
-                        current.pass();
-                    } catch (InterruptedException e) {
-                        throw new IllegalStateException(e);
-                    }
-                }
-                return snapshot.findInRegion(region, slots);
-            }
-
-            @Override
-            public int[] findNearest(Point2 point, int count, SlotView2 slots) {
-                return snapshot.findNearest(point, count, slots);
-            }
-        };
+    @Override
+    public void restore(IndexSnapshot2 confirmed) {
+        index.restore(confirmed instanceof GatedSnapshot gated ? gated.snapshot : confirmed);
     }
 
     @Override
@@ -87,5 +69,38 @@ final class GatedIndex2 implements SpatialIndex2 {
     @Override
     public int[] findNearest(Point2 point, int count) {
         return index.findNearest(point, count);
+    }
+
+    /** A snapshot of the real index whose findInRegion stops at the gate. */
+    private final class GatedSnapshot implements IndexSnapshot2 {
+
+        private final IndexSnapshot2 snapshot;
+
+        GatedSnapshot(IndexSnapshot2 snapshot) {
+            this.snapshot = snapshot;
+        }
+
+        @Override
+        public long commitSequence() {
+            return snapshot.commitSequence();
+        }
+
+        @Override
+        public int[] findInRegion(Region2 region, SlotView2 slots) {
+            Gate current = gate;
+            if (current != null) {
+                try {
+                    current.pass();
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+            return snapshot.findInRegion(region, slots);
+        }
+
+        @Override
+        public int[] findNearest(Point2 point, int count, SlotView2 slots) {
+            return snapshot.findNearest(point, count, slots);
+        }
     }
 }

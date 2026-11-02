@@ -2,6 +2,7 @@ package badspace.service.index;
 
 import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
+import badspace.service.transaction.TransactionalComponent;
 
 /**
  * Spatial index of a 3D partition. The partition storage calls it after each
@@ -18,8 +19,13 @@ import badspace.common.geometry.Region3;
  * <p>
  * Writes are grouped in commits. At each commit the index gives a
  * {@link IndexSnapshot3}: a snapshot that does not change when the writer goes on.
+ * The commit sequence that {@link #prepareCommit} gets increases at every commit, even
+ * within the same logical tick. {@link #restore} brings the index back to a snapshot of
+ * the same index, or to {@link IndexSnapshot3#empty()}, after the storage brought the
+ * slots back to the slots of the same commit, with the same numbering: the index does not
+ * get notifications for the writes that the restore discards.
  */
-public interface SpatialIndex3 {
+public interface SpatialIndex3 extends TransactionalComponent<IndexSnapshot3> {
 
     /** Called after an entity is added in the slot. */
     void inserted(int slot, Point3 position);
@@ -35,13 +41,6 @@ public interface SpatialIndex3 {
      * to another to fill the free slot. The position does not change.
      */
     void relocated(int from, int to, Point3 position);
-
-    /**
-     * Closes the current commit with the internal sequence supplied by the storage.
-     * The sequence increases at every commit, even within the same logical tick.
-     * Returns the snapshot of the index at this commit, which the next writes do not change.
-     */
-    IndexSnapshot3 commit(long commitSequence);
 
     /**
      * Returns the slots of the entities inside the region, border included, in any order.

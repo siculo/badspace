@@ -4,7 +4,7 @@ title: Conservazione degli snapshot
 description: "Snapshot per tick, finestra di conservazione, acquisizione e rilascio con scadenza, vita degli snapshot e coordinamento interno."
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T14:54:29Z }
 ---
 
 # Primitiva
@@ -304,8 +304,9 @@ coordina writer, avanzamento del tick e reader, e tiene i protocolli
 che coinvolgono più parti: il lock, la proprietà, lo stato della
 rimozione, il catalogo, l'ultimo commit e lo snapshot in attesa, la
 sequenza dei commit, l'ordine delle notifiche all'indice e il
-ripristino dell'ultimo commit. I dettagli stanno in componenti che non
-conoscono lo storage:
+ripristino dell'ultimo commit, nell'ordine slot, indice, metadati (vedi
+[strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali)).
+I dettagli stanno in componenti che non conoscono lo storage:
 
 - gli **slot del writer** (`MutableSlots2`/`MutableSlots3`): array
   primitivi, tabella ID → slot, pagine cambiate e snapshot degli slot;
@@ -377,7 +378,8 @@ copie di slot o indici.
 
 `commit()` prepara lo snapshot e lo tiene come **snapshot in attesa**,
 che un secondo commit nello stesso tick sostituisce; ogni commit ha un
-numero nella sequenza dei commit, che va a `commit(n)` degli indici.
+numero nella sequenza dei commit, che va a `prepareCommit(n)` di slot,
+indice e metadati.
 Una partizione nuova ha come snapshot in attesa quello vuoto, come se
 avesse un commit al tick di creazione. `setTick(t)` crea un catalogo
 nuovo: aggiunge lo snapshot in attesa, se c'è, valido dal tick che si
