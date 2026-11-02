@@ -202,6 +202,19 @@ public interface PartitionNode3 {
     Ownership ownership(PartitionId partitionId);
 
     /**
+     * Returns the health of a partition: healthy, or in need of a recovery after a failure
+     * whose restore did not work. Then the partition refuses writes and commits with
+     * IllegalStateException, while its snapshots stay readable; a claim or a release of the
+     * ownership tries the restore again. Any thread can call it, also after the removal of
+     * the partition, until it is destroyed.
+     *
+     * @param partitionId the ID of the partition
+     * @return the health of the partition, with the report of the failure if it needs a recovery
+     * @throws UnknownPartitionException if the partition is unknown
+     */
+    PartitionHealth health(PartitionId partitionId);
+
+    /**
      * Makes the caller the owner of a partition if the generation of its ownership is still
      * the expected one: the generation grows by one and the writes not committed are
      * discarded. With the generation of a free partition it takes the partition; with the

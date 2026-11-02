@@ -4,7 +4,7 @@ title: Proprietà della partizione
 description: "Proprietà single-writer con fencing token: passaggio, revoca e rilascio; recupero del writer applicativo e limite di visibilità dei commit nello stesso tick."
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T14:54:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:29:28Z }
 ---
 
 # Primitiva
@@ -202,7 +202,11 @@ spazio crea le partizioni senza proprietario.
   numerazione del commit e l'indice al proprio snapshot dello stesso
   commit, senza notifiche per le scritture scartate. Il commit
   successivo copia quello che è cambiato. Senza scritture dopo
-  l'ultimo commit slot e indice non fanno niente.
+  l'ultimo commit slot e indice non fanno niente. Se il ripristino
+  fallisce la proprietà cambia comunque e la partizione richiede un
+  recupero; su una partizione che lo richiede, `claim` e `release`
+  ritentano il ripristino e, se riesce, la partizione torna sana (vedi
+  [fallimenti e salute](/current/architecture/partition-failures.md)).
 - **Controllo del token.** Ogni scrittura, commit e richiesta di
   rimozione dello storage riceve la generazione e la confronta con lo
   stato di proprietà subito dopo aver preso il lock della partizione,
@@ -252,6 +256,7 @@ scritture non confermate, `close()` dopo un'eccezione come rollback e
 
 # Correlati
 
+- [Fallimenti e salute della partizione](/current/architecture/partition-failures.md) — il cambio di proprietà come tentativo di recupero.
 - [Architettura minima](/current/architecture/minimal-core.md) — ruolo nel nucleo corrente.
 - [Tipo di strumento](/current/decisions/tool-type.md#accesso) — il fencing
   protegge da errori e ritardi, non da chiamanti malevoli.

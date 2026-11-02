@@ -23,6 +23,7 @@ import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
+import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.SavedPartition;
@@ -539,6 +540,12 @@ class Space2EndToEndTest {
             }
         }
         assertEquals(partitions.size() * batches * batchSize, allIds.size());
+    }
+
+    @Test
+    void newPartitionIsHealthy() {
+        Partition2 partition = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName());
+        assertEquals(PartitionHealth.HEALTHY, partition.health());
     }
 
     @Test

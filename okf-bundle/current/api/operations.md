@@ -4,7 +4,7 @@ title: "Contratto dell’API corrente"
 description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:29:28Z }
 ---
 
 # Contratto corrente
@@ -234,6 +234,7 @@ senza proprietario, alla generazione 0.
 | Handle | `writer(WriteToken)` sulla partizione | Crea l'handle del writer per un token, anche ricevuto da un altro writer o da un coordinatore; non controlla la generazione, lo fa il nodo alla prima operazione |
 | Token | `token()` sull'handle | Il token dell'handle |
 | Rilascio | `close()` sull'handle; `release` nel contratto del nodo | Scarta le scritture non confermate; idempotente, non fa niente se la proprietà è già passata ad altri o la partizione è distrutta, quindi `close()` non fallisce mai |
+| Salute | `health()` sulla partizione; `health(PartitionId)` nel contratto del nodo | `PartitionHealth.Healthy`, o `RecoveryRequired` con il resoconto del fallimento (vedi [fallimenti e salute](#fallimenti-e-salute)) |
 
 L'**handle del writer** (`PartitionWriter2`/`PartitionWriter3`, con
 l'interfaccia comune `PartitionWriter`) è `AutoCloseable` e porta il
@@ -260,6 +261,7 @@ rimozione ricevono il token al posto dell'ID della partizione.
 | Errore | Eccezione |
 |---|---|
 | Scrittura, commit o rimozione con un token che non è quello corrente | `OwnershipChangedException`, eccezione di dominio dedicata; la partizione non cambia |
+| Scrittura o commit su una partizione che richiede un recupero, con il token corrente | `IllegalStateException`; la partizione non cambia |
 | `claim` dalla rimozione in poi | `IllegalStateException` |
 | Generazione attesa negativa | `IllegalArgumentException` |
 | `writer(token)` con il token di un'altra partizione | `IllegalArgumentException` |
@@ -294,8 +296,10 @@ l’esempio in [Commit e tick](/current/architecture/partition-commit.md#commit-
 
 Scelte di dettaglio:
 
-- **Scritture fallite**: le scritture sono tutto-o-niente, quindi una
-  scrittura fallita non cambia nemmeno lo stato del writer.
+- **Scritture rifiutate**: le scritture sono tutto-o-niente, quindi una
+  scrittura rifiutata non cambia nemmeno lo stato del writer. Un
+  fallimento dopo i controlli, invece, annulla tutte le scritture non
+  confermate (vedi [fallimenti e salute](#fallimenti-e-salute)).
 - **Rimozione con scritture non confermate**: è permessa, e le scritture
   si scartano; la politica di rimozione guarda lo stato confermato del
   tick corrente.
@@ -536,3 +540,23 @@ seguono la stessa regola: il batch si applica solo se tutte le
 condizioni sono vere. Una condizione falsa non è un errore: la
 partizione non cambia e la chiamata restituisce le condizioni fallite,
 senza eccezione.
+
+## Fallimenti e salute
+
+Gli errori delle tabelle precedenti sono rifiuti: arrivano prima di
+qualsiasi modifica. Un’eccezione dopo i controlli, durante una scrittura
+o un commit, è un [fallimento](/current/architecture/partition-failures.md):
+la partizione annulla tutte le scritture non confermate e conserva
+l’ultimo commit e lo snapshot in attesa. I tipi sono in `common`.
+
+| Caso | Risultato per il chiamante |
+|---|---|
+| Fallimento con un’eccezione | `PartitionFailureException`, con il resoconto `PartitionFailure` in `failure()` e l’eccezione originale come causa |
+| Fallimento con un `Error`, per esempio `OutOfMemoryError` | L’`Error` così com’è, con l’eventuale fallimento del ripristino tra le eccezioni soppresse |
+| Ripristino fallito | Esito `RECOVERY_REQUIRED` nel resoconto; `health()` diventa `RecoveryRequired` e scritture e commit sono rifiutati finché `claim` o `release` non ripristinano la partizione |
+
+Il resoconto ha operazione (`WRITE`, `COMMIT`, `CLAIM`, `RELEASE`),
+struttura (`SLOTS`, `INDEX`, `METADATA`, `UNKNOWN`), esito
+(`WRITES_DISCARDED` o `RECOVERY_REQUIRED`), tick dell’ultimo commit,
+causa ed eventuale fallimento del ripristino. `health()` si legge da
+qualsiasi thread, anche dopo la rimozione e fino alla distruzione.

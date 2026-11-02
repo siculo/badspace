@@ -12,6 +12,7 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
+import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
@@ -243,6 +244,11 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     @Override
     public Ownership ownership(PartitionId partitionId) {
         return findAny(partitionId).ownership();
+    }
+
+    @Override
+    public PartitionHealth health(PartitionId partitionId) {
+        return findAny(partitionId).health();
     }
 
     @Override

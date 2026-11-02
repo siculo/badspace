@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 import badspace.common.geometry.Box2;
 import badspace.common.geometry.Circle2;
@@ -20,6 +21,7 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.SnapshotNotAvailableException;
@@ -58,6 +60,12 @@ class LocalPartitionNode2Test {
         node.insertAll(owner(node, P2), List.of(entity(1, 1, 2), entity(2, 5, 5)));
         assertEquals(List.of(entity(1, 1, 2)), node.findNearest(publish(P2), new Point2(0, 0), 1));
         assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, nameOf(P2), IndexConfig.linearScan()));
+    }
+
+    @Test
+    void newPartitionIsHealthyAndAnUnknownOneHasNoHealth() {
+        assertSame(PartitionHealth.HEALTHY, node.health(P1));
+        assertThrows(UnknownPartitionException.class, () -> node.health(new PartitionId(99)));
     }
 
     @Test

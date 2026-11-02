@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T15:14:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:29:28Z }
 ---
 
 # Primitiva
@@ -161,12 +161,10 @@ commit, ultimo stato confermato e snapshot in attesa sono dello storage.
 
 Un commit che fallisce durante la preparazione non conferma niente:
 ultimo stato confermato e snapshot in attesa restano quelli di prima e
-sono ancora pubblicati al cambio di tick, e le scritture non confermate
-restano nello stato del writer, che può ripetere il commit. Il commit
-fallito usa comunque un numero della sequenza, che non torna indietro.
-Per ora l’eccezione arriva al chiamante così com’è; segnalazioni
-strutturate e annullamento automatico delle scritture sono futuri (vedi
-[strutture transazionali](/future/architecture/transactional-components.md)).
+sono ancora pubblicati al cambio di tick. Il commit fallito usa comunque
+un numero della sequenza, che non torna indietro. Poi la partizione
+annulla le scritture non confermate e segnala il fallimento, come per
+ogni [fallimento del writer](/current/architecture/partition-failures.md).
 
 L’ordine del ripristino è fisso: **slot, indice, metadati**. Gli slot
 tornano con la stessa numerazione dello snapshot, quindi l’indice può
@@ -265,4 +263,5 @@ Per strutture e garanzie, vedere
 - [Nucleo delle partizioni](/current/architecture/minimal-core.md) — garanzie del livello base.
 - [Tick logico](/current/architecture/logical-time.md) — avanzamento e pubblicazione.
 - [Metadati applicativi](/current/architecture/entity-metadata.md) — confermati insieme alle posizioni.
+- [Fallimenti e salute della partizione](/current/architecture/partition-failures.md) — annullamento delle scritture e recupero.
 - [Contratto dell’API](/current/api/operations.md#commit) — chiamata ed errori.

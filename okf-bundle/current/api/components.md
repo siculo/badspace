@@ -4,7 +4,7 @@ title: "Componenti dell’API"
 description: "Spazio, handle del nodo, partizione, writer, snapshot acquisito e insieme di snapshot: ruolo, problemi risolti e sequenza d’uso nell’API corrente."
 tags: [badspace, documentation]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:29:28Z }
 ---
 
 # Prima di iniziare
@@ -68,6 +68,12 @@ spiega il meccanismo e gli schemi di coordinamento.
 
 L’handle è `AutoCloseable`: `close()` rilascia la proprietà e scarta le
 scritture non confermate. I commit precedenti restano confermati.
+
+Se una scrittura o un commit fallisce dopo i controlli dell’input, per
+un bug o per mancanza di memoria, la partizione annulla le scritture non
+confermate e lo segnala. Se non riesce a farlo, `health()` della
+partizione dice che serve un recupero, che avviene al successivo
+cambio di proprietà (vedi [fallimenti e salute](/current/architecture/partition-failures.md)).
 
 # Snapshot acquisito: leggere uno stato stabile
 

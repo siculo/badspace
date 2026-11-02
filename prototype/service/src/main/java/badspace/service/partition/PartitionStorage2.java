@@ -5,11 +5,17 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.ConditionalWrite2;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
+import badspace.common.partition.FailureOutcome;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
+import badspace.common.partition.PartitionComponent;
+import badspace.common.partition.PartitionFailure;
+import badspace.common.partition.PartitionFailureException;
+import badspace.common.partition.PartitionHealth;
+import badspace.common.partition.PartitionOperation;
 import badspace.common.partition.RetentionWindow;
 import badspace.service.index.IndexSnapshot2;
 import badspace.service.index.SlotView2;
@@ -62,9 +68,15 @@ import java.util.function.Function;
  * it discards the writes not committed it restores them to the last commit, in this order:
  * slots, index, metadata. A commit is all or nothing: the partition accepts the snapshots
  * only after all of them and the snapshot of the partition are ready. If a preparation
- * fails, it abandons the snapshots already prepared and the exception goes to the caller:
- * the last commit, the snapshot that waits for the move of the tick and the writes not
- * committed stay as they were, so the writer can commit again.
+ * fails, it abandons the snapshots already prepared.
+ * <p>
+ * A failure after the checks of the input, in a write or in a commit, discards all the writes
+ * not committed: the partition restores the structures to the last commit, and the last commit
+ * and the snapshot that waits for the move of the tick stay as they were. The caller gets a
+ * {@link PartitionFailureException} with the report of the failure, or the {@link Error} as it
+ * is. If also the restore fails, the {@linkplain #health() health} of the partition says that
+ * it needs a recovery: writes and commits are refused, the confirmed snapshots stay readable,
+ * and a claim or a release of the ownership tries the restore again.
  * <p>
  * Each write, commit and request of removal takes the generation of the owner and first
  * checks it, under the lock of the writer, together with all the input; then it applies
@@ -156,6 +168,15 @@ final class PartitionStorage2 {
     // by the move of the tick that makes it effective, and by the end of the last snapshot
     // (which needs no lock: nothing else changes the state after RETIRED). Read by any thread.
     private volatile PartitionState state = PartitionState.ACTIVE;
+    // Healthy, or in need of a recovery after a restore that failed. Written while holding
+    // writerLock; read by any thread through health().
+    private volatile PartitionHealth health = PartitionHealth.HEALTHY;
+    // The tick of the last commit, or the creation tick, for the reports of the failures.
+    // Only the writer uses it.
+    private long lastCommitTick;
+    // The structure that the writer is changing, for the reports of the failures. Only the
+    // writer uses it.
+    private PartitionComponent step = PartitionComponent.UNKNOWN;
     // The buffers of the coordinates. The commits take from the pool, and the lifetime gives
     // back the buffers of the ended snapshots: both use this instance.
     private final CoordinateBufferPool coordinateBuffers;
@@ -256,6 +277,7 @@ final class PartitionStorage2 {
         // publishes the empty snapshot, unless a commit replaces it.
         this.lastCommitted = StorageSnapshot2.empty();
         this.pending = lastCommitted;
+        this.lastCommitTick = creationTick;
     }
 
     // Writes of the owner.
@@ -263,7 +285,7 @@ final class PartitionStorage2 {
     void insertAll(long generation, List<Entity2> entities) {
         writerLock.lock();
         try {
-            checkOwner(generation);
+            checkWritable(generation);
             Set<Long> seen = new HashSet<>();
             for (Entity2 e : entities) {
                 if (slots.slotOf(e.id()) != SlotSnapshot2.NONE || !seen.add(e.id())) {
@@ -271,9 +293,14 @@ final class PartitionStorage2 {
                 }
                 checkLimits(e.id(), e.position());
             }
-            slots.ensureCapacity(slots.size() + entities.size());
-            for (Entity2 e : entities) {
-                insert(e.id(), e.position());
+            try {
+                step = PartitionComponent.SLOTS;
+                slots.ensureCapacity(slots.size() + entities.size());
+                for (Entity2 e : entities) {
+                    insert(e.id(), e.position());
+                }
+            } catch (Throwable failure) {
+                throw failed(PartitionOperation.WRITE, failure);
             }
         } finally {
             writerLock.unlock();
@@ -283,13 +310,17 @@ final class PartitionStorage2 {
     void updateAll(long generation, List<Entity2> entities) {
         writerLock.lock();
         try {
-            checkOwner(generation);
+            checkWritable(generation);
             for (Entity2 e : entities) {
                 existingSlot(e.id());
                 checkLimits(e.id(), e.position());
             }
-            for (Entity2 e : entities) {
-                move(slots.slotOf(e.id()), e.position());
+            try {
+                for (Entity2 e : entities) {
+                    move(slots.slotOf(e.id()), e.position());
+                }
+            } catch (Throwable failure) {
+                throw failed(PartitionOperation.WRITE, failure);
             }
         } finally {
             writerLock.unlock();
@@ -304,12 +335,17 @@ final class PartitionStorage2 {
     void updateMetadataAll(long generation, List<MetadataWrite> writes) {
         writerLock.lock();
         try {
-            checkOwner(generation);
+            checkWritable(generation);
             for (MetadataWrite write : writes) {
                 existingSlot(write.entityId());
             }
-            for (MetadataWrite write : writes) {
-                metadata.write(write);
+            try {
+                step = PartitionComponent.METADATA;
+                for (MetadataWrite write : writes) {
+                    metadata.write(write);
+                }
+            } catch (Throwable failure) {
+                throw failed(PartitionOperation.WRITE, failure);
             }
         } finally {
             writerLock.unlock();
@@ -326,7 +362,7 @@ final class PartitionStorage2 {
     List<MetadataCondition> updateIf(long generation, ConditionalWrite2 write) {
         writerLock.lock();
         try {
-            checkOwner(generation);
+            checkWritable(generation);
             for (MetadataCondition condition : write.conditions()) {
                 existingSlot(condition.entityId());
             }
@@ -346,11 +382,16 @@ final class PartitionStorage2 {
             if (!failed.isEmpty()) {
                 return failed;
             }
-            for (Entity2 e : write.positions()) {
-                move(slots.slotOf(e.id()), e.position());
-            }
-            for (MetadataWrite metadataWrite : write.metadata()) {
-                metadata.write(metadataWrite);
+            try {
+                for (Entity2 e : write.positions()) {
+                    move(slots.slotOf(e.id()), e.position());
+                }
+                step = PartitionComponent.METADATA;
+                for (MetadataWrite metadataWrite : write.metadata()) {
+                    metadata.write(metadataWrite);
+                }
+            } catch (Throwable failure) {
+                throw failed(PartitionOperation.WRITE, failure);
             }
             return List.of();
         } finally {
@@ -361,7 +402,7 @@ final class PartitionStorage2 {
     void removeAll(long generation, long[] entityIds) {
         writerLock.lock();
         try {
-            checkOwner(generation);
+            checkWritable(generation);
             Set<Long> seen = new HashSet<>();
             for (long id : entityIds) {
                 existingSlot(id);
@@ -369,8 +410,12 @@ final class PartitionStorage2 {
                     throw new IllegalArgumentException("Duplicate entity ID: " + id);
                 }
             }
-            for (long id : entityIds) {
-                remove(id);
+            try {
+                for (long id : entityIds) {
+                    remove(id);
+                }
+            } catch (Throwable failure) {
+                throw failed(PartitionOperation.WRITE, failure);
             }
         } finally {
             writerLock.unlock();
@@ -433,6 +478,7 @@ final class PartitionStorage2 {
                 throw new IllegalStateException("Tick of the partition has moved: " + current.tick());
             }
             catalog = SnapshotCatalog2.empty(creationTick, current.retainedTicks());
+            lastCommitTick = creationTick;
         } finally {
             writerLock.unlock();
         }
@@ -447,12 +493,15 @@ final class PartitionStorage2 {
      * commit. It does not remove the expired acquisitions: the caller calls
      * {@link #removeExpired} after it and takes its result, because after the release of the
      * lock the partition can be removed and its last snapshot can end. Only the writer can call
-     * it. Fails with OwnershipChangedException if generation is not the one of the owner.
+     * it. Fails with OwnershipChangedException if generation is not the one of the owner, with
+     * IllegalStateException if the partition needs a recovery, and with
+     * PartitionFailureException if the commit fails: then the writes not committed are
+     * discarded.
      */
     StorageSnapshot2 commit(long generation) {
         writerLock.lock();
         try {
-            checkOwner(generation);
+            checkWritable(generation);
             return commitWrites();
         } finally {
             writerLock.unlock();
@@ -541,6 +590,14 @@ final class PartitionStorage2 {
         return state;
     }
 
+    /**
+     * Returns the health of the partition: healthy, or in need of a recovery after a restore
+     * that failed. Any thread can call it.
+     */
+    PartitionHealth health() {
+        return health;
+    }
+
     // Ownership.
 
     /** Returns the state of the ownership. Any thread can call it. */
@@ -550,7 +607,9 @@ final class PartitionStorage2 {
 
     /**
      * Makes the caller the owner if the generation is still expectedGeneration: the generation
-     * grows by one and the writes not committed are discarded. Returns the new generation, or
+     * grows by one and the writes not committed are discarded. If the restore of the
+     * structures fails, the ownership changes anyway and the partition needs a recovery; if it
+     * works, the partition is healthy again. Returns the new generation, or
      * NOT_CLAIMED if the generation is not the expected one; in this case nothing changes.
      * Fails with IllegalStateException after the removal was requested. Any thread can call
      * it: it waits for a write, a commit or a move of the tick that is running.
@@ -565,7 +624,7 @@ final class PartitionStorage2 {
             if (current.generation() != expectedGeneration) {
                 return NOT_CLAIMED;
             }
-            discardUncommittedWrites();
+            discardForNewOwner(PartitionOperation.CLAIM);
             ownership = new Ownership(current.generation() + 1, true);
             return current.generation() + 1;
         } finally {
@@ -575,8 +634,9 @@ final class PartitionStorage2 {
 
     /**
      * Leaves the ownership if the generation is the one of the current owner: the generation
-     * grows by one, the partition has no owner and the writes not committed are discarded.
-     * Otherwise, and after the removal was requested, it does nothing. Any thread can call it.
+     * grows by one, the partition has no owner and the writes not committed are discarded,
+     * with the same health as {@link #claimOwnership}. Otherwise, and after the removal was
+     * requested, it does nothing. Any thread can call it.
      */
     void releaseOwnership(long generation) {
         writerLock.lock();
@@ -585,7 +645,7 @@ final class PartitionStorage2 {
             if (state != PartitionState.ACTIVE || !current.owned() || current.generation() != generation) {
                 return;
             }
-            discardUncommittedWrites();
+            discardForNewOwner(PartitionOperation.RELEASE);
             ownership = new Ownership(current.generation() + 1, false);
         } finally {
             writerLock.unlock();
@@ -605,6 +665,92 @@ final class PartitionStorage2 {
     }
 
     /**
+     * Fails with OwnershipChangedException if the generation is not the one of the current
+     * owner, and then with IllegalStateException if the partition needs a recovery. The
+     * caller holds writerLock.
+     */
+    private void checkWritable(long generation) {
+        checkOwner(generation);
+        if (health instanceof PartitionHealth.RecoveryRequired) {
+            throw new IllegalStateException("Partition needs a recovery: writes and commits are refused");
+        }
+    }
+
+    /**
+     * Discards the writes not committed at a change of the ownership. If the restore works, the
+     * partition is healthy, also if it needed a recovery before. If it fails, the partition
+     * needs a recovery, and the caller changes the ownership anyway: so a coordinator can
+     * always take the ownership away from a writer. The caller holds writerLock.
+     */
+    private void discardForNewOwner(PartitionOperation operation) {
+        Throwable restoreFailure = tryRestore();
+        if (restoreFailure == null) {
+            health = PartitionHealth.HEALTHY;
+            return;
+        }
+        try {
+            health = new PartitionHealth.RecoveryRequired(new PartitionFailure(operation, step,
+                    FailureOutcome.RECOVERY_REQUIRED, lastCommitTick, restoreFailure, null));
+        } catch (Throwable reportFailure) {
+            // The report needs memory: without it the health stays without a report.
+        }
+    }
+
+    /**
+     * Handles a failure of a write or a commit after the checks of the input: discards the
+     * writes not committed and returns the PartitionFailureException that the caller throws.
+     * If the failure is an Error, it throws it, with the failure of the restore as a
+     * suppressed exception. If the restore fails, the partition needs a recovery. Without the
+     * memory for the report, it throws the failure as it is. The caller holds writerLock.
+     */
+    private RuntimeException failed(PartitionOperation operation, Throwable failure) {
+        PartitionComponent component = step;
+        Throwable restoreFailure = tryRestore();
+        RuntimeException reported = null;
+        try {
+            FailureOutcome outcome = restoreFailure == null
+                    ? FailureOutcome.WRITES_DISCARDED
+                    : FailureOutcome.RECOVERY_REQUIRED;
+            PartitionFailure report = new PartitionFailure(operation, component, outcome, lastCommitTick, failure,
+                    restoreFailure);
+            if (restoreFailure != null) {
+                health = new PartitionHealth.RecoveryRequired(report);
+            }
+            if (failure instanceof RuntimeException) {
+                reported = new PartitionFailureException(report);
+            } else if (restoreFailure != null) {
+                failure.addSuppressed(restoreFailure);
+            }
+        } catch (Throwable reportFailure) {
+            // The report needs memory: the caller gets at least the failure of the operation.
+        }
+        if (reported != null) {
+            return reported;
+        }
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        throw (Error) failure;
+    }
+
+    /**
+     * Brings the structures back to the last commit. Returns null if it works, or the failure
+     * of the restore: then the partition needs a recovery, and step is the structure that
+     * failed. The caller holds writerLock.
+     */
+    private Throwable tryRestore() {
+        try {
+            discardUncommittedWrites();
+            step = PartitionComponent.UNKNOWN;
+            return null;
+        } catch (Throwable restoreFailure) {
+            // Before anything that allocates, so the partition is blocked also without memory.
+            health = PartitionHealth.RecoveryRequired.UNREPORTED;
+            return restoreFailure;
+        }
+    }
+
+    /**
      * Brings the state of the writer back to the last commit. The slots go back first, with
      * the numbering of the commit; then the index goes back to its snapshot of the same
      * commit, on the restored slots; then the metadata. The index gets no notifications for
@@ -613,8 +759,11 @@ final class PartitionStorage2 {
      */
     private void discardUncommittedWrites() {
         StorageSnapshot2 confirmed = lastCommitted;
+        step = PartitionComponent.SLOTS;
         slots.restore(confirmed.slots());
+        step = PartitionComponent.INDEX;
         index.restore(confirmed.index());
+        step = PartitionComponent.METADATA;
         metadata.restore(confirmed.metadata());
     }
 
@@ -756,23 +905,30 @@ final class PartitionStorage2 {
         // A sequence is used once, also by a commit that fails: its preparation can have
         // made read-only the nodes of the structures made with it.
         commitSequence++;
-        SlotSnapshot2 slotSnapshot = slots.prepareCommit(commitSequence);
+        SlotSnapshot2 slotSnapshot = null;
         IndexSnapshot2 indexSnapshot = null;
         MetadataSnapshot metadataSnapshot = null;
         StorageSnapshot2 snapshot;
         try {
+            step = PartitionComponent.SLOTS;
+            slotSnapshot = slots.prepareCommit(commitSequence);
+            step = PartitionComponent.INDEX;
             indexSnapshot = index.prepareCommit(commitSequence);
+            step = PartitionComponent.METADATA;
             metadataSnapshot = metadata.prepareCommit(commitSequence);
+            step = PartitionComponent.UNKNOWN;
             snapshot = new StorageSnapshot2(slotSnapshot, indexSnapshot, metadataSnapshot);
         } catch (Throwable failure) {
-            abandon(slots, slotSnapshot, failure);
+            if (slotSnapshot != null) {
+                abandon(slots, slotSnapshot, failure);
+            }
             if (indexSnapshot != null) {
                 abandon(index, indexSnapshot, failure);
             }
             if (metadataSnapshot != null) {
                 abandon(metadata, metadataSnapshot, failure);
             }
-            throw failure;
+            throw failed(PartitionOperation.COMMIT, failure);
         }
         // The acceptance cannot fail: all the structures take the commit, and then the partition.
         slots.acceptCommit(slotSnapshot);
@@ -783,6 +939,7 @@ final class PartitionStorage2 {
         StorageSnapshot2 replaced = pending;
         lastCommitted = snapshot;
         pending = snapshot;
+        lastCommitTick = catalog.tick();
         if (replaced != null) {
             lifetime.replaced(replaced);
         }
@@ -804,13 +961,17 @@ final class PartitionStorage2 {
     // Steps of the writes: the slots change first, then the index learns the change.
 
     private void insert(long entityId, Point2 position) {
+        step = PartitionComponent.SLOTS;
         int slot = slots.insert(entityId, position, nextCommit());
+        step = PartitionComponent.INDEX;
         index.inserted(slot, position);
     }
 
     private void move(int slot, Point2 to) {
+        step = PartitionComponent.SLOTS;
         Point2 from = slots.positionAt(slot);
         slots.write(slot, to, nextCommit());
+        step = PartitionComponent.INDEX;
         index.moved(slot, from, to);
     }
 
@@ -822,8 +983,11 @@ final class PartitionStorage2 {
         int slot = slots.slotOf(entityId);
         Point2 position = slots.positionAt(slot);
         int last = slots.size() - 1;
+        step = PartitionComponent.SLOTS;
         slots.remove(entityId, nextCommit());
+        step = PartitionComponent.METADATA;
         metadata.removeEntity(entityId);
+        step = PartitionComponent.INDEX;
         index.removed(slot, position);
         if (slot != last) {
             index.relocated(last, slot, slots.positionAt(slot));
