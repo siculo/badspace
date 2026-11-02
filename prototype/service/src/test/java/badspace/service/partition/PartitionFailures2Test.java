@@ -39,8 +39,8 @@ import org.junit.jupiter.api.Test;
  * Checks the failures of the writer of a 2D partition. A failure after the checks of the
  * input, in a write or in a commit, discards all the writes not committed and keeps the last
  * commit and the snapshot that waits for the move of the tick; a refusal changes nothing. If
- * the restore fails too, the partition needs a recovery until a change of the ownership
- * restores it. The index and the pool of the buffers of the tests throw the failures.
+ * the restore fails too, the partition needs a recovery until a rollback or a change of the
+ * ownership restores it. The index and the pool of the buffers of the tests throw the failures.
  */
 class PartitionFailures2Test {
 
@@ -219,6 +219,45 @@ class PartitionFailures2Test {
         StorageSnapshot2 next = storage.commit(owner(storage));
         assertEquals(List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)), next.getAll(IDS));
         assertEquals(List.of(new ApplicationMetadata(10, Map.of("hp", 1L))), next.getMetadataAll(new long[] {10}));
+    }
+
+    /** The rollback of the owner is the recovery of a partition that needs one. */
+    @Test
+    void rollbackRecoversAPartitionThatNeedsIt() {
+        commitFirstState();
+        writeSecondState();
+        RuntimeException restoreCause = new IllegalStateException("Restore failure for the test");
+        index.notificationFailure = new IllegalStateException("Index failure for the test");
+        index.restoreFailure = restoreCause;
+        assertThrows(PartitionFailureException.class,
+                () -> storage.insertAll(owner(storage), List.of(new Entity2(30, C))));
+        index.notificationFailure = null;
+
+        PartitionFailure failure = assertThrows(PartitionFailureException.class,
+                () -> storage.rollback(owner(storage))).failure();
+        PartitionFailure expected = new PartitionFailure(PartitionOperation.ROLLBACK, PartitionComponent.INDEX,
+                FailureOutcome.RECOVERY_REQUIRED, 0, restoreCause, null);
+        assertEquals(expected, failure);
+        assertEquals(new PartitionHealth.RecoveryRequired(expected), storage.health());
+
+        index.restoreFailure = null;
+        long generation = owner(storage);
+        storage.rollback(generation);
+        assertSame(PartitionHealth.HEALTHY, storage.health());
+        assertEquals(generation, owner(storage));
+        checkFirstState(storage.commit(owner(storage)));
+    }
+
+    @Test
+    void errorInTheRestoreOfARollbackGoesToTheCallerAsItIs() {
+        commitFirstState();
+        writeSecondState();
+        OutOfMemoryError restoreCause = new OutOfMemoryError("Memory failure for the test");
+        index.restoreFailure = restoreCause;
+        assertSame(restoreCause, assertThrows(OutOfMemoryError.class, () -> storage.rollback(owner(storage))));
+        PartitionHealth.RecoveryRequired health = assertInstanceOf(PartitionHealth.RecoveryRequired.class,
+                storage.health());
+        assertSame(restoreCause, health.failure().cause());
     }
 
     @Test

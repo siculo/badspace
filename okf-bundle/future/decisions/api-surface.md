@@ -4,7 +4,7 @@ title: "Estensioni dell’API"
 description: "Rollback, recupero, letture confermate del writer, operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
 tags: [badspace, documentation]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:29:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
 ---
 
 # Stato
@@ -20,7 +20,7 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 
 | Ambito | Estensione | Stato |
 |---|---|---|
-| Transazioni | Rollback esplicito e recupero dello stato di lavoro chiesto dal writer | Comportamento definito nel [contratto transazionale](/future/architecture/transactional-components.md); firme da introdurre con l'implementazione. Segnalazione dei fallimenti e salute della partizione sono già [disponibili](/current/architecture/partition-failures.md) |
+| Transazioni | Ritorno a uno snapshot pubblicato più vecchio | Da progettare: annullerebbe anche commit riusciti (vedi [strutture transazionali](/future/architecture/transactional-components.md#ritorno-a-uno-snapshot-più-vecchio)); rollback, segnalazione dei fallimenti e salute della partizione sono già [disponibili](/current/architecture/partition-failures.md) |
 | Writer | Letture dell'ultimo stato confermato, pending compreso, senza acquisizione e con token valido per chiamata | Riservate al proprietario; i reader ordinari restano sugli snapshot pubblicati |
 | Query | Raycast: primo hit e tutti gli hit, anche aggregati su più partizioni | Da progettare per entità puntiformi; richiede di riprendere il lavoro sugli indici |
 | Metadati | Metadati di sistema, condizioni, tombstone e loro eliminazione | Da introdurre con i protocolli di migrazione |

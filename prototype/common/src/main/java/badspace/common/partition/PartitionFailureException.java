@@ -6,7 +6,7 @@ package badspace.common.partition;
  * {@link FailureOutcome#WRITES_DISCARDED}, the writes not committed are discarded, also the ones
  * of the ticks before, and the writer can go on. If it is
  * {@link FailureOutcome#RECOVERY_REQUIRED}, the partition refuses writes and commits until a
- * change of the ownership restores it.
+ * rollback or a change of the ownership restores it.
  * <p>
  * Only exceptions become a PartitionFailureException: an {@link Error}, for example when the
  * memory ends, goes to the caller as it is, with the failure of the restore as a suppressed

@@ -16,10 +16,10 @@ import java.util.Objects;
  * @param baseTick the tick of the last commit, the state that the partition keeps; for a
  *        partition without commits, its creation tick. More commits in the same tick have the
  *        same base tick.
- * @param cause the failure of the operation; for a claim or a release, the failure of the
- *        restore that they do
+ * @param cause the failure of the operation; for a claim, a release or a rollback, the failure
+ *        of the restore that they do
  * @param restoreFailure the failure of the restore after the failure of a write or a commit,
- *        or null if the restore worked or the operation is a claim or a release
+ *        or null if the restore worked or the operation is a claim, a release or a rollback
  */
 public record PartitionFailure(PartitionOperation operation, PartitionComponent component, FailureOutcome outcome,
         long baseTick, Throwable cause, Throwable restoreFailure) {

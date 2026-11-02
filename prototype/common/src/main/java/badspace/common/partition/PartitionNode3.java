@@ -204,9 +204,10 @@ public interface PartitionNode3 {
     /**
      * Returns the health of a partition: healthy, or in need of a recovery after a failure
      * whose restore did not work. Then the partition refuses writes and commits with
-     * IllegalStateException, while its snapshots stay readable; a claim or a release of the
-     * ownership tries the restore again. Any thread can call it, also after the removal of
-     * the partition, until it is destroyed.
+     * IllegalStateException, while its snapshots stay readable; a {@linkplain #rollback
+     * rollback} of the owner, or a claim or a release of the ownership, tries the restore
+     * again. Any thread can call it, also after the removal of the partition, until it is
+     * destroyed.
      *
      * @param partitionId the ID of the partition
      * @return the health of the partition, with the report of the failure if it needs a recovery
@@ -323,6 +324,22 @@ public interface PartitionNode3 {
      * @throws OwnershipChangedException if the token is not the current one
      */
     void commit(WriteToken token);
+
+    /**
+     * Discards the writes not committed of a partition: the state of the writer goes back to
+     * the last commit, also if it waits for the move of the tick, and the commits stay
+     * confirmed. The writes of the ticks before are discarded too. It is also the recovery of a
+     * partition that {@linkplain #health needs one}: when the restore works, the partition is
+     * healthy again. A rollback without writes after the last commit does nothing.
+     *
+     * @param token the token of the owner of the partition
+     * @throws OwnershipChangedException if the token is not the current one
+     * @throws IllegalStateException if the removal of the partition was requested
+     * @throws PartitionFailureException if the restore fails: then the partition needs a
+     *     recovery, and the report has the outcome {@link FailureOutcome#RECOVERY_REQUIRED};
+     *     an {@link Error} goes to the caller as it is
+     */
+    void rollback(WriteToken token);
 
     /**
      * Acquires the snapshot of a tick of a partition, which must be in the retention window.

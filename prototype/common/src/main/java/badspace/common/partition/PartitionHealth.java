@@ -5,8 +5,8 @@ package badspace.common.partition;
  * from the life cycle of the partition and from its ownership. A partition is healthy when it
  * is created. After a failure whose restore did not work, it needs a recovery: it refuses
  * writes and commits, while its confirmed snapshots stay readable and the move of the tick
- * publishes them as usual. A claim or a release of the ownership tries the restore again, and
- * the partition is healthy again when it works.
+ * publishes them as usual. A rollback of the owner, or a claim or a release of the ownership,
+ * tries the restore again, and the partition is healthy again when it works.
  */
 public sealed interface PartitionHealth {
 

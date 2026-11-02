@@ -130,6 +130,11 @@ public final class PartitionWriter3 implements PartitionWriter {
     }
 
     @Override
+    public void rollback() {
+        node.rollback(token);
+    }
+
+    @Override
     public void removePartition() {
         switch (config.removalPolicy()) {
             case REQUIRE_EMPTY -> node.removePartition(token);

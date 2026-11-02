@@ -603,6 +603,25 @@ class Space3EndToEndTest {
     }
 
     @Test
+    void rollbackDiscardsTheWritesNotCommittedAndKeepsTheOwnership() {
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
+        try (PartitionWriter3 writer = partition.writer(partition.claim(0).orElseThrow())) {
+            long kept = writer.insert(new Point3(1, 1, 1));
+            writer.commit();
+            long lost = writer.insert(new Point3(2, 2, 2));
+            writer.rollback();
+            assertEquals(new Ownership(1, true), partition.ownership());
+            assertEquals(PartitionHealth.HEALTHY, partition.health());
+            long later = writer.insert(new Point3(3, 3, 3));
+            try (AcquiredSnapshot3 snapshot = publish(partition, writer)) {
+                assertEquals(Optional.of(new Point3(1, 1, 1)), snapshot.get(kept));
+                assertEquals(Optional.empty(), snapshot.get(lost));
+                assertEquals(Optional.of(new Point3(3, 3, 3)), snapshot.get(later));
+            }
+        }
+    }
+
+    @Test
     void closeAfterAnExceptionDiscardsTheWritesNotCommitted() {
         Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         long[] ids = new long[2];

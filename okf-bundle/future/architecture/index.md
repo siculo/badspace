@@ -2,7 +2,7 @@
 
 * [Evoluzioni di nodi, servizi e Space](./nodes-and-spaces.md) - Hosting remoto di più nodi, recupero dei nodi vuoti e possibili operazioni tra Space con tempi indipendenti.
 
-* [Strutture transazionali, rollback e recupero](./transactional-components.md) - Rollback esplicito, recupero chiesto dal writer, letture confermate del writer e test.
+* [Strutture transazionali, rollback e recupero](./transactional-components.md) - Letture confermate del writer, ritorno a snapshot più vecchi e test da completare.
 
 * [Primitive richieste dai meccanismi futuri](./minimal-core.md) - Dipendenze tra il nucleo corrente e i protocolli futuri: metadati di sistema, tombstone, durabilità e coordinamento.
 * [Metadati di sistema ed estensioni](./entity-metadata.md) - Epoca, stato, destinazione, tombstone e condizioni richieste dai protocolli futuri; estensioni ancora aperte dei metadati.

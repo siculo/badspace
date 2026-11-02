@@ -7,7 +7,7 @@
 
 * [Evoluzioni di nodi, servizi e Space](./architecture/nodes-and-spaces.md) - Hosting remoto di più nodi, recupero dei nodi vuoti e possibili operazioni tra Space con tempi indipendenti.
 
-* [Strutture transazionali, rollback e recupero](./architecture/transactional-components.md) - Rollback esplicito, recupero chiesto dal writer, letture del pending riservate al writer.
+* [Strutture transazionali, rollback e recupero](./architecture/transactional-components.md) - Letture del pending riservate al writer, ritorno a snapshot più vecchi e test di fallimento da completare.
 
 * [Primitive richieste dai meccanismi futuri](./architecture/minimal-core.md) - Dipendenze tra il nucleo corrente e i protocolli futuri: metadati di sistema, tombstone, durabilità e coordinamento.
 * [Nodi remoti e distribuzione](./decisions/tool-type.md) - Direzione scelta per i nodi gRPC, alternative considerate e questioni aperte del futuro confine di rete.

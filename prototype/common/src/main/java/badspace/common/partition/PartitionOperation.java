@@ -9,5 +9,7 @@ public enum PartitionOperation {
     /** A claim of the ownership, which discards the writes not committed. */
     CLAIM,
     /** A release of the ownership, which discards the writes not committed. */
-    RELEASE
+    RELEASE,
+    /** A rollback of the owner, which discards the writes not committed. */
+    ROLLBACK
 }

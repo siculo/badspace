@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: "Strutture transazionali, rollback e recupero"
-description: "Estensioni delle strutture transazionali: rollback esplicito, recupero richiesto dal writer, letture confermate riservate al writer e test di fallimento ancora da completare."
+description: "Estensioni delle strutture transazionali: letture confermate riservate al writer, ritorno a snapshot più vecchi e test di fallimento ancora da completare."
 tags: [badspace, transactions, snapshots, recovery, testing]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:29:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
 ---
 
 # Perimetro e obiettivo
@@ -15,7 +15,8 @@ già presente: slot, indici e metadati preparano e accettano uno
 snapshot a ogni commit, tutto o niente, e si ripristinano all'ultimo
 commit in un ordine fisso; un [fallimento](/current/architecture/partition-failures.md)
 annulla le scritture non confermate e, se il ripristino non riesce,
-la partizione richiede un recupero. Le
+la partizione richiede un recupero; il rollback del writer scarta le
+scritture non confermate ed è anche il recupero. Le
 garanzie di comportamento sono la direzione scelta; nomi e firme Java
 sono una proposta da verificare nell'implementazione. La sequenza del
 lavoro è nel TODO del prototipo.
@@ -39,10 +40,11 @@ accetta un commit solo dopo tutte le preparazioni. Un fallimento dopo i
 controlli, in una scrittura o in un commit, annulla le scritture non
 confermate e arriva al chiamante con un resoconto `PartitionFailure`;
 se il ripristino fallisce, la salute della partizione diventa
-`RecoveryRequired` e solo `claim` o `release` la riportano sana.
+`RecoveryRequired` e `rollback`, `claim` o `release` la riportano sana.
+Rollback, cambio di proprietà e annullamento dopo un fallimento usano lo
+stesso ripristino.
 
-Non sono ancora disponibili un rollback pubblico, il recupero chiesto
-dal writer e le letture del pending tramite il writer. I fallimenti dei
+Non sono ancora disponibili le letture del pending tramite il writer. I fallimenti dei
 metadati e del ripristino degli slot non sono ancora provati, perché i
 test non hanno un modo di provocarli.
 
@@ -64,25 +66,12 @@ annulla lo stato di lavoro.
 Lo storage gestisce già ownership, sequenza dei commit, pending,
 pubblicazione e salute della partizione.
 
-# Rollback e recupero espliciti
+# Ritorno a uno snapshot più vecchio
 
-Il rollback del writer scarta tutte le scritture dopo l'ultimo commit
-riuscito. Riparte dal pending, se presente, altrimenti dall'ultimo stato
-confermato precedente. Non modifica gli snapshot pubblicati né annulla
-commit riusciti. Deve usare lo stesso meccanismo coordinato impiegato
-per perdita o rilascio dell'ownership e annullamento dopo un errore.
-
-Oggi una partizione che richiede un recupero torna sana solo con un
-cambio di proprietà. Il writer dovrà poter chiedere lui stesso un nuovo
-tentativo di ricostruzione dall'ultimo stato confermato, con il proprio
-token. BADSPACE offre il meccanismo; scelta del momento e politica dei
-tentativi spettano al software. Il recupero torna a consentire scritture
-solo dopo il successo di tutti i componenti. Un nuovo fallimento lascia
-la partizione bloccata e viene segnalato con un nuovo resoconto.
-
-Il ritorno a uno snapshot pubblicato più vecchio è un'estensione distinta:
+Il ritorno a uno snapshot pubblicato più vecchio è un'estensione distinta
+dal [rollback](/current/architecture/partition-failures.md#rollback):
 potrebbe annullare anche commit riusciti e richiede una semantica dedicata.
-Non è un requisito del primo passo. Il recupero qui descritto è in memoria,
+Non è un requisito di questo blocco. Il recupero corrente è in memoria,
 distinto dal [recupero dei nodi](/future/architecture/partition-ownership.md)
 dopo un crash e dal caricamento dei salvataggi.
 
@@ -121,9 +110,6 @@ presenti. I test dello storage dovranno verificare in 2D e 3D:
   ripristino degli slot, con un modo per introdurre l'errore in queste
   strutture: vecchia base integra, transazione annullata o recupero
   necessario, diagnosi e successivo tentativo di recupero.
-- Rollback esplicito, recupero chiesto dal writer, rilascio e
-  trasferimento dell'ownership con la stessa semantica e conservazione
-  dei commit già riusciti.
 - Letture del writer prima della pubblicazione, assenza di scritture
   non confermate nei risultati, nuovo commit tra due chiamate, token
   scaduto e lettura concorrente a commit, tick o cambio di proprietà.

@@ -1,10 +1,10 @@
 ---
 type: Architecture Primitive
 title: Fallimenti e salute della partizione
-description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione e recupero al cambio di proprietà."
+description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione, rollback e recupero."
 tags: [badspace, architecture, transactions, recovery]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:29:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
 ---
 
 # Primitiva
@@ -42,12 +42,12 @@ di vita della partizione e dalla proprietà.
                     +---------------+
 "creazione" ------> |      sana     |
                     +---------------+
- "fallimento,"         |         ^  "claim o release,"
- "ripristino"          |         |  "ripristino"
+ "fallimento,"         |         ^  "rollback, claim"
+ "ripristino"          |         |  "o release, ripristino"
  "fallito"             v         |  "riuscito"
                     +---------------+
                     |   recupero    | ---+
-                    |  necessario   |    |  "claim o release,"
+                    |  necessario   |    |  "rollback, claim o release,"
                     +---------------+    |  "ripristino fallito"
                             ^            |
                             +------------+
@@ -60,14 +60,34 @@ ammesse in ciascuno stato sono nella tabella.
 |---|---|---|
 | Scritture e commit | Ammessi | Rifiutati con `IllegalStateException`, dopo il controllo del token |
 | Letture degli snapshot, avanzamento del tick, salvataggi | Ammessi | Ammessi: leggono e pubblicano solo stati confermati e integri |
+| `rollback` del proprietario | Scarta le scritture non confermate | Ritenta il ripristino: se riesce la partizione torna sana, se fallisce lo segnala con un nuovo resoconto |
 | `claim` e `release` | Scartano le scritture non confermate | Ritentano il ripristino: se riesce la partizione torna sana, se fallisce la proprietà cambia comunque |
 | Rimozione della partizione | Ammessa | Ammessa: guarda solo l’ultimo commit |
 
 La proprietà cambia anche se il ripristino fallisce: un coordinatore può
 sempre togliere la partizione a un writer, e il nuovo proprietario trova
-la partizione nello stato di recupero. Il recupero esplicito da parte del
-writer e il rollback pubblico sono futuri (vedi
-[strutture transazionali](/future/architecture/transactional-components.md)).
+la partizione nello stato di recupero.
+
+# Rollback
+
+Il **rollback** del writer scarta tutte le scritture dopo l’ultimo
+commit riuscito, anche quelle dei tick precedenti, e riparte dal pending
+se c’è, altrimenti dall’ultimo stato confermato; prima del primo commit
+dallo stato vuoto. Non tocca gli snapshot pubblicati, non annulla commit
+riusciti e non cambia la proprietà. Senza scritture dopo l’ultimo commit
+non fa niente.
+
+Il rollback è anche il **recupero** chiesto dal writer: su una partizione
+che richiede un recupero ritenta il ripristino con il token del
+proprietario, e se riesce la partizione torna sana. BADSPACE offre il
+meccanismo; quando ritentare e quante volte lo decide il software.
+
+Rollback, `claim`, `release` e annullamento dopo un fallimento usano lo
+stesso ripristino delle
+[strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali),
+quindi lasciano lo stesso stato. Il ritorno a uno snapshot pubblicato più
+vecchio, che annullerebbe anche commit riusciti, è un’altra cosa e non è
+previsto oggi.
 
 # Segnalazione
 
@@ -75,11 +95,11 @@ Un fallimento produce un resoconto, il record `PartitionFailure`:
 
 | Campo | Significato |
 |---|---|
-| `operation` | `WRITE`, `COMMIT`, `CLAIM` o `RELEASE` |
+| `operation` | `WRITE`, `COMMIT`, `CLAIM`, `RELEASE` o `ROLLBACK` |
 | `component` | `SLOTS`, `INDEX`, `METADATA` o `UNKNOWN`: la struttura in cui è avvenuto |
 | `outcome` | `WRITES_DISCARDED` se il ripristino è riuscito, `RECOVERY_REQUIRED` altrimenti |
 | `baseTick` | Il tick dell’ultimo commit, lo stato che la partizione conserva; senza commit, il tick di creazione |
-| `cause` | Il fallimento dell’operazione; per `claim` e `release`, quello del ripristino |
+| `cause` | Il fallimento dell’operazione; per `claim`, `release` e rollback, quello del ripristino |
 | `restoreFailure` | Il fallimento del ripristino dopo una scrittura o un commit, se c’è |
 
 La base è indicata con il tick, non con la sequenza interna dei commit,
@@ -111,7 +131,12 @@ Durante il lavoro tiene la struttura in corso, per il campo `component`,
 e il tick dell’ultimo commit, per `baseTick`. La salute è un campo
 `volatile` scritto sotto il lock della partizione, come la proprietà.
 Il contratto del nodo ha `health(PartitionId)` e l’API ha `health()`
-sulla partizione; i tipi sono in `common`.
+sulla partizione; i tipi sono in `common`. Il rollback è
+`rollback(WriteToken)` nel contratto del nodo e `rollback()` sull’handle
+del writer; rifiuta un token non corrente con `OwnershipChangedException`
+e una partizione rimossa con `IllegalStateException`, e se il ripristino
+fallisce lancia `PartitionFailureException` con esito
+`RECOVERY_REQUIRED`, o l’`Error` così com’è.
 
 Il ripristino si può ritentare dalla stessa base: ogni struttura
 aggiorna i propri segni solo alla fine del suo ripristino, e gli slot
@@ -126,8 +151,13 @@ fallimento con ripristino fallito porta al recupero necessario, con
 scritture e commit rifiutati, il token non corrente rifiutato per primo,
 la pubblicazione dell’ultimo commit e la rimozione ammessa; `claim`
 ritenta il ripristino e, mentre fallisce, cambia comunque la proprietà;
-`release` lo completa e la partizione torna sana; un `Error` arriva
-così com’è, con il ripristino fallito tra le soppresse. Per i metadati
+`release` lo completa e la partizione torna sana; il rollback fa lo
+stesso, segnalando il ripristino fallito; un `Error` arriva così com’è,
+con il ripristino fallito tra le soppresse. I test del nodo verificano
+che il rollback scarti anche le scritture dei tick precedenti, lasci
+proprietà, commit e snapshot in attesa, rifiuti un token vecchio e una
+partizione rimossa, e dia, dopo le stesse scritture casuali, lo stesso
+stato di un rilascio seguito da una nuova presa, sui tre indici. Per i metadati
 e per il ripristino degli slot non c’è ancora un modo di provocare il
 fallimento nei test.
 
@@ -135,4 +165,5 @@ fallimento nei test.
 
 - [Commit della partizione](/current/architecture/partition-commit.md) — strutture transazionali e commit tutto-o-niente.
 - [Proprietà della partizione](/current/architecture/partition-ownership.md) — `claim` e `release`.
+- [Contratto dell’API](/current/api/operations.md#commit) — `rollback()` sull’handle del writer.
 - [Contratto dell’API](/current/api/operations.md#fallimenti-e-salute) — firme ed errori.

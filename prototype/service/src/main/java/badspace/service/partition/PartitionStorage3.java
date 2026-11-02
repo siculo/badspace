@@ -76,7 +76,8 @@ import java.util.function.Function;
  * {@link PartitionFailureException} with the report of the failure, or the {@link Error} as it
  * is. If also the restore fails, the {@linkplain #health() health} of the partition says that
  * it needs a recovery: writes and commits are refused, the confirmed snapshots stay readable,
- * and a claim or a release of the ownership tries the restore again.
+ * and a rollback of the owner, or a claim or a release of the ownership, tries the restore
+ * again. Rollback, claim, release and the failures use the same restore.
  * <p>
  * Each write, commit and request of removal takes the generation of the owner and first
  * checks it, under the lock of the writer, together with all the input; then it applies
@@ -509,6 +510,27 @@ final class PartitionStorage3 {
     }
 
     /**
+     * Discards the writes not committed: the state of the writer goes back to the last commit,
+     * with the restore of a change of the ownership, and the commits stay confirmed. It is also
+     * the recovery of a partition that needs one: when the restore works, the partition is
+     * healthy again. Only the writer can call it. Fails with OwnershipChangedException if
+     * generation is not the one of the owner, and with PartitionFailureException if the restore
+     * fails, or with the Error as it is: then the partition needs a recovery.
+     */
+    void rollback(long generation) {
+        writerLock.lock();
+        try {
+            checkOwner(generation);
+            Throwable restoreFailure = restoreToLastCommit(PartitionOperation.ROLLBACK);
+            if (restoreFailure != null) {
+                throw reported(restoreFailure);
+            }
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
+    /**
      * Moves the tick of the partition forward to the given tick. The move publishes the snapshot
      * of the last commit of the current tick, if there is one, as the snapshot of the current
      * tick; the ticks without a commit keep the snapshot before. The snapshots whose ticks are
@@ -624,7 +646,7 @@ final class PartitionStorage3 {
             if (current.generation() != expectedGeneration) {
                 return NOT_CLAIMED;
             }
-            discardForNewOwner(PartitionOperation.CLAIM);
+            restoreToLastCommit(PartitionOperation.CLAIM);
             ownership = new Ownership(current.generation() + 1, true);
             return current.generation() + 1;
         } finally {
@@ -645,7 +667,7 @@ final class PartitionStorage3 {
             if (state != PartitionState.ACTIVE || !current.owned() || current.generation() != generation) {
                 return;
             }
-            discardForNewOwner(PartitionOperation.RELEASE);
+            restoreToLastCommit(PartitionOperation.RELEASE);
             ownership = new Ownership(current.generation() + 1, false);
         } finally {
             writerLock.unlock();
@@ -677,16 +699,17 @@ final class PartitionStorage3 {
     }
 
     /**
-     * Discards the writes not committed at a change of the ownership. If the restore works, the
-     * partition is healthy, also if it needed a recovery before. If it fails, the partition
-     * needs a recovery, and the caller changes the ownership anyway: so a coordinator can
-     * always take the ownership away from a writer. The caller holds writerLock.
+     * Discards the writes not committed for a rollback, a claim or a release. If the restore
+     * works, the partition is healthy, also if it needed a recovery before. If it fails, the
+     * partition needs a recovery, with the report of the operation, and the method returns the
+     * failure: a claim and a release change the ownership anyway, so a coordinator can always
+     * take the ownership away from a writer. The caller holds writerLock.
      */
-    private void discardForNewOwner(PartitionOperation operation) {
+    private Throwable restoreToLastCommit(PartitionOperation operation) {
         Throwable restoreFailure = tryRestore();
         if (restoreFailure == null) {
             health = PartitionHealth.HEALTHY;
-            return;
+            return null;
         }
         try {
             health = new PartitionHealth.RecoveryRequired(new PartitionFailure(operation, step,
@@ -694,6 +717,25 @@ final class PartitionStorage3 {
         } catch (Throwable reportFailure) {
             // The report needs memory: without it the health stays without a report.
         }
+        return restoreFailure;
+    }
+
+    /**
+     * Returns the PartitionFailureException with the report in the health, for a restore
+     * that failed, or throws the failure as it is if it is an Error or there is no report.
+     */
+    private RuntimeException reported(Throwable restoreFailure) {
+        if (restoreFailure instanceof RuntimeException runtimeFailure) {
+            if (health instanceof PartitionHealth.RecoveryRequired(PartitionFailure report) && report != null) {
+                try {
+                    return new PartitionFailureException(report);
+                } catch (Throwable reportFailure) {
+                    // The exception needs memory: the caller gets at least the failure.
+                }
+            }
+            throw runtimeFailure;
+        }
+        throw (Error) restoreFailure;
     }
 
     /**

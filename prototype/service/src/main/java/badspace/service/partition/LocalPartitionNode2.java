@@ -307,6 +307,11 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
+    public void rollback(WriteToken token) {
+        find(token.partitionId()).rollback(token.generation());
+    }
+
+    @Override
     public Acquisition acquire(PartitionId partitionId, long tick, AcquireOptions options) {
         Objects.requireNonNull(options);
         RetentionWindow.checkAcquiredTick(tick);

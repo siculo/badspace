@@ -4,7 +4,7 @@ title: "Contratto dell’API corrente"
 description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:29:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
 ---
 
 # Contratto corrente
@@ -287,12 +287,14 @@ l’esempio in [Commit e tick](/current/architecture/partition-commit.md#commit-
 | Operazione | Forma | Note |
 |---|---|---|
 | Commit | `commit()` sull'handle | Conferma lo stato del writer nel tick corrente; un commit senza scritture è valido |
+| Rollback | `rollback()` sull'handle | Scarta le scritture non confermate, anche dei tick precedenti, e tiene commit, snapshot in attesa e proprietà; è anche il recupero di una partizione che lo richiede (vedi [rollback](/current/architecture/partition-failures.md#rollback)) |
 | Tick corrente | `tick()` sulla partizione | Il tick della partizione; sostituisce `lastCommit()` |
 | Tick di creazione | `creationTick()` sulla partizione | Il tick in cui la partizione è stata creata: il primo snapshot è `S(creationTick)` |
 
 | Errore | Eccezione |
 |---|---|
-| Commit dopo la rimozione | `IllegalStateException` |
+| Commit o rollback dopo la rimozione | `IllegalStateException` |
+| Rollback il cui ripristino fallisce | `PartitionFailureException` con esito `RECOVERY_REQUIRED`, o l'`Error` così com'è |
 
 Scelte di dettaglio:
 
@@ -303,8 +305,8 @@ Scelte di dettaglio:
 - **Rimozione con scritture non confermate**: è permessa, e le scritture
   si scartano; la politica di rimozione guarda lo stato confermato del
   tick corrente.
-- **Contratto del nodo**: `commit(WriteToken)`, `tick(PartitionId)` e
-  `creationTick(PartitionId)`.
+- **Contratto del nodo**: `commit(WriteToken)`, `rollback(WriteToken)`,
+  `tick(PartitionId)` e `creationTick(PartitionId)`.
 
 ### Letture
 
@@ -553,9 +555,9 @@ l’ultimo commit e lo snapshot in attesa. I tipi sono in `common`.
 |---|---|
 | Fallimento con un’eccezione | `PartitionFailureException`, con il resoconto `PartitionFailure` in `failure()` e l’eccezione originale come causa |
 | Fallimento con un `Error`, per esempio `OutOfMemoryError` | L’`Error` così com’è, con l’eventuale fallimento del ripristino tra le eccezioni soppresse |
-| Ripristino fallito | Esito `RECOVERY_REQUIRED` nel resoconto; `health()` diventa `RecoveryRequired` e scritture e commit sono rifiutati finché `claim` o `release` non ripristinano la partizione |
+| Ripristino fallito | Esito `RECOVERY_REQUIRED` nel resoconto; `health()` diventa `RecoveryRequired` e scritture e commit sono rifiutati finché `rollback()`, `claim` o `release` non ripristinano la partizione |
 
-Il resoconto ha operazione (`WRITE`, `COMMIT`, `CLAIM`, `RELEASE`),
+Il resoconto ha operazione (`WRITE`, `COMMIT`, `CLAIM`, `RELEASE`, `ROLLBACK`),
 struttura (`SLOTS`, `INDEX`, `METADATA`, `UNKNOWN`), esito
 (`WRITES_DISCARDED` o `RECOVERY_REQUIRED`), tick dell’ultimo commit,
 causa ed eventuale fallimento del ripristino. `health()` si legge da

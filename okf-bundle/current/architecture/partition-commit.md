@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:29:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
 ---
 
 # Primitiva
@@ -149,8 +149,9 @@ ai commit, mentre le operazioni di modifica restano proprie di ciascuna.
 - **Abbandono.** Se una preparazione fallisce, lo storage abbandona gli
   snapshot già preparati: le strutture ne liberano le risorse senza
   toccare i dati condivisi con altri snapshot.
-- **Ripristino.** Quando deve scartare le scritture non confermate, oggi
-  al [cambio di proprietà](/current/architecture/partition-ownership.md#cambio-di-proprietà),
+- **Ripristino.** Quando deve scartare le scritture non confermate, al
+  [cambio di proprietà](/current/architecture/partition-ownership.md#cambio-di-proprietà),
+  al [rollback](/current/architecture/partition-failures.md#rollback) o dopo un fallimento,
   lo storage riporta ogni struttura al contenuto dello snapshot
   dell’ultimo commit, o allo stato vuoto prima del primo. Lo snapshot non
   cambia, e dopo il ripristino la struttura accetta nuove scritture e

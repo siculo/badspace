@@ -77,6 +77,18 @@ public interface PartitionWriter extends AutoCloseable {
     void commit();
 
     /**
+     * Discards the writes not committed: the state of the writer goes back to the last commit,
+     * also if the tick has not moved yet, and the commits stay confirmed. The writes of the
+     * ticks before are discarded too, and the writer keeps the ownership. It is also the
+     * recovery of a partition whose {@code health()} says that it needs one: when the restore
+     * works, the partition is healthy again. A rollback without writes after the last commit
+     * does nothing. Fails with OwnershipChangedException if the ownership changed, with
+     * IllegalStateException after the removal of the partition, and with
+     * PartitionFailureException if the restore fails: then the partition needs a recovery.
+     */
+    void rollback();
+
+    /**
      * Removes the partition from its node, following its removal policy: the last operation of
      * the writer. After this call the writes and the commits fail with IllegalStateException,
      * and the writes not committed are discarded. The removal becomes effective at the next move
