@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-03
+* **Edit**: Nei [fallimenti e salute della partizione](/current/architecture/partition-failures.md#nel-prototipo) descritti la crescita degli slot che non resta a metà, il buffer restituito da una preparazione fallita e le eccezioni soppresse come aggiunta tentata, che non nasconde mai il fallimento originale, con i relativi test.
 * **Edit**: Completati i test delle [strutture transazionali](/current/architecture/partition-failures.md#nel-prototipo): fallimenti nella preparazione, nell'abbandono e nel ripristino di metadati e slot, e test di concorrenza di rollback, avanzamento del tick, presa forzata e tick dell'ultimo commit. Aggiunti i casi d'uso dei nuovi esempi `writer-rollback` e `writer-per-tick`; `writer-failover` legge il tick dell'ultimo commit. Il [documento futuro](/future/architecture/transactional-components.md) non ha più test da completare.
 * **Edit**: Aggiunte al [documento futuro delle strutture transazionali](/future/architecture/transactional-components.md#possibili-evoluzioni-del-coordinamento) due possibili evoluzioni: un componente composto estratto dallo storage se arrivano altre strutture, e lo storage come partecipante di un commit atomico su più partizioni.
 * **Edit**: La suite comune delle [strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali) verifica anche che il ripristino e le scritture successive non cambino gli snapshot più vecchi di quello ripristinato.

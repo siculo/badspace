@@ -4,7 +4,7 @@ title: Fallimenti e salute della partizione
 description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione, rollback e recupero."
 tags: [badspace, architecture, transactions, recovery]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T14:26:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T15:22:42Z }
 ---
 
 # Primitiva
@@ -122,6 +122,12 @@ necessario prima di costruirlo, con un’operazione che non alloca; se poi
 la costruzione fallisce, la salute resta `RecoveryRequired` senza
 resoconto e il chiamante riceve almeno il fallimento originale.
 
+Anche le eccezioni soppresse sono solo un tentativo. Se il fallimento di
+una pulizia è la stessa istanza del fallimento originale, come può
+accadere con un `OutOfMemoryError` che la JVM lancia di nuovo, o se
+manca la memoria per registrarlo, la pulizia non viene registrata, e il
+chiamante riceve comunque il fallimento originale.
+
 # Nel prototipo
 
 Lo storage (`PartitionStorage2`/`PartitionStorage3`) separa in ogni
@@ -141,6 +147,17 @@ fallisce lancia `PartitionFailureException` con esito
 Il ripristino si può ritentare dalla stessa base: ogni struttura
 aggiorna i propri segni solo alla fine del suo ripristino, e gli slot
 già ripristinati non hanno più niente da fare.
+
+Gli slot non restano a metà quando un'allocazione fallisce. Quando
+crescono, creano tutti i nuovi array, degli ID, delle coordinate e delle
+pagine, prima di sostituire i vecchi, e lo stesso fa la tabella degli
+slot: un fallimento lascia la vecchia capacità, di cui il ripristino e
+la crescita successiva si fidano. Se la preparazione degli slot fallisce
+dopo aver preso un buffer delle coordinate, lo rimette nel pool come un
+buffer senza commit, perché lo storage non ha uno snapshot da
+abbandonare; il buffer condiviso con l'ultimo snapshot resta a lui. Gli
+slot creano i propri array attraverso un'interfaccia interna, che i test
+sostituiscono per far fallire un'allocazione.
 
 I test dello storage, in 2D e 3D, provocano i fallimenti con l’indice e
 il pool dei buffer dei test, e con un costruttore dello storage per i
@@ -168,7 +185,16 @@ del fallimento nel resoconto, e il rollback o `claim` lo completano
 quando il fallimento finisce. Con latch e senza sleep, un `claim` o un
 avanzamento del tick che arriva durante un rollback lo aspetta, mentre
 salute e proprietà restano leggibili, e l’avanzamento pubblica l’ultimo
-commit.
+commit. Un abbandono che lancia la stessa istanza del fallimento della
+preparazione lascia arrivare al chiamante il fallimento originale, con le
+scritture annullate. I test degli slot, in 2D e 3D, fanno fallire le
+allocazioni: una crescita fallita a metà, seguita dal ripristino con e
+senza scritture, lascia inserire oltre la vecchia capacità e fare il
+commit; una preparazione fallita dopo il prelievo rimette il buffer nel
+pool senza commit, e il commit dopo il ripristino lo riusa copiando
+anche la pagina che non ha più la scrittura scartata; il fallimento
+della restituzione va tra le soppresse, tranne quando è la stessa
+istanza.
 
 # Correlati
 
