@@ -4,6 +4,7 @@ import static badspace.service.partition.Owners.owner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -107,9 +108,10 @@ class IndexNotifications3Test {
         storage.setTick(1);
         storage.commit(owner(storage));
         var order = inOrder(index);
-        order.verify(index).commit(1);
-        order.verify(index).commit(2);
-        order.verify(index).commit(3);
+        for (long commitSequence = 1; commitSequence <= 3; commitSequence++) {
+            order.verify(index).prepareCommit(commitSequence);
+            order.verify(index).acceptCommit(any());
+        }
         order.verifyNoMoreInteractions();
     }
 }

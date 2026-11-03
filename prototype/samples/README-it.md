@@ -46,6 +46,7 @@ classe.
 |---|---|---|
 | [`batch-writes`](batch-writes) (`BatchWrites`) | Come si inseriscono, aggiornano e rimuovono molte entità in una chiamata, e che cosa succede quando un batch è rifiutato? | Writer e commit |
 | [`commits-and-ticks`](commits-and-ticks) (`CommitsAndTicks`) | Quando i reader vedono un commit? Che cosa succede con più commit in un tick, e con le scritture dopo l'ultimo commit? | Writer e commit |
+| [`writer-rollback`](writer-rollback) (`WriterRollback`) | Come scarta un writer le scritture non confermate, anche dei tick precedenti, e come controllo la salute della partizione? | Commit e tick |
 
 ## Snapshot
 
@@ -80,5 +81,6 @@ classe.
 | [`concurrent-reader-writer`](concurrent-reader-writer) (`ConcurrentReaderWriter`) | Come lavorano un writer e un reader su due thread? | Commit e tick |
 | [`multi-writer`](multi-writer) (`MultiWriter`) | Come condividono il tick dello spazio i writer di partizioni diverse? | Commit e tick |
 | [`lagged-reader`](lagged-reader) (`LaggedReader`) | Come disegna un reader più frame dei tick, fra due snapshot passati? | Finestra di retention |
-| [`writer-failover`](writer-failover) (`WriterFailover`) | Come sostituisce un coordinatore un writer bloccato? | Passaggio della proprietà |
+| [`writer-failover`](writer-failover) (`WriterFailover`) | Come sostituisce un coordinatore un writer bloccato, e come sa il nuovo writer che il tick non ha ancora un commit? | Passaggio della proprietà |
+| [`writer-per-tick`](writer-per-tick) (`WriterPerTick`) | Come si danno il turno i writer, uno per tick, e come sa un nuovo writer che uno bloccato ha già fatto il commit del tick? | Sostituzione di un writer bloccato |
 | [`periodic-saves`](periodic-saves) (`PeriodicSaves`) | Come si salva su un secondo thread mentre il writer continua? | Gestione dei salvataggi |

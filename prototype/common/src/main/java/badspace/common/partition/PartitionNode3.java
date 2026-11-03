@@ -202,6 +202,20 @@ public interface PartitionNode3 {
     Ownership ownership(PartitionId partitionId);
 
     /**
+     * Returns the health of a partition: healthy, or in need of a recovery after a failure
+     * whose restore did not work. Then the partition refuses writes and commits with
+     * IllegalStateException, while its snapshots stay readable; a {@linkplain #rollback
+     * rollback} of the owner, or a claim or a release of the ownership, tries the restore
+     * again. Any thread can call it, also after the removal of the partition, until it is
+     * destroyed.
+     *
+     * @param partitionId the ID of the partition
+     * @return the health of the partition, with the report of the failure if it needs a recovery
+     * @throws UnknownPartitionException if the partition is unknown
+     */
+    PartitionHealth health(PartitionId partitionId);
+
+    /**
      * Makes the caller the owner of a partition if the generation of its ownership is still
      * the expected one: the generation grows by one and the writes not committed are
      * discarded. With the generation of a free partition it takes the partition; with the
@@ -310,6 +324,38 @@ public interface PartitionNode3 {
      * @throws OwnershipChangedException if the token is not the current one
      */
     void commit(WriteToken token);
+
+    /**
+     * Discards the writes not committed of a partition: the state of the writer goes back to
+     * the last commit, also if it waits for the move of the tick, and the commits stay
+     * confirmed. The writes of the ticks before are discarded too. It is also the recovery of a
+     * partition that {@linkplain #health needs one}: when the restore works, the partition is
+     * healthy again. A rollback without writes after the last commit does nothing.
+     *
+     * @param token the token of the owner of the partition
+     * @throws OwnershipChangedException if the token is not the current one
+     * @throws IllegalStateException if the removal of the partition was requested
+     * @throws PartitionFailureException if the restore fails: then the partition needs a
+     *     recovery, and the report has the outcome {@link FailureOutcome#RECOVERY_REQUIRED};
+     *     an {@link Error} goes to the caller as it is
+     */
+    void rollback(WriteToken token);
+
+    /**
+     * Returns the tick of the last commit of a partition. The creation of the partition, and
+     * its load from a save, count as a commit at the creation tick, so a partition always has
+     * a last commit. Only the commits of the owner change the value, and the token makes sure
+     * that the caller is the owner: after a claim the value is stable for the new owner, which
+     * compares it with the current tick to know whether the tick already has a commit, for
+     * example when it takes the partition from a writer that stopped. A move of the tick does
+     * not change the value, and it can be read also when the partition needs a recovery.
+     *
+     * @param token the token of the owner of the partition
+     * @return the tick of the last commit
+     * @throws OwnershipChangedException if the token is not the current one
+     * @throws IllegalStateException if the removal of the partition was requested
+     */
+    long lastCommitTick(WriteToken token);
 
     /**
      * Acquires the snapshot of a tick of a partition, which must be in the retention window.

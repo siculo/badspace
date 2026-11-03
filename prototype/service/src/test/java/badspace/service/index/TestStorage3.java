@@ -4,6 +4,7 @@ import badspace.common.geometry.Point3;
 import badspace.common.geometry.Region3;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
+import badspace.service.transaction.TransactionalComponent;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -16,8 +17,12 @@ import java.util.function.Function;
  * moves the last entity into the free slot. It does not check the writes, so
  * the tests must give known IDs, new IDs for the inserts, and positions in the
  * limits of the index.
+ * <p>
+ * Like the partition storage, it takes part in the commits as a whole: its snapshot has the
+ * snapshot of the index and a copy of the slots, and the restore brings back the slots with
+ * the same numbering and then the index.
  */
-final class TestStorage3 implements SlotView3 {
+final class TestStorage3 implements SlotView3, TransactionalComponent<TestStorage3.Snapshot> {
 
     private final List<Entity3> entities = new ArrayList<>();
     private final Map<Long, Integer> slotById = new HashMap<>();
@@ -69,8 +74,41 @@ final class TestStorage3 implements SlotView3 {
     }
 
     /** Closes a commit and returns the snapshot of the index with a copy of the slots of the commit. */
-    Snapshot commit(long n) {
-        return new Snapshot(index.commit(n), List.copyOf(entities));
+    @Override
+    public Snapshot prepareCommit(long n) {
+        return new Snapshot(index.prepareCommit(n), List.copyOf(entities));
+    }
+
+    @Override
+    public void acceptCommit(Snapshot prepared) {
+        index.acceptCommit(prepared.index());
+    }
+
+    @Override
+    public void abandonCommit(Snapshot prepared) {
+        index.abandonCommit(prepared.index());
+    }
+
+    /** Brings back the slots of the snapshot, in the same order, and then the index. */
+    @Override
+    public void restore(Snapshot confirmed) {
+        entities.clear();
+        entities.addAll(confirmed.entities());
+        slotById.clear();
+        for (int slot = 0; slot < entities.size(); slot++) {
+            slotById.put(entities.get(slot).id(), slot);
+        }
+        index.restore(confirmed.index());
+    }
+
+    /** Returns the snapshot before the first commit: no slots and the empty index. */
+    static Snapshot emptySnapshot() {
+        return new Snapshot(IndexSnapshot3.empty(), List.of());
+    }
+
+    /** Returns the index, so the tests can check its structure. */
+    SpatialIndex3 index() {
+        return index;
     }
 
     List<Entity3> findInRegion(Region3 region) {

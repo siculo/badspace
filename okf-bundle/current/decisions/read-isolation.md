@@ -4,7 +4,7 @@ title: Isolamento delle letture
 description: I reader di una partizione vedono solo commit completi grazie a snapshot preparati a ogni commit, pubblicati con una scrittura atomica all'avanzamento del tick e letti attraverso un'acquisizione controllata; gli slot usano buffer riusati e copia delle pagine cambiate, gli indici sono strutture persistenti copy-on-write.
 tags: [badspace, design, concurrency, partitioning, transactions]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T15:14:03Z }
 ---
 
 # Problema
@@ -224,10 +224,12 @@ due casi:
 
 - alla [fine dello snapshot](/current/architecture/snapshot-retention.md#vita-di-uno-snapshot):
   fuori dalla finestra, senza acquisizioni valide né query in corso;
-- subito, se un commit dopo nello stesso tick sostituisce lo snapshot
-  prima della pubblicazione, perché nessun reader l'ha mai visto; se il
-  nuovo commit ha dei movimenti, riprende quel buffer e copia solo le
-  pagine cambiate da allora.
+- appena è accettato un commit dopo nello stesso tick che sostituisce lo
+  snapshot prima della pubblicazione, perché nessun reader l'ha mai
+  visto; un commit successivo con dei movimenti riprende quel buffer e
+  copia solo le pagine cambiate da allora. Il buffer non torna prima
+  dell'accettazione, così un commit fallito lascia intatto lo snapshot
+  in attesa (vedi [strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali)).
 
 Un buffer nuovo è lungo quanto le coordinate del writer, con la loro
 capacità libera, quindi lo snapshot ha la sua dimensione, separata

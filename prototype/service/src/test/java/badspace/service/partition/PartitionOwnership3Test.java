@@ -11,8 +11,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import badspace.common.geometry.Box3;
 import badspace.common.geometry.Point3;
 import badspace.common.partition.Acquisition;
+import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
+import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionId;
@@ -54,6 +56,14 @@ class PartitionOwnership3Test {
     /** More than the IDs that the tests use, so that content() reads all the entities. */
     private static final int MAX_ENTITY_ID = 1000;
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
+    private static final Point3 ORIGIN = new Point3(0, 0, 0);
+    private static final Entity3 E1 = entity(1, 1, 1, 1);
+    private static final Entity3 E2 = entity(2, 2, 2, 2);
+    private static final Entity3 E3 = entity(3, 3, 3, 3);
+    private static final Entity3 E4 = entity(4, 4, 4, 4);
+    private static final Entity3 E5 = entity(5, 5, 5, 5);
+    private static final Entity3 MOVED_E3 = entity(3, 9, 9, 9);
+    private static final Entity3 NEW_ENTITY = entity(6, 6, 6, 6);
 
     private LocalPartitionNode3 node;
 
@@ -187,6 +197,40 @@ class PartitionOwnership3Test {
                 assertEquals(sorted(model.values()), content(acquisition), where);
                 assertEquals(sorted(model.values()), sorted(node.findInRegion(acquisition, EVERYWHERE)), where);
             }
+        }
+    }
+
+    @Test
+    void discardWithRenumberedSlotsGivesBackPositionsQueriesAndMetadata() {
+        for (IndexConfig config : CONFIGS) {
+            setUp();
+            node.createPartition(P2, nameOf(P2), config);
+            WriteToken first = node.claim(P2, 0).orElseThrow();
+            List<Entity3> committed = List.of(E1, E2, E3, E4, E5);
+            node.insertAll(first, committed);
+            node.updateMetadataAll(first, List.of(MetadataWrite.put(2, "hp", 10), MetadataWrite.put(4, "hp", 20)));
+            node.commit(first);
+            // The removal of 1 moves 5 into its slot; the writes change positions and metadata.
+            node.removeAll(first, new long[] {1, 4});
+            node.insertAll(first, List.of(NEW_ENTITY));
+            node.updateAll(first, List.of(MOVED_E3));
+            node.updateMetadataAll(first, List.of(MetadataWrite.put(2, "hp", 11), MetadataWrite.put(5, "hp", 30)));
+            WriteToken second = node.claim(P2, first.generation()).orElseThrow();
+            Acquisition restored = publish(second);
+            String where = config.toString();
+            assertEquals(committed, content(restored), where);
+            assertEquals(committed, sorted(node.findInRegion(restored, EVERYWHERE)), where);
+            assertEquals(List.of(E1, E2, E3), node.findNearest(restored, ORIGIN, 3), where);
+            assertEquals(List.of(new ApplicationMetadata(2, Map.of("hp", 10L)), new ApplicationMetadata(4, Map.of("hp", 20L)),
+                    new ApplicationMetadata(5, Map.of())), node.getMetadataAll(restored, new long[] {2, 4, 5}), where);
+            // The new owner goes on from the restored state.
+            node.removeAll(second, new long[] {1});
+            node.insertAll(second, List.of(NEW_ENTITY));
+            Acquisition next = publish(second);
+            List<Entity3> expected = List.of(E2, E3, E4, E5, NEW_ENTITY);
+            assertEquals(expected, content(next), where);
+            assertEquals(expected, sorted(node.findInRegion(next, EVERYWHERE)), where);
+            assertEquals(List.of(E2, E3, E4), node.findNearest(next, ORIGIN, 3), where);
         }
     }
 

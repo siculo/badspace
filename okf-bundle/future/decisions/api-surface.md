@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: "Estensioni dell’API"
-description: "Operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
+description: "Ritorno a snapshot più vecchi, letture del pending, attesa del tick, operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
 tags: [badspace, documentation]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
 ---
 
 # Stato
@@ -20,6 +20,9 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 
 | Ambito | Estensione | Stato |
 |---|---|---|
+| Transazioni | Ritorno a uno snapshot pubblicato più vecchio | Da progettare: annullerebbe anche commit riusciti (vedi [strutture transazionali](/future/architecture/transactional-components.md#ritorno-a-uno-snapshot-più-vecchio)); rollback, segnalazione dei fallimenti e salute della partizione sono già [disponibili](/current/architecture/partition-failures.md) |
+| Writer | Letture del pending tramite il writer | Non necessarie nell'[uso con un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick); tre forme valutate nelle [strutture transazionali](/future/architecture/transactional-components.md#letture-del-pending-tramite-il-writer) |
+| Tick | Attesa dell'inizio di un tick da parte del writer | Da valutare: oggi l'avvisa il software che chiama `setTick` |
 | Query | Raycast: primo hit e tutti gli hit, anche aggregati su più partizioni | Da progettare per entità puntiformi; richiede di riprendere il lavoro sugli indici |
 | Metadati | Metadati di sistema, condizioni, tombstone e loro eliminazione | Da introdurre con i protocolli di migrazione |
 | Persistenza | Esposizione dell’ultimo tick persistito e salvataggio asincrono | Rimandati a durabilità osservabile e nodi remoti |
@@ -34,6 +37,7 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 - Scadenza massima delle acquisizioni configurabile sul nodo.
 - Controllo anticipato della scadenza nella view per risparmiare chiamate remote.
 - Copia autonoma dello snapshot esposta al software, distinta dalla copia interna per i salvataggi.
+- Creazione di una partizione con dati iniziali: come per il caricamento da un salvataggio, i dati sarebbero il commit della creazione, leggibili dal tick successivo.
 
 # Gruppi di partizioni
 

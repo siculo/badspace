@@ -45,6 +45,7 @@ class.
 |---|---|---|
 | [`batch-writes`](batch-writes) (`BatchWrites`) | How do I insert, update and remove many entities in one call, and what happens when a batch is rejected? | Writer and commit |
 | [`commits-and-ticks`](commits-and-ticks) (`CommitsAndTicks`) | When do readers see a commit? What happens with more commits in a tick, and with writes after the last commit? | Writer and commit |
+| [`writer-rollback`](writer-rollback) (`WriterRollback`) | How does a writer discard its writes not committed, also of the ticks before, and how do I check the health of the partition? | Commits and ticks |
 
 ## Snapshots
 
@@ -79,5 +80,6 @@ class.
 | [`concurrent-reader-writer`](concurrent-reader-writer) (`ConcurrentReaderWriter`) | How do a writer and a reader work on two threads? | Commits and ticks |
 | [`multi-writer`](multi-writer) (`MultiWriter`) | How do writers of different partitions share the tick of the space? | Commits and ticks |
 | [`lagged-reader`](lagged-reader) (`LaggedReader`) | How does a reader draw more frames than ticks, between two past snapshots? | Retention window |
-| [`writer-failover`](writer-failover) (`WriterFailover`) | How does a coordinator replace a stuck writer? | Ownership handoff |
+| [`writer-failover`](writer-failover) (`WriterFailover`) | How does a coordinator replace a stuck writer, and how does the new writer know that the tick has no commit yet? | Ownership handoff |
+| [`writer-per-tick`](writer-per-tick) (`WriterPerTick`) | How do writers take turns, one per tick, and how does a new writer know that a stuck writer already committed the tick? | Writer failover |
 | [`periodic-saves`](periodic-saves) (`PeriodicSaves`) | How do I save on a second thread while the writer goes on? | Save management |

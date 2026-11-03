@@ -27,6 +27,7 @@
         <module>three-dimensional-space</module>
         <module>batch-writes</module>
         <module>commits-and-ticks</module>
+        <module>writer-rollback</module>
         <module>snapshot-queries</module>
         <module>snapshot-isolation</module>
         <module>snapshot-retention</module>
@@ -42,6 +43,7 @@
         <module>multi-writer</module>
         <module>lagged-reader</module>
         <module>writer-failover</module>
+        <module>writer-per-tick</module>
         <module>periodic-saves</module>
     </modules>
 

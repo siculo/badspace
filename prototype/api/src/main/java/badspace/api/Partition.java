@@ -2,6 +2,7 @@ package badspace.api;
 
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Ownership;
+import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.WriteToken;
@@ -50,6 +51,14 @@ public interface Partition {
      * about the changes.
      */
     Ownership ownership();
+
+    /**
+     * Returns the health of the partition: healthy, or in need of a recovery after a failure of
+     * a write or a commit whose restore did not work. Then the writer gets IllegalStateException
+     * for writes and commits, while the snapshots stay readable; a claim or a release of the
+     * ownership tries the restore again. It is only a read: nobody is told about the changes.
+     */
+    PartitionHealth health();
 
     /**
      * Makes the caller the owner if the generation of the ownership is still

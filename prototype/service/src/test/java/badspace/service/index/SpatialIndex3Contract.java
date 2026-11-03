@@ -86,7 +86,7 @@ abstract class SpatialIndex3Contract {
             }
             // Sometimes a commit, whose snapshot must not change in the next steps
             if (random.nextInt(4) == 0) {
-                kept.add(new KeptSnapshot(storage.commit(step + 1), Map.copyOf(model)));
+                kept.add(new KeptSnapshot(storage.prepareCommit(step + 1), Map.copyOf(model)));
                 if (kept.size() > KEPT_SNAPSHOTS) {
                     kept.removeFirst();
                 }
@@ -97,7 +97,7 @@ abstract class SpatialIndex3Contract {
     @Test
     void snapshotDoesNotChangeWhenTheWriterGoesOn() {
         TestStorage3 storage = storageWith(entity(1, 0, 0, 0), entity(2, 5, 5, 5), entity(3, 9, 9, 9));
-        TestStorage3.Snapshot snapshot = storage.commit(1);
+        TestStorage3.Snapshot snapshot = storage.prepareCommit(1);
         storage.updateAll(List.of(entity(1, 8, 8, 8)));
         storage.removeAll(new long[] {2});
         storage.insertAll(List.of(entity(4, 1, 1, 1)));

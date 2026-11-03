@@ -1,8 +1,11 @@
 package badspace.service.partition.metadata;
 
+import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.service.persistent.HashTrie;
+import badspace.service.transaction.TransactionalComponent;
+import java.util.Map;
 
 /**
  * The application metadata of the entities of the writer, which the next commit confirms.
@@ -12,7 +15,7 @@ import badspace.service.persistent.HashTrie;
  * does not know which entities exist: the caller checks the IDs. It has a single writer
  * and is not thread-safe.
  */
-public final class MutableMetadata {
+public final class MutableMetadata implements TransactionalComponent<MetadataSnapshot> {
 
     private final HashTrie<Long, MetadataValues> byEntity = new HashTrie<>();
 
@@ -52,18 +55,36 @@ public final class MutableMetadata {
     }
 
     /**
-     * Closes the current commit and returns its snapshot. commitSequence must be greater
-     * than the one of the last commit.
+     * Returns the metadata of an entity in the working state, with an empty map if it has
+     * none. Only for the tests.
      */
-    public MetadataSnapshot commit(long commitSequence) {
-        return new MetadataSnapshot(byEntity.commit(commitSequence));
+    ApplicationMetadata metadataOf(long entityId) {
+        MetadataValues values = byEntity.get(entityId);
+        return new ApplicationMetadata(entityId, values != null ? values.toMap() : Map.of());
     }
 
     /**
-     * Brings the metadata back to a snapshot: the writes after it are lost. The snapshot
-     * must be the one of the last commit, or the empty one before the first commit.
+     * Closes the current commit and returns its snapshot. After it, the persistent map copies
+     * its nodes before it changes them.
      */
-    public void revert(MetadataSnapshot committed) {
-        byEntity.revert(committed.byEntity());
+    @Override
+    public MetadataSnapshot prepareCommit(long commitSequence) {
+        return new MetadataSnapshot(byEntity.commit(commitSequence));
+    }
+
+    /** Takes again the map of the snapshot: the cost does not depend on the number of entities. */
+    @Override
+    public void acceptCommit(MetadataSnapshot prepared) {
+        // Nothing to do: the preparation already made the nodes of the snapshot read-only.
+    }
+
+    @Override
+    public void abandonCommit(MetadataSnapshot prepared) {
+        // Nothing to give back: the memory of the snapshot is freed when nobody refers to it.
+    }
+
+    @Override
+    public void restore(MetadataSnapshot confirmed) {
+        byEntity.revert(confirmed.byEntity());
     }
 }

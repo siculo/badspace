@@ -12,6 +12,7 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
+import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode3;
@@ -246,6 +247,11 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
+    public PartitionHealth health(PartitionId partitionId) {
+        return findAny(partitionId).health();
+    }
+
+    @Override
     public Optional<WriteToken> claim(PartitionId partitionId, long expectedGeneration) {
         if (expectedGeneration < 0) {
             throw new IllegalArgumentException("Negative generation: " + expectedGeneration);
@@ -298,6 +304,16 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
         // After the commit releases the lock of the partition, the partition can be removed and
         // retired by other threads: the scan can end its last snapshot.
         removeExpired(token.partitionId(), storage);
+    }
+
+    @Override
+    public void rollback(WriteToken token) {
+        find(token.partitionId()).rollback(token.generation());
+    }
+
+    @Override
+    public long lastCommitTick(WriteToken token) {
+        return find(token.partitionId()).lastCommitTick(token.generation());
     }
 
     @Override

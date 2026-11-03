@@ -736,17 +736,25 @@ class PartitionStorage2Test {
         assertEquals(1, storage.pooledBufferCount());
     }
 
+    /**
+     * The replaced snapshot keeps its buffer until the commit that replaces it is accepted, so
+     * a commit that fails leaves it whole: the buffer goes to the commit after.
+     */
     @Test
-    void snapshotReplacedInTheSameTickGivesItsBufferToTheNextCommit() {
+    void snapshotReplacedInTheSameTickGivesItsBufferToALaterCommit() {
         storage.insertAll(owner(storage), List.of(new Entity2(10, A)));
         StorageSnapshot2 replaced = storage.commit(owner(storage));
         storage.updateAll(owner(storage), List.of(new Entity2(10, B)));
+        StorageSnapshot2 next = storage.commit(owner(storage));
+        assertNotSame(replaced.slots().coordinateBuffer(), next.slots().coordinateBuffer());
+        assertEquals(1, storage.pooledBufferCount());
+        storage.updateAll(owner(storage), List.of(new Entity2(10, A)));
         StorageSnapshot2 last = storage.commit(owner(storage));
         assertSame(replaced.slots().coordinateBuffer(), last.slots().coordinateBuffer());
 
         storage.setTick(1);
         assertSame(last, storage.catalog().latest());
-        checkSnapshot(last, List.of(new Entity2(10, B)), "published");
+        checkSnapshot(last, List.of(new Entity2(10, A)), "published");
         assertEquals(1, storage.liveSnapshotCount());
     }
 

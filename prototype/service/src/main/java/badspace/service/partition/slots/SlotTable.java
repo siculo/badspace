@@ -108,8 +108,12 @@ final class SlotTable {
     private void grow() {
         long[] oldEntityIds = entityIds;
         int[] oldSlots = slots;
-        entityIds = new long[oldSlots.length * 2];
-        slots = emptySlots(oldSlots.length * 2);
+        // Both arrays are made before they replace the old ones: if an allocation fails, the
+        // table keeps its old content.
+        long[] grownEntityIds = new long[oldSlots.length * 2];
+        int[] grownSlots = emptySlots(oldSlots.length * 2);
+        entityIds = grownEntityIds;
+        slots = grownSlots;
         size = 0;
         for (int i = 0; i < oldSlots.length; i++) {
             if (oldSlots[i] != NONE) {

@@ -23,6 +23,7 @@ import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
+import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.SavedPartition;
@@ -542,6 +543,12 @@ class Space3EndToEndTest {
     }
 
     @Test
+    void newPartitionIsHealthy() {
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
+        assertEquals(PartitionHealth.HEALTHY, partition.health());
+    }
+
+    @Test
     void newPartitionHasNoOwnerUntilAWriterClaimsIt() {
         Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
         assertEquals(new Ownership(0, false), partition.ownership());
@@ -592,6 +599,42 @@ class Space3EndToEndTest {
                 AcquiredSnapshot3 snapshot = publish(partition, next)) {
             assertEquals(Optional.of(new Point3(1, 1, 1)), snapshot.get(kept));
             assertEquals(Optional.empty(), snapshot.get(lost));
+        }
+    }
+
+    @Test
+    void rollbackDiscardsTheWritesNotCommittedAndKeepsTheOwnership() {
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
+        try (PartitionWriter3 writer = partition.writer(partition.claim(0).orElseThrow())) {
+            long kept = writer.insert(new Point3(1, 1, 1));
+            writer.commit();
+            long lost = writer.insert(new Point3(2, 2, 2));
+            writer.rollback();
+            assertEquals(new Ownership(1, true), partition.ownership());
+            assertEquals(PartitionHealth.HEALTHY, partition.health());
+            long later = writer.insert(new Point3(3, 3, 3));
+            try (AcquiredSnapshot3 snapshot = publish(partition, writer)) {
+                assertEquals(Optional.of(new Point3(1, 1, 1)), snapshot.get(kept));
+                assertEquals(Optional.empty(), snapshot.get(lost));
+                assertEquals(Optional.of(new Point3(3, 3, 3)), snapshot.get(later));
+            }
+        }
+    }
+
+    @Test
+    void newWriterKnowsWhetherTheCurrentTickHasACommit() {
+        Partition3 partition = space.createPartition(space.createNode(LocalPartitionNode3::new), nextName());
+        long creationTick = space.tick();
+        try (PartitionWriter3 first = partition.writer(partition.claim(0).orElseThrow())) {
+            assertEquals(creationTick, first.lastCommitTick());
+            space.setTick(creationTick + 1);
+            first.insert(new Point3(1, 1, 1));
+            first.commit();
+        }
+        try (PartitionWriter3 next = partition.writer(partition.claim(partition.ownership().generation()).orElseThrow())) {
+            assertEquals(space.tick(), next.lastCommitTick());
+            space.setTick(space.tick() + 1);
+            assertEquals(space.tick() - 1, next.lastCommitTick());
         }
     }
 

@@ -41,9 +41,27 @@ final class LinearScanIndex3 implements SpatialIndex3 {
     }
 
     @Override
-    public IndexSnapshot3 commit(long commitSequence) {
+    public IndexSnapshot3 prepareCommit(long commitSequence) {
         // Nothing to copy: a snapshot reads the slots of its commit.
         return new Snapshot(commitSequence);
+    }
+
+    @Override
+    public void acceptCommit(IndexSnapshot3 prepared) {
+        // Nothing to do: the snapshot has no state of its own.
+    }
+
+    @Override
+    public void abandonCommit(IndexSnapshot3 prepared) {
+        // Nothing to give back: the memory of the snapshot is freed when nobody refers to it.
+    }
+
+    @Override
+    public void restore(IndexSnapshot3 confirmed) {
+        if (!(confirmed instanceof Snapshot)) {
+            throw new IllegalArgumentException("Snapshot of another index: " + confirmed);
+        }
+        // Nothing to do: queries read the slots, which are already restored.
     }
 
     @Override

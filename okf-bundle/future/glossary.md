@@ -4,7 +4,7 @@ title: "Glossario degli sviluppi futuri"
 description: "Termini dei protocolli ancora da implementare, da leggere dopo il glossario corrente."
 tags: [badspace, documentation]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
 ---
 
 # Termini

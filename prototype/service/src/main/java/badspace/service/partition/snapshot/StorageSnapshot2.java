@@ -55,7 +55,8 @@ public final class StorageSnapshot2 {
         return metadata;
     }
 
-    IndexSnapshot2 index() {
+    /** Returns the snapshot of the index, so the writer can go back to it. */
+    public IndexSnapshot2 index() {
         return index;
     }
 

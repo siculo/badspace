@@ -104,6 +104,15 @@ class PartitionLoad3Test {
     }
 
     @Test
+    void loadCountsAsACommitAtTheCreationTick() {
+        SavedPartition saved = saveOf(List.of(entity(1, 1, 2, 3)));
+        restarted.setTick(7);
+        restarted.loadPartition(LOADED, saved, IndexConfig.linearScan(), 5);
+        WriteToken token = restarted.claim(LOADED, 0).orElseThrow();
+        assertEquals(7, restarted.lastCommitTick(token));
+    }
+
+    @Test
     void loadedPartitionHasNoOwnerAndTheWriterClaimsIt() {
         SavedPartition saved = saveOf(List.of(entity(1, 1, 2, 3), entity(2, -3, 4, 6)));
         restarted.loadPartition(LOADED, saved, IndexConfig.linearScan(), 5);

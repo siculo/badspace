@@ -3,6 +3,7 @@ package badspace.api;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Ownership;
+import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode3;
@@ -54,6 +55,11 @@ public final class Partition3 implements Partition {
     @Override
     public Ownership ownership() {
         return node.ownership(partitionId);
+    }
+
+    @Override
+    public PartitionHealth health() {
+        return node.health(partitionId);
     }
 
     @Override

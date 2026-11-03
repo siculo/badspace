@@ -59,6 +59,20 @@ public final class SlotSnapshot3 implements SlotView3 {
         return new SlotSnapshot3(slotEntityIds, coordinates, slotById);
     }
 
+    /**
+     * Copies the IDs and the coordinates of the slots to the start of the arrays, which must
+     * have room for them. The slots of the writer use it to go back to this snapshot.
+     */
+    void copyInto(long[] slotEntityIds, double[] coords) {
+        System.arraycopy(this.slotEntityIds, 0, slotEntityIds, 0, size);
+        System.arraycopy(this.coords, 0, coords, 0, size * DIMENSIONS);
+    }
+
+    /** Returns a copy of the table from ID to slot, which the writer can change. */
+    SlotTable copyOfTable() {
+        return slotById.copy();
+    }
+
     /** Returns the slot of the ID, or {@link SlotTable#NONE} if the ID is not in the snapshot. */
     public int slotOf(long entityId) {
         return slotById.get(entityId);

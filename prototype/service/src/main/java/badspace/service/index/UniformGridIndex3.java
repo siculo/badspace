@@ -49,6 +49,8 @@ final class UniformGridIndex3 implements SpatialIndex3 {
     /** For each slot, its place in the list of its cell. */
     private int[] placeInCell = new int[INITIAL_CAPACITY];
     private long lastCommitSequence;
+    /** True after a notification not yet in a snapshot. */
+    private boolean changed;
 
     UniformGridIndex3(SlotView3 storage, double cellSize) {
         this.storage = storage;
@@ -57,11 +59,13 @@ final class UniformGridIndex3 implements SpatialIndex3 {
 
     @Override
     public void inserted(int slot, Point3 position) {
+        changed = true;
         add(slot, keyOf(position));
     }
 
     @Override
     public void moved(int slot, Point3 from, Point3 to) {
+        changed = true;
         CellKey fromKey = keyOf(from);
         CellKey toKey = keyOf(to);
         if (!fromKey.equals(toKey)) {
@@ -72,20 +76,56 @@ final class UniformGridIndex3 implements SpatialIndex3 {
 
     @Override
     public void removed(int slot, Point3 position) {
+        changed = true;
         remove(slot, keyOf(position));
     }
 
     @Override
     public void relocated(int from, int to, Point3 position) {
+        changed = true;
         int place = placeInCell[from];
         writable(cells.get(keyOf(position))).slots.set(place, to);
         placeInCell[to] = place;
     }
 
     @Override
-    public IndexSnapshot3 commit(long commitSequence) {
+    public IndexSnapshot3 prepareCommit(long commitSequence) {
         lastCommitSequence = commitSequence;
+        changed = false;
         return new Snapshot(commitSequence, cells.commit(commitSequence), cellSize);
+    }
+
+    /**
+     * Takes again the cells of the snapshot and rebuilds from them the place of each slot,
+     * which is not in the snapshot. The cells of the snapshot are older than the last commit,
+     * so the next writes copy them and the snapshot does not change. It does nothing if the
+     * snapshot is the last one and no notification came after it.
+     */
+    @Override
+    public void acceptCommit(IndexSnapshot3 prepared) {
+        // Nothing to do: the preparation already made the cells of the snapshot read-only.
+    }
+
+    @Override
+    public void abandonCommit(IndexSnapshot3 prepared) {
+        // Nothing to give back: the memory of the snapshot is freed when nobody refers to it.
+    }
+
+    @Override
+    public void restore(IndexSnapshot3 confirmed) {
+        if (!changed && confirmed.commitSequence() == lastCommitSequence) {
+            return;
+        }
+        cells.revert(cellsOf(confirmed));
+        if (placeInCell.length < storage.size()) {
+            placeInCell = new int[storage.size()];
+        }
+        cells.view().forEachValue(cell -> {
+            for (int i = 0; i < cell.slots.size(); i++) {
+                placeInCell[cell.slots.get(i)] = i;
+            }
+        });
+        changed = false;
     }
 
     @Override
@@ -159,6 +199,20 @@ final class UniformGridIndex3 implements SpatialIndex3 {
 
     private static boolean isInt(long value) {
         return value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE;
+    }
+
+    /**
+     * Returns the cells of a snapshot of this kind of index, or no cells for the empty
+     * snapshot of a partition before its first commit.
+     */
+    private static HashTrie.View<CellKey, Cell> cellsOf(IndexSnapshot3 snapshot) {
+        if (snapshot instanceof Snapshot own) {
+            return own.cells();
+        }
+        if (snapshot == IndexSnapshot3.empty()) {
+            return HashTrie.View.empty();
+        }
+        throw new IllegalArgumentException("Snapshot of another index: " + snapshot);
     }
 
     /** The queries on the cells of a snapshot, which read the positions in the slots of the same snapshot. */
