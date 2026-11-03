@@ -235,7 +235,8 @@ ogni struttura con un adattatore che crea la struttura, applica scritture
 casuali e confronta il contenuto, non l’identità degli oggetti: slot in
 ordine di slot, metadati per entità, per gli indici gli slot e i
 risultati di alcune query fisse. Gli scenari sono gli snapshot immutabili
-dopo nuove scritture, il ripristino dopo inserimenti, spostamenti e
+dopo nuove scritture, anche quelli più vecchi dello snapshot ripristinato,
+che il ripristino condivide con lo stato di lavoro, il ripristino dopo inserimenti, spostamenti e
 rimozioni, quello allo stato vuoto e quello senza scritture, il
 ripristino ripetuto, il commit senza scritture, i commit dopo un
 ripristino, uguali a quelli di una struttura che ha avuto solo le

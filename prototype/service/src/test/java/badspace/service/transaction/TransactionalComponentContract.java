@@ -71,6 +71,38 @@ public abstract class TransactionalComponentContract<C extends TransactionalComp
         assertEquals(secondContent, snapshotContent(second));
     }
 
+    /**
+     * The restore shares data with the restored snapshot, which the writes after it must copy:
+     * neither the restored snapshot nor the older ones change, also after an abandoned
+     * preparation and a second restore.
+     */
+    @ParameterizedTest
+    @ValueSource(longs = {1, 2, 3, 4, 5})
+    void restoreAndLaterWritesDoNotChangeTheOlderSnapshots(long seed) {
+        Random random = new Random(seed);
+        C component = newComponent();
+        writeMany(component, random, 1);
+        S first = commit(component, 1);
+        Object firstContent = snapshotContent(first);
+        writeMany(component, random, 2);
+        S second = commit(component, 2);
+        Object secondContent = snapshotContent(second);
+        writeMany(component, random, 3);
+        component.abandonCommit(component.prepareCommit(3));
+        component.restore(second);
+        writeMany(component, random, 4);
+        S third = commit(component, 4);
+        Object thirdContent = snapshotContent(third);
+        writeMany(component, random, 5);
+        component.restore(third);
+        writeMany(component, random, 5);
+        commit(component, 5);
+        writeMany(component, random, 6);
+        assertEquals(firstContent, snapshotContent(first));
+        assertEquals(secondContent, snapshotContent(second));
+        assertEquals(thirdContent, snapshotContent(third));
+    }
+
     @ParameterizedTest
     @ValueSource(longs = {1, 2, 3, 4, 5})
     void restoreBringsBackTheContentOfTheSnapshot(long seed) {
