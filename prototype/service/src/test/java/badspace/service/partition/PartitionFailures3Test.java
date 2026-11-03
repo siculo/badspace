@@ -317,6 +317,24 @@ class PartitionFailures3Test {
      * partition needs a recovery, and a rollback restores it when the failure ends. The slots,
      * already restored, have nothing to do the second time.
      */
+    /**
+     * The JVM can throw the same instance of OutOfMemoryError again: the abandon that fails with
+     * the failure of the preparation does not hide it, and the writes are discarded all the same.
+     */
+    @Test
+    void sameErrorInTheAbandonKeepsTheFailureOfTheCommit() {
+        commitFirstState();
+        writeSecondState();
+        OutOfMemoryError cause = new OutOfMemoryError("Memory failure for the test");
+        metadataCommits.prepareFailure = cause;
+        slotCommits.abandonFailure = cause;
+        assertSame(cause, assertThrows(OutOfMemoryError.class, () -> storage.commit(owner(storage))));
+        metadataCommits.prepareFailure = null;
+        slotCommits.abandonFailure = null;
+        assertEquals(0, cause.getSuppressed().length);
+        checkFirstStateAfterTheFailure();
+    }
+
     @Test
     void failedRestoreOfTheMetadataRequiresARecovery() {
         commitFirstState();

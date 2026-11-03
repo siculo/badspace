@@ -1036,7 +1036,23 @@ final class PartitionStorage3 {
         try {
             component.abandonCommit(prepared);
         } catch (Throwable abandonFailure) {
-            failure.addSuppressed(abandonFailure);
+            suppress(failure, abandonFailure);
+        }
+    }
+
+    /**
+     * Adds the other failure to the suppressed ones of the failure, if it can: the same
+     * instance cannot suppress itself, and the list of the suppressed failures needs memory.
+     * The caller always throws the failure, also when this adds nothing.
+     */
+    private static void suppress(Throwable failure, Throwable other) {
+        if (other == failure) {
+            return;
+        }
+        try {
+            failure.addSuppressed(other);
+        } catch (Throwable ignored) {
+            // Only a detail of the diagnosis is lost: the failure goes to the caller as it is.
         }
     }
 

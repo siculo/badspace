@@ -3,7 +3,6 @@ package badspace.service.partition.slots;
 import badspace.common.geometry.Point2;
 import badspace.service.index.SlotView2;
 import badspace.service.transaction.TransactionalComponent;
-import java.util.Arrays;
 
 /**
  * The slots of the writer of a 2D partition: the state that the next commit confirms.
@@ -48,6 +47,8 @@ public final class MutableSlots2 implements SlotView2, TransactionalComponent<Sl
     private int size;
     // The pool of the partition, where the commits take the buffers of the coordinates.
     private final CoordinateBufferPool coordinateBuffers;
+    // Makes the arrays of the growth and of the snapshots.
+    private final SlotArrays arrays;
     // The snapshot of the last accepted commit, or of the last restore: the next snapshot
     // shares its IDs, its table and its buffer when they do not change.
     private SlotSnapshot2 lastSnapshot = SlotSnapshot2.empty();
@@ -68,7 +69,16 @@ public final class MutableSlots2 implements SlotView2, TransactionalComponent<Sl
      *     of the coordinates
      */
     public MutableSlots2(CoordinateBufferPool coordinateBuffers) {
+        this(coordinateBuffers, SlotArrays.DEFAULT);
+    }
+
+    /**
+     * Creates empty slots for the writer that make their arrays with the given arrays. The
+     * tests give arrays that fail.
+     */
+    MutableSlots2(CoordinateBufferPool coordinateBuffers, SlotArrays arrays) {
         this.coordinateBuffers = coordinateBuffers;
+        this.arrays = arrays;
     }
 
     @Override
@@ -111,9 +121,17 @@ public final class MutableSlots2 implements SlotView2, TransactionalComponent<Sl
         while (capacity < needed) {
             capacity *= 2;
         }
-        slotEntityIds = Arrays.copyOf(slotEntityIds, capacity);
-        coords = Arrays.copyOf(coords, capacity * DIMENSIONS);
-        pageChanges = Arrays.copyOf(pageChanges, pageCount(capacity));
+        // All the arrays are made before any of them replaces the old one: if an allocation
+        // fails, the slots keep their old capacity, which the restore and the next growth trust.
+        long[] grownIds = arrays.newLongs(capacity);
+        double[] grownCoords = arrays.newDoubles(capacity * DIMENSIONS);
+        long[] grownPageChanges = arrays.newLongs(pageCount(capacity));
+        System.arraycopy(slotEntityIds, 0, grownIds, 0, slotEntityIds.length);
+        System.arraycopy(coords, 0, grownCoords, 0, coords.length);
+        System.arraycopy(pageChanges, 0, grownPageChanges, 0, pageChanges.length);
+        slotEntityIds = grownIds;
+        coords = grownCoords;
+        pageChanges = grownPageChanges;
     }
 
     /**
@@ -164,12 +182,53 @@ public final class MutableSlots2 implements SlotView2, TransactionalComponent<Sl
      */
     @Override
     public SlotSnapshot2 prepareCommit(long commitSequence) {
-        CoordinateBuffer coordinates = coordinatesChanged
-                ? copyChangedPages(commitSequence)
-                : lastSnapshot.coordinateBuffer();
-        return idsChanged
-                ? new SlotSnapshot2(Arrays.copyOf(slotEntityIds, size), coordinates, slotById.copy())
-                : lastSnapshot.withCoordinates(coordinates);
+        boolean taken = coordinatesChanged;
+        CoordinateBuffer coordinates = taken ? copyChangedPages(commitSequence) : lastSnapshot.coordinateBuffer();
+        try {
+            if (!idsChanged) {
+                return lastSnapshot.withCoordinates(coordinates);
+            }
+            long[] ids = arrays.newLongs(size);
+            System.arraycopy(slotEntityIds, 0, ids, 0, size);
+            return new SlotSnapshot2(ids, coordinates, slotById.copy());
+        } catch (Throwable failure) {
+            // No snapshot uses the buffer just taken, so the storage cannot abandon it: it goes
+            // back to the pool here. The buffer of the last snapshot stays with its users.
+            if (taken) {
+                giveBackUnused(coordinates, failure);
+            }
+            throw failure;
+        }
+    }
+
+    /**
+     * Puts back in the pool a buffer that no snapshot uses, as a buffer that holds no commit:
+     * its pages can be newer than the pages of the slots after a restore. A failure here goes
+     * with the failure of the preparation, which the caller gets.
+     */
+    private void giveBackUnused(CoordinateBuffer coordinates, Throwable failure) {
+        try {
+            coordinates.holdCommit(CoordinateBuffer.NO_COMMIT);
+            coordinateBuffers.giveBack(coordinates);
+        } catch (Throwable giveBackFailure) {
+            suppress(failure, giveBackFailure);
+        }
+    }
+
+    /**
+     * Adds the other failure to the suppressed ones of the failure, if it can: the same
+     * instance cannot suppress itself, and the list of the suppressed failures needs memory.
+     * The caller always throws the failure, also when this adds nothing.
+     */
+    private static void suppress(Throwable failure, Throwable other) {
+        if (other == failure) {
+            return;
+        }
+        try {
+            failure.addSuppressed(other);
+        } catch (Throwable ignored) {
+            // Only a detail of the diagnosis is lost: the failure goes to the caller as it is.
+        }
     }
 
     /** Records that the slots have no changes after the snapshot, which the next one can share. */
