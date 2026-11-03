@@ -20,10 +20,10 @@ un'approvazione delle proposte. L'ordine suggerito qui non sostituisce il
 Per rollback, contratto transazionale e lettura del pending, il successivo
 [progetto delle strutture transazionali](/future/architecture/transactional-components.md)
 raccoglie la direzione concordata. In particolare, la vista da conservare
-ipotizzata al punto 3 non è un requisito adottato: nel [modello d'uso del
-writer](/future/architecture/transactional-components.md#modello-duso-del-writer)
+ipotizzata al punto 3 non è un requisito adottato: nell'[uso con un writer per
+tick](/current/architecture/partition-ownership.md#un-writer-per-tick)
 il commit chiude le scritture del tick, e a chi prende la proprietà per
-un recupero basta sapere se nel tick corrente c'è già un commit.
+un recupero basta il tick dell'ultimo commit.
 
 **Conserverei il nucleo a partizioni con un solo writer e snapshot immutabili, ma rivedrei alcuni contratti prima di costruirci sopra distribuzione e migrazione.** Le criticità principali riguardano il significato di tempo, recupero, proprietà e risultati delle query.
 

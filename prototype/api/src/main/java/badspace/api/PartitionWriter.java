@@ -89,6 +89,17 @@ public interface PartitionWriter extends AutoCloseable {
     void rollback();
 
     /**
+     * Returns the tick of the last commit of the partition. The creation of the partition, and
+     * its load from a save, count as a commit at the creation tick. Only the commits of the
+     * owner change the value, so it is stable for this writer: compared with the current tick,
+     * it tells whether the tick already has a commit, for example after taking the partition
+     * from a writer that stopped. A move of the tick does not change it. Fails with
+     * OwnershipChangedException if the ownership changed, and with IllegalStateException after
+     * the removal of the partition.
+     */
+    long lastCommitTick();
+
+    /**
      * Removes the partition from its node, following its removal policy: the last operation of
      * the writer. After this call the writes and the commits fail with IllegalStateException,
      * and the writes not committed are discarded. The removal becomes effective at the next move

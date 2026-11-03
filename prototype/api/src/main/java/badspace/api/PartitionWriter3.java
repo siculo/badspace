@@ -135,6 +135,11 @@ public final class PartitionWriter3 implements PartitionWriter {
     }
 
     @Override
+    public long lastCommitTick() {
+        return node.lastCommitTick(token);
+    }
+
+    @Override
     public void removePartition() {
         switch (config.removalPolicy()) {
             case REQUIRE_EMPTY -> node.removePartition(token);

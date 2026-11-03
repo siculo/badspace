@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: "Strutture transazionali, rollback e recupero"
-description: "Modello d'uso del writer, commit nel tick corrente per il recupero di un writer bloccato, ritorno a snapshot più vecchi e test di fallimento ancora da completare."
+description: "Estensioni delle strutture transazionali: attesa dell'inizio del tick, letture del pending tramite il writer, ritorno a snapshot più vecchi e test di fallimento ancora da completare."
 tags: [badspace, transactions, snapshots, recovery, testing]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T09:02:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:56:49Z }
 ---
 
 # Perimetro e obiettivo
@@ -44,9 +44,10 @@ se il ripristino fallisce, la salute della partizione diventa
 Rollback, cambio di proprietà e annullamento dopo un fallimento usano lo
 stesso ripristino.
 
-Chi prende la proprietà non può ancora sapere se nel tick corrente c'è
-già un commit. I fallimenti dei metadati e del ripristino degli slot non
-sono ancora provati, perché i test non hanno un modo di provocarli.
+Chi prende la proprietà legge con il proprio token il tick dell'ultimo
+commit, e sa se nel tick corrente c'è già un commit. I fallimenti dei
+metadati e del ripristino degli slot non sono ancora provati, perché i
+test non hanno un modo di provocarli.
 
 # Stati e responsabilità
 
@@ -75,70 +76,11 @@ Non è un requisito di questo blocco. Il recupero corrente è in memoria,
 distinto dal [recupero dei nodi](/future/architecture/partition-ownership.md)
 dopo un crash e dal caricamento dei salvataggi.
 
-# Modello d'uso del writer
+# Writer e tick
 
-Il writer ha il solo compito di scrivere sulla partizione. In un tick
-legge lo stato della partizione dagli snapshot pubblicati, calcola le
-modifiche e le scrive; il commit è l'**ultima operazione del tick** e
-dice che le scritture del tick sono andate a buon fine. Lo snapshot che
-le contiene diventa leggibile, anche dal writer, all'avanzamento del
-tick. Il writer può cambiare a ogni tick: prende la proprietà con
-`claim`, fa le scritture e il commit e la lascia con `release`.
-
-Il diagramma mostra due tick con un writer diverso in ciascuno (A nel
-tick t, B nel tick t+1); le distanze non sono in scala.
-
-```text
-                        "tick t"                        "tick t+1"
-          *--------------------------------*--------------------------------*-->
-          ^ "setTick(t)"                   ^ "setTick(t+1)"                 ^ "setTick(t+2)"
-          :                                :                                :
- A        : claim, legge "S(t-1)"          :                                :
-          :    +----------------+          :                                :
-          :    |   scritture    |*         :                                :
-          :    +----------------+ commit,  :                                :
-          :                       release  :                                :
- B        :                                : claim, legge "S(t)"            :
-          :                                :    +----------------+          :
-          :                                :    |   scritture    |*         :
-          :                                :    +----------------+ commit,  :
-          :                                :                       release  :
-          :                                :                                :
- lettori  : "S(t-1)"                       : "S(t)"                         : "S(t+1)"
-```
-
-In questo modello il writer non ha bisogno di leggere quello che ha
-appena confermato: le modifiche le ha calcolate lui, o i componenti del
-software a cui ha delegato la logica, e il writer del tick successivo
-le trova nello snapshot pubblicato. Più componenti possono calcolare le
-modifiche dello stesso tick, ma uno solo le scrive; per questo non serve
-che più writer si passino la partizione nello stesso tick.
-
-Più commit nello stesso tick restano possibili, come oggi, e l'ultimo
-definisce lo snapshot del tick: il modello è un uso consigliato, non un
-vincolo della partizione. Un vincolo come il rifiuto delle scritture
-dopo il commit fino all'avanzamento del tick si potrà aggiungere se
-servirà.
-
-## Presa forzata come recupero
-
-La [presa forzata](/current/architecture/partition-ownership.md#schemi-costruiti-sopra)
-serve al recupero: se un writer si blocca, il suo commit del tick non
-arriva, e il coordinatore passa la proprietà a un nuovo writer. Il nuovo
-writer però non sa se il vecchio ha fatto il commit prima di bloccarsi:
-se l'ha fatto, il suo stato di lavoro comprende già quel commit, che non
-può leggere finché il tick non avanza (vedi [visibilità nel tick del
-passaggio](/current/architecture/partition-ownership.md#visibilità-nel-tick-del-passaggio)),
-e rifare le scritture del tick darebbe rifiuti o modifiche applicate due
-volte.
-
-Al nuovo writer non servono i dati del commit, ma solo sapere **se nel
-tick corrente c'è già un commit**: se c'è, le scritture del tick sono
-confermate e il writer aspetta il tick successivo; se non c'è, scrive il
-tick. Lo storage conosce già il tick dell'ultimo commit, usato come base
-nelle [segnalazioni dei fallimenti](/current/architecture/partition-failures.md#segnalazione).
-Dove esporlo, per esempio nello stato di proprietà o in un'operazione
-dedicata, si decide nell'implementazione.
+L'[uso con un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick)
+e il tick dell'ultimo commit per il recupero sono già disponibili.
+Restano due estensioni.
 
 ## Inizio del tick
 
@@ -149,7 +91,7 @@ pubblicazione di un tick dato, è un'estensione da valutare.
 
 ## Letture del pending tramite il writer
 
-Nel modello descritto il writer non legge il pending. Le letture del
+Nell'uso con un writer per tick il writer non legge il pending. Le letture del
 pending restano un'estensione possibile, se un caso d'uso chiedesse a
 un writer di leggere i commit del tick prima della pubblicazione. Sono
 state valutate tre forme:
@@ -173,10 +115,6 @@ presenti. I test dello storage dovranno verificare in 2D e 3D:
   ripristino degli slot, con un modo per introdurre l'errore in queste
   strutture: vecchia base integra, transazione annullata o recupero
   necessario, diagnosi e successivo tentativo di recupero.
-- Commit nel tick corrente visto da chi prende la proprietà: assente
-  prima del commit, presente dopo, anche dopo un fallimento o un
-  rollback che lasciano il commit, e di nuovo assente dopo l'avanzamento
-  del tick.
 - Operazioni concorrenti del writer, dell'avanzamento del tick e del
   cambio di proprietà, con i reader limitati agli snapshot pubblicati.
 
@@ -190,4 +128,4 @@ latch o barriere per la concorrenza, senza sleep.
 - [Proprietà corrente della partizione](/current/architecture/partition-ownership.md).
 - [Estensioni dell'API](/future/decisions/api-surface.md).
 - [Approccio incrementale e test](/process/development-approach.md).
-- [Analisi del design del prototipo](/future/analyses/prototype-design.md): contesto e alternative; il modello d'uso del writer qui descritto non richiede la vista dello stato ereditato ipotizzata nell'analisi.
+- [Analisi del design del prototipo](/future/analyses/prototype-design.md): contesto e alternative; l'[uso con un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick) non richiede la vista dello stato ereditato ipotizzata nell'analisi.

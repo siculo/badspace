@@ -275,6 +275,19 @@ class PartitionFailures2Test {
 
     /** An Error goes to the caller as it is, and the partition discards the writes all the same. */
     @Test
+    void failedCommitKeepsTheTickOfTheLastCommitAndTheOwnerReadsItInARecovery() {
+        commitFirstState();
+        storage.setTick(2);
+        writeSecondState();
+        index.prepareFailure = new IllegalStateException("Index failure for the test");
+        index.restoreFailure = new IllegalStateException("Restore failure for the test");
+        assertThrows(PartitionFailureException.class, () -> storage.commit(owner(storage)));
+        index.prepareFailure = null;
+        assertInstanceOf(PartitionHealth.RecoveryRequired.class, storage.health());
+        assertEquals(0, storage.lastCommitTick(owner(storage)));
+    }
+
+    @Test
     void errorGoesToTheCallerAsItIs() {
         commitFirstState();
         writeSecondState();

@@ -4,7 +4,7 @@ title: "Glossario dell’implementazione corrente"
 description: "Definizioni dei termini usati dal prototipo corrente: spazi, partizioni, writer, tick, snapshot, acquisizioni, insiemi di snapshot, metadati e salvataggi."
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
 ---
 
 # Termini
@@ -32,6 +32,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
 | Salute della partizione | Stato separato dal ciclo di vita e dalla proprietà: sana, o con recupero necessario. Si legge con `health()` da qualsiasi thread. Vedi [fallimenti e salute](/current/architecture/partition-failures.md#salute-della-partizione). |
 | Recupero necessario | Salute della partizione dopo un fallimento il cui ripristino non è riuscito: scritture e commit rifiutati, snapshot confermati leggibili; `rollback`, `claim` e `release` ritentano il ripristino. Nel codice `PartitionHealth.RecoveryRequired`. Vedi [fallimenti e salute](/current/architecture/partition-failures.md#salute-della-partizione). |
 | Rollback | Operazione del writer che scarta tutte le scritture dopo l'ultimo commit riuscito, anche dei tick precedenti, senza toccare commit, snapshot in attesa e proprietà; con lo stesso ripristino del cambio di proprietà, ed è anche il recupero di una partizione che lo richiede. Vedi [rollback](/current/architecture/partition-failures.md#rollback). |
+| Tick dell'ultimo commit | Tick dell'ultimo commit della partizione; la creazione e il caricamento contano come commit al tick di creazione. Lo legge solo il proprietario, con il token, e lo cambiano solo i suoi commit: dopo una presa forzata dice al nuovo writer se il tick corrente è già confermato. Vedi [un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick). |
 | Tick | Contatore logico monotono del livello base, che il software fa avanzare con `setTick` (il frame di un server di gioco, o un batch); BADSPACE non ha un clock. Ci sono il tick dello spazio, del nodo e della partizione; quello della partizione può restare indietro durante la propagazione. Vedi [tick logico](/current/architecture/logical-time.md). |
 | setTick | Avanzamento del tick: con un valore maggiore il tempo avanza (salti ammessi), con lo stesso valore non succede niente, con un valore minore è rifiutato. Pubblica gli snapshot dei tick completati, fa scorrere la finestra e applica la rimozione chiesta. Lo spazio lo propaga ai suoi nodi, il nodo alle sue partizioni, non in modo atomico tra partizioni. Vedi [tick logico](/current/architecture/logical-time.md). |
 | creationTick | Tick in cui una partizione è stata creata: il tick corrente del nodo alla creazione. Il primo snapshot della partizione è `S(creationTick)`. Vedi [conservazione degli snapshot](/current/architecture/snapshot-retention.md). |

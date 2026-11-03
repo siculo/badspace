@@ -312,6 +312,11 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
+    public long lastCommitTick(WriteToken token) {
+        return find(token.partitionId()).lastCommitTick(token.generation());
+    }
+
+    @Override
     public Acquisition acquire(PartitionId partitionId, long tick, AcquireOptions options) {
         Objects.requireNonNull(options);
         RetentionWindow.checkAcquiredTick(tick);

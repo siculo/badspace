@@ -4,7 +4,7 @@ title: "Contratto dell’API corrente"
 description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
 ---
 
 # Contratto corrente
@@ -288,12 +288,14 @@ l’esempio in [Commit e tick](/current/architecture/partition-commit.md#commit-
 |---|---|---|
 | Commit | `commit()` sull'handle | Conferma lo stato del writer nel tick corrente; un commit senza scritture è valido |
 | Rollback | `rollback()` sull'handle | Scarta le scritture non confermate, anche dei tick precedenti, e tiene commit, snapshot in attesa e proprietà; è anche il recupero di una partizione che lo richiede (vedi [rollback](/current/architecture/partition-failures.md#rollback)) |
+| Tick dell'ultimo commit | `lastCommitTick()` sull'handle | Il tick dell'ultimo commit; la creazione e il caricamento contano come commit al tick di creazione. Lo cambiano solo i commit del proprietario: dopo `claim` dice al nuovo writer se il tick corrente ha già un commit (vedi [un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick)) |
 | Tick corrente | `tick()` sulla partizione | Il tick della partizione; sostituisce `lastCommit()` |
 | Tick di creazione | `creationTick()` sulla partizione | Il tick in cui la partizione è stata creata: il primo snapshot è `S(creationTick)` |
 
 | Errore | Eccezione |
 |---|---|
-| Commit o rollback dopo la rimozione | `IllegalStateException` |
+| Commit, rollback o tick dell'ultimo commit dopo la rimozione | `IllegalStateException` |
+| Tick dell'ultimo commit con un token non corrente | `OwnershipChangedException` |
 | Rollback il cui ripristino fallisce | `PartitionFailureException` con esito `RECOVERY_REQUIRED`, o l'`Error` così com'è |
 
 Scelte di dettaglio:
@@ -306,6 +308,7 @@ Scelte di dettaglio:
   si scartano; la politica di rimozione guarda lo stato confermato del
   tick corrente.
 - **Contratto del nodo**: `commit(WriteToken)`, `rollback(WriteToken)`,
+  `lastCommitTick(WriteToken)`,
   `tick(PartitionId)` e `creationTick(PartitionId)`.
 
 ### Letture

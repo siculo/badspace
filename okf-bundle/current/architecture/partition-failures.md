@@ -4,7 +4,7 @@ title: Fallimenti e salute della partizione
 description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione, rollback e recupero."
 tags: [badspace, architecture, transactions, recovery]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
 ---
 
 # Primitiva
@@ -98,7 +98,7 @@ Un fallimento produce un resoconto, il record `PartitionFailure`:
 | `operation` | `WRITE`, `COMMIT`, `CLAIM`, `RELEASE` o `ROLLBACK` |
 | `component` | `SLOTS`, `INDEX`, `METADATA` o `UNKNOWN`: la struttura in cui è avvenuto |
 | `outcome` | `WRITES_DISCARDED` se il ripristino è riuscito, `RECOVERY_REQUIRED` altrimenti |
-| `baseTick` | Il tick dell’ultimo commit, lo stato che la partizione conserva; senza commit, il tick di creazione |
+| `baseTick` | Il tick dell’ultimo commit, lo stato che la partizione conserva; la creazione e il caricamento contano come commit al tick di creazione |
 | `cause` | Il fallimento dell’operazione; per `claim`, `release` e rollback, quello del ripristino |
 | `restoreFailure` | Il fallimento del ripristino dopo una scrittura o un commit, se c’è |
 

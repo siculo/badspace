@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: "Estensioni dell’API"
-description: "Ritorno a snapshot più vecchi, commit nel tick corrente per il recupero, attesa del tick, operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
+description: "Ritorno a snapshot più vecchi, letture del pending, attesa del tick, operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
 tags: [badspace, documentation]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T09:02:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
 ---
 
 # Stato
@@ -21,7 +21,7 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 | Ambito | Estensione | Stato |
 |---|---|---|
 | Transazioni | Ritorno a uno snapshot pubblicato più vecchio | Da progettare: annullerebbe anche commit riusciti (vedi [strutture transazionali](/future/architecture/transactional-components.md#ritorno-a-uno-snapshot-più-vecchio)); rollback, segnalazione dei fallimenti e salute della partizione sono già [disponibili](/current/architecture/partition-failures.md) |
-| Writer | Indicazione di un commit nel tick corrente, per il recupero di un writer bloccato | Da introdurre (vedi [modello d'uso del writer](/future/architecture/transactional-components.md#modello-duso-del-writer)); le letture del pending tramite il writer non servono in quel modello |
+| Writer | Letture del pending tramite il writer | Non necessarie nell'[uso con un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick); tre forme valutate nelle [strutture transazionali](/future/architecture/transactional-components.md#letture-del-pending-tramite-il-writer) |
 | Tick | Attesa dell'inizio di un tick da parte del writer | Da valutare: oggi l'avvisa il software che chiama `setTick` |
 | Query | Raycast: primo hit e tutti gli hit, anche aggregati su più partizioni | Da progettare per entità puntiformi; richiede di riprendere il lavoro sugli indici |
 | Metadati | Metadati di sistema, condizioni, tombstone e loro eliminazione | Da introdurre con i protocolli di migrazione |

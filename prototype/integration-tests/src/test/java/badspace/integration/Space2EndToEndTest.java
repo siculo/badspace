@@ -622,6 +622,23 @@ class Space2EndToEndTest {
     }
 
     @Test
+    void newWriterKnowsWhetherTheCurrentTickHasACommit() {
+        Partition2 partition = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName());
+        long creationTick = space.tick();
+        try (PartitionWriter2 first = partition.writer(partition.claim(0).orElseThrow())) {
+            assertEquals(creationTick, first.lastCommitTick());
+            space.setTick(creationTick + 1);
+            first.insert(new Point2(1, 1));
+            first.commit();
+        }
+        try (PartitionWriter2 next = partition.writer(partition.claim(partition.ownership().generation()).orElseThrow())) {
+            assertEquals(space.tick(), next.lastCommitTick());
+            space.setTick(space.tick() + 1);
+            assertEquals(space.tick() - 1, next.lastCommitTick());
+        }
+    }
+
+    @Test
     void closeAfterAnExceptionDiscardsTheWritesNotCommitted() {
         Partition2 partition = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName());
         long[] ids = new long[2];

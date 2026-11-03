@@ -77,6 +77,11 @@ writer o un cambio di proprietà (vedi [fallimenti e salute](/current/architectu
 `rollback()` serve anche a scartare di proposito le scritture non
 confermate tenendo la proprietà.
 
+`lastCommitTick()` dice al writer il tick dell'ultimo commit della
+partizione: un writer che la prende da uno che si è bloccato sa così se
+le scritture del tick corrente sono già confermate (vedi [un writer per
+tick](/current/architecture/partition-ownership.md#un-writer-per-tick)).
+
 # Snapshot acquisito: leggere uno stato stabile
 
 `commit()` conferma lo stato del writer nel tick corrente. Lo snapshot

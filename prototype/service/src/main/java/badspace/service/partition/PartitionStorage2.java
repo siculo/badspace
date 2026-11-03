@@ -172,7 +172,8 @@ final class PartitionStorage2 {
     // Healthy, or in need of a recovery after a restore that failed. Written while holding
     // writerLock; read by any thread through health().
     private volatile PartitionHealth health = PartitionHealth.HEALTHY;
-    // The tick of the last commit, or the creation tick, for the reports of the failures.
+    // The tick of the last commit: the creation and the load count as a commit at the
+    // creation tick. It is the base of the reports of the failures, and the owner reads it.
     // Only the writer uses it.
     private long lastCommitTick;
     // The structure that the writer is changing, for the reports of the failures. Only the
@@ -525,6 +526,23 @@ final class PartitionStorage2 {
             if (restoreFailure != null) {
                 throw reported(restoreFailure);
             }
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
+    /**
+     * Returns the tick of the last commit: the creation of the partition, and its load, count
+     * as a commit at the creation tick. Only the commits of the owner change the value, so
+     * after a claim it tells the new owner whether the current tick already has a commit. It
+     * works also when the partition needs a recovery. Only the writer can call it. Fails with
+     * OwnershipChangedException if generation is not the one of the owner.
+     */
+    long lastCommitTick(long generation) {
+        writerLock.lock();
+        try {
+            checkOwner(generation);
+            return lastCommitTick;
         } finally {
             writerLock.unlock();
         }

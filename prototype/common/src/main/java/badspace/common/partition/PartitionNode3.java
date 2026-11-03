@@ -342,6 +342,22 @@ public interface PartitionNode3 {
     void rollback(WriteToken token);
 
     /**
+     * Returns the tick of the last commit of a partition. The creation of the partition, and
+     * its load from a save, count as a commit at the creation tick, so a partition always has
+     * a last commit. Only the commits of the owner change the value, and the token makes sure
+     * that the caller is the owner: after a claim the value is stable for the new owner, which
+     * compares it with the current tick to know whether the tick already has a commit, for
+     * example when it takes the partition from a writer that stopped. A move of the tick does
+     * not change the value, and it can be read also when the partition needs a recovery.
+     *
+     * @param token the token of the owner of the partition
+     * @return the tick of the last commit
+     * @throws OwnershipChangedException if the token is not the current one
+     * @throws IllegalStateException if the removal of the partition was requested
+     */
+    long lastCommitTick(WriteToken token);
+
+    /**
      * Acquires the snapshot of a tick of a partition, which must be in the retention window.
      * Checking the window and acquiring the snapshot is a single step, so a move of the tick
      * at the same time cannot make it go away.
