@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: "Strutture transazionali, rollback e recupero"
-description: "Estensioni delle strutture transazionali: letture confermate riservate al writer, ritorno a snapshot più vecchi e test di fallimento ancora da completare."
+description: "Modello d'uso del writer, commit nel tick corrente per il recupero di un writer bloccato, ritorno a snapshot più vecchi e test di fallimento ancora da completare."
 tags: [badspace, transactions, snapshots, recovery, testing]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T09:02:26Z }
 ---
 
 # Perimetro e obiettivo
@@ -44,9 +44,9 @@ se il ripristino fallisce, la salute della partizione diventa
 Rollback, cambio di proprietà e annullamento dopo un fallimento usano lo
 stesso ripristino.
 
-Non sono ancora disponibili le letture del pending tramite il writer. I fallimenti dei
-metadati e del ripristino degli slot non sono ancora provati, perché i
-test non hanno un modo di provocarli.
+Chi prende la proprietà non può ancora sapere se nel tick corrente c'è
+già un commit. I fallimenti dei metadati e del ripristino degli slot non
+sono ancora provati, perché i test non hanno un modo di provocarli.
 
 # Stati e responsabilità
 
@@ -75,30 +75,93 @@ Non è un requisito di questo blocco. Il recupero corrente è in memoria,
 distinto dal [recupero dei nodi](/future/architecture/partition-ownership.md)
 dopo un crash e dal caricamento dei salvataggi.
 
-# Letture confermate del writer
+# Modello d'uso del writer
 
-Il writer proprietario deve poter leggere l'ultimo stato confermato,
-compreso il pending del tick corrente, attraverso il proprio handle.
-Le scritture non confermate restano escluse. Quando non c'è pending,
-la lettura usa l'ultima base confermata; prima del primo commit usa
-lo stato iniziale vuoto.
+Il writer ha il solo compito di scrivere sulla partizione. In un tick
+legge lo stato della partizione dagli snapshot pubblicati, calcola le
+modifiche e le scrive; il commit è l'**ultima operazione del tick** e
+dice che le scritture del tick sono andate a buon fine. Lo snapshot che
+le contiene diventa leggibile, anche dal writer, all'avanzamento del
+tick. Il writer può cambiare a ogni tick: prende la proprietà con
+`claim`, fa le scritture e il commit e la lascia con `release`.
 
-Non serve un'acquisizione esplicita: ogni chiamata seleziona e protegge
-lo stato per la sola durata dell'operazione. Non restituisce una vista
-da conservare o rilasciare. Dopo un nuovo commit le chiamate successive
-leggono il nuovo stato; non si garantisce una stessa versione tra più
-chiamate. Slot, indice e metadati devono comunque appartenere allo
-stesso commit durante ciascuna operazione.
+Il diagramma mostra due tick con un writer diverso in ciascuno (A nel
+tick t, B nel tick t+1); le distanze non sono in scala.
 
-Ogni chiamata verifica il token: dopo la perdita dell'ownership le nuove
-letture del writer sono rifiutate, come le sue scritture. L'ammissione
-della lettura deve essere ordinata rispetto al cambio di proprietà;
-una lettura già ammessa può completarsi sullo stato protetto. Non si
-introduce la revoca dei risultati già letti.
+```text
+                        "tick t"                        "tick t+1"
+          *--------------------------------*--------------------------------*-->
+          ^ "setTick(t)"                   ^ "setTick(t+1)"                 ^ "setTick(t+2)"
+          :                                :                                :
+ A        : claim, legge "S(t-1)"          :                                :
+          :    +----------------+          :                                :
+          :    |   scritture    |*         :                                :
+          :    +----------------+ commit,  :                                :
+          :                       release  :                                :
+ B        :                                : claim, legge "S(t)"            :
+          :                                :    +----------------+          :
+          :                                :    |   scritture    |*         :
+          :                                :    +----------------+ commit,  :
+          :                                :                       release  :
+          :                                :                                :
+ lettori  : "S(t-1)"                       : "S(t)"                         : "S(t+1)"
+```
 
-I reader ordinari continuano a leggere esclusivamente snapshot
-pubblicati e acquisiti. In stato di [recupero necessario](/current/architecture/partition-failures.md#salute-della-partizione)
-anche le letture del writer usano solo la base confermata integra.
+In questo modello il writer non ha bisogno di leggere quello che ha
+appena confermato: le modifiche le ha calcolate lui, o i componenti del
+software a cui ha delegato la logica, e il writer del tick successivo
+le trova nello snapshot pubblicato. Più componenti possono calcolare le
+modifiche dello stesso tick, ma uno solo le scrive; per questo non serve
+che più writer si passino la partizione nello stesso tick.
+
+Più commit nello stesso tick restano possibili, come oggi, e l'ultimo
+definisce lo snapshot del tick: il modello è un uso consigliato, non un
+vincolo della partizione. Un vincolo come il rifiuto delle scritture
+dopo il commit fino all'avanzamento del tick si potrà aggiungere se
+servirà.
+
+## Presa forzata come recupero
+
+La [presa forzata](/current/architecture/partition-ownership.md#schemi-costruiti-sopra)
+serve al recupero: se un writer si blocca, il suo commit del tick non
+arriva, e il coordinatore passa la proprietà a un nuovo writer. Il nuovo
+writer però non sa se il vecchio ha fatto il commit prima di bloccarsi:
+se l'ha fatto, il suo stato di lavoro comprende già quel commit, che non
+può leggere finché il tick non avanza (vedi [visibilità nel tick del
+passaggio](/current/architecture/partition-ownership.md#visibilità-nel-tick-del-passaggio)),
+e rifare le scritture del tick darebbe rifiuti o modifiche applicate due
+volte.
+
+Al nuovo writer non servono i dati del commit, ma solo sapere **se nel
+tick corrente c'è già un commit**: se c'è, le scritture del tick sono
+confermate e il writer aspetta il tick successivo; se non c'è, scrive il
+tick. Lo storage conosce già il tick dell'ultimo commit, usato come base
+nelle [segnalazioni dei fallimenti](/current/architecture/partition-failures.md#segnalazione).
+Dove esporlo, per esempio nello stato di proprietà o in un'operazione
+dedicata, si decide nell'implementazione.
+
+## Inizio del tick
+
+Il writer oggi non sa quando inizia un tick: lo sa il software che chiama
+l'avanzamento del tick, che può avvisare i writer con un proprio canale.
+Un'attesa dell'inizio di un tick nell'API, per esempio fino alla
+pubblicazione di un tick dato, è un'estensione da valutare.
+
+## Letture del pending tramite il writer
+
+Nel modello descritto il writer non legge il pending. Le letture del
+pending restano un'estensione possibile, se un caso d'uso chiedesse a
+un writer di leggere i commit del tick prima della pubblicazione. Sono
+state valutate tre forme:
+
+| Forma | Vantaggi | Svantaggi |
+|---|---|---|
+| Lettura per chiamata sotto il lock della partizione | Ordine con commit e cambio di proprietà garantito dal lock; il buffer del pending non si riusa durante la lettura; nessun cambio al ciclo di vita dei buffer | Una lettura lunga ritarda avanzamento del tick, `claim` e `release` della partizione |
+| Lettura per chiamata con un uso interno sullo snapshot e query fuori dal lock | Non blocca la partizione durante la query | Il pending deve contare gli usi e il buffer sostituito si libera solo all'ultimo uso; proprietà verificata solo all'inizio della lettura |
+| Acquisizione del pending riservata al writer | Stesse query dei reader, senza operazioni dedicate; vista stabile su più chiamate | Il writer deve rilasciare; i pending sostituiti ma acquisiti tengono i buffer; la vista invecchia al commit successivo; servono un'identità per uno snapshot non pubblicato e una regola per il cambio di proprietà |
+
+I reader ordinari continuerebbero a leggere solo snapshot pubblicati e
+acquisiti.
 
 # Test di coordinamento
 
@@ -110,11 +173,12 @@ presenti. I test dello storage dovranno verificare in 2D e 3D:
   ripristino degli slot, con un modo per introdurre l'errore in queste
   strutture: vecchia base integra, transazione annullata o recupero
   necessario, diagnosi e successivo tentativo di recupero.
-- Letture del writer prima della pubblicazione, assenza di scritture
-  non confermate nei risultati, nuovo commit tra due chiamate, token
-  scaduto e lettura concorrente a commit, tick o cambio di proprietà.
-- Risorse condivise protette durante le letture e reader ordinari
-  limitati agli snapshot pubblicati.
+- Commit nel tick corrente visto da chi prende la proprietà: assente
+  prima del commit, presente dopo, anche dopo un fallimento o un
+  rollback che lasciano il commit, e di nuovo assente dopo l'avanzamento
+  del tick.
+- Operazioni concorrenti del writer, dell'avanzamento del tick e del
+  cambio di proprietà, con i reader limitati agli snapshot pubblicati.
 
 Non provocare realmente un esaurimento della memoria per verificare
 questi percorsi. Testare gli effetti osservabili del contratto, usando
@@ -126,4 +190,4 @@ latch o barriere per la concorrenza, senza sleep.
 - [Proprietà corrente della partizione](/current/architecture/partition-ownership.md).
 - [Estensioni dell'API](/future/decisions/api-surface.md).
 - [Approccio incrementale e test](/process/development-approach.md).
-- [Analisi del design del prototipo](/future/analyses/prototype-design.md): contesto e alternative; le letture del writer qui definite non richiedono la vista da conservare ipotizzata nell'analisi.
+- [Analisi del design del prototipo](/future/analyses/prototype-design.md): contesto e alternative; il modello d'uso del writer qui descritto non richiede la vista dello stato ereditato ipotizzata nell'analisi.

@@ -17,11 +17,13 @@ L'integrazione nel bundle non costituisce una nuova verifica del codice o
 un'approvazione delle proposte. L'ordine suggerito qui non sostituisce il
 [TODO del prototipo](../../../TODO.md).
 
-Per rollback, contratto transazionale e letture del pending, il successivo
+Per rollback, contratto transazionale e lettura del pending, il successivo
 [progetto delle strutture transazionali](/future/architecture/transactional-components.md)
 raccoglie la direzione concordata. In particolare, la vista da conservare
-ipotizzata al punto 3 non è un requisito adottato: si prevedono letture
-per chiamata tramite il writer, senza acquisizione esplicita.
+ipotizzata al punto 3 non è un requisito adottato: nel [modello d'uso del
+writer](/future/architecture/transactional-components.md#modello-duso-del-writer)
+il commit chiude le scritture del tick, e a chi prende la proprietà per
+un recupero basta sapere se nel tick corrente c'è già un commit.
 
 **Conserverei il nucleo a partizioni con un solo writer e snapshot immutabili, ma rivedrei alcuni contratti prima di costruirci sopra distribuzione e migrazione.** Le criticità principali riguardano il significato di tempo, recupero, proprietà e risultati delle query.
 

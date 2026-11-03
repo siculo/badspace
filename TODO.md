@@ -33,7 +33,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Architettura a livelli](okf-bundle/current/architecture/layers.md), [Tick logico](okf-bundle/current/architecture/logical-time.md), [Query su più partizioni](okf-bundle/current/architecture/multi-partition-queries.md), [Contratto dell’API](okf-bundle/current/api/operations.md#nodi-dello-spazio), [Evoluzioni di nodi e Space](okf-bundle/future/architecture/nodes-and-spaces.md).
 
-- [ ] **Strutture transazionali:** contratto comune, rollback, fallimenti tutto-o-niente, recupero e letture confermate del writer. → [cose da fare](#fare-transazioni)
+- [ ] **Strutture transazionali:** contratto comune, rollback, fallimenti tutto-o-niente, recupero e commit nel tick corrente per il recupero di un writer bloccato. → [cose da fare](#fare-transazioni)
 
   Documento: [Strutture transazionali, rollback e recupero](okf-bundle/future/architecture/transactional-components.md).
 
@@ -188,7 +188,7 @@ Comportamento, proposta del contratto e criteri di verifica nel [bundle](okf-bun
 - [x] Coordinare preparazione e accettazione del commit tutto-o-niente, preservando la base confermata e gestendo le risorse delle preparazioni abbandonate
 - [x] Introdurre segnalazioni strutturate, stato di recupero necessario consultabile e annullamento automatico della transazione dopo un fallimento
 - [x] Esporre rollback e recupero dall'ultimo stato confermato; unificare il ripristino usato al rilascio e al trasferimento dell'ownership
-- [ ] Aggiungere letture dell'ultimo stato confermato tramite il writer, pending compreso, senza acquisizione e con verifica dell'ownership per chiamata
+- [ ] Indicare nello stato della partizione se c'è già un commit nel tick corrente, così che chi prende la proprietà per recuperare un writer bloccato sappia se le scritture del tick sono già confermate (le letture del pending tramite il writer non servono nel [modello d'uso del writer](okf-bundle/future/architecture/transactional-components.md#modello-duso-del-writer))
 - [ ] Completare test di fallimento e concorrenza e client d'esempio delle nuove operazioni
 
 <a id="fare-grpc"></a>
