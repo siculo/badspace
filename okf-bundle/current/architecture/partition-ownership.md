@@ -4,7 +4,7 @@ title: Proprietà della partizione
 description: "Proprietà single-writer con fencing token: passaggio, revoca e rilascio; recupero del writer applicativo e limite di visibilità dei commit nello stesso tick; uso con un writer per tick e tick dell'ultimo commit."
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:56:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T14:26:22Z }
 ---
 
 # Primitiva
@@ -338,7 +338,10 @@ lo cambiano, il nuovo proprietario che sa se il writer fermato ha fatto
 il commit del tick, il token non corrente e la partizione rimossa
 rifiutati, il valore tenuto da un commit fallito e letto durante il
 recupero necessario e, nell'integrazione, il nuovo writer dopo un
-passaggio nello stesso tick.
+passaggio nello stesso tick. Con latch e senza sleep verificano anche
+che la lettura aspetti un commit in corso e che, se un commit è in corso
+quando arriva una presa forzata, il nuovo proprietario veda il tick
+corrente come tick dell'ultimo commit.
 
 # Correlati
 

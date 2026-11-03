@@ -8,7 +8,8 @@ import badspace.service.index.SpatialIndex2;
 
 /**
  * A real index whose snapshots stop findInRegion at the gate, if there is one,
- * before they read the index. The commit stops at the commit gate, if there is one.
+ * before they read the index. The commit stops at the commit gate, and the restore at the
+ * restore gate, if there is one.
  * The preparation of the commit throws the prepare failure, the notifications of the
  * changes throw the notification failure and the restore throws the restore failure, before
  * the real index does anything, if there is one. The other methods give the real index its
@@ -21,6 +22,8 @@ final class GatedIndex2 implements SpatialIndex2 {
     volatile Gate gate;
     // Set by the test thread before the commit starts, read by the writer thread.
     volatile Gate commitGate;
+    // Set by the test thread before the restore starts, read by the writer thread.
+    volatile Gate restoreGate;
     // The failures that the methods throw, if not null: an exception or an Error. Set by the
     // test thread before the operation starts, read by the writer thread.
     volatile Throwable prepareFailure;
@@ -57,14 +60,7 @@ final class GatedIndex2 implements SpatialIndex2 {
 
     @Override
     public IndexSnapshot2 prepareCommit(long n) {
-        Gate currentCommitGate = commitGate;
-        if (currentCommitGate != null) {
-            try {
-                currentCommitGate.pass();
-            } catch (InterruptedException e) {
-                throw new IllegalStateException(e);
-            }
-        }
+        pass(commitGate);
         throwIfSet(prepareFailure);
         return new GatedSnapshot(index.prepareCommit(n));
     }
@@ -81,6 +77,7 @@ final class GatedIndex2 implements SpatialIndex2 {
 
     @Override
     public void restore(IndexSnapshot2 confirmed) {
+        pass(restoreGate);
         throwIfSet(restoreFailure);
         index.restore(confirmed instanceof GatedSnapshot gated ? gated.snapshot : confirmed);
     }
@@ -93,6 +90,16 @@ final class GatedIndex2 implements SpatialIndex2 {
     @Override
     public int[] findNearest(Point2 point, int count) {
         return index.findNearest(point, count);
+    }
+
+    private static void pass(Gate gate) {
+        if (gate != null) {
+            try {
+                gate.pass();
+            } catch (InterruptedException e) {
+                throw new IllegalStateException(e);
+            }
+        }
     }
 
     private static void throwIfSet(Throwable failure) {

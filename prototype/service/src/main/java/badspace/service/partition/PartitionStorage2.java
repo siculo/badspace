@@ -41,6 +41,7 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 /**
  * A 2D partition on its node: it coordinates the writer, the moves of the tick and the
@@ -149,6 +150,11 @@ final class PartitionStorage2 {
     // The application metadata of the writer, like the slots. Changed only while holding
     // writerLock; removing an entity deletes its metadata.
     private final MutableMetadata metadata = new MutableMetadata();
+    // The slots and the metadata as structures of the commits: the structures themselves,
+    // or, in the tests, a component around them that can fail. The commits and the restores
+    // use these; the writes and the reads use the structures.
+    private final TransactionalComponent<SlotSnapshot2> slotCommits;
+    private final TransactionalComponent<MetadataSnapshot> metadataCommits;
     private final CoordinateLimits limits;
     // The number of the last commit in the sequence. Only the writer uses it.
     private long commitSequence;
@@ -267,11 +273,27 @@ final class PartitionStorage2 {
     PartitionStorage2(CoordinateLimits limits, Function<SlotView2, SpatialIndex2> indexFactory,
             int retainedTicks, MonotonicClock clock, long creationTick, ReentrantLock writerLock,
             CoordinateBufferPool coordinateBuffers) {
+        this(limits, indexFactory, retainedTicks, clock, creationTick, writerLock, coordinateBuffers,
+                UnaryOperator.identity(), UnaryOperator.identity());
+    }
+
+    /**
+     * Creates a storage like the constructor before, and puts the slots and the metadata into
+     * the components of the commits that the wrappers make. The tests give wrappers whose
+     * components fail in the commit or in the restore of the slots and of the metadata.
+     */
+    PartitionStorage2(CoordinateLimits limits, Function<SlotView2, SpatialIndex2> indexFactory,
+            int retainedTicks, MonotonicClock clock, long creationTick, ReentrantLock writerLock,
+            CoordinateBufferPool coordinateBuffers,
+            UnaryOperator<TransactionalComponent<SlotSnapshot2>> slotWrapper,
+            UnaryOperator<TransactionalComponent<MetadataSnapshot>> metadataWrapper) {
         this.writerLock = writerLock;
         this.limits = limits;
         this.coordinateBuffers = coordinateBuffers;
         this.slots = new MutableSlots2(coordinateBuffers);
         this.index = indexFactory.apply(slots);
+        this.slotCommits = slotWrapper.apply(slots);
+        this.metadataCommits = metadataWrapper.apply(metadata);
         this.lifetime = new SnapshotLifetime2(coordinateBuffers);
         this.acquisitions = new SnapshotAcquisitions2(clock, lifetime);
         this.catalog = SnapshotCatalog2.empty(creationTick, retainedTicks);
@@ -820,11 +842,11 @@ final class PartitionStorage2 {
     private void discardUncommittedWrites() {
         StorageSnapshot2 confirmed = lastCommitted;
         step = PartitionComponent.SLOTS;
-        slots.restore(confirmed.slots());
+        slotCommits.restore(confirmed.slots());
         step = PartitionComponent.INDEX;
         index.restore(confirmed.index());
         step = PartitionComponent.METADATA;
-        metadata.restore(confirmed.metadata());
+        metadataCommits.restore(confirmed.metadata());
     }
 
     // Information about the partition.
@@ -971,29 +993,29 @@ final class PartitionStorage2 {
         StorageSnapshot2 snapshot;
         try {
             step = PartitionComponent.SLOTS;
-            slotSnapshot = slots.prepareCommit(commitSequence);
+            slotSnapshot = slotCommits.prepareCommit(commitSequence);
             step = PartitionComponent.INDEX;
             indexSnapshot = index.prepareCommit(commitSequence);
             step = PartitionComponent.METADATA;
-            metadataSnapshot = metadata.prepareCommit(commitSequence);
+            metadataSnapshot = metadataCommits.prepareCommit(commitSequence);
             step = PartitionComponent.UNKNOWN;
             snapshot = new StorageSnapshot2(slotSnapshot, indexSnapshot, metadataSnapshot);
         } catch (Throwable failure) {
             if (slotSnapshot != null) {
-                abandon(slots, slotSnapshot, failure);
+                abandon(slotCommits, slotSnapshot, failure);
             }
             if (indexSnapshot != null) {
                 abandon(index, indexSnapshot, failure);
             }
             if (metadataSnapshot != null) {
-                abandon(metadata, metadataSnapshot, failure);
+                abandon(metadataCommits, metadataSnapshot, failure);
             }
             throw failed(PartitionOperation.COMMIT, failure);
         }
         // The acceptance cannot fail: all the structures take the commit, and then the partition.
-        slots.acceptCommit(slotSnapshot);
+        slotCommits.acceptCommit(slotSnapshot);
         index.acceptCommit(indexSnapshot);
-        metadata.acceptCommit(metadataSnapshot);
+        metadataCommits.acceptCommit(metadataSnapshot);
         // Replaced before the move of the tick, if not null: no reader ever saw it. It gives
         // back its buffer only now, so a commit that fails leaves it whole.
         StorageSnapshot2 replaced = pending;

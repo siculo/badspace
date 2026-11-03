@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: "Strutture transazionali, rollback e recupero"
-description: "Estensioni delle strutture transazionali: attesa dell'inizio del tick, letture del pending tramite il writer, ritorno a snapshot più vecchi, possibili evoluzioni del coordinamento e test di fallimento ancora da completare."
+description: "Estensioni delle strutture transazionali: attesa dell'inizio del tick, letture del pending tramite il writer, ritorno a snapshot più vecchi, e possibili evoluzioni del coordinamento."
 tags: [badspace, transactions, snapshots, recovery, testing]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T14:19:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T14:26:22Z }
 ---
 
 # Perimetro e obiettivo
@@ -45,9 +45,10 @@ Rollback, cambio di proprietà e annullamento dopo un fallimento usano lo
 stesso ripristino.
 
 Chi prende la proprietà legge con il proprio token il tick dell'ultimo
-commit, e sa se nel tick corrente c'è già un commit. I fallimenti dei
-metadati e del ripristino degli slot non sono ancora provati, perché i
-test non hanno un modo di provocarli.
+commit, e sa se nel tick corrente c'è già un commit. I test provano i
+fallimenti di tutte le strutture, nella preparazione e nel ripristino,
+e le operazioni concorrenti del writer, del tick e del cambio di
+proprietà.
 
 # Stati e responsabilità
 
@@ -172,23 +173,6 @@ risponde tra le due fasi. È una direzione distinta dai commit di più
 partizioni in una sola chiamata al nodo, previsti tra le
 [estensioni dell'API](/future/decisions/api-surface.md#altre-estensioni-da-valutare)
 senza atomicità.
-
-# Test di coordinamento
-
-La suite comune dei componenti, i test del commit tutto-o-niente e
-quelli dei fallimenti con l'indice e il pool dei buffer sono già
-presenti. I test dello storage dovranno verificare in 2D e 3D:
-
-- Fallimento nella preparazione e nel ripristino dei metadati e nel
-  ripristino degli slot, con un modo per introdurre l'errore in queste
-  strutture: vecchia base integra, transazione annullata o recupero
-  necessario, diagnosi e successivo tentativo di recupero.
-- Operazioni concorrenti del writer, dell'avanzamento del tick e del
-  cambio di proprietà, con i reader limitati agli snapshot pubblicati.
-
-Non provocare realmente un esaurimento della memoria per verificare
-questi percorsi. Testare gli effetti osservabili del contratto, usando
-latch o barriere per la concorrenza, senza sleep.
 
 # Collegamenti
 

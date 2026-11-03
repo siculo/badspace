@@ -4,7 +4,7 @@ title: Fallimenti e salute della partizione
 description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione, rollback e recupero."
 tags: [badspace, architecture, transactions, recovery]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T14:26:22Z }
 ---
 
 # Primitiva
@@ -143,7 +143,9 @@ aggiorna i propri segni solo alla fine del suo ripristino, e gli slot
 già ripristinati non hanno più niente da fare.
 
 I test dello storage, in 2D e 3D, provocano i fallimenti con l’indice e
-il pool dei buffer dei test: un fallimento nelle notifiche all’indice
+il pool dei buffer dei test, e con un costruttore dello storage per i
+test che mette slot e metadati dentro componenti dei commit che possono
+fallire nella preparazione, nell’abbandono e nel ripristino: un fallimento nelle notifiche all’indice
 annulla anche le scritture di un tick precedente, mentre un rifiuto le
 lascia; un fallimento nella preparazione degli slot o dell’indice
 annulla le scritture e lascia intatto lo snapshot in attesa; un
@@ -157,9 +159,16 @@ con il ripristino fallito tra le soppresse. I test del nodo verificano
 che il rollback scarti anche le scritture dei tick precedenti, lasci
 proprietà, commit e snapshot in attesa, rifiuti un token vecchio e una
 partizione rimossa, e dia, dopo le stesse scritture casuali, lo stesso
-stato di un rilascio seguito da una nuova presa, sui tre indici. Per i metadati
-e per il ripristino degli slot non c’è ancora un modo di provocare il
-fallimento nei test.
+stato di un rilascio seguito da una nuova presa, sui tre indici. Un
+fallimento nella preparazione dei metadati annulla le scritture e
+abbandona slot e indice già preparati, e un fallimento nell’abbandono
+arriva tra le soppresse del fallimento del commit; un ripristino fallito
+dei metadati o degli slot porta al recupero necessario, con la struttura
+del fallimento nel resoconto, e il rollback o `claim` lo completano
+quando il fallimento finisce. Con latch e senza sleep, un `claim` o un
+avanzamento del tick che arriva durante un rollback lo aspetta, mentre
+salute e proprietà restano leggibili, e l’avanzamento pubblica l’ultimo
+commit.
 
 # Correlati
 

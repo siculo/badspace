@@ -4,7 +4,7 @@ title: "Casi d’uso attuali"
 description: "Scenari realizzabili con il prototipo corrente ed esempi eseguibili per esplorare l’API."
 tags: [badspace, documentation]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T14:26:22Z }
 ---
 
 # Dal componente al caso d’uso
@@ -18,7 +18,9 @@ già presenti. Il software sceglie le politiche e costruisce il coordinamento.
 | Aggiornare partizioni in parallelo | Un writer per partizione su thread diversi, con tick comune | `multi-writer` |
 | Far avanzare in modo indipendente più simulazioni nello stesso processo | Uno spazio per simulazione, ciascuno con i propri nodi creati dalla factory e il proprio tick | Nessun esempio; lo verificano i test di integrazione `SpaceNodes2EndToEndTest` e `SpaceNodes3EndToEndTest` |
 | Passare una partizione a un altro writer | `claim` sulla generazione attesa, consegna del token nuovo | `ownership-handoff` |
-| Sostituire un writer che non risponde | Il coordinatore prende la proprietà; il nodo rifiuta il token vecchio | `writer-failover` |
+| Sostituire un writer che non risponde | Il coordinatore prende la proprietà; il nodo rifiuta il token vecchio; il nuovo writer legge il tick dell'ultimo commit | `writer-failover`, `writer-per-tick` |
+| Dare la partizione a un writer diverso in ogni tick | Un writer per tick: `claim`, lettura dell'ultimo snapshot, scritture, commit come ultima operazione e `release` | `writer-per-tick` |
+| Scartare le scritture non confermate e controllare la partizione | `rollback()` sull'handle e `health()` sulla partizione | `writer-rollback` |
 | Leggere un tick precedente | Configurare `retainedTicks`, acquisire il tick nella finestra, rilasciare la view | `snapshot-retention`, `lagged-reader` |
 | Interrogare insieme più partizioni, per esempio entità statiche e dinamiche con indici diversi | Insieme di snapshot dello stesso tick, query aggregate e decisione del software sui fallimenti | `multi-partition-queries` |
 | Limitare quanto un reader trattiene memoria | Scadenza obbligatoria delle acquisizioni e rilascio esplicito | `acquisition-timeouts` |

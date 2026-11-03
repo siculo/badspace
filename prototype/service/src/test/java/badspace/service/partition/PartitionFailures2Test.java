@@ -25,7 +25,9 @@ import badspace.common.partition.PartitionOperation;
 import badspace.common.partition.RetentionWindow;
 import badspace.service.index.SpatialIndexes;
 import badspace.service.partition.slots.CoordinateBufferPool;
+import badspace.service.partition.metadata.MetadataSnapshot;
 import badspace.service.partition.slots.MutableSlots2;
+import badspace.service.partition.slots.SlotSnapshot2;
 import badspace.service.partition.snapshot.MonotonicClock;
 import badspace.service.partition.snapshot.StorageSnapshot2;
 import java.util.ArrayList;
@@ -55,6 +57,8 @@ class PartitionFailures2Test {
 
     private GatedIndex2 index;
     private FailingBufferPool pool;
+    private FailingComponent<SlotSnapshot2> slotCommits;
+    private FailingComponent<MetadataSnapshot> metadataCommits;
     private PartitionStorage2 storage;
 
     @BeforeEach
@@ -63,7 +67,9 @@ class PartitionFailures2Test {
         storage = new PartitionStorage2(LIMITS,
                 slots -> index = new GatedIndex2(SpatialIndexes.create(IndexConfig.gridQuadtree(4, 2), slots)),
                 RetentionWindow.DEFAULT_RETAINED_TICKS, MonotonicClock.SYSTEM, 0, new ReentrantLock(),
-                new CoordinateBufferPool(pool));
+                new CoordinateBufferPool(pool),
+                slots -> slotCommits = new FailingComponent<>(slots),
+                metadata -> metadataCommits = new FailingComponent<>(metadata));
     }
 
     @Test
@@ -273,7 +279,91 @@ class PartitionFailures2Test {
         checkFirstState(storage.catalog().latest());
     }
 
-    /** An Error goes to the caller as it is, and the partition discards the writes all the same. */
+    @Test
+    void failureOfTheMetadataInACommitDiscardsTheWritesAndKeepsTheCommitOfTheTick() {
+        commitFirstState();
+        writeSecondState();
+        RuntimeException cause = new IllegalStateException("Metadata failure for the test");
+        metadataCommits.prepareFailure = cause;
+        PartitionFailure failure = assertThrows(PartitionFailureException.class,
+                () -> storage.commit(owner(storage))).failure();
+        metadataCommits.prepareFailure = null;
+        assertEquals(new PartitionFailure(PartitionOperation.COMMIT, PartitionComponent.METADATA,
+                FailureOutcome.WRITES_DISCARDED, 0, cause, null), failure);
+        checkFirstStateAfterTheFailure();
+    }
+
+    /** The failure of an abandon goes with the failure of the commit, and the writes are discarded all the same. */
+    @Test
+    void failureOfAnAbandonIsSuppressedInTheFailureOfTheCommit() {
+        commitFirstState();
+        writeSecondState();
+        RuntimeException cause = new IllegalStateException("Metadata failure for the test");
+        RuntimeException abandonCause = new IllegalStateException("Abandon failure for the test");
+        metadataCommits.prepareFailure = cause;
+        slotCommits.abandonFailure = abandonCause;
+        PartitionFailureException thrown = assertThrows(PartitionFailureException.class,
+                () -> storage.commit(owner(storage)));
+        metadataCommits.prepareFailure = null;
+        slotCommits.abandonFailure = null;
+        assertSame(cause, thrown.getCause());
+        assertArrayEquals(new Throwable[] {abandonCause}, cause.getSuppressed());
+        checkFirstStateAfterTheFailure();
+    }
+
+    /**
+     * The restore of the metadata fails after the slots and the index are restored: the
+     * partition needs a recovery, and a rollback restores it when the failure ends. The slots,
+     * already restored, have nothing to do the second time.
+     */
+    @Test
+    void failedRestoreOfTheMetadataRequiresARecovery() {
+        commitFirstState();
+        writeSecondState();
+        RuntimeException cause = new IllegalStateException("Index failure for the test");
+        RuntimeException restoreCause = new IllegalStateException("Metadata restore failure for the test");
+        index.notificationFailure = cause;
+        metadataCommits.restoreFailure = restoreCause;
+        PartitionFailure failure = assertThrows(PartitionFailureException.class,
+                () -> storage.insertAll(owner(storage), List.of(new Entity2(30, C)))).failure();
+        index.notificationFailure = null;
+        assertEquals(new PartitionFailure(PartitionOperation.WRITE, PartitionComponent.INDEX,
+                FailureOutcome.RECOVERY_REQUIRED, 0, cause, restoreCause), failure);
+        assertEquals(new PartitionHealth.RecoveryRequired(failure), storage.health());
+
+        PartitionFailure retry = assertThrows(PartitionFailureException.class,
+                () -> storage.rollback(owner(storage))).failure();
+        assertEquals(new PartitionFailure(PartitionOperation.ROLLBACK, PartitionComponent.METADATA,
+                FailureOutcome.RECOVERY_REQUIRED, 0, restoreCause, null), retry);
+
+        metadataCommits.restoreFailure = null;
+        storage.rollback(owner(storage));
+        assertSame(PartitionHealth.HEALTHY, storage.health());
+        checkFirstState(storage.commit(owner(storage)));
+    }
+
+    /**
+     * The restore of the slots fails before the index and the metadata are restored: the
+     * partition needs a recovery, and a claim restores all the structures when the failure ends.
+     */
+    @Test
+    void failedRestoreOfTheSlotsRequiresARecovery() {
+        commitFirstState();
+        writeSecondState();
+        RuntimeException restoreCause = new IllegalStateException("Slot restore failure for the test");
+        slotCommits.restoreFailure = restoreCause;
+        long first = owner(storage);
+        long second = storage.claimOwnership(first);
+        assertEquals(new PartitionHealth.RecoveryRequired(new PartitionFailure(PartitionOperation.CLAIM,
+                PartitionComponent.SLOTS, FailureOutcome.RECOVERY_REQUIRED, 0, restoreCause, null)), storage.health());
+        assertThrows(IllegalStateException.class, () -> storage.commit(second));
+
+        slotCommits.restoreFailure = null;
+        long third = storage.claimOwnership(second);
+        assertSame(PartitionHealth.HEALTHY, storage.health());
+        checkFirstState(storage.commit(third));
+    }
+
     @Test
     void failedCommitKeepsTheTickOfTheLastCommitAndTheOwnerReadsItInARecovery() {
         commitFirstState();
@@ -287,6 +377,7 @@ class PartitionFailures2Test {
         assertEquals(0, storage.lastCommitTick(owner(storage)));
     }
 
+    /** An Error goes to the caller as it is, and the partition discards the writes all the same. */
     @Test
     void errorGoesToTheCallerAsItIs() {
         commitFirstState();

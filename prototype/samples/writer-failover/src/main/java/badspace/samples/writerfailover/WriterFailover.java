@@ -26,8 +26,9 @@ import java.util.concurrent.TimeoutException;
  * Sample client: the main thread is a coordinator that moves the tick when the writer has
  * committed it. In tick 1 the writer gets stuck before its commit, like in a long pause. After a
  * timeout the coordinator takes the ownership away with a claim and gives the new token to a new
- * writer, which goes on from the latest snapshot and commits tick 1. When the old writer wakes
- * up, its commit is rejected: its token is not the current one.
+ * writer. The new writer reads the tick of the last commit: tick 1 has no commit yet, so it goes
+ * on from the latest snapshot and commits tick 1. When the old writer wakes up, its commit is
+ * rejected: its token is not the current one.
  */
 public final class WriterFailover {
 
@@ -71,6 +72,14 @@ public final class WriterFailover {
                         COMMIT_TIMEOUT_MILLIS, token);
                 Future<?> secondWriting = executor.submit(() -> {
                     try (PartitionWriter2 second = partition.writer(token)) {
+                        // A writer stuck after its commit would leave a commit in tick 1: then
+                        // the new writer would have nothing to write.
+                        if (second.lastCommitTick() == partition.tick()) {
+                            System.out.println("Writer 2: tick 1 already has a commit");
+                            return null;
+                        }
+                        System.out.printf("Writer 2: the last commit is in tick %d, tick 1 has none%n",
+                                second.lastCommitTick());
                         // The new writer goes on from the latest snapshot, the last committed state.
                         Point2 position;
                         try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
