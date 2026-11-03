@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: "Strutture transazionali, rollback e recupero"
-description: "Estensioni delle strutture transazionali: attesa dell'inizio del tick, letture del pending tramite il writer, ritorno a snapshot più vecchi e test di fallimento ancora da completare."
+description: "Estensioni delle strutture transazionali: attesa dell'inizio del tick, letture del pending tramite il writer, ritorno a snapshot più vecchi, possibili evoluzioni del coordinamento e test di fallimento ancora da completare."
 tags: [badspace, transactions, snapshots, recovery, testing]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:56:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T14:19:06Z }
 ---
 
 # Perimetro e obiettivo
@@ -104,6 +104,74 @@ state valutate tre forme:
 
 I reader ordinari continuerebbero a leggere solo snapshot pubblicati e
 acquisiti.
+
+# Possibili evoluzioni del coordinamento
+
+Lo storage della partizione contiene già, senza separarlo, un componente
+transazionale composto: lo snapshot `StorageSnapshot2`/`StorageSnapshot3`
+raccoglie quelli di slot, indice e metadati, e il commit prepara le tre
+strutture, le accetta o abbandona quelle già preparate, mentre il
+ripristino le riporta all'ultimo commit nell'ordine fisso. Sopra queste
+operazioni lo storage aggiunge quello che il contratto non conosce:
+proprietà, sequenza dei commit, pending e pubblicazione, tick dell'ultimo
+commit, segnalazione dei fallimenti e salute. Due ipotesi, non ancora
+richieste, renderebbero utile separare le due parti.
+
+## Componente composto per più strutture
+
+Se arrivassero altre strutture transazionali, per esempio se i
+[metadati di sistema](/future/architecture/entity-metadata.md) o i
+[tombstone](/future/architecture/tombstones.md) avessero strutture
+proprie, la preparazione con l'abbandono di quelle già preparate e la
+sequenza dei ripristini crescerebbero a mano nello storage, in 2D e 3D.
+Un oggetto interno che implementa `TransactionalComponent` con lo
+snapshot composto, e delega alle strutture nell'ordine fisso, terrebbe
+queste regole in un solo punto, come chiede il contratto; lo storage lo
+userebbe come oggi usa le tre strutture.
+
+Il diagramma confronta la divisione dei compiti di oggi con quella
+dell'ipotesi; "altre" indica le strutture che si aggiungerebbero.
+
+```text
+ "oggi"                                "ipotesi"
+
+ +-------------------------------+     +-------------------------------+
+ |       "PartitionStorage2"     |     |       "PartitionStorage2"     |
+ |  proprietà, pending, tick,    |     |  proprietà, pending, tick,    |
+ |  segnalazioni, sequenza       |     |  segnalazioni, sequenza       |
+ |  preparazione, accettazione,  |     +---------------+---------------+
+ |  abbandono, ripristino        |                     |
+ +----+----------+----------+----+                     v
+      |          |          |          +-------------------------------+
+      v          v          v          |     "componente composto"     |
+  +------+   +--------+ +--------+     |  preparazione, accettazione,  |
+  | slot |   | indice | |metadati|     |  abbandono, ripristino        |
+  +------+   +--------+ +--------+     +----+-------+-------+-------+--+
+                                            |       |       |       |
+                                            v       v       v       v
+                                          slot   indice metadati  altre
+```
+
+Lo storage indicherebbe ancora la struttura in corso nelle segnalazioni:
+il componente composto dovrebbe quindi esporre la struttura in cui è
+avvenuto un fallimento, o lo storage dovrebbe dargli il campo da
+aggiornare.
+
+## Storage come partecipante di un commit su più partizioni
+
+Un commit atomico su più partizioni, oggi escluso dal perimetro di
+questa pagina, richiederebbe di preparare tutte le partizioni e di
+accettarle solo se tutte le preparazioni riescono. Lo storage diventerebbe
+allora un partecipante, con le stesse quattro operazioni del contratto
+sopra il componente composto, e il coordinatore starebbe sopra gli
+storage, nel nodo o nell'API. Il contratto del nodo dovrebbe esporre
+preparazione e accettazione al posto dell'unico `commit`, e andrebbero
+definiti il token di ciascuna partizione durante la preparazione, la
+pubblicazione allo stesso tick e il comportamento se un nodo remoto non
+risponde tra le due fasi. È una direzione distinta dai commit di più
+partizioni in una sola chiamata al nodo, previsti tra le
+[estensioni dell'API](/future/decisions/api-surface.md#altre-estensioni-da-valutare)
+senza atomicità.
 
 # Test di coordinamento
 
