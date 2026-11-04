@@ -5,6 +5,8 @@
 
 # Architettura ed estensioni dell’API
 
+* [Scritture accumulate nel writer](./architecture/buffered-writes.md) - Refactoring concordato: modifiche finali per ID nel client, set con inserimento se assente e applicazione atomica sul nodo al commit.
+
 * [Evoluzioni di nodi, servizi e Space](./architecture/nodes-and-spaces.md) - Hosting remoto di più nodi, recupero dei nodi vuoti e possibili operazioni tra Space con tempi indipendenti.
 
 * [Strutture transazionali, rollback e recupero](./architecture/transactional-components.md) - Attesa dell'inizio del tick, letture del pending, ritorno a snapshot più vecchi, e possibili evoluzioni del coordinamento.

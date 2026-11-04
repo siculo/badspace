@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-05
+* **Edit**: Documentato il refactoring concordato delle [scritture accumulate nel writer](/future/architecture/buffered-writes.md): modifiche finali per ID nel client, `set` con inserimento se assente, rimozioni idempotenti, eliminazione delle conditional writes e commit atomico comune a nodi locali e remoti. Aggiunto il gruppo nel TODO prima di gRPC, distinguendo le scelte dai dettagli aperti e dal protocollo remoto degli esiti incerti; aggiornati indici, glossario, casi d'uso e riferimenti futuri. L'implementazione corrente resta descritta separatamente; i controlli della futura migrazione devono essere riesaminati.
+
 ## 2026-11-03
 * **Edit**: Nei [fallimenti e salute della partizione](/current/architecture/partition-failures.md#nel-prototipo) descritti la crescita degli slot che non resta a metà, il buffer restituito da una preparazione fallita e le eccezioni soppresse come aggiunta tentata, che non nasconde mai il fallimento originale, con i relativi test.
 * **Edit**: Completati i test delle [strutture transazionali](/current/architecture/partition-failures.md#nel-prototipo): fallimenti nella preparazione, nell'abbandono e nel ripristino di metadati e slot, e test di concorrenza di rollback, avanzamento del tick, presa forzata e tick dell'ultimo commit. Aggiunti i casi d'uso dei nuovi esempi `writer-rollback` e `writer-per-tick`; `writer-failover` legge il tick dell'ultimo commit. Il [documento futuro](/future/architecture/transactional-components.md) non ha più test da completare.
