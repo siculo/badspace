@@ -30,7 +30,7 @@ public final class SnapshotIsolation {
 
             try (AcquiredSnapshot2 old = partition.acquireLatest()) {
                 // The writer moves the ship and the tick moves on while the reader keeps its snapshot.
-                writer.update(ship, point(2, 2));
+                writer.set(ship, point(2, 2));
                 writer.commit();
                 space.setTick(2);
 

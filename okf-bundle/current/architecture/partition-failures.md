@@ -4,7 +4,7 @@ title: Fallimenti e salute della partizione
 description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione, rollback e recupero."
 tags: [badspace, architecture, transactions, recovery]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T15:22:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:11:39Z }
 ---
 
 # Primitiva
@@ -13,8 +13,9 @@ Un’operazione del writer può non riuscire in due modi.
 
 - **Rifiuto.** La partizione controlla tutto l’input, il token e il
   proprio stato prima di cambiare qualcosa. Un’operazione rifiutata,
-  per esempio con un ID inesistente o un token non corrente, non cambia
-  niente: le scritture non confermate precedenti restano.
+  per esempio con una posizione fuori dai limiti o un token non
+  corrente, non cambia niente: le scritture non confermate precedenti
+  restano.
 - **Fallimento.** Un’eccezione arriva dopo i controlli, mentre la
   partizione sta applicando una scrittura o preparando un
   [commit](/current/architecture/partition-commit.md#strutture-transazionali).

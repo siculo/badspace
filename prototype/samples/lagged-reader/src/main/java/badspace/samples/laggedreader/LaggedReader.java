@@ -55,7 +55,7 @@ public final class LaggedReader {
             Future<?> writing = executor.submit(() -> {
                 try (writer) {
                     for (long tick = 0; tick < TICKS; tick++) {
-                        writer.update(ship, point(tick * STEP, 0));
+                        writer.set(ship, point(tick * STEP, 0));
                         writer.commit();
                         space.setTick(tick + 1);
                         TimeUnit.NANOSECONDS.sleep(start + (tick + 1) * TICK_NANOS - System.nanoTime());

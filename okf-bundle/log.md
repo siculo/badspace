@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-05
+* **Edit**: Implementati nel prototipo `set`/`setAll` al posto di `update`/`updateAll`, con inserimento se l'ID manca e conservazione dei metadati di un'entità presente, e la rimozione idempotente; `setAll` sostituisce `updateAll` anche nel contratto del nodo. Aggiunta la [provenienza degli ID delle entità](/current/decisions/entity-ids.md#provenienza-degli-id-delle-entità), regola del contratto e non controllo. Aggiornati [contratto dell'API](/current/api/operations.md#operazioni-sulle-entità), errori, fallimenti, glossari, casi d'uso, esempio `batch-writes` e il [documento futuro](/future/architecture/buffered-writes.md), che tiene accumulazione, composizione e commit a batch.
 * **Edit**: Documentato il refactoring concordato delle [scritture accumulate nel writer](/future/architecture/buffered-writes.md): modifiche finali per ID nel client, `set` con inserimento se assente, rimozioni idempotenti, eliminazione delle conditional writes e commit atomico comune a nodi locali e remoti. Aggiunto il gruppo nel TODO prima di gRPC, distinguendo le scelte dai dettagli aperti e dal protocollo remoto degli esiti incerti; aggiornati indici, glossario, casi d'uso e riferimenti futuri. L'implementazione corrente resta descritta separatamente; i controlli della futura migrazione devono essere riesaminati.
 
 ## 2026-11-03

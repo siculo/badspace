@@ -31,7 +31,7 @@ public final class SnapshotRetention {
             // At each tick from 0 to 3 the ship is at x = tick.
             long ship = writer.insert(0, 0);
             for (long tick = 0; tick <= 3; tick++) {
-                writer.update(ship, point(tick, 0));
+                writer.set(ship, point(tick, 0));
                 writer.commit();
                 space.setTick(tick + 1);
             }

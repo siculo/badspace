@@ -96,7 +96,7 @@ class PartitionFailures2Test {
         RuntimeException cause = new IllegalStateException("Index failure for the test");
         index.notificationFailure = cause;
         PartitionFailure failure = assertThrows(PartitionFailureException.class,
-                () -> storage.updateAll(owner(storage), List.of(new Entity2(10, C)))).failure();
+                () -> storage.setAll(owner(storage), List.of(new Entity2(10, C)))).failure();
         index.notificationFailure = null;
         assertEquals(new PartitionFailure(PartitionOperation.WRITE, PartitionComponent.INDEX,
                 FailureOutcome.WRITES_DISCARDED, 0, cause, null), failure);
@@ -156,14 +156,14 @@ class PartitionFailures2Test {
         for (Entity2 entity : committed) {
             moved.add(new Entity2(entity.id(), new Point2(-entity.position().x(), -entity.position().y())));
         }
-        storage.updateAll(owner(storage), moved);
+        storage.setAll(owner(storage), moved);
         index.prepareFailure = new IllegalStateException("Index failure for the test");
         assertThrows(PartitionFailureException.class, () -> storage.commit(owner(storage)));
         index.prepareFailure = null;
         assertEquals(1, storage.pooledBufferCount());
 
         Entity2 changed = new Entity2(0, C);
-        storage.updateAll(owner(storage), List.of(changed));
+        storage.setAll(owner(storage), List.of(changed));
         StorageSnapshot2 snapshot = storage.commit(owner(storage));
         assertEquals(0, storage.pooledBufferCount());
         List<Entity2> expected = new ArrayList<>(committed);
@@ -445,7 +445,7 @@ class PartitionFailures2Test {
 
     /** Moves 10 to C and changes its metadata, without a commit. */
     private void writeSecondState() {
-        storage.updateAll(owner(storage), List.of(new Entity2(10, C)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, C)));
         storage.updateMetadataAll(owner(storage), List.of(MetadataWrite.put(10, "hp", 2)));
     }
 

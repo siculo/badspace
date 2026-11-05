@@ -63,21 +63,32 @@ public final class PartitionWriter2 implements PartitionWriter {
     }
 
     /**
-     * Moves an entity. Fails with NoSuchElementException if the ID is not in the partition,
-     * and with IllegalArgumentException if the position is outside the
-     * {@linkplain Partition#limits() limits}.
+     * Sets the position of an entity. If the entity is in the partition, it moves and keeps its
+     * application metadata; if not, for example after a {@link #remove(long)}, it is added
+     * again with the same ID and no metadata. The ID must come from the entity ID generator of
+     * the space: from {@link #insert}, from a snapshot of a partition of the space, or from a
+     * partition loaded from a save. A new entity gets a new ID only with {@code insert}.
+     *
+     * @param entityId the ID of the entity
+     * @param position the new position
+     * @throws IllegalArgumentException if the position is outside the
+     *     {@linkplain Partition#limits() limits}
      */
-    public void update(long entityId, Point2 position) {
-        updateAll(List.of(new Entity2(entityId, position)));
+    public void set(long entityId, Point2 position) {
+        setAll(List.of(new Entity2(entityId, position)));
     }
 
     /**
-     * Moves many entities in one call. Fails with NoSuchElementException if an ID is not
-     * in the partition, and with IllegalArgumentException if a position is outside the
-     * {@linkplain Partition#limits() limits}; in these cases no entity moves.
+     * Sets the positions of many entities in one call, like {@link #set(long, Point2)} for
+     * each entity, in the order of the list: if an ID appears more than once, the last position
+     * wins.
+     *
+     * @param entities the IDs of the entities with their positions
+     * @throws IllegalArgumentException if a position is outside the
+     *     {@linkplain Partition#limits() limits}; in this case nothing changes
      */
-    public void updateAll(List<Entity2> entities) {
-        node.updateAll(token, entities);
+    public void setAll(List<Entity2> entities) {
+        node.setAll(token, entities);
     }
 
     @Override

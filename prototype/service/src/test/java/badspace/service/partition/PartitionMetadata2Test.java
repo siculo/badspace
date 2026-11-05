@@ -109,7 +109,7 @@ class PartitionMetadata2Test {
     @Test
     void metadataAndPositionsChangeInTheSameCommit() {
         Acquisition before = publish();
-        node.updateAll(token, List.of(entity(1, 5, 5)));
+        node.setAll(token, List.of(entity(1, 5, 5)));
         node.updateMetadataAll(token, List.of(put(1, "version", 1)));
         Acquisition after = publish();
         assertEquals(List.of(entity(1, 1, 1)), node.getAll(before, new long[] {1}));
@@ -134,11 +134,18 @@ class PartitionMetadata2Test {
     }
 
     @Test
+    void setOfAnEntityInThePartitionKeepsItsMetadata() {
+        node.updateMetadataAll(token, List.of(put(1, "version", 1)));
+        node.setAll(token, List.of(entity(1, 5, 5)));
+        assertEquals(List.of(metadata(1, Map.of("version", 1L))), node.getMetadataAll(publish(), new long[] {1}));
+    }
+
+    @Test
     void removalOfAnEntityDeletesItsMetadata() {
         node.updateMetadataAll(token, List.of(put(1, "version", 1), put(2, "version", 1)));
         Acquisition before = publish();
         node.removeAll(token, new long[] {1});
-        node.insertAll(token, List.of(entity(1, 1, 1)));
+        node.setAll(token, List.of(entity(1, 1, 1)));
         Acquisition after = publish();
         assertEquals(List.of(metadata(1, Map.of()), metadata(2, Map.of("version", 1L))),
                 node.getMetadataAll(after, new long[] {1, 2}));

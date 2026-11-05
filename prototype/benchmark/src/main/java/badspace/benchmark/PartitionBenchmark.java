@@ -321,7 +321,7 @@ public class PartitionBenchmark {
 
     @Benchmark
     public void update(UpdateState s) {
-        s.node.updateAll(WorkloadState.WRITE_TOKEN, s.nextBatch());
+        s.node.setAll(WorkloadState.WRITE_TOKEN, s.nextBatch());
     }
 
     @Benchmark

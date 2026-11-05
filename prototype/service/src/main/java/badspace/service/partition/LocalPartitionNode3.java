@@ -278,8 +278,8 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     @Override
-    public void updateAll(WriteToken token, List<Entity3> entities) {
-        find(token.partitionId()).updateAll(token.generation(), entities);
+    public void setAll(WriteToken token, List<Entity3> entities) {
+        find(token.partitionId()).setAll(token.generation(), entities);
     }
 
     @Override

@@ -4,7 +4,7 @@ title: "Casi d’uso attuali"
 description: "Scenari realizzabili con il prototipo corrente ed esempi eseguibili per esplorare l’API."
 tags: [badspace, documentation]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T14:26:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:11:39Z }
 ---
 
 # Dal componente al caso d’uso
@@ -15,6 +15,7 @@ già presenti. Il software sceglie le politiche e costruisce il coordinamento.
 | Esigenza | Come si realizza oggi | Esempio in `prototype/samples` |
 |---|---|---|
 | Aggiornare posizioni e leggerne lo stato confermato | Writer, commit, avanzamento del tick e acquisizione dell’ultimo snapshot | `getting-started`, `commits-and-ticks`, `snapshot-queries`, `snapshot-isolation`, `concurrent-reader-writer` |
+| Rimuovere un'entità e reinserirla con lo stesso ID | `remove`, idempotente, e poi `set` con l'ID dell'entità; i vecchi metadati applicativi non tornano | `batch-writes` |
 | Aggiornare partizioni in parallelo | Un writer per partizione su thread diversi, con tick comune | `multi-writer` |
 | Far avanzare in modo indipendente più simulazioni nello stesso processo | Uno spazio per simulazione, ciascuno con i propri nodi creati dalla factory e il proprio tick | Nessun esempio; lo verificano i test di integrazione `SpaceNodes2EndToEndTest` e `SpaceNodes3EndToEndTest` |
 | Passare una partizione a un altro writer | `claim` sulla generazione attesa, consegna del token nuovo | `ownership-handoff` |

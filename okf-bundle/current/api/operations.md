@@ -4,7 +4,7 @@ title: "Contratto dell’API corrente"
 description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:11:39Z }
 ---
 
 # Contratto corrente
@@ -43,8 +43,8 @@ dai record avviene al confine con lo storage.
 |---|---|---|
 | Inserimento | `insert(Point)`, `insertAll(List<Point>)` | Sull'handle del writer; restituisce gli ID generati, nello stesso ordine delle posizioni; `insert(x, y[, z])` è una scorciatoia |
 | Lettura per ID | `get(id)`, `getAll(long[])` | Sulla view dello snapshot; `get` restituisce un `Optional`; `getAll` restituisce le entità nell'ordine degli ID e salta quelli assenti |
-| Aggiornamento | `update(id, Point)`, `updateAll(List<Entity>)` | Sull'handle del writer; cambia la posizione; se un ID compare più volte vale l'ultima posizione |
-| Rimozione | `remove(id)`, `removeAll(long[])` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter` |
+| Impostazione della posizione | `set(id, Point)`, `setAll(List<Entity>)` | Sull'handle del writer; un'entità presente si sposta e conserva i metadati applicativi, un'entità assente si aggiunge con lo stesso ID e senza metadati, anche dopo una rimozione; se un ID compare più volte vale l'ultima posizione. L'ID deve venire dal generatore delle entità (vedi [provenienza degli ID](/current/decisions/entity-ids.md#provenienza-degli-id-delle-entità)): una nuova entità riceve un ID nuovo solo con `insert` |
+| Rimozione | `remove(id)`, `removeAll(long[])` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter`; cancella anche i metadati applicativi; idempotente: un ID assente, anche perché ripetuto nell'array, si salta |
 | Numero di entità | `size()` | Sulla view dello snapshot |
 | Limiti | `limits()` | Nell'interfaccia comune `Partition`: le coordinate ammesse per le entità, fissate dall'indice (vedi [limiti delle coordinate](/current/decisions/spatial-indexing.md#limiti-delle-coordinate)) |
 | Query di range | `findInRegion(Region)` | Sulla view dello snapshot; restituisce le entità dentro la regione o sul suo bordo, in ordine non definito |
@@ -532,9 +532,9 @@ della partizione.
 
 | Errore | Eccezione |
 |---|---|
-| ID inesistente in `update`/`remove`, in una scrittura dei metadati o in una scrittura condizionata, anche solo in una condizione | `NoSuchElementException` |
-| ID già presente o duplicato in `insert`, ID duplicato in `remove` | `IllegalArgumentException` |
-| Posizione fuori dai limiti della partizione in `insert`/`update`/`updateIf` | `IllegalArgumentException` |
+| ID inesistente in una scrittura dei metadati o in una scrittura condizionata, anche solo in una condizione | `NoSuchElementException` |
+| ID già presente o duplicato nell'`insertAll` del contratto del nodo, che riceve gli ID generati dall'API | `IllegalArgumentException` |
+| Posizione fuori dai limiti della partizione in `insert`/`set`/`updateIf` | `IllegalArgumentException` |
 
 Le coordinate `NaN` o infinite sono rifiutate già alla costruzione di
 `Point2`/`Point3`, e un raggio infinito alla costruzione di

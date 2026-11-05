@@ -32,7 +32,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -122,18 +121,35 @@ class LocalPartitionNode2Test {
     }
 
     @Test
-    void updateMovesEntities() {
+    void setMovesEntitiesInThePartition() {
         node.insertAll(owner(node, P1), List.of(entity(1, 1, 2), entity(2, 3, 4)));
-        node.updateAll(owner(node, P1), List.of(entity(2, 5, 6), entity(1, 7, 8)));
+        node.setAll(owner(node, P1), List.of(entity(2, 5, 6), entity(1, 7, 8)));
         assertEquals(List.of(entity(1, 7, 8), entity(2, 5, 6)), node.getAll(publish(P1), new long[] {1, 2}));
     }
 
     @Test
-    void updateRejectsUnknownIdAndChangesNothing() {
+    void setAddsAnEntityNotInThePartitionWithTheSameId() {
         node.insertAll(owner(node, P1), List.of(entity(1, 1, 2)));
-        assertThrows(NoSuchElementException.class,
-                () -> node.updateAll(owner(node, P1), List.of(entity(1, 9, 9), entity(99, 0, 0))));
-        assertEquals(List.of(entity(1, 1, 2)), node.getAll(publish(P1), new long[] {1}));
+        node.setAll(owner(node, P1), List.of(entity(1, 9, 9), entity(99, 0, 0)));
+        assertEquals(2, node.size(publish(P1)));
+        assertEquals(List.of(entity(1, 9, 9), entity(99, 0, 0)), node.getAll(publish(P1), new long[] {1, 99}));
+    }
+
+    @Test
+    void setOfAnIdTwiceAddsOneEntityAtTheLastPosition() {
+        node.setAll(owner(node, P1), List.of(entity(5, 1, 1), entity(5, 2, 2)));
+        assertEquals(1, node.size(publish(P1)));
+        assertEquals(List.of(entity(5, 2, 2)), node.getAll(publish(P1), new long[] {5}));
+    }
+
+    @Test
+    void setWithAPositionOutsideTheLimitsChangesNothing() {
+        node.insertAll(owner(node, P1), List.of(entity(1, 1, 2)));
+        Entity2 outside = entity(99, Double.MAX_VALUE, 0);
+        assertThrows(IllegalArgumentException.class,
+                () -> node.setAll(owner(node, P1), List.of(entity(1, 9, 9), entity(2, 0, 0), outside)));
+        assertEquals(1, node.size(publish(P1)));
+        assertEquals(List.of(entity(1, 1, 2)), node.getAll(publish(P1), new long[] {1, 2, 99}));
     }
 
     @Test
@@ -147,19 +163,20 @@ class LocalPartitionNode2Test {
     }
 
     @Test
-    void removedIdCanBeUsedAgain() {
+    void removedIdCanBeSetAgain() {
         node.insertAll(owner(node, P1), List.of(entity(1, 1, 1)));
         node.removeAll(owner(node, P1), new long[] {1});
-        node.insertAll(owner(node, P1), List.of(entity(1, 2, 2)));
+        node.setAll(owner(node, P1), List.of(entity(1, 2, 2)));
         assertEquals(List.of(entity(1, 2, 2)), node.getAll(publish(P1), new long[] {1}));
     }
 
     @Test
-    void removeRejectsBadIdsAndChangesNothing() {
+    void removeSkipsIdsNotInThePartitionAndRepeatedIds() {
         node.insertAll(owner(node, P1), List.of(entity(1, 1, 1), entity(2, 2, 2)));
-        assertThrows(NoSuchElementException.class, () -> node.removeAll(owner(node, P1), new long[] {1, 99}));
-        assertThrows(IllegalArgumentException.class, () -> node.removeAll(owner(node, P1), new long[] {1, 1}));
-        assertEquals(2, node.size(publish(P1)));
+        node.removeAll(owner(node, P1), new long[] {1, 99, 1});
+        node.removeAll(owner(node, P1), new long[] {1});
+        assertEquals(1, node.size(publish(P1)));
+        assertEquals(List.of(entity(2, 2, 2)), node.getAll(publish(P1), new long[] {1, 2, 99}));
     }
 
     @Test
@@ -179,7 +196,7 @@ class LocalPartitionNode2Test {
     @Test
     void findInRegionSeesUpdatesAndRemovals() {
         node.insertAll(owner(node, P1), List.of(entity(1, 0, 0), entity(2, 1, 1), entity(3, 9, 9)));
-        node.updateAll(owner(node, P1), List.of(entity(3, 1, 0)));
+        node.setAll(owner(node, P1), List.of(entity(3, 1, 0)));
         node.removeAll(owner(node, P1), new long[] {2});
         assertEquals(Set.of(entity(1, 0, 0), entity(3, 1, 0)),
                 new HashSet<>(node.findInRegion(publish(P1), new Circle2(new Point2(0, 0), 2))));

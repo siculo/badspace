@@ -39,12 +39,12 @@ public final class WriterRollback {
             space.setTick(1);
 
             // Tick 1: a move without a commit carries over to tick 2.
-            writer.update(ship, point(4, 0));
+            writer.set(ship, point(4, 0));
             space.setTick(2);
 
             // Tick 2: a second move takes the ship too far, so the writer discards both moves.
             Point2 target = point(14, 0);
-            writer.update(ship, target);
+            writer.set(ship, target);
             if (target.x() > MAX_X) {
                 writer.rollback();
                 System.out.printf("Tick 2: %s is too far, rollback to the commit of tick %d%n", target,
@@ -53,7 +53,7 @@ public final class WriterRollback {
             System.out.printf("Tick 2: %s, health %s%n", partition.ownership(), partition.health());
 
             // The writer goes on from the last commit and confirms a valid move.
-            writer.update(ship, point(1, 0));
+            writer.set(ship, point(1, 0));
             writer.commit();
             space.setTick(3);
 

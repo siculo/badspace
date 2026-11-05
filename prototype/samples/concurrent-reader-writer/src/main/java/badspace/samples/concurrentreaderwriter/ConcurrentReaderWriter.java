@@ -52,7 +52,7 @@ public final class ConcurrentReaderWriter {
                     for (long tick = 1; tick <= TICKS; tick++) {
                         // The writer keeps the positions in its own state: it does not read its writes.
                         entities.replaceAll(e -> e.moveBy(1, 0));
-                        writer.updateAll(entities);
+                        writer.setAll(entities);
                         writer.commit();
                         space.setTick(tick + 1);
                         Thread.sleep(MILLIS_PER_TICK);

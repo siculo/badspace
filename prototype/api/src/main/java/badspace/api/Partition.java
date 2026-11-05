@@ -40,7 +40,7 @@ public interface Partition {
     /**
      * Returns the coordinates that the entities of the partition can have.
      * The index chosen at creation sets them (see {@code IndexConfig.limits()}):
-     * an insert or an update with a position outside them fails with
+     * an insert or a set with a position outside them fails with
      * IllegalArgumentException. Queries have no limits.
      */
     CoordinateLimits limits();

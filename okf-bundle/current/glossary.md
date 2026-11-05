@@ -4,7 +4,7 @@ title: "Glossario dell’implementazione corrente"
 description: "Definizioni dei termini usati dal prototipo corrente: spazi, partizioni, writer, tick, snapshot, acquisizioni, insiemi di snapshot, metadati e salvataggi."
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:11:39Z }
 ---
 
 # Termini
@@ -23,6 +23,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
 | Nome della partizione | Identificatore pubblico di una partizione, scelto dal software alla creazione: una stringa di minuscole, cifre, `-`, `_` e `.`, da 1 a 128 caratteri, senza `.` finale e che non è un nome di dispositivo di Windows. Identifica la partizione anche tra esecuzioni diverse e nella persistenza, al posto dell'ID, che è un dato di runtime. Vedi [ID delle entità](/current/decisions/entity-ids.md#nome-della-partizione). |
 | ID della partizione | Identificatore di runtime di una partizione in esecuzione su un nodo, generato dall'API, mai riusato; sta nei token di scrittura e nel contratto del nodo, non si persiste e l'API non lo espone al software. Una partizione ricaricata da un salvataggio ne riceve uno nuovo. Vedi [ID delle partizioni](/current/decisions/entity-ids.md#id-delle-partizioni). |
 | Generatore di ID | Componente dell'API comune che crea gli ID secondo un contratto proprio: ID `long` univoci su tutte le partizioni e gli spazi, mai riusati, senza garanzie di ordine né di segno; uno per tipo di ID (entità e partizioni), condiviso da tutti gli spazi e passato nella configurazione dello spazio (`SpaceConfig`). Lo schema scelto è Snowflake, sostituibile. Vedi [ID delle entità](/current/decisions/entity-ids.md#contratto-del-generatore) e [ID delle partizioni](/current/decisions/entity-ids.md#id-delle-partizioni). |
+| Set di un'entità | Scrittura che fissa la posizione di un'entità con un ID già generato: la sposta se è nella partizione, conservando i metadati applicativi, e la reinserisce con lo stesso ID e senza metadati se manca, anche dopo una rimozione. Una nuova entità riceve un ID solo con `insert`. Vedi [provenienza degli ID](/current/decisions/entity-ids.md#provenienza-degli-id-delle-entità). |
 | generatorId | Identificativo del generatore di ID dentro un ID Snowflake; ogni istanza dell'API ne riceve uno nuovo a ogni avvio. Vedi [ID delle entità](/current/decisions/entity-ids.md#schema-snowflake). |
 | Commit | Conferma atomica delle scritture del writer di una partizione, nel tick corrente della partizione, senza numero visibile; è l'unica transazione del sistema. Più commit nello stesso tick sono ammessi e l'ultimo definisce lo snapshot del tick; le scritture non confermate passano al tick successivo. Vedi [commit della partizione](/current/architecture/partition-commit.md). |
 | Sequenza dei commit | Contatore interno di ogni partizione che distingue un commit dal successivo, anche nello stesso tick, per gli indici copy-on-write; non esce dal nodo e non è condiviso tra le partizioni, così i writer di partizioni diverse non si coordinano. Vedi [commit della partizione](/current/architecture/partition-commit.md#sequenza-dei-commit). |

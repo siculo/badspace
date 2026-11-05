@@ -51,7 +51,7 @@ public final class WriterFailover {
             Future<?> firstWriting = executor.submit(() -> {
                 // close() does nothing when the ownership already went to another writer.
                 try (first) {
-                    first.update(ship, point(1, 0));
+                    first.set(ship, point(1, 0));
                     System.out.println("Writer 1: stuck before the commit of tick 1");
                     wakeUp.await();
                     first.commit();
@@ -87,7 +87,7 @@ public final class WriterFailover {
                             System.out.printf("Writer 2: the snapshot of tick %d has the ship at %s%n",
                                     snapshot.tick(), position);
                         }
-                        second.update(ship, position.add(1, 0));
+                        second.set(ship, position.add(1, 0));
                         second.commit();
                         System.out.println("Writer 2: committed tick 1");
                     }

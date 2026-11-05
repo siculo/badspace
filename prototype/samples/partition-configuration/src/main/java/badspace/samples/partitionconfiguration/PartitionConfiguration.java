@@ -44,7 +44,7 @@ public final class PartitionConfiguration {
                     partition.limits());
         }
 
-        // An insert or an update outside the limits fails: here a cell of side 1 limits the grid
+        // An insert or a set outside the limits fails: here a cell of side 1 limits the grid
         // to 2^30 on each axis, while the linear scan accepts the point.
         System.out.printf("(2e9, 0) is inside the limits of plain: %b, of grid: %b%n",
                 plain.limits().contains(point(2e9, 0)), grid.limits().contains(point(2e9, 0)));

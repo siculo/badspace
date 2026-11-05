@@ -73,7 +73,7 @@ class PartitionStorage2Test {
     @Test
     void writesOnTheLimitsAreAccepted() {
         storage.insertAll(owner(storage), List.of(new Entity2(10, new Point2(-10, -10)), new Entity2(20, A)));
-        storage.updateAll(owner(storage), List.of(new Entity2(20, new Point2(10, 10))));
+        storage.setAll(owner(storage), List.of(new Entity2(20, new Point2(10, 10))));
         assertEquals(2, storage.size());
         assertEquals(LIMITS, storage.limits());
     }
@@ -127,12 +127,12 @@ class PartitionStorage2Test {
             configured.insertAll(owner(configured), List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)));
             StorageSnapshot2 first = publish(configured);
             // The removal of 10 moves 30 into its slot.
-            configured.updateAll(owner(configured), List.of(new Entity2(30, D)));
+            configured.setAll(owner(configured), List.of(new Entity2(30, D)));
             configured.removeAll(owner(configured), new long[] {10});
             configured.insertAll(owner(configured), List.of(new Entity2(40, A)));
             StorageSnapshot2 second = publish(configured);
             configured.removeAll(owner(configured), new long[] {20});
-            configured.updateAll(owner(configured), List.of(new Entity2(40, B)));
+            configured.setAll(owner(configured), List.of(new Entity2(40, B)));
 
             String where = config.toString();
             checkSnapshot(first, List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)), where);
@@ -147,7 +147,7 @@ class PartitionStorage2Test {
         PartitionStorage2 retained = new PartitionStorage2(LIMITS, s -> SpatialIndexes.create(IndexConfig.linearScan(), s), 4);
         retained.insertAll(owner(retained), List.of(new Entity2(10, A), new Entity2(20, B)));
         SlotSnapshot2 first = publish(retained).slots();
-        retained.updateAll(owner(retained), List.of(new Entity2(20, C)));
+        retained.setAll(owner(retained), List.of(new Entity2(20, C)));
         SlotSnapshot2 moved = publish(retained).slots();
         assertEquals(B, first.positionAt(1));
         assertEquals(C, moved.positionAt(1));
@@ -231,7 +231,7 @@ class PartitionStorage2Test {
         assertEquals(List.of(new Entity2(10, A)), committed.getAll(ALL_IDS));
 
         // A tick without a commit keeps the snapshot before.
-        storage.updateAll(owner(storage), List.of(new Entity2(10, B)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, B)));
         storage.setTick(3);
         assertSame(committed, storage.catalog().latest());
         assertSame(committed, storage.catalog().at(2));
@@ -660,13 +660,13 @@ class PartitionStorage2Test {
     void bufferOfAnEndedSnapshotGoesToALaterCommit() {
         storage.insertAll(owner(storage), List.of(new Entity2(10, A)));
         StorageSnapshot2 first = publish(storage);
-        storage.updateAll(owner(storage), List.of(new Entity2(10, B)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, B)));
         publish(storage);
         // With one retained tick the first snapshot left the window, with no uses.
         assertTrue(first.isEnded());
         assertEquals(1, storage.pooledBufferCount());
 
-        storage.updateAll(owner(storage), List.of(new Entity2(10, C)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, C)));
         StorageSnapshot2 third = storage.commit(owner(storage));
         assertSame(first.slots().coordinateBuffer(), third.slots().coordinateBuffer());
         assertEquals(0, storage.pooledBufferCount());
@@ -679,9 +679,9 @@ class PartitionStorage2Test {
         PartitionStorage2 retained = new PartitionStorage2(LIMITS, s -> SpatialIndexes.create(IndexConfig.linearScan(), s), 2);
         retained.insertAll(owner(retained), List.of(new Entity2(10, A)));
         StorageSnapshot2 first = publish(retained);
-        retained.updateAll(owner(retained), List.of(new Entity2(10, B)));
+        retained.setAll(owner(retained), List.of(new Entity2(10, B)));
         StorageSnapshot2 second = publish(retained);
-        retained.updateAll(owner(retained), List.of(new Entity2(10, C)));
+        retained.setAll(owner(retained), List.of(new Entity2(10, C)));
         StorageSnapshot2 third = retained.commit(owner(retained));
 
         assertEquals(0, retained.pooledBufferCount());
@@ -700,15 +700,15 @@ class PartitionStorage2Test {
         storage.insertAll(owner(storage), List.of(new Entity2(10, A)));
         StorageSnapshot2 kept = publish(storage);
         long acquisitionId = storage.acquire(kept, 0);
-        storage.updateAll(owner(storage), List.of(new Entity2(10, B)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, B)));
         StorageSnapshot2 second = publish(storage);
-        storage.updateAll(owner(storage), List.of(new Entity2(10, C)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, C)));
         StorageSnapshot2 third = publish(storage);
 
         assertNotSame(kept.slots().coordinateBuffer(), second.slots().coordinateBuffer());
         assertNotSame(kept.slots().coordinateBuffer(), third.slots().coordinateBuffer());
         // The second snapshot ended when the third one was published: the next commit reuses it.
-        storage.updateAll(owner(storage), List.of(new Entity2(10, D)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, D)));
         assertSame(second.slots().coordinateBuffer(), storage.commit(owner(storage)).slots().coordinateBuffer());
         checkSnapshot(kept, List.of(new Entity2(10, A)), "acquired");
 
@@ -724,9 +724,9 @@ class PartitionStorage2Test {
         long acquisitionId = storage.acquire(snapshot, 0);
         StorageSnapshot2 admitted = storage.admit(acquisitionId, 0);
         storage.release(acquisitionId);
-        storage.updateAll(owner(storage), List.of(new Entity2(10, B)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, B)));
         publish(storage);
-        storage.updateAll(owner(storage), List.of(new Entity2(10, C)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, C)));
         StorageSnapshot2 later = storage.commit(owner(storage));
 
         assertNotSame(snapshot.slots().coordinateBuffer(), later.slots().coordinateBuffer());
@@ -744,11 +744,11 @@ class PartitionStorage2Test {
     void snapshotReplacedInTheSameTickGivesItsBufferToALaterCommit() {
         storage.insertAll(owner(storage), List.of(new Entity2(10, A)));
         StorageSnapshot2 replaced = storage.commit(owner(storage));
-        storage.updateAll(owner(storage), List.of(new Entity2(10, B)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, B)));
         StorageSnapshot2 next = storage.commit(owner(storage));
         assertNotSame(replaced.slots().coordinateBuffer(), next.slots().coordinateBuffer());
         assertEquals(1, storage.pooledBufferCount());
-        storage.updateAll(owner(storage), List.of(new Entity2(10, A)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, A)));
         StorageSnapshot2 last = storage.commit(owner(storage));
         assertSame(replaced.slots().coordinateBuffer(), last.slots().coordinateBuffer());
 
@@ -762,7 +762,7 @@ class PartitionStorage2Test {
     void bufferTooSmallForTheEntitiesIsDropped() {
         storage.insertAll(owner(storage), List.of(new Entity2(10, A)));
         StorageSnapshot2 small = publish(storage);
-        storage.updateAll(owner(storage), List.of(new Entity2(10, B)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, B)));
         publish(storage);
         assertEquals(1, storage.pooledBufferCount());
 
@@ -783,9 +783,9 @@ class PartitionStorage2Test {
     void destructionEmptiesThePool() {
         storage.insertAll(owner(storage), List.of(new Entity2(10, A)));
         publish(storage);
-        storage.updateAll(owner(storage), List.of(new Entity2(10, B)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, B)));
         publish(storage);
-        storage.updateAll(owner(storage), List.of(new Entity2(10, C)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, C)));
         publish(storage);
         assertEquals(1, storage.pooledBufferCount());
 
@@ -809,9 +809,9 @@ class PartitionStorage2Test {
             raced.insertAll(owner(raced), List.of(new Entity2(10, A)));
             StorageSnapshot2 first = publish(raced);
             long acquisitionId = raced.acquire(first, 0);
-            raced.updateAll(owner(raced), List.of(new Entity2(10, B)));
+            raced.setAll(owner(raced), List.of(new Entity2(10, B)));
             publish(raced);
-            raced.updateAll(owner(raced), List.of(new Entity2(10, C)));
+            raced.setAll(owner(raced), List.of(new Entity2(10, C)));
 
             CyclicBarrier start = new CyclicBarrier(2);
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -857,7 +857,7 @@ class PartitionStorage2Test {
         retired.insertAll(owner(retired), List.of(new Entity2(10, A)));
         StorageSnapshot2 first = publish(retired);
         long acquisitionA = retired.acquire(first, 0);
-        retired.updateAll(owner(retired), List.of(new Entity2(10, B)));
+        retired.setAll(owner(retired), List.of(new Entity2(10, B)));
         StorageSnapshot2 second = publish(retired);
         long acquisitionB = retired.acquire(second, 1);
         retired.requestRemoval(owner(retired), false);
@@ -936,7 +936,7 @@ class PartitionStorage2Test {
                             moved.add(new Entity2(id, randomPoint(rnd)));
                         }
                     }
-                    random.updateAll(owner(random), moved);
+                    random.setAll(owner(random), moved);
                     moved.forEach(e -> written.put(e.id(), e.position()));
                 } else if (operation < 7) {
                     long id = ids.get(rnd.nextInt(ids.size()));
@@ -987,12 +987,12 @@ class PartitionStorage2Test {
         StorageSnapshot2 first = publish(storage);
         assertEquals(pages, storage.copiedPageCount());
         // A new buffer, because the first snapshot is still in the window.
-        storage.updateAll(owner(storage), List.of(new Entity2(idInPage(3), B)));
+        storage.setAll(owner(storage), List.of(new Entity2(idInPage(3), B)));
         publish(storage);
         assertEquals(2 * pages, storage.copiedPageCount());
         assertEquals(1, storage.pooledBufferCount());
 
-        storage.updateAll(owner(storage), List.of(new Entity2(idInPage(7), C)));
+        storage.setAll(owner(storage), List.of(new Entity2(idInPage(7), C)));
         StorageSnapshot2 third = storage.commit(owner(storage));
         assertSame(first.slots().coordinateBuffer(), third.slots().coordinateBuffer());
         // Page 3 changed after the commit of the first snapshot, page 7 now.
@@ -1028,7 +1028,7 @@ class PartitionStorage2Test {
         // No moves: the second snapshot shares the buffer of the first one.
         StorageSnapshot2 second = publish(storage);
         assertSame(first.slots().coordinateBuffer(), second.slots().coordinateBuffer());
-        storage.updateAll(owner(storage), List.of(new Entity2(10, B)));
+        storage.setAll(owner(storage), List.of(new Entity2(10, B)));
         publish(storage);
 
         // The second snapshot ended, the first one is out of the window but acquired.
@@ -1099,8 +1099,8 @@ class PartitionStorage2Test {
                 moved.add(new Entity2(id, positionAt(tick, id)));
             }
             int half = moved.size() / 2;
-            storage.updateAll(owner(storage), moved.subList(0, half));
-            storage.updateAll(owner(storage), moved.subList(half, moved.size()));
+            storage.setAll(owner(storage), moved.subList(0, half));
+            storage.setAll(owner(storage), moved.subList(half, moved.size()));
             while (ids.size() > sizeAt(tick)) {
                 storage.removeAll(owner(storage), new long[] {ids.removeFirst()});
             }

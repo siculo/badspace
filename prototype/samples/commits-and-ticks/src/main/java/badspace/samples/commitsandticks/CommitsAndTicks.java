@@ -32,14 +32,14 @@ public final class CommitsAndTicks {
             show(partition, ship);
 
             // Tick 1: two commits; the snapshot of tick 0 stays the latest until the move of the tick.
-            writer.update(ship, point(2, 0));
+            writer.set(ship, point(2, 0));
             writer.commit();
-            writer.update(ship, point(3, 0));
+            writer.set(ship, point(3, 0));
             writer.commit();
             show(partition, ship);
 
             // A write after the last commit of tick 1: the snapshot of tick 1 has (3,0).
-            writer.update(ship, point(4, 0));
+            writer.set(ship, point(4, 0));
             space.setTick(2);
             show(partition, ship);
 

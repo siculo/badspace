@@ -91,7 +91,7 @@ class PartitionWriters3Test {
 
                 assertTimeoutPreemptively(TIMEOUT, () -> {
                     node.insertAll(owner(node, P2), List.of(new Entity3(20, B)));
-                    node.updateAll(owner(node, P2), List.of(new Entity3(20, C)));
+                    node.setAll(owner(node, P2), List.of(new Entity3(20, C)));
                     node.commit(owner(node, P2));
                 }, config + ": the writer of P2 waited for P1");
 
@@ -154,11 +154,11 @@ class PartitionWriters3Test {
                             // A removal and an insertion: the IDs change in this commit.
                             node.removeAll(owner(node, partitionId), new long[] {entityIds[ENTITIES - 1]});
                             node.insertAll(owner(node, partitionId), moved.subList(ENTITIES - 1, ENTITIES));
-                            node.updateAll(owner(node, partitionId), moved.subList(0, ENTITIES - 1));
+                            node.setAll(owner(node, partitionId), moved.subList(0, ENTITIES - 1));
                         } else {
                             // Two calls, so the state of the writer between them is mixed.
-                            node.updateAll(owner(node, partitionId), moved.subList(0, ENTITIES / 2));
-                            node.updateAll(owner(node, partitionId), moved.subList(ENTITIES / 2, ENTITIES));
+                            node.setAll(owner(node, partitionId), moved.subList(0, ENTITIES / 2));
+                            node.setAll(owner(node, partitionId), moved.subList(ENTITIES / 2, ENTITIES));
                         }
                         node.commit(owner(node, partitionId));
                         if (version == VERSIONS / 2) {

@@ -139,7 +139,7 @@ public class CommitBenchmark {
     private static void move(TickState s) {
         List<Entity2> moves = s.nextMoves();
         if (!moves.isEmpty()) {
-            s.node.updateAll(WorkloadState.WRITE_TOKEN, moves);
+            s.node.setAll(WorkloadState.WRITE_TOKEN, moves);
         }
     }
 

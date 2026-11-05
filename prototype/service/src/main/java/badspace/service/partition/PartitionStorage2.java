@@ -331,17 +331,35 @@ final class PartitionStorage2 {
         }
     }
 
-    void updateAll(long generation, List<Entity2> entities) {
+    /**
+     * Sets the positions of entities, in the order of the list: an entity not in the partition
+     * is added with the same ID, an entity in the partition moves and keeps its metadata. If an
+     * ID appears more than once, the last position wins. Fails with IllegalArgumentException
+     * if a position is outside the limits; in this case nothing changes.
+     */
+    void setAll(long generation, List<Entity2> entities) {
         writerLock.lock();
         try {
             checkWritable(generation);
+            int added = 0;
             for (Entity2 e : entities) {
-                existingSlot(e.id());
                 checkLimits(e.id(), e.position());
+                if (slots.slotOf(e.id()) == SlotSnapshot2.NONE) {
+                    added++;
+                }
             }
             try {
+                step = PartitionComponent.SLOTS;
+                // An ID that appears twice and is not in the partition is counted twice: the
+                // capacity can be a bit larger than needed, but it is never too small.
+                slots.ensureCapacity(slots.size() + added);
                 for (Entity2 e : entities) {
-                    move(slots.slotOf(e.id()), e.position());
+                    int slot = slots.slotOf(e.id());
+                    if (slot == SlotSnapshot2.NONE) {
+                        insert(e.id(), e.position());
+                    } else {
+                        move(slot, e.position());
+                    }
                 }
             } catch (Throwable failure) {
                 throw failed(PartitionOperation.WRITE, failure);
@@ -423,20 +441,19 @@ final class PartitionStorage2 {
         }
     }
 
+    /**
+     * Removes entities with their metadata. An ID not in the partition, also because it
+     * appears earlier in the array, is skipped.
+     */
     void removeAll(long generation, long[] entityIds) {
         writerLock.lock();
         try {
             checkWritable(generation);
-            Set<Long> seen = new HashSet<>();
-            for (long id : entityIds) {
-                existingSlot(id);
-                if (!seen.add(id)) {
-                    throw new IllegalArgumentException("Duplicate entity ID: " + id);
-                }
-            }
             try {
                 for (long id : entityIds) {
-                    remove(id);
+                    if (slots.slotOf(id) != SlotSnapshot2.NONE) {
+                        remove(id);
+                    }
                 }
             } catch (Throwable failure) {
                 throw failed(PartitionOperation.WRITE, failure);

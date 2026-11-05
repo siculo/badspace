@@ -134,7 +134,7 @@ class PartitionOwnership2Test {
             node.insertAll(first, List.of(entity(1, 1, 1), entity(2, 2, 2), entity(3, 3, 3)));
             node.commit(first);
             node.insertAll(first, List.of(entity(4, 4, 4)));
-            node.updateAll(first, List.of(entity(1, 9, 9)));
+            node.setAll(first, List.of(entity(1, 9, 9)));
             node.removeAll(first, new long[] {2});
             WriteToken second = node.claim(P2, first.generation()).orElseThrow();
             assertEquals(List.of(entity(1, 1, 1), entity(2, 2, 2), entity(3, 3, 3)), content(publish(second)),
@@ -147,7 +147,7 @@ class PartitionOwnership2Test {
         WriteToken token = node.claim(P1, 0).orElseThrow();
         node.insertAll(token, List.of(entity(1, 1, 1)));
         node.commit(token);
-        node.updateAll(token, List.of(entity(1, 5, 5)));
+        node.setAll(token, List.of(entity(1, 5, 5)));
         node.insertAll(token, List.of(entity(2, 2, 2)));
         // The owner can decide not to commit and leave the ownership.
         node.release(token);
@@ -213,7 +213,7 @@ class PartitionOwnership2Test {
             // The removal of 1 moves 5 into its slot; the writes change positions and metadata.
             node.removeAll(first, new long[] {1, 4});
             node.insertAll(first, List.of(NEW_ENTITY));
-            node.updateAll(first, List.of(MOVED_E3));
+            node.setAll(first, List.of(MOVED_E3));
             node.updateMetadataAll(first, List.of(MetadataWrite.put(2, "hp", 11), MetadataWrite.put(5, "hp", 30)));
             WriteToken second = node.claim(P2, first.generation()).orElseThrow();
             Acquisition restored = publish(second);
@@ -274,7 +274,7 @@ class PartitionOwnership2Test {
         node.commit(old);
         WriteToken current = node.claim(P1, old.generation()).orElseThrow();
         assertOwnershipChanged(() -> node.insertAll(old, List.of(entity(2, 2, 2))));
-        assertOwnershipChanged(() -> node.updateAll(old, List.of(entity(1, 5, 5))));
+        assertOwnershipChanged(() -> node.setAll(old, List.of(entity(1, 5, 5))));
         assertOwnershipChanged(() -> node.removeAll(old, new long[] {1}));
         assertOwnershipChanged(() -> node.commit(old));
         assertOwnershipChanged(() -> node.removePartition(old));
@@ -381,7 +381,7 @@ class PartitionOwnership2Test {
         Thread writer = worker(() -> {
             try {
                 for (long step = 1; ; step++) {
-                    node.updateAll(token, List.of(entity(1, step, step)));
+                    node.setAll(token, List.of(entity(1, step, step)));
                     node.commit(token);
                     lastCommitted.set(step);
                     someCommits.countDown();
@@ -538,7 +538,7 @@ class PartitionOwnership2Test {
                 long entityId = new ArrayList<>(model.keySet()).get(random.nextInt(model.size()));
                 if (choice == 1) {
                     Entity2 entity = new Entity2(entityId, randomPoint(random));
-                    node.updateAll(token, List.of(entity));
+                    node.setAll(token, List.of(entity));
                     model.put(entityId, entity);
                 } else {
                     node.removeAll(token, new long[] {entityId});

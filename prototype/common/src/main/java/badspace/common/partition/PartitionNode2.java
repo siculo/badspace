@@ -245,8 +245,8 @@ public interface PartitionNode2 {
     void release(WriteToken token);
 
     /**
-     * Adds new entities to a partition. The API generates the entity IDs, which must not be
-     * used anywhere else.
+     * Adds new entities to a partition. The API generates the entity IDs with its ID
+     * generator, so they were never used before.
      *
      * @param token the token of the owner of the partition
      * @param entities the new entities, with their IDs and positions
@@ -257,25 +257,27 @@ public interface PartitionNode2 {
     void insertAll(WriteToken token, List<Entity2> entities);
 
     /**
-     * Sets the position of existing entities. If an ID appears more than once, the last
-     * position wins.
+     * Sets the position of entities: an entity in the partition moves and keeps its
+     * application metadata, an entity not in the partition is added with the given ID and
+     * no metadata. If an ID appears more than once, the last position wins. The IDs come
+     * from the entity ID generator of the API: the node trusts them and cannot check where
+     * they come from.
      *
      * @param token the token of the owner of the partition
      * @param entities the IDs of the entities with their new positions
-     * @throws java.util.NoSuchElementException if an ID is not in the partition
      * @throws IllegalArgumentException if a position is outside the {@linkplain #limits limits}
      *     of the partition
      * @throws OwnershipChangedException if the token is not the current one
      */
-    void updateAll(WriteToken token, List<Entity2> entities);
+    void setAll(WriteToken token, List<Entity2> entities);
 
     /**
-     * Removes entities from a partition, with their application metadata.
+     * Removes entities from a partition, with their application metadata. An ID not in the
+     * partition is skipped, also if it appears more than once: removing an entity twice has
+     * the same effect as removing it once.
      *
      * @param token the token of the owner of the partition
      * @param entityIds the IDs of the entities to remove
-     * @throws java.util.NoSuchElementException if an ID is not in the partition
-     * @throws IllegalArgumentException if an ID appears twice
      * @throws OwnershipChangedException if the token is not the current one
      */
     void removeAll(WriteToken token, long[] entityIds);

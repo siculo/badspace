@@ -98,7 +98,7 @@ class Space3EndToEndTest {
                 PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)).withRetainedTicks(3));
         long id = writer(partition).insert(0, 0, 0);
         for (int tick = 0; tick < 5; tick++) {
-            writer(partition).update(id, new Point3(tick, 0, 0));
+            writer(partition).set(id, new Point3(tick, 0, 0));
             writer(partition).commit();
             space.setTick(tick + 1);
         }
@@ -111,7 +111,7 @@ class Space3EndToEndTest {
         assertReason(Reason.OUT_OF_RETENTION, () -> partition.acquire(1));
         assertReason(Reason.NOT_YET_PUBLISHED, () -> partition.acquire(5));
         // The writes not yet published are not in any snapshot, also for the writer.
-        writer(partition).update(id, new Point3(9, 9, 0));
+        writer(partition).set(id, new Point3(9, 9, 0));
         try (AcquiredSnapshot3 latest = partition.acquireLatest()) {
             assertEquals(new Point3(4, 0, 0), latest.get(id).orElseThrow());
         }
@@ -320,8 +320,8 @@ class Space3EndToEndTest {
             assertEquals(Optional.of(new Point3(1, 1, 1)), snapshot.get(ids[0]));
         }
 
-        writer(p).update(ids[0], new Point3(5, 5, 5));
-        writer(p).updateAll(List.of(new Entity3(ids[1], new Point3(6, 6, 6))));
+        writer(p).set(ids[0], new Point3(5, 5, 5));
+        writer(p).setAll(List.of(new Entity3(ids[1], new Point3(6, 6, 6))));
         try (AcquiredSnapshot3 snapshot = publish(p)) {
             assertEquals(List.of(new Entity3(ids[1], new Point3(6, 6, 6)), new Entity3(ids[0], new Point3(5, 5, 5))),
                     snapshot.getAll(new long[] {ids[1], ids[0]}));

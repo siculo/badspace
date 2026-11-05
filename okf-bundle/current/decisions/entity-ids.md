@@ -4,7 +4,7 @@ title: ID delle entità
 description: "Contratto dei generatori, schema Snowflake e configurazione corrente; ID di runtime delle partizioni distinti dai nomi persistenti."
 tags: [badspace, design, partitioning, ids]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:11:39Z }
 ---
 
 # Decisione
@@ -26,6 +26,34 @@ generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
   dall’ID: il software tiene la corrispondenza esplicitamente.
 
 La mappa ID → partizione è del software.
+
+# Provenienza degli ID delle entità
+
+Un ID di entità nasce solo con `insert`, che lo chiede al
+[generatore](#contratto-del-generatore). Dopo resta all'entità: il
+software lo ritrova negli snapshot e nelle partizioni caricate dai
+salvataggi, e lo usa per le scritture successive. `set` fissa la
+posizione dell'entità con quell'ID e la reinserisce se manca, per
+esempio dopo una `remove`: l'entità reinserita è la stessa, con lo
+stesso ID e senza i vecchi metadati applicativi.
+
+Il vincolo è quindi sulla **provenienza** dell'ID, non sulla presenza
+dell'entità nella partizione: un ID passato a `set` deve essere stato
+generato dal generatore delle entità dello spazio, attraverso `insert`,
+anche in un'esecuzione precedente da cui viene un salvataggio. Il
+software non inventa ID e non riassegna un ID a una diversa identità:
+per un'entità nuova usa `insert`.
+
+Il vincolo è una regola del contratto, non un controllo. Il record
+`Entity2`/`Entity3` ha un costruttore pubblico e non sa da dove viene il
+suo ID; il nodo non può distinguere un ID generato da uno inventato e si
+fida degli ID ricevuti, come per quelli delle partizioni. Un controllo
+nel tipo non basterebbe comunque: gli ID arrivano anche dagli snapshot,
+dai salvataggi e, con un nodo remoto, da dati ricevuti in rete. Vale la
+[fiducia negli sviluppatori](/process/development-approach.md#fiducia-negli-sviluppatori):
+un ID inventato può coincidere con uno già assegnato e collegare un
+riferimento vecchio a un'altra entità, come il riuso che la decisione
+esclude.
 
 # Contratto del generatore
 

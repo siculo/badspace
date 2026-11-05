@@ -20,7 +20,6 @@ import badspace.service.index.SpatialIndex3;
 import badspace.service.index.SpatialIndexes;
 import badspace.service.partition.snapshot.StorageSnapshot3;
 import java.util.List;
-import java.util.NoSuchElementException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +43,7 @@ class IndexNotifications3Test {
     @Test
     void insertionAndMovementNotifyTheAffectedSlots() {
         storage.insertAll(owner(storage), List.of(new Entity3(10, A), new Entity3(20, B)));
-        storage.updateAll(owner(storage), List.of(new Entity3(20, C)));
+        storage.setAll(owner(storage), List.of(new Entity3(20, C)));
         var order = inOrder(index);
         order.verify(index).inserted(0, A);
         order.verify(index).inserted(1, B);
@@ -83,17 +82,15 @@ class IndexNotifications3Test {
         assertThrows(IllegalArgumentException.class,
                 () -> storage.insertAll(owner(storage), List.of(new Entity3(20, B), new Entity3(10, C))));
         verifyNoInteractions(index);
-        assertThrows(NoSuchElementException.class,
-                () -> storage.updateAll(owner(storage), List.of(new Entity3(10, B), new Entity3(99, C))));
-        verifyNoInteractions(index);
-        assertThrows(NoSuchElementException.class, () -> storage.removeAll(owner(storage), new long[] {10, 99}));
-        verifyNoInteractions(index);
         Point3 outside = new Point3(11, 0, 0);
         assertThrows(IllegalArgumentException.class,
                 () -> storage.insertAll(owner(storage), List.of(new Entity3(20, B), new Entity3(30, outside))));
         verifyNoInteractions(index);
         assertThrows(IllegalArgumentException.class,
-                () -> storage.updateAll(owner(storage), List.of(new Entity3(10, B), new Entity3(10, outside))));
+                () -> storage.setAll(owner(storage), List.of(new Entity3(10, B), new Entity3(10, outside))));
+        verifyNoInteractions(index);
+        assertThrows(IllegalArgumentException.class,
+                () -> storage.setAll(owner(storage), List.of(new Entity3(20, B), new Entity3(30, outside))));
         verifyNoInteractions(index);
         List<Entity3> expected = List.of(new Entity3(10, A));
         StorageSnapshot3 snapshot = storage.commit(owner(storage));

@@ -278,8 +278,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
-    public void updateAll(WriteToken token, List<Entity2> entities) {
-        find(token.partitionId()).updateAll(token.generation(), entities);
+    public void setAll(WriteToken token, List<Entity2> entities) {
+        find(token.partitionId()).setAll(token.generation(), entities);
     }
 
     @Override

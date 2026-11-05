@@ -43,7 +43,7 @@ class.
 
 | Sample | Question | Prerequisites |
 |---|---|---|
-| [`batch-writes`](batch-writes) (`BatchWrites`) | How do I insert, update and remove many entities in one call, and what happens when a batch is rejected? | Writer and commit |
+| [`batch-writes`](batch-writes) (`BatchWrites`) | How do I insert, set and remove many entities in one call, and what happens when a batch is rejected? | Writer and commit |
 | [`commits-and-ticks`](commits-and-ticks) (`CommitsAndTicks`) | When do readers see a commit? What happens with more commits in a tick, and with writes after the last commit? | Writer and commit |
 | [`writer-rollback`](writer-rollback) (`WriterRollback`) | How does a writer discard its writes not committed, also of the ticks before, and how do I check the health of the partition? | Commits and ticks |
 

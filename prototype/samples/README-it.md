@@ -44,7 +44,7 @@ classe.
 
 | Esempio | Domanda | Prerequisiti |
 |---|---|---|
-| [`batch-writes`](batch-writes) (`BatchWrites`) | Come si inseriscono, aggiornano e rimuovono molte entità in una chiamata, e che cosa succede quando un batch è rifiutato? | Writer e commit |
+| [`batch-writes`](batch-writes) (`BatchWrites`) | Come si inseriscono, impostano e rimuovono molte entità in una chiamata, e che cosa succede quando un batch è rifiutato? | Writer e commit |
 | [`commits-and-ticks`](commits-and-ticks) (`CommitsAndTicks`) | Quando i reader vedono un commit? Che cosa succede con più commit in un tick, e con le scritture dopo l'ultimo commit? | Writer e commit |
 | [`writer-rollback`](writer-rollback) (`WriterRollback`) | Come scarta un writer le scritture non confermate, anche dei tick precedenti, e come controllo la salute della partizione? | Commit e tick |
 

@@ -9,7 +9,7 @@ import java.util.List;
  * {@link WriteToken} of the owner of a partition, and every write, commit and removal goes to
  * the node with it: if the ownership changed after the token was given, they fail with
  * {@code OwnershipChangedException} and the partition does not change. The operations that
- * depend on the number of dimensions, like insert and update, are only in PartitionWriter2 and
+ * depend on the number of dimensions, like insert and set, are only in PartitionWriter2 and
  * PartitionWriter3. The application metadata of the entities do not depend on them, so their
  * writes are here. The handle has no reads: the writer reads the snapshots, like any reader.
  * <p>
@@ -22,13 +22,16 @@ public interface PartitionWriter extends AutoCloseable {
     /** Returns the token of the handle, for example to send it to another writer. */
     WriteToken token();
 
-    /** Removes an entity. Fails with NoSuchElementException if the ID is not in the partition. */
+    /**
+     * Removes an entity with its application metadata. If the ID is not in the partition, it
+     * does nothing. The ID can come back later with {@code set} of PartitionWriter2 and
+     * PartitionWriter3, as the same entity without the old metadata.
+     */
     void remove(long entityId);
 
     /**
-     * Removes many entities in one call. Fails with NoSuchElementException if an ID is not
-     * in the partition, and with IllegalArgumentException if an ID appears twice.
-     * If it fails, no entity is removed.
+     * Removes many entities in one call, like {@link #remove(long)} for each ID: the IDs not
+     * in the partition, also the ones that appear more than once, are skipped.
      */
     void removeAll(long[] entityIds);
 

@@ -118,7 +118,7 @@ class PartitionLoad2Test {
         restarted.loadPartition(LOADED, saved, IndexConfig.linearScan(), 5);
         assertEquals(Ownership.INITIAL, restarted.ownership(LOADED));
         WriteToken token = restarted.claim(LOADED, 0).orElseThrow();
-        restarted.updateAll(token, List.of(entity(1, 5, 5)));
+        restarted.setAll(token, List.of(entity(1, 5, 5)));
         restarted.removeAll(token, new long[] {2});
         restarted.commit(token);
         restarted.setTick(1);

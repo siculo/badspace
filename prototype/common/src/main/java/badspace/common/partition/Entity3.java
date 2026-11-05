@@ -2,7 +2,10 @@ package badspace.common.partition;
 
 import badspace.common.geometry.Point3;
 
-/** An entity of a 3D space: its ID and its position. */
+/**
+ * An entity of a 3D space: its ID and its position. The ID comes from the entity ID generator
+ * of the API; the record does not check it, and the node trusts it.
+ */
 public record Entity3(long id, Point3 position) {
 
     /**

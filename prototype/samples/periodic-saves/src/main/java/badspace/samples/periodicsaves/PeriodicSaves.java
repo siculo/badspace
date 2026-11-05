@@ -76,7 +76,7 @@ public final class PeriodicSaves {
             try (PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow())) {
                 long ship = writer.insert(0, 0);
                 for (long tick = 0; tick < TICKS; tick++) {
-                    writer.update(ship, point(tick, 0));
+                    writer.set(ship, point(tick, 0));
                     writer.commit();
                     space.setTick(tick + 1);
                     // The snapshot of tick is published now: the saver can save it.

@@ -198,9 +198,9 @@ Comportamento, proposta del contratto e criteri di verifica nel [bundle](okf-bun
 <a id="fare-scritture"></a>
 ### Scritture accumulate nel writer [↑](#blocchi)
 
-Direzione concordata nel [bundle](okf-bundle/future/architecture/buffered-writes.md), ancora da implementare. Ogni passo comprende 2D e 3D, test pertinenti, migrazione dei chiamanti e aggiornamento progressivo di `current/` e `future/`. Si usano gli indici esistenti; non si riprende il TODO degli indici e non si anticipa il protocollo gRPC.
+Direzione concordata nel [bundle](okf-bundle/future/architecture/buffered-writes.md), in corso di implementazione. Ogni passo comprende 2D e 3D, test pertinenti, migrazione dei chiamanti e aggiornamento progressivo di `current/` e `future/`. Si usano gli indici esistenti; non si riprende il TODO degli indici e non si anticipa il protocollo gRPC.
 
-- [ ] Sostituire `update`/`updateAll` con `set`/`setAll`, che inseriscono se l'ID manca; rendere `remove` idempotente; conservare la generazione dell'ID in `insert` e definire il vincolo sulla costruzione di entità con soli ID provenienti dall'`IdGenerator`, inclusi snapshot e caricamento
+- [x] Sostituire `update`/`updateAll` con `set`/`setAll`, che inseriscono se l'ID manca; rendere `remove` idempotente; conservare la generazione dell'ID in `insert` e definire il vincolo sulla costruzione di entità con soli ID provenienti dall'`IdGenerator`, inclusi snapshot e caricamento
 - [ ] Eliminare `updateIf`, `compareAndSetMetadata` e i tipi dedicati alle conditional writes dall'API e dal contratto del nodo; migrare test ed esempi verso logica su snapshot e scritture incondizionate, rendendo esplicita la visibilità degli snapshot
 - [ ] Definire e implementare la composizione per ID e per chiave: ultima posizione, presenza o assenza, cancellazioni dei metadati e azzeramento dopo rimozione e reinserimento; metadati su entità assenti senza creazione implicita e con la regola descritta nel bundle; confrontare il risultato con un modello sequenziale delle nuove operazioni
 - [ ] Accumulare le modifiche nell'handle del writer, senza chiamate al nodo fino al commit; sostituire nel contratto del nodo le singole scritture con un commit che riceve token e batch, applicato alla base confermata anche se pending, con una sola chiamata anche sul nodo locale; controlli locali e definitivi sul nodo, commit vuoti e più commit cumulativi nello stesso tick
@@ -339,7 +339,8 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 
 - [x] Accumulazione nel client delle modifiche finali per ID, comune a nodi locali e remoti, senza registro ordinato completo da trasferire; un solo invio atomico al commit
 - [x] Rimozione delle conditional writes: logica applicativa basata su snapshot; `update` diventa `set` con inserimento se assente, rimozione idempotente e possibile reinserimento dello stesso ID; azzeramento dei metadati dopo rimozione e reinserimento
-- [ ] Forma del buffer e del batch, composizione dei metadati su entità assenti e vincolo concreto sulla provenienza degli ID, includendo snapshot e caricamento
+- [x] Vincolo sulla provenienza degli ID: regola del contratto, non controllo; un ID passato a `set` viene dal generatore delle entità attraverso `insert`, anche tramite snapshot o caricamento, e il nodo si fida degli ID ricevuti (vedi [provenienza degli ID](okf-bundle/current/decisions/entity-ids.md#provenienza-degli-id-delle-entità))
+- [ ] Forma del buffer e del batch e composizione dei metadati su entità assenti
 - [ ] Stato del buffer dopo un fallimento certo e rapporto tra rollback locale e recupero della partizione sul nodo
 - [ ] Limiti e costi di memoria, dimensione dei batch e durata del commit, in base alle misure
 

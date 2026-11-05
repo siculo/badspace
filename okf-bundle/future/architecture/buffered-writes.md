@@ -4,16 +4,20 @@ title: "Scritture accumulate nel writer"
 description: "Refactoring concordato: modifiche finali per ID nel client, set con inserimento se assente e applicazione atomica sul nodo al commit."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-04T23:42:12Z
+timestamp: 2026-11-05T08:11:39Z
 ---
 
 # Stato e obiettivo
 
-Direzione concordata, non implementata. Oggi il writer inoltra ogni
-scrittura al nodo e il [commit](/current/architecture/partition-commit.md)
-prepara lo snapshot dello stato già modificato. Il refactoring sposta
-l'accumulazione nel writer, nel processo del client: solo `commit()`
-trasferisce al nodo le modifiche. Il comportamento sarà comune a nodi
+Direzione concordata, implementata in parte. Sono già disponibili `set`
+con inserimento se assente, la rimozione idempotente e il vincolo sulla
+[provenienza degli ID](/current/decisions/entity-ids.md#provenienza-degli-id-delle-entità),
+descritti nel [contratto dell'API](/current/api/operations.md#operazioni-sulle-entità).
+Oggi però il writer inoltra ogni scrittura al nodo e il
+[commit](/current/architecture/partition-commit.md) prepara lo snapshot
+dello stato già modificato. Il refactoring sposta l'accumulazione nel
+writer, nel processo del client: solo `commit()` trasferisce al nodo le
+modifiche. Il comportamento sarà comune a nodi
 locali e remoti, prima dell'introduzione di gRPC.
 
 Il software legge uno snapshot, esegue la propria logica e costruisce le
@@ -24,23 +28,16 @@ precedente proprietario; il refactoring non introduce letture del pending.
 
 # Semantica delle operazioni
 
-- `insert` genera un ID attraverso l'`IdGenerator` e registra una nuova
-  entità nel buffer. L'ID è disponibile subito, prima del commit.
-- `update` diventa `set`: fissa la posizione e inserisce l'entità se
-  assente. Un'entità rimossa può essere reinserita con lo stesso ID.
-  La creazione di un nuovo ID resta distinta dal riutilizzo di un ID
-  già generato: non si riassegna quell'ID a una diversa identità.
-- `remove` registra l'assenza dell'entità; se manca già, non fa niente.
-  La rimozione cancella anche i metadati applicativi.
-- Le scritture dei metadati mantengono solo l'ultima modifica per chiave,
-  distinguendo un valore da una cancellazione. Una `set` ordinaria
-  conserva i metadati non modificati.
+Il buffer conserva la semantica corrente di `insert`, `set` e `remove`:
+`insert` genera l'ID attraverso l'`IdGenerator` e lo restituisce subito,
+prima del commit; `set` sposta l'entità o la reinserisce con lo stesso
+ID; `remove` cancella anche i metadati applicativi e non fa niente su
+un'entità assente. Il vincolo sulla provenienza degli ID resta una regola
+del contratto anche con il trasporto remoto.
 
-Il vincolo proposto sulla costruzione di `Entity` riguarda la provenienza
-dell'ID dall'`IdGenerator`, non la presenza dell'entità nella partizione.
-Forma e fattibilità del vincolo vanno definite includendo snapshot,
-caricamento e futuro trasporto remoto: il costruttore pubblico Java non è
-da solo una prova della provenienza dei dati ricevuti dal nodo.
+Le scritture dei metadati mantengono solo l'ultima modifica per chiave,
+distinguendo un valore da una cancellazione. Una `set` ordinaria
+conserva i metadati non modificati.
 
 Per i metadati su un'entità assente si adotta come regola di progetto
 che non creino un'entità senza posizione e siano ignorati finché una
@@ -105,9 +102,9 @@ le modifiche arrivano insieme.
 Restano i rifiuti per token superato, partizione inesistente o rimossa,
 recupero necessario e input non valido, comprese coordinate fuori dai
 limiti. I controlli locali possibili avvengono alla chiamata, quelli
-definitivi sul nodo al commit. La presenza pregressa di un ID non è più
-un motivo di rifiuto per `set` o `remove`. Le operazioni superate nel
-buffer non vengono applicate al nodo.
+definitivi sul nodo al commit. Come già oggi, la presenza pregressa di
+un ID non è un motivo di rifiuto per `set` o `remove`. Le operazioni
+superate nel buffer non vengono applicate al nodo.
 
 Un batch rifiutato non cambia la partizione; un fallimento durante
 l'applicazione o la preparazione deve preservare l'ultimo commit e il

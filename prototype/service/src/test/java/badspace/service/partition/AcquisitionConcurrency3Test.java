@@ -84,11 +84,11 @@ class AcquisitionConcurrency3Test {
                 // The query is stopped in the index. The writer changes the slots and the
                 // index, commits and moves the tick twice: it must not wait for the query.
                 assertTimeoutPreemptively(TIMEOUT, () -> {
-                    storage.updateAll(owner(storage), List.of(new Entity3(10, C)));
+                    storage.setAll(owner(storage), List.of(new Entity3(10, C)));
                     storage.removeAll(owner(storage), new long[] {20});
                     storage.insertAll(owner(storage), List.of(new Entity3(30, D)));
                     publish(storage);
-                    storage.updateAll(owner(storage), List.of(new Entity3(30, A)));
+                    storage.setAll(owner(storage), List.of(new Entity3(30, A)));
                     publish(storage);
                     }, config + ": the writer waited for a query");
                 assertEquals(3, storage.tick());
@@ -256,7 +256,7 @@ class AcquisitionConcurrency3Test {
                     for (long id : entityIds) {
                         moved.add(new Entity3(id, positionAt(tick, id)));
                     }
-                    node.updateAll(owner(node, P1), moved);
+                    node.setAll(owner(node, P1), moved);
                     node.commit(owner(node, P1));
                     if (tick == 2) {
                         await(observed);
@@ -598,8 +598,8 @@ class AcquisitionConcurrency3Test {
                             moved.add(new Entity3(id, positionAt(version, id)));
                         }
                         // Two calls, so the state of the writer between them is mixed.
-                        node.updateAll(owner(node, P1), moved.subList(0, ENTITIES / 2));
-                        node.updateAll(owner(node, P1), moved.subList(ENTITIES / 2, ENTITIES));
+                        node.setAll(owner(node, P1), moved.subList(0, ENTITIES / 2));
+                        node.setAll(owner(node, P1), moved.subList(ENTITIES / 2, ENTITIES));
                         node.commit(owner(node, P1));
                         if (version == VERSIONS / 2) {
                             await(observed);

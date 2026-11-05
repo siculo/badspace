@@ -395,7 +395,7 @@ class Space3Test {
         clearInvocations(node);
         assertSame(TOKEN, writer.token());
         long entityId = writer.insert(A);
-        writer.update(entityId, B);
+        writer.set(entityId, B);
         writer.putMetadata(entityId, "version", 2);
         writer.deleteMetadata(entityId, "owner");
         List<MetadataWrite> writes = List.of(MetadataWrite.put(entityId, "a", 1), MetadataWrite.delete(entityId, "b"));
@@ -406,7 +406,7 @@ class Space3Test {
         writer.close();
         var order = inOrder(node);
         order.verify(node).insertAll(TOKEN, List.of(new Entity3(entityId, A)));
-        order.verify(node).updateAll(TOKEN, List.of(new Entity3(entityId, B)));
+        order.verify(node).setAll(TOKEN, List.of(new Entity3(entityId, B)));
         order.verify(node).updateMetadataAll(TOKEN, List.of(MetadataWrite.put(entityId, "version", 2)));
         order.verify(node).updateMetadataAll(TOKEN, List.of(MetadataWrite.delete(entityId, "owner")));
         order.verify(node).updateMetadataAll(TOKEN, writes);

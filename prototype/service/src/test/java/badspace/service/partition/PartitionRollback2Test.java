@@ -60,7 +60,7 @@ class PartitionRollback2Test {
         node.setTick(1);
         node.insertAll(token, List.of(entity(2, 2, 2)));
         node.setTick(2);
-        node.updateAll(token, List.of(entity(1, 9, 9)));
+        node.setAll(token, List.of(entity(1, 9, 9)));
         node.updateMetadataAll(token, List.of(MetadataWrite.put(1, "hp", 2)));
         node.rollback(token);
         assertEquals(new Ownership(1, true), node.ownership(P1));
@@ -163,7 +163,7 @@ class PartitionRollback2Test {
                 if (remove) {
                     target.removeAll(writer, new long[] {entityId});
                 } else {
-                    target.updateAll(writer, List.of(entity));
+                    target.setAll(writer, List.of(entity));
                 }
             }
         }
