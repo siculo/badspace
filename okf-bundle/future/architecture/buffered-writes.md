@@ -4,7 +4,7 @@ title: "Scritture accumulate nel writer"
 description: "Parti ancora da fare del refactoring delle scritture accumulate: fallimenti sul batch, stato del buffer, misure ed esiti remoti."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-05T16:30:07Z
+timestamp: 2026-11-05T17:31:55Z
 ---
 
 # Stato e obiettivo
@@ -42,9 +42,10 @@ Le misure con il profilo rapido mostrano tre costi da valutare:
   ogni modifica ha un oggetto e due mappe dei metadati create subito, e
   la mappa per ID usa chiavi `Long`. Mappe create alla prima scrittura
   dei metadati, o strutture di primitivi, la ridurrebbero.
-- **Tempo del buffer**, circa 90–300 ns per entità scritta, che con
-  batch grandi porta il tick dal writer a 1,2–2 volte il tick con le
-  scritture date direttamente allo storage.
+- **Tempo del buffer**, circa 100–250 ns per entità scritta, che con
+  batch grandi porta il tick dal writer fino a 3,7 volte il tick con le
+  scritture date direttamente allo storage: è la parte più grande del
+  costo con gli indici più economici.
 - **Durata del lock**, uguale a tutto il commit del batch: un
   avanzamento del tick aspetta l'intero batch in corso, al più uno con il
   lock equo della partizione. Con più partizioni sempre occupate sullo

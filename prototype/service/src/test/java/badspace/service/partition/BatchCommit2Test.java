@@ -43,6 +43,7 @@ class BatchCommit2Test {
     private static final Point2 A = new Point2(1, 1);
     private static final Point2 B = new Point2(2, 2);
     private static final Point2 C = new Point2(3, 3);
+    private static final Point2 OUTSIDE = new Point2(Double.MAX_VALUE, 0);
 
     private final GatedIndex2[] index = new GatedIndex2[1];
     private final ObservedLock lock = new ObservedLock();
@@ -120,7 +121,7 @@ class BatchCommit2Test {
     @Test
     void rejectedBatchKeepsTheSnapshotThatWaitsForTheMoveOfTheTick() {
         assertThrows(IllegalArgumentException.class, () -> node.commit(token,
-                List.of(EntityWrite2.set(new Entity2(2, B)), EntityWrite2.removal(2))));
+                List.of(EntityWrite2.set(new Entity2(2, B)), EntityWrite2.set(new Entity2(3, OUTSIDE)))));
         assertSame(PartitionHealth.HEALTHY, node.health(P1));
         assertEquals(0, node.lastCommitTick(token));
         node.setTick(1);

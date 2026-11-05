@@ -79,9 +79,6 @@ class IndexNotifications3Test {
     void failedBatchesLeaveBothSlotsAndIndexUnchanged() {
         storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(10, A))));
         clearInvocations(index);
-        assertThrows(IllegalArgumentException.class,
-                () -> storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(20, B), new Entity3(20, C)))));
-        verifyNoInteractions(index);
         Point3 outside = new Point3(11, 0, 0);
         assertThrows(IllegalArgumentException.class,
                 () -> storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(20, B), new Entity3(30, outside)))));

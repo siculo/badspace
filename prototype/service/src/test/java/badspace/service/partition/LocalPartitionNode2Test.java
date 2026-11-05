@@ -113,16 +113,27 @@ class LocalPartitionNode2Test {
     }
 
     @Test
-    void commitWithTwoChangesOfAnEntityOrAPositionOutsideTheLimitsChangesNothing() {
+    void commitWithAPositionOutsideTheLimitsChangesNothing() {
         writes(node, P1).setAll(List.of(entity(1, 0, 0)));
         writes(node, P1).commit();
         EntityWrite2 added = new EntityWrite2(2, false, new Point2(1, 1), List.of(), List.of());
         EntityWrite2 removed = new EntityWrite2(1, true, null, List.of(), List.of());
-        assertThrows(IllegalArgumentException.class, () -> node.commit(owner(node, P1),
-                List.of(added, removed, new EntityWrite2(2, false, new Point2(2, 2), List.of(), List.of()))));
         EntityWrite2 outside = new EntityWrite2(3, false, new Point2(Double.MAX_VALUE, 0), List.of(), List.of());
         assertThrows(IllegalArgumentException.class, () -> node.commit(owner(node, P1), List.of(added, removed, outside)));
         assertEquals(List.of(entity(1, 0, 0)), node.getAll(publish(P1), new long[] {1, 2, 3}));
+    }
+
+    /** The API sends one change for each entity; the node does not check it and applies more in order. */
+    @Test
+    void moreChangesOfAnEntityInABatchApplyInOrder() {
+        writes(node, P1).setAll(List.of(entity(1, 0, 0)));
+        writes(node, P1).commit();
+        node.commit(owner(node, P1), List.of(
+                EntityWrite2.set(entity(2, 1, 1)),
+                EntityWrite2.removal(1),
+                EntityWrite2.set(entity(2, 2, 2)),
+                EntityWrite2.set(entity(1, 3, 3))));
+        assertEquals(List.of(entity(1, 3, 3), entity(2, 2, 2)), node.getAll(publish(P1), new long[] {1, 2}));
     }
 
     @Test

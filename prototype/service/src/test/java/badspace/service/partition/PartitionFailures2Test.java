@@ -84,8 +84,6 @@ class PartitionFailures2Test {
     void rejectedBatchChangesNothing() {
         commitFirstState();
         assertThrows(IllegalArgumentException.class, () -> storage.commit(owner(storage),
-                List.of(EntityWrite2.set(new Entity2(30, B)), EntityWrite2.set(new Entity2(30, C)))));
-        assertThrows(IllegalArgumentException.class, () -> storage.commit(owner(storage),
                 List.of(EntityWrite2.removal(10), EntityWrite2.set(new Entity2(30, OUTSIDE)))));
         checkFirstStateAfterTheFailure();
     }

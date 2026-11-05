@@ -4,7 +4,7 @@ title: Fallimenti e salute della partizione
 description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione, rollback e recupero."
 tags: [badspace, architecture, transactions, recovery]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:14:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:31:55Z }
 ---
 
 # Primitiva
@@ -173,8 +173,7 @@ I test dello storage, in 2D e 3D, provocano i fallimenti con l’indice e
 il pool dei buffer dei test, e con un costruttore dello storage per i
 test che mette slot e metadati dentro componenti dei commit che possono
 fallire nella preparazione, nell’abbandono e nel ripristino: un batch
-rifiutato, con due modifiche della stessa entità o una posizione fuori
-dai limiti, non cambia niente; un fallimento nelle notifiche all’indice
+rifiutato, con una posizione fuori dai limiti, non cambia niente; un fallimento nelle notifiche all’indice
 durante l’applicazione del batch, o nella preparazione degli slot o
 dell’indice, annulla il batch e lascia intatto lo snapshot in attesa, e
 lo stesso batch inviato di nuovo si applica intero; un fallimento con

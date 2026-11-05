@@ -79,9 +79,6 @@ class IndexNotifications2Test {
     void failedBatchesLeaveBothSlotsAndIndexUnchanged() {
         storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(10, A))));
         clearInvocations(index);
-        assertThrows(IllegalArgumentException.class,
-                () -> storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(20, B), new Entity2(20, C)))));
-        verifyNoInteractions(index);
         Point2 outside = new Point2(11, 0);
         assertThrows(IllegalArgumentException.class,
                 () -> storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(20, B), new Entity2(30, outside)))));

@@ -269,9 +269,11 @@ public interface PartitionNode3 {
      * nothing.
      *
      * @param token the token of the owner of the partition
-     * @param changes the final changes of the entities, at most one for each entity
+     * @param changes the final changes of the entities: the API sends at most one for each
+     *     entity, and the node does not check it; more changes of the same entity apply in the
+     *     order of the list
      * @throws IllegalArgumentException if a position is outside the {@linkplain #limits limits}
-     *     of the partition, or if an entity has more than one change
+     *     of the partition
      * @throws OwnershipChangedException if the token is not the current one
      */
     void commit(WriteToken token, List<EntityWrite3> changes);

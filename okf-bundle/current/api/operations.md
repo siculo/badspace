@@ -4,7 +4,7 @@ title: "Contratto dell’API corrente"
 description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:14:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:31:55Z }
 ---
 
 # Contratto corrente
@@ -532,7 +532,8 @@ Il contratto del [nodo](/current/architecture/layers.md#nodi)
 raggruppare il lavoro su più entità in una chiamata. Le scritture non
 hanno operazioni proprie: arrivano tutte con
 `commit(WriteToken, List<EntityWrite2>)` (`EntityWrite3` in 3D), con al
-più una modifica finale per entità. Le prepara il buffer delle scritture
+più una modifica finale per entità. Il nodo non controlla che sia una
+sola: se sono di più, le applica in ordine. Le prepara il buffer delle scritture
 `PendingWrites2`/`PendingWrites3` in `common`, che l'handle usa, come
 descritto in [composizione per entità](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer).
 È la stessa chiamata per il nodo locale e per un nodo remoto futuro.
@@ -547,7 +548,6 @@ della partizione.
 | Errore | Eccezione |
 |---|---|
 | Posizione fuori dai limiti della partizione in `insert`/`set` | `IllegalArgumentException` alla chiamata, nell'handle; il nodo la controlla di nuovo al commit |
-| Più modifiche della stessa entità nel batch del contratto del nodo | `IllegalArgumentException` |
 
 Le coordinate `NaN` o infinite sono rifiutate già alla costruzione di
 `Point2`/`Point3`, e un raggio infinito alla costruzione di

@@ -390,9 +390,10 @@ final class PartitionStorage2 {
 
     /**
      * Applies a batch of changes to the state of the writer, the first step of a commit. Each
-     * change applies in the order that {@link EntityWrite2} describes. Only the writer can call
-     * it. Fails with IllegalArgumentException if a position is outside the limits or an entity
-     * has more than one change, with OwnershipChangedException if generation is not the one of
+     * change applies in the order that {@link EntityWrite2} describes, and the changes apply in
+     * the order of the list: more changes of the same entity apply one after the other. Only the
+     * writer can call it. Fails with IllegalArgumentException if a position is outside the
+     * limits, with OwnershipChangedException if generation is not the one of
      * the owner, and with IllegalStateException if the partition needs a recovery or its
      * removal was requested: in these cases nothing changes. Fails with
      * PartitionFailureException if a change fails, as a failure of the commit: then the state
@@ -402,12 +403,11 @@ final class PartitionStorage2 {
         writerLock.lock();
         try {
             checkWritable(generation);
-            Set<Long> seen = new HashSet<>();
+            // The writer sends at most one change for each entity, and the node trusts it: more
+            // changes of the same entity apply in order. The limits are checked, because a
+            // position outside them would break the cells of the index.
             int added = 0;
             for (EntityWrite2 change : changes) {
-                if (!seen.add(change.entityId())) {
-                    throw new IllegalArgumentException("More than one change of entity " + change.entityId());
-                }
                 if (change.position() != null) {
                     checkLimits(change.entityId(), change.position());
                     if (change.removed() || slots.slotOf(change.entityId()) == SlotSnapshot2.NONE) {

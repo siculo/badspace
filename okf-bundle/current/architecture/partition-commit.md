@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T16:38:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:31:55Z }
 ---
 
 # Primitiva
@@ -222,9 +222,13 @@ client e il commit; il beneficio sui nodi locali non è ancora misurato.
 
 L'handle controlla subito i limiti delle posizioni: una scrittura fuori
 dai limiti non entra nel buffer. Token, stato e salute della partizione
-li controlla il nodo al commit, insieme di nuovo ai limiti e alla
-presenza di una sola modifica per entità; un batch rifiutato non cambia
-la partizione.
+li controlla il nodo al commit, insieme di nuovo ai limiti, che
+proteggono le celle degli indici; un batch rifiutato non cambia la
+partizione. Il buffer manda al più una modifica per entità, e il nodo non
+lo controlla: il contratto del nodo è interno al sistema (vedi [fiducia
+negli sviluppatori](/process/development-approach.md#fiducia-negli-sviluppatori)),
+e più modifiche della stessa entità si applicano in ordine, come commit
+successivi sotto lo stesso lock.
 
 Lo stato del buffer dopo ogni operazione è lo stesso che avevano le
 scritture quando arrivavano al nodo una alla volta:
@@ -268,28 +272,39 @@ stesso tick attraverso il buffer del writer (`commitTickWithTheWriter`)
 e gli spostamenti da soli (`movesWithoutCommit`); misura anche la
 memoria del buffer (`BufferSizes`).
 
-Risultati del 2026-11-05 sulla macchina dedicata, profilo rapido, codice
-del commit `cd4422a` con i benchmark del buffer non ancora committati
-(`prototype/benchmark/results/2026-11-05-1452-*`, con il lock non equo; le
-misure dei commit con il lock equo, in `2026-11-05-1611-*`, sono uguali
-entro la variabilità), distribuzione
-uniforme, senza reader, in millisecondi per tick:
+Risultati del 2026-11-05 sulla macchina dedicata, profilo rapido, con il
+lock equo e senza il controllo dei duplicati nel nodo
+(`prototype/benchmark/results/2026-11-05-commit-without-check-quick.*`),
+distribuzione uniforme, senza reader, in millisecondi per tick; l'ultima
+colonna è il tick dal writer con il controllo dei duplicati che il nodo
+faceva prima (`2026-11-05-1611-commit-batch-quick.*`):
 
-| Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer |
-|---|---|---|---|---|
-| Scansione lineare, 100 000 | 100% | 8,6 | 9,2 | 18,1 |
-| Scansione lineare, 1 000 000 | 1% | 0,8 | 1,6 | 2,4 |
-| Scansione lineare, 1 000 000 | 10% | 20 | 24 | 41 |
-| Scansione lineare, 1 000 000 | 100% | 279 | 282 | 490 |
-| Grid uniforme 100, 1 000 000 | 100% | 339 | 371 | 594 |
-| Griglia di quadtree 128, 1 000 000 | 1% | 2,5 | 5,3 | 7,0 |
-| Griglia di quadtree 128, 1 000 000 | 100% | 599 | 672 | 963 |
+| Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer | Tick dal writer, con il controllo |
+|---|---|---|---|---|---|
+| Scansione lineare, 100 000 | 100% | 3,8 | 3,7 | 13,4 | 20,7 |
+| Scansione lineare, 1 000 000 | 1% | 0,4 | 1,0 | 1,9 | 2,5 |
+| Scansione lineare, 1 000 000 | 10% | 8,4 | 10,4 | 27,7 | 43,9 |
+| Scansione lineare, 1 000 000 | 100% | 118 | 118 | 366 | 500 |
+| Grid uniforme 100, 1 000 000 | 100% | 213 | 214 | 426 | 660 |
+| Griglia di quadtree 128, 1 000 000 | 1% | 2,2 | 5,1 | 6,4 | 6,7 |
+| Griglia di quadtree 128, 1 000 000 | 100% | 465 | 577 | 761 | 1007 |
 
-- **Il buffer costa circa 90–300 ns per entità scritta**, la
-  differenza tra il tick dal writer e il tick: il tick dal writer dura
-  da 1,2 a 2 volte il tick, di più con la scansione lineare, dove il
-  resto del tick costa meno. Il costo viene dalla mappa per ID, dagli
+- **Il buffer costa circa 100–250 ns per entità scritta**, la
+  differenza tra il tick dal writer e il tick: è ora la parte più grande
+  del costo con la scansione lineare e con la grid uniforme, dove il
+  tick dal writer dura da 2 a 3,7 volte il tick, e circa un terzo in più
+  con la griglia di quadtree. Il costo viene dalla mappa per ID, dagli
   oggetti di ogni modifica e dalla lista del batch.
+- **Il controllo dei duplicati costava quasi quanto l'indice.** Il nodo
+  costruiva un insieme di tutti gli ID del batch per rifiutare due
+  modifiche della stessa entità; senza, gli spostamenti con la scansione
+  lineare costano da 0,36 a 0,5 volte, e `PartitionBenchmark.update` con
+  batch da 100 da 0,43 a 0,78 volte, secondo l'indice
+  (`2026-11-05-update-with-check-quick.*` e
+  `2026-11-05-update-without-check-quick.*`). Con la scansione lineare
+  e 100 000 entità l'aggiornamento costa di nuovo circa 27 ns per
+  entità, come nella [capacità degli aggiornamenti per
+  tick](/current/indices/update-capacity.md).
 - **Il buffer occupa circa 230–240 byte per entità** con le sole `set`,
   e circa 470–480 con 4 metadati per entità, in aggiunta alle entità e
   alle scritture che il writer ha già costruito. Il valore non cambia
@@ -305,7 +320,9 @@ uniforme, senza reader, in millisecondi per tick:
 `moveTickDuringCommits` misura la latenza di `setTick` mentre un writer
 su un altro thread, non misurato, fa commit degli stessi batch uno dopo
 l'altro, senza pause: è il caso peggiore, con un commit sempre in corso
-o appena finito quando arriva l'avanzamento. I valori sono la media
+o appena finito quando arriva l'avanzamento, misurato quando il nodo
+faceva ancora il controllo dei duplicati, quindi con commit un po' più
+lunghi di quelli di adesso. I valori sono la media
 (modo `AverageTime`) e i percentili dei campioni (modo `SampleTime`),
 con il lock equo della partizione
 (`prototype/benchmark/results/2026-11-05-1611-*`); l'ultima colonna è la
