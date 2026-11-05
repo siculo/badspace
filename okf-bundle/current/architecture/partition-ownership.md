@@ -4,7 +4,7 @@ title: Proprietà della partizione
 description: "Proprietà single-writer con fencing token: passaggio, revoca e rilascio; recupero del writer applicativo e limite di visibilità dei commit nello stesso tick; uso con un writer per tick e tick dell'ultimo commit."
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:14:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:14:33Z }
 ---
 
 # Primitiva
@@ -110,8 +110,11 @@ Restano fuori dal fencing:
 - **Nessuna via di mezzo.** Grazie al lock, ogni operazione del vecchio
   writer avviene tutta prima del cambio oppure è rifiutata: il writer sa
   con esattezza quali dei suoi commit sono entrati.
-- **Il vecchio writer lo scopre alla prossima operazione**, che viene
-  rifiutata; può anche controllare `ownership(p)`.
+- **Il vecchio writer lo scopre al prossimo commit**, o alla prossima
+  operazione che va al nodo, che viene rifiutata: le scritture restano
+  nel suo handle e non lo raggiungono (vedi [scritture
+  accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer));
+  può anche controllare `ownership(p)`.
 - **Rimozione.** `remove()` richiede il token corrente: chi vuole
   rimuovere una partizione di cui non è proprietario fa prima `claim`.
   Dalla [rimozione](/current/architecture/partition-removal.md) in poi `claim`
@@ -149,13 +152,14 @@ confermato ancora in attesa di pubblicazione.
 Il caso previsto è il blocco del **codice applicativo del writer**, fuori
 da una chiamata a BADSPACE. Il coordinatore può chiamare `claim` senza
 attendere una risposta o un rilascio del vecchio proprietario. Il cambio
-scarta le scritture non confermate e conserva i commit completati; se
-il vecchio writer riparte, le sue operazioni con il token precedente
-sono rifiutate. Un blocco applicativo non rende da solo inconsistenti
+conserva i commit completati; le scritture non confermate del vecchio
+writer restano nel suo handle e, se riparte, il commit che le
+porterebbe e le altre operazioni con il token precedente sono
+rifiutati. Un blocco applicativo non rende da solo inconsistenti
 i commit già completati.
 
 La revoca non interrompe il thread del writer né una chiamata a BADSPACE
-in corso. `claim` prende lo stesso lock delle scritture, dei commit e
+in corso. `claim` prende lo stesso lock dei commit e
 dell’avanzamento del tick della partizione: un’operazione già in corso
 deve terminarne la sezione protetta prima del cambio di proprietà.
 Un blocco interno a BADSPACE che trattiene quel lock impedirebbe anche
@@ -181,7 +185,7 @@ un commit del vecchio writer potrebbe arrivare tra la lettura e la presa.
 | **Cooperativo** | Il proprietario A chiama `claim` con la generazione del suo token e manda a B il token nuovo: in nessun momento ci sono due token validi. |
 | **Coordinatore** | I writer non chiamano mai `claim`: il coordinatore legge `ownership(p)`, chiama `claim` e consegna il token al writer scelto. Con due coordinatori in corsa, per esempio durante un failover, vince al massimo uno per generazione. |
 | **Coordinatore che aspetta il writer** | Il coordinatore chiede ad A di finire, con un canale del software; A fa l'ultimo commit e chiama `release`; il coordinatore vede con `ownership(p)` la partizione libera, oppure riceve la generazione da A, e chiama `claim`. In alternativa A restituisce il token al coordinatore, che chiama `claim` con la sua generazione: la partizione non resta mai senza proprietario. |
-| **Presa forzata** | Se A non risponde, il coordinatore chiama `claim` con la generazione di A, senza il suo token: le scritture non confermate di A si scartano e le sue operazioni successive sono rifiutate. Con l'attesa dello schema precedente dà un passaggio ordinato con una scadenza. |
+| **Presa forzata** | Se A non risponde, il coordinatore chiama `claim` con la generazione di A, senza il suo token: le scritture non confermate di A restano nel suo handle, e il suo commit e le altre operazioni successive sono rifiutati. Con l'attesa dello schema precedente dà un passaggio ordinato con una scadenza. |
 | **Worker in competizione** | Un worker legge lo stato e, se la partizione è libera, chiama `claim` con quella generazione; se un altro l'ha presa prima, la generazione è cambiata e `claim` fallisce. |
 | **Lease** | Heartbeat e scadenza stanno nel coordinatore, che revoca con `claim`: la partizione non ha bisogno di orologi, e la sicurezza viene dal fencing. |
 
@@ -271,14 +275,16 @@ spazio crea le partizioni senza proprietario.
   campo `volatile`: `claim` e `release` lo sostituiscono sotto il lock
   della partizione, e `ownership(p)` lo legge da ogni thread senza
   lock, con generazione e proprietario sempre insieme.
-- **Scritture scartate.** A ogni cambio di generazione lo storage
-  riporta lo stato del writer all'ultimo commit con il ripristino delle
+- **Ripristino al cambio di proprietà.** A ogni cambio di generazione
+  lo storage riporta lo stato del writer all'ultimo commit con il ripristino delle
   [strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali),
   nell'ordine slot, indice, metadati: gli slot tornano con la
   numerazione del commit e l'indice al proprio snapshot dello stesso
   commit, senza notifiche per le scritture scartate. Il commit
-  successivo copia quello che è cambiato. Senza scritture dopo
-  l'ultimo commit slot e indice non fanno niente. Se il ripristino
+  successivo copia quello che è cambiato. Le scritture arrivano allo
+  storage solo con il commit, quindi tra un commit e l'altro slot e
+  indice sono già all'ultimo commit e non fanno niente: il ripristino
+  conta per il recupero di una partizione che lo richiede. Se il ripristino
   fallisce la proprietà cambia comunque e la partizione richiede un
   recupero; su una partizione che lo richiede, `claim` e `release`
   ritentano il ripristino e, se riesce, la partizione torna sana (vedi

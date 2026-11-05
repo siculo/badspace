@@ -29,8 +29,9 @@ import org.junit.jupiter.api.Test;
  * Checks the commit of a batch on a 2D node, with the writes of the owner in its
  * {@link PendingWrites2}: the node applies the batch and prepares the snapshot in one step
  * under the lock of the partition, so the moves of the tick and the claims wait for it and see
- * the batch whole or not at all. A rejected batch changes nothing; a failed one keeps the last
- * commit and the snapshot that waits for the move of the tick, and the writer keeps its writes.
+ * the batch whole or not at all. A rejected batch changes nothing, and the writer keeps its
+ * writes; a failed one keeps the last commit and the snapshot that waits for the move of the
+ * tick, and the writer discards its writes, like the writes sent to the node one by one.
  * The index of the tests stops the batch at a gate or makes it fail, and the lock of the
  * partition tells when another thread waits for it, so the tests need no sleep.
  */
@@ -127,7 +128,7 @@ class BatchCommit2Test {
     }
 
     @Test
-    void failedBatchKeepsTheSnapshotThatWaitsAndTheWriterKeepsItsWrites() {
+    void failedBatchKeepsTheSnapshotThatWaitsAndTheWriterDiscardsItsWrites() {
         PendingWrites2 writes = writes(node, token);
         writes.setAll(List.of(new Entity2(1, C), new Entity2(2, C)));
         index[0].notificationFailure = new IllegalStateException("Index failure for the test");
@@ -137,13 +138,14 @@ class BatchCommit2Test {
         node.setTick(1);
         assertEquals(List.of(new Entity2(1, A)), latest());
 
+        // Like a failure of the writes sent one by one: the writes are gone.
         writes.commit();
         node.setTick(2);
-        assertEquals(List.of(new Entity2(1, C), new Entity2(2, C)), latest());
+        assertEquals(List.of(new Entity2(1, A)), latest());
     }
 
     @Test
-    void failedRestoreRejectsTheCommitsUntilTheRecoveryAndTheWriterKeepsItsWrites() {
+    void failedRestoreRejectsTheCommitsUntilTheRecoveryAndARejectedCommitKeepsTheWrites() {
         PendingWrites2 writes = writes(node, token);
         writes.setAll(List.of(new Entity2(2, C)));
         index[0].notificationFailure = new IllegalStateException("Index failure for the test");
@@ -151,17 +153,19 @@ class BatchCommit2Test {
         assertThrows(PartitionFailureException.class, writes::commit);
         index[0].notificationFailure = null;
         assertInstanceOf(PartitionHealth.RecoveryRequired.class, node.health(P1));
+        writes.setAll(List.of(new Entity2(3, C)));
         assertThrows(IllegalStateException.class, writes::commit);
         // The move of the tick publishes the last commit, which is whole.
         node.setTick(1);
         assertEquals(List.of(new Entity2(1, A)), latest());
 
+        // The recovery on the node: the rejected commit kept the writes, the failed one did not.
         index[0].restoreFailure = null;
         node.rollback(token);
         assertSame(PartitionHealth.HEALTHY, node.health(P1));
         writes.commit();
         node.setTick(2);
-        assertEquals(List.of(new Entity2(1, A), new Entity2(2, C)), latest());
+        assertEquals(List.of(new Entity2(1, A), new Entity2(3, C)), latest());
     }
 
     private List<Entity2> latest() {

@@ -4,7 +4,7 @@ title: Fallimenti e salute della partizione
 description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione, rollback e recupero."
 tags: [badspace, architecture, transactions, recovery]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T11:57:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:14:33Z }
 ---
 
 # Primitiva
@@ -17,14 +17,18 @@ Un’operazione del writer può non riuscire in due modi.
   partizione controlla tutto il batch, il token e il proprio stato prima
   di cambiare qualcosa. Un commit rifiutato, per esempio con un token
   non corrente, non cambia niente, e l'handle conserva le scritture.
+  Rispetto alle scritture inviate al nodo una alla volta, questi
+  rifiuti arrivano al commit e non alla scrittura (vedi [scritture
+  accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)).
 - **Fallimento.** Un’eccezione arriva dopo i controlli, mentre la
   partizione sta applicando il batch o preparando un
   [commit](/current/architecture/partition-commit.md#strutture-transazionali).
   Lo stato delle strutture potrebbe essere a metà, quindi la partizione
   **annulla il batch**, riportando le strutture all’ultimo commit con lo
   stesso ripristino del [cambio di proprietà](/current/architecture/partition-ownership.md#cambio-di-proprietà).
-  Ultimo commit e snapshot in attesa non cambiano; l'handle conserva le
-  scritture.
+  Ultimo commit e snapshot in attesa non cambiano, e l'handle scarta le
+  sue scritture: il risultato è lo stesso di quando le scritture
+  arrivavano al nodo una alla volta e il fallimento le annullava tutte.
 
 Un fallimento dipende da un bug o da una situazione limite, come
 l’esaurimento della memoria, non dall’input. Il software non lo
@@ -73,11 +77,12 @@ la partizione nello stato di recupero.
 # Rollback
 
 Il **rollback** del writer scarta tutte le scritture dopo l’ultimo
-commit riuscito, anche quelle dei tick precedenti, e riparte dal pending
-se c’è, altrimenti dall’ultimo stato confermato; prima del primo commit
-dallo stato vuoto. Non tocca gli snapshot pubblicati, non annulla commit
-riusciti e non cambia la proprietà. Senza scritture dopo l’ultimo commit
-non fa niente.
+commit riuscito, anche quelle dei tick precedenti, svuotando il suo
+handle; poi chiede al nodo di tornare al pending se c’è, altrimenti
+all’ultimo stato confermato, prima del primo commit allo stato vuoto.
+Sul nodo, su una partizione sana, non c'è niente da riportare indietro,
+perché le scritture arrivano solo con il commit. Non tocca gli snapshot
+pubblicati, non annulla commit riusciti e non cambia la proprietà.
 
 Il rollback è anche il **recupero** chiesto dal writer: su una partizione
 che richiede un recupero ritenta il ripristino con il token del
@@ -209,9 +214,13 @@ o un `claim` che arriva durante l’applicazione aspetta il lock, e dopo
 lo snapshot o il nuovo proprietario trovano il batch intero. Verificano
 anche che un batch rifiutato lasci lo snapshot in attesa e il tick
 dell’ultimo commit, che un batch fallito lasci lo snapshot in attesa e
-le scritture del writer, confermate dal commit successivo, e che dopo un
-ripristino fallito i commit siano rifiutati fino al rollback del nodo,
-dopo il quale il writer conferma le scritture che ha tenuto.
+il writer senza le sue scritture, e che dopo un ripristino fallito i
+commit siano rifiutati fino al rollback del nodo: il commit rifiutato
+conserva le scritture del writer, che il commit dopo il recupero
+conferma, mentre quelle del commit fallito sono perse. I test dell'API
+verificano con un nodo finto che un commit rifiutato lasci le scritture
+nell'handle e che uno fallito, con `PartitionFailureException` o con un
+`Error`, le scarti.
 
 # Correlati
 

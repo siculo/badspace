@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T11:57:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:14:33Z }
 ---
 
 # Primitiva
@@ -224,11 +224,40 @@ L'handle controlla subito i limiti delle posizioni: una scrittura fuori
 dai limiti non entra nel buffer. Token, stato e salute della partizione
 li controlla il nodo al commit, insieme di nuovo ai limiti e alla
 presenza di una sola modifica per entità; un batch rifiutato non cambia
-la partizione. Dopo un commit riuscito il buffer è vuoto; dopo un commit
-che fallisce il buffer conserva le scritture. `rollback()` e `close()`
-scartano il buffer, poi vanno al nodo per il ripristino e per il
-rilascio; tra un commit e l'altro il nodo non ha scritture del writer da
-scartare.
+la partizione.
+
+Lo stato del buffer dopo ogni operazione è lo stesso che avevano le
+scritture quando arrivavano al nodo una alla volta:
+
+| Dopo | Partizione | Buffer |
+|---|---|---|
+| Commit riuscito | Ha il batch nel commit del tick corrente | Vuoto |
+| Commit rifiutato (token non corrente, partizione rimossa o in recupero, input non valido) | Non cambia | Conserva le scritture |
+| Commit fallito dopo i controlli (`PartitionFailureException` o `Error`) | Torna all'ultimo commit, o resta in recupero necessario | Vuoto: le scritture sono scartate, come annullava il fallimento di una scrittura |
+| `rollback()` | Torna all'ultimo commit; è anche il recupero | Vuoto |
+| `close()` | Rilasciata, all'ultimo commit | Vuoto |
+| `removePartition()` riuscita | In rimozione, all'ultimo commit | Vuoto |
+
+`rollback()` e `close()` svuotano il buffer, poi vanno al nodo per il
+ripristino e per il rilascio. Tra un commit e l'altro il nodo non ha
+scritture del writer da scartare: il ripristino al rollback e al cambio
+di proprietà riporta le strutture a uno stato in cui sono già, e serve
+al recupero di una partizione che lo richiede. Le scritture di un writer
+che ha perso la proprietà restano nel suo handle e non arrivano alla
+partizione, perché il commit che le porterebbe è rifiutato.
+
+**Unica differenza rispetto alle scritture inviate una alla volta: il
+momento di alcuni rifiuti.** Lo stato della partizione, quello che
+leggono i reader e le scritture che si perdono sono gli stessi. Però le
+scritture non chiamano il nodo, quindi alla chiamata si controllano solo
+i limiti delle posizioni. Token non corrente, partizione rimossa, in
+recupero necessario o sconosciuta, e i fallimenti delle strutture,
+arrivano al writer con il `commit()` e non con la scrittura. Un
+controllo sul nodo a ogni scrittura riporterebbe una chiamata per
+scrittura, e non basterebbe comunque: proprietà e salute possono
+cambiare tra la scrittura e il commit, che deve controllarle di nuovo.
+Il writer che vuole saperlo prima può leggere `ownership()` e
+`health()` della partizione.
 
 ## Sequenza dei commit
 

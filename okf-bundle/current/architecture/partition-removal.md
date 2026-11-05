@@ -4,7 +4,7 @@ title: Rimozione della partizione
 description: "Richiesta di rimozione, ritiro al primo avanzamento del tick, letture storiche e distruzione dopo la fine degli utilizzi."
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T17:19:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:14:33Z }
 ---
 
 # Primitiva
@@ -59,14 +59,15 @@ Le condizioni per la distruzione sono dettagliate nelle sezioni successive.
 # Richiesta di rimozione
 
 `remove()` porta la partizione nello stato **in rimozione**. È l'ultima
-operazione del writer, e come le scritture richiede il token di
+operazione del writer, e come il commit richiede il token di
 scrittura corrente (vedi [proprietà della
 partizione](/current/architecture/partition-ownership.md)):
 
-- dopo `remove()` non si possono più fare scritture né commit, e un
+- dopo `remove()` non si possono più fare commit, e un
   secondo `remove()` fallisce con `IllegalStateException`; anche
   `claim` è rifiutato, quindi nessuno può più prendere la proprietà;
-- `remove()` **scarta le scritture non confermate**: l'ultimo snapshot
+- `remove()` **scarta le scritture non confermate**, che sono
+  nell'handle del writer e non arrivano al nodo: l'ultimo snapshot
   contiene solo l'ultimo stato confermato da `commit()`;
 - con la [politica di
   rimozione](/current/api/operations.md#creazione-e-rimozione-delle-partizioni)
@@ -162,10 +163,10 @@ stato in un campo `volatile`.
   nodo chiamano `requestRemoval` dello storage, che sotto il lock della
   partizione rifiuta una seconda richiesta e, per `REQUIRE_EMPTY`,
   controlla che l'ultimo commit non abbia entità; poi lo stato diventa
-  `REMOVAL_PENDING`. Le scritture non confermate restano nello stato
-  del writer, che nessuno legge più: l'ultimo snapshot è quello
-  dell'ultimo commit. Il nodo rifiuta le operazioni del writer su una
-  partizione non attiva, con `IllegalStateException`.
+  `REMOVAL_PENDING`. Le scritture non confermate sono nell'handle del
+  writer, che dopo la richiesta riuscita le scarta: l'ultimo snapshot è
+  quello dell'ultimo commit. Il nodo rifiuta le operazioni del writer su
+  una partizione non attiva, con `IllegalStateException`.
 - **Ritiro.** Il primo `setTick` che fa avanzare il tick, con lo stato
   `REMOVAL_PENDING`, pubblica come sempre lo snapshot in attesa e passa
   al catalogo il tick di rimozione; lo stato diventa `RETIRED`. Il

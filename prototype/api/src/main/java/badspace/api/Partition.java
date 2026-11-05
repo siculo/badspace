@@ -54,16 +54,17 @@ public interface Partition {
 
     /**
      * Returns the health of the partition: healthy, or in need of a recovery after a failure of
-     * a write or a commit whose restore did not work. Then the writer gets IllegalStateException
-     * for writes and commits, while the snapshots stay readable; a claim or a release of the
-     * ownership tries the restore again. It is only a read: nobody is told about the changes.
+     * a commit whose restore did not work. Then the writer gets IllegalStateException for the
+     * commits, while the snapshots stay readable; a rollback of the writer, or a claim or a
+     * release of the ownership, tries the restore again. It is only a read: nobody is told
+     * about the changes.
      */
     PartitionHealth health();
 
     /**
      * Makes the caller the owner if the generation of the ownership is still
-     * expectedGeneration: the generation grows by one, the writes not committed are discarded,
-     * and the result is the token of the new generation. Otherwise the result is empty and
+     * expectedGeneration: the generation grows by one, the writes that the old owner did not
+     * commit never reach the partition, and the result is the token of the new generation. Otherwise the result is empty and
      * nothing changes. With the generation of a free partition it takes the partition; with the
      * generation of the token of the owner it passes the ownership to a new token, or takes it
      * away from the owner. The result is a token and not a writer handle, because who claims is

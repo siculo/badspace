@@ -28,12 +28,17 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.EntityWrite2;
+import badspace.common.partition.FailureOutcome;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
+import badspace.common.partition.PartitionComponent;
+import badspace.common.partition.PartitionFailure;
+import badspace.common.partition.PartitionFailureException;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.PartitionOperation;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.WriteToken;
@@ -144,7 +149,7 @@ class Space2Test {
     }
 
     @Test
-    void successfulCommitEmptiesTheWriterAndAFailedOneKeepsItsWrites() {
+    void successfulCommitEmptiesTheWriterAndARejectedOneKeepsItsWrites() {
         PartitionWriter2 writer = space.createPartition(handle, NAME).writer(TOKEN);
         long entityId = writer.insert(A);
         List<EntityWrite2> batch = List.of(new EntityWrite2(entityId, false, A, List.of(), List.of()));
@@ -156,6 +161,23 @@ class Space2Test {
         var order = inOrder(node);
         order.verify(node, times(2)).commit(TOKEN, batch);
         order.verify(node).commit(TOKEN, List.of());
+    }
+
+    @Test
+    void failedCommitDiscardsTheWritesOfTheWriter() {
+        PartitionWriter2 writer = space.createPartition(handle, NAME).writer(TOKEN);
+        long entityId = writer.insert(A);
+        List<EntityWrite2> batch = List.of(new EntityWrite2(entityId, false, A, List.of(), List.of()));
+        PartitionFailure report = new PartitionFailure(PartitionOperation.COMMIT, PartitionComponent.INDEX,
+                FailureOutcome.WRITES_DISCARDED, 0, new IllegalStateException("Index failure"), null);
+        doThrow(new PartitionFailureException(report)).when(node).commit(TOKEN, batch);
+        assertThrows(PartitionFailureException.class, writer::commit);
+        writer.insert(B);
+        OutOfMemoryError error = new OutOfMemoryError("Memory failure");
+        doThrow(error).when(node).commit(TOKEN, List.of(new EntityWrite2(entityId + 1, false, B, List.of(), List.of())));
+        assertSame(error, assertThrows(OutOfMemoryError.class, writer::commit));
+        writer.commit();
+        verify(node).commit(TOKEN, List.of());
     }
 
     @Test

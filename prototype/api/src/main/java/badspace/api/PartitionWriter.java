@@ -70,7 +70,11 @@ public interface PartitionWriter extends AutoCloseable {
      * stop further writes in the same tick. The writer decides whether to wait before writing
      * again. The snapshot becomes acquirable when the tick moves forward, with
      * {@code acquire(tick)} and {@code acquireLatest()} of Partition2 and Partition3. After the
-     * commit the handle has no writes; if the commit fails, the handle keeps them.
+     * commit the handle has no writes. As with writes sent to the node one by one, a rejected
+     * commit changes nothing and the handle keeps its writes, for example with
+     * OwnershipChangedException or IllegalStateException; a commit that fails after the checks,
+     * with PartitionFailureException or an Error, leaves the partition at the last commit and
+     * the handle discards its writes.
      */
     void commit();
 

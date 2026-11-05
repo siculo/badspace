@@ -7,8 +7,9 @@ import java.util.List;
  * token they go to. The writes make no calls to the node: they stay here, composed by entity
  * (see {@link EntityWrite3}), and {@link #commit()} sends them to the node in one call. The
  * positions are checked against the limits of the partition at once; the node checks the
- * token and the state of the partition at the commit. It works with any node of the
- * contract. It is not thread-safe: one writer uses it at a time.
+ * token and the state of the partition at the commit. A rejected commit keeps the writes, and
+ * a failed one discards them, like the writes sent to the node one by one. It works with any
+ * node of the contract. It is not thread-safe: one writer uses it at a time.
  */
 public final class PendingWrites3 {
 
@@ -83,12 +84,21 @@ public final class PendingWrites3 {
     /**
      * Sends the writes to the node in one call, which applies them to the last commit and
      * confirms them (see {@link PartitionNode3#commit(WriteToken, List)}). After the commit there
-     * are no writes; if the node rejects the commit or the commit fails, the writes stay.
+     * are no writes. The result is the same as with writes sent to the node one by one: if the
+     * node rejects the commit, nothing changes and the writes stay; if the commit fails after
+     * the checks, the node goes back to the last commit and the writes are discarded.
      *
-     * @throws OwnershipChangedException if the token is not the current one
+     * @throws OwnershipChangedException if the token is not the current one; the writes stay
+     * @throws PartitionFailureException if the commit fails after the checks; the writes are
+     *     discarded, and an {@link Error} goes to the caller as it is, also after discarding them
      */
     public void commit() {
-        node.commit(token, buffer.changes());
+        try {
+            node.commit(token, buffer.changes());
+        } catch (PartitionFailureException | Error failure) {
+            buffer.clear();
+            throw failure;
+        }
         buffer.clear();
     }
 

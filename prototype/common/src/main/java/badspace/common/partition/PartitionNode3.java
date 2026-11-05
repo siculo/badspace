@@ -31,8 +31,7 @@ import java.util.Optional;
  * through them and the release are thread-safe.
  * <p>
  * {@link #removePartition} and {@link #dropPartition} are the last operation of the
- * writer: after them the writes and the commits fail with
- * IllegalStateException, and the writes not committed are discarded. The next move of
+ * writer: after them the commits fail with IllegalStateException. The next move of
  * the tick makes the removal effective at the new tick, the removal tick R: the partition
  * exists for the ticks before R. Readers can still acquire the snapshots of the ticks
  * before R while they are in the retention window, and the acquisitions made before stay
@@ -45,10 +44,12 @@ import java.util.Optional;
  * {@link #claim} is a compare-and-set on the generation and the only way to become the owner:
  * it takes a free partition, passes the ownership to another writer and takes it away from
  * the owner, and the caller chooses which one with the generation it gives. The owner gets a
- * {@link WriteToken} and leaves the ownership with {@link #release(WriteToken)}. At each change
- * of the generation the writes not committed are discarded, and the commits stay. The node
- * does not check who calls these operations: the software decides who owns a partition.
- * The writes, the commits and the removals take the token of the owner, and the partition
+ * {@link WriteToken} and leaves the ownership with {@link #release(WriteToken)}. The writes of
+ * the owner reach the node only with its commits, so between the commits the node has no
+ * writes to discard: a change of the generation keeps the commits, and the writes that an old
+ * owner did not commit never reach the partition. The node does not check who calls these
+ * operations: the software decides who owns a partition. The commits, the rollbacks and the
+ * removals take the token of the owner, and the partition
  * checks it in the same step as the operation: with a token that is not current they fail
  * with {@link OwnershipChangedException} and the partition does not change, so a writer that
  * lost the ownership cannot change the partition even if it does not know it yet. The moves
@@ -168,8 +169,7 @@ public interface PartitionNode3 {
 
     /**
      * Removes a partition whose last commit has no entities: the removal becomes effective at
-     * the next move of the tick, and the writes not committed are discarded. If the call
-     * fails, the partition does not change.
+     * the next move of the tick. If the call fails, the partition does not change.
      *
      * @param token the token of the owner of the partition
      * @throws UnknownPartitionException if the partition of the token is unknown
@@ -181,8 +181,7 @@ public interface PartitionNode3 {
 
     /**
      * Removes a partition together with its entities: the removal becomes effective at the
-     * next move of the tick, and the writes not committed are discarded. If the call fails,
-     * the partition does not change.
+     * next move of the tick. If the call fails, the partition does not change.
      *
      * @param token the token of the owner of the partition
      * @throws UnknownPartitionException if the partition of the token is unknown
@@ -204,7 +203,7 @@ public interface PartitionNode3 {
 
     /**
      * Returns the health of a partition: healthy, or in need of a recovery after a failure
-     * whose restore did not work. Then the partition refuses writes and commits with
+     * whose restore did not work. Then the partition refuses the commits with
      * IllegalStateException, while its snapshots stay readable; a {@linkplain #rollback
      * rollback} of the owner, or a claim or a release of the ownership, tries the restore
      * again. Any thread can call it, also after the removal of the partition, until it is
@@ -218,11 +217,11 @@ public interface PartitionNode3 {
 
     /**
      * Makes the caller the owner of a partition if the generation of its ownership is still
-     * the expected one: the generation grows by one and the writes not committed are
-     * discarded. With the generation of a free partition it takes the partition; with the
+     * the expected one: the generation grows by one, and the partition stays at its last
+     * commit. With the generation of a free partition it takes the partition; with the
      * generation of the token of the owner it passes the ownership to a new token, or takes it
-     * away from the owner. Any thread can call it: it waits for a write or a commit that is
-     * running.
+     * away from the owner. It also tries the recovery of a partition that {@linkplain #health
+     * needs one}. Any thread can call it: it waits for a commit or a rollback that is running.
      *
      * @param partitionId the ID of the partition
      * @param expectedGeneration the generation that the ownership must have
@@ -236,7 +235,8 @@ public interface PartitionNode3 {
 
     /**
      * Leaves the ownership of a partition if the token is the current one: the generation
-     * grows by one, the partition has no owner, and the writes not committed are discarded.
+     * grows by one and the partition has no owner; it stays at its last commit, and the node
+     * tries the recovery of a partition that {@linkplain #health needs one}.
      * Otherwise it does nothing: also if the ownership has already changed, after the removal
      * of the partition was requested, and if the partition is unknown or destroyed. Any thread
      * can call it.
@@ -271,11 +271,11 @@ public interface PartitionNode3 {
     void commit(WriteToken token, List<EntityWrite3> changes);
 
     /**
-     * Discards the writes not committed of a partition: the state of the writer goes back to
-     * the last commit, also if it waits for the move of the tick, and the commits stay
-     * confirmed. The writes of the ticks before are discarded too. It is also the recovery of a
-     * partition that {@linkplain #health needs one}: when the restore works, the partition is
-     * healthy again. A rollback without writes after the last commit does nothing.
+     * Brings the state of a partition back to the last commit, also if it waits for the move of
+     * the tick, and the commits stay confirmed. The writes of the owner reach the node only with
+     * its commits, so between the commits there is nothing to discard: the rollback is the
+     * recovery of a partition that {@linkplain #health needs one}, and when the restore works
+     * the partition is healthy again. On a healthy partition it does nothing.
      *
      * @param token the token of the owner of the partition
      * @throws OwnershipChangedException if the token is not the current one

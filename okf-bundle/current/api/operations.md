@@ -4,7 +4,7 @@ title: "Contratto dell’API corrente"
 description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T11:57:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:14:33Z }
 ---
 
 # Contratto corrente
@@ -290,7 +290,7 @@ l’esempio in [Commit e tick](/current/architecture/partition-commit.md#commit-
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Commit | `commit()` sull'handle | Manda le scritture dell'handle al nodo, che le applica all'ultimo commit e le conferma nel tick corrente; dopo il successo l'handle è vuoto, se il commit fallisce le conserva; un commit senza scritture è valido |
+| Commit | `commit()` sull'handle | Manda le scritture dell'handle al nodo, che le applica all'ultimo commit e le conferma nel tick corrente; dopo il successo l'handle è vuoto; se il nodo rifiuta il commit l'handle conserva le scritture, se il commit fallisce dopo i controlli le scarta, come le scritture inviate una alla volta (vedi [stato del buffer](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)); un commit senza scritture è valido |
 | Rollback | `rollback()` sull'handle | Scarta le scritture dell'handle, anche dei tick precedenti, e chiede al nodo di tornare all'ultimo commit; tiene commit, snapshot in attesa e proprietà; è anche il recupero di una partizione che lo richiede (vedi [rollback](/current/architecture/partition-failures.md#rollback)) |
 | Tick dell'ultimo commit | `lastCommitTick()` sull'handle | Il tick dell'ultimo commit; la creazione e il caricamento contano come commit al tick di creazione. Lo cambiano solo i commit del proprietario: dopo `claim` dice al nuovo writer se il tick corrente ha già un commit (vedi [un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick)) |
 | Tick corrente | `tick()` sulla partizione | Il tick della partizione; sostituisce `lastCommit()` |
@@ -306,10 +306,13 @@ Scelte di dettaglio:
 
 - **Controlli**: l'handle controlla subito i limiti delle posizioni, e
   una scrittura rifiutata non entra nell'handle. Token, stato e salute
-  della partizione li controlla il nodo al commit: un commit rifiutato
+  della partizione li controlla il nodo al commit, quindi il writer
+  riceve questi rifiuti dal `commit()` e non dalla scrittura, l'unica
+  differenza rispetto alle scritture inviate una alla volta: un commit rifiutato
   non cambia la partizione e l'handle conserva le scritture. Un
   fallimento dopo i controlli annulla il batch e conserva l'ultimo
-  commit (vedi [fallimenti e salute](#fallimenti-e-salute)).
+  commit, e l'handle scarta le scritture (vedi [fallimenti e
+  salute](#fallimenti-e-salute)).
 - **Rimozione con scritture non confermate**: è permessa, e le scritture
   dell'handle si scartano senza arrivare al nodo; la politica di
   rimozione guarda lo stato confermato del tick corrente.
