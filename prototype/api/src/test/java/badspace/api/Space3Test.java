@@ -24,10 +24,8 @@ import badspace.common.geometry.Point3;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.ApplicationMetadata;
-import badspace.common.partition.ConditionalWrite3;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
-import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
@@ -415,19 +413,6 @@ class Space3Test {
         order.verify(node).removePartition(TOKEN);
         order.verify(node).release(TOKEN);
         order.verifyNoMoreInteractions();
-    }
-
-    @Test
-    void conditionalWritesPassTheTokenAndReturnTheFalseConditions() {
-        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
-        MetadataCondition condition = MetadataCondition.valueIs(7, "version", 1);
-        ConditionalWrite3 write = new ConditionalWrite3(List.of(condition), List.of(),
-                List.of(MetadataWrite.put(7, "version", 2)));
-        when(node.updateIf(TOKEN, write)).thenReturn(List.of(condition));
-        assertEquals(List.of(condition), writer.updateIf(write));
-        assertFalse(writer.compareAndSetMetadata(7, "version", 1, 2));
-        when(node.updateIf(TOKEN, write)).thenReturn(List.of());
-        assertTrue(writer.compareAndSetMetadata(7, "version", 1, 2));
     }
 
     @Test

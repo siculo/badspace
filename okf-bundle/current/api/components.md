@@ -4,7 +4,7 @@ title: "Componenti dell’API"
 description: "Spazio, handle del nodo, partizione, writer, snapshot acquisito e insieme di snapshot: ruolo, problemi risolti e sequenza d’uso nell’API corrente."
 tags: [badspace, documentation]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:21:18Z }
 ---
 
 # Prima di iniziare
@@ -59,8 +59,8 @@ e stato; `claim(expectedGeneration)` prende la proprietà solo se la
 generazione è ancora quella attesa e restituisce il token nuovo.
 `writer(token)` costruisce l’handle `PartitionWriter2` o `PartitionWriter3`.
 
-L’handle offre inserimenti, aggiornamenti, rimozioni, metadati, scritture
-condizionate, commit e rimozione della partizione. Ogni scrittura batch
+L’handle offre inserimenti, impostazioni delle posizioni, rimozioni,
+metadati, commit e rimozione della partizione. Ogni scrittura batch
 è tutto-o-niente. Il nodo rifiuta il token di un proprietario precedente,
 così un writer rallentato non può modificare dati dopo un passaggio di
 proprietà. La [proprietà](/current/architecture/partition-ownership.md)
@@ -123,9 +123,10 @@ ID e posizione. Le regioni disponibili sono box e cerchio in 2D, box e
 sfera in 3D. Coordinate e raggi devono essere finiti.
 
 I metadati applicativi sono coppie chiave stringa → valore `long`, lette
-separatamente dalle posizioni. Le condizioni permettono di applicare
-insieme modifiche di posizioni e metadati solo se tutti i valori attesi
-corrispondono. Una condizione falsa è un risultato, non un’eccezione.
+separatamente dalle posizioni. Il writer decide le scritture sui valori
+letti in uno snapshot e scrive senza condizioni; le decisioni del tick
+corrente, che lo snapshot non vede ancora, le tiene da sé (vedi
+[decisioni su uno snapshot](/current/architecture/entity-metadata.md#decisioni-su-uno-snapshot)).
 
 # Salvataggio e caricamento
 

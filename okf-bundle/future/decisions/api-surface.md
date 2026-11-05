@@ -4,7 +4,7 @@ title: "Estensioni dell’API"
 description: "Ritorno a snapshot più vecchi, letture del pending, attesa del tick, operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
 tags: [badspace, documentation]
 status: draft
-timestamp: 2026-11-04T23:42:12Z
+timestamp: 2026-11-05T08:21:18Z
 generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
 ---
 
@@ -21,7 +21,7 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 
 | Ambito | Estensione | Stato |
 |---|---|---|
-| Writer | Modifiche finali per ID nel client, `set` che inserisce se assente, rimozione idempotente e rimozione delle conditional writes | Refactoring concordato, non implementato: vedi [scritture accumulate](/future/architecture/buffered-writes.md) |
+| Writer | Modifiche finali per ID nel client e un solo invio al commit | Refactoring concordato, in corso: `set` che inserisce se assente, rimozione idempotente e rimozione delle conditional writes sono già [disponibili](/current/api/operations.md#operazioni-sulle-entità); vedi [scritture accumulate](/future/architecture/buffered-writes.md) |
 | Transazioni | Ritorno a uno snapshot pubblicato più vecchio | Da progettare: annullerebbe anche commit riusciti (vedi [strutture transazionali](/future/architecture/transactional-components.md#ritorno-a-uno-snapshot-più-vecchio)); rollback, segnalazione dei fallimenti e salute della partizione sono già [disponibili](/current/architecture/partition-failures.md) |
 | Writer | Letture del pending tramite il writer | Non necessarie nell'[uso con un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick); tre forme valutate nelle [strutture transazionali](/future/architecture/transactional-components.md#letture-del-pending-tramite-il-writer) |
 | Tick | Attesa dell'inizio di un tick da parte del writer | Da valutare: oggi l'avvisa il software che chiama `setTick` |
@@ -79,7 +79,7 @@ implementati. Le estensioni devono conservarne le responsabilità:
 - **Aggregazione** dei risultati di query su più partizioni: range e
   k-nearest sono [disponibili](/current/architecture/multi-partition-queries.md),
   raycast e deduplica sono [estensioni future](/future/mechanisms/query-aggregation.md).
-- **Commit e scritture condizionate** del livello base (vedi
+- **Commit** del livello base (vedi
   [architettura minima](/future/architecture/minimal-core.md)).
 - **[API dei metadati](/future/architecture/entity-metadata.md#api-dei-metadati)**.
 - Primitiva di comodo **"sposta da A a B"**, che implementa la

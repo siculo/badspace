@@ -2,12 +2,10 @@ package badspace.service.partition;
 
 import badspace.common.geometry.Point2;
 import badspace.common.partition.AcquireOptions;
-import badspace.common.partition.ConditionalWrite2;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.FailureOutcome;
 import badspace.common.partition.IndexConfig;
-import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
@@ -389,53 +387,6 @@ final class PartitionStorage2 {
             } catch (Throwable failure) {
                 throw failed(PartitionOperation.WRITE, failure);
             }
-        } finally {
-            writerLock.unlock();
-        }
-    }
-
-    /**
-     * Applies a conditional write if all its conditions are true on the state of the writer:
-     * first the positions, then the metadata. Returns the false conditions, in their order; if
-     * there are any, nothing changes. Fails with NoSuchElementException if an entity of the
-     * write or of a condition is not in the partition, and with IllegalArgumentException if a
-     * position is outside the limits; in these cases nothing changes.
-     */
-    List<MetadataCondition> updateIf(long generation, ConditionalWrite2 write) {
-        writerLock.lock();
-        try {
-            checkWritable(generation);
-            for (MetadataCondition condition : write.conditions()) {
-                existingSlot(condition.entityId());
-            }
-            for (Entity2 e : write.positions()) {
-                existingSlot(e.id());
-                checkLimits(e.id(), e.position());
-            }
-            for (MetadataWrite metadataWrite : write.metadata()) {
-                existingSlot(metadataWrite.entityId());
-            }
-            List<MetadataCondition> failed = new ArrayList<>();
-            for (MetadataCondition condition : write.conditions()) {
-                if (!metadata.holds(condition)) {
-                    failed.add(condition);
-                }
-            }
-            if (!failed.isEmpty()) {
-                return failed;
-            }
-            try {
-                for (Entity2 e : write.positions()) {
-                    move(slots.slotOf(e.id()), e.position());
-                }
-                step = PartitionComponent.METADATA;
-                for (MetadataWrite metadataWrite : write.metadata()) {
-                    metadata.write(metadataWrite);
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.WRITE, failure);
-            }
-            return List.of();
         } finally {
             writerLock.unlock();
         }

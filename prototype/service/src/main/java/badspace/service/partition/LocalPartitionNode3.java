@@ -5,11 +5,9 @@ import badspace.common.geometry.Region3;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.ApplicationMetadata;
-import badspace.common.partition.ConditionalWrite3;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
-import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionHealth;
@@ -290,11 +288,6 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     @Override
     public void updateMetadataAll(WriteToken token, List<MetadataWrite> writes) {
         find(token.partitionId()).updateMetadataAll(token.generation(), writes);
-    }
-
-    @Override
-    public List<MetadataCondition> updateIf(WriteToken token, ConditionalWrite3 write) {
-        return find(token.partitionId()).updateIf(token.generation(), write);
     }
 
     @Override

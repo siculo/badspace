@@ -10,11 +10,11 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>badspace-sample-conditional-writes</artifactId>
-    <name>BADSPACE prototype - sample conditional-writes</name>
-    <description>Conditional writes on the metadata: a compare-and-set and the reservation of two entities.</description>
+    <artifactId>badspace-sample-snapshot-decisions</artifactId>
+    <name>BADSPACE prototype - sample snapshot-decisions</name>
+    <description>Writes decided on a snapshot: what the snapshot does not see yet, and how the writer keeps its own decisions of the tick.</description>
 
     <properties>
-        <exec.mainClass>badspace.samples.conditionalwrites.ConditionalWrites</exec.mainClass>
+        <exec.mainClass>badspace.samples.snapshotdecisions.SnapshotDecisions</exec.mainClass>
     </properties>
 </project>

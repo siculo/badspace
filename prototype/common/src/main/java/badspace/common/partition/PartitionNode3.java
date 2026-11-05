@@ -295,24 +295,6 @@ public interface PartitionNode3 {
     void updateMetadataAll(WriteToken token, List<MetadataWrite> writes);
 
     /**
-     * Applies a conditional write: it moves entities and writes their application metadata
-     * only if all its conditions are true on the state of the writer, with the writes not
-     * committed yet. Checking the conditions and applying the write is a single step, so no
-     * other write of the partition can come in between. A false condition is not an error:
-     * the partition does not change. If the call fails, the partition does not change either.
-     *
-     * @param token the token of the owner of the partition
-     * @param write the conditions, the positions and the metadata writes
-     * @return the false conditions, in their order, or an empty list if the write was applied
-     * @throws java.util.NoSuchElementException if an ID of the write or of a condition is not
-     *     in the partition
-     * @throws IllegalArgumentException if a position is outside the {@linkplain #limits limits}
-     *     of the partition
-     * @throws OwnershipChangedException if the token is not the current one
-     */
-    List<MetadataCondition> updateIf(WriteToken token, ConditionalWrite3 write);
-
-    /**
      * Confirms the writes of a partition in its current tick: the snapshot of the tick will
      * have them, and becomes acquirable when the tick of the partition moves forward. Each
      * commit confirms the full current state, including the effects of earlier commits unless

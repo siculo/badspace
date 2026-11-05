@@ -4,13 +4,14 @@ title: "Scritture accumulate nel writer"
 description: "Refactoring concordato: modifiche finali per ID nel client, set con inserimento se assente e applicazione atomica sul nodo al commit."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-05T08:11:39Z
+timestamp: 2026-11-05T08:21:18Z
 ---
 
 # Stato e obiettivo
 
 Direzione concordata, implementata in parte. Sono già disponibili `set`
-con inserimento se assente, la rimozione idempotente e il vincolo sulla
+con inserimento se assente, la rimozione idempotente, la rimozione delle
+conditional writes e il vincolo sulla
 [provenienza degli ID](/current/decisions/entity-ids.md#provenienza-degli-id-delle-entità),
 descritti nel [contratto dell'API](/current/api/operations.md#operazioni-sulle-entità).
 Oggi però il writer inoltra ogni scrittura al nodo e il
@@ -21,8 +22,9 @@ modifiche. Il comportamento sarà comune a nodi
 locali e remoti, prima dell'introduzione di gRPC.
 
 Il software legge uno snapshot, esegue la propria logica e costruisce le
-scritture. Non legge lo stato mutabile attraverso l'esito di una
-scrittura: `updateIf` e `compareAndSetMetadata` vengono rimossi.
+scritture, come descritto nelle
+[decisioni su uno snapshot](/current/architecture/entity-metadata.md#decisioni-su-uno-snapshot):
+non legge lo stato mutabile attraverso l'esito di una scrittura.
 Lo snapshot letto può non comprendere commit ancora pending, anche di un
 precedente proprietario; il refactoring non introduce letture del pending.
 

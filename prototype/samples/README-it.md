@@ -65,7 +65,7 @@ classe.
 | [`ownership-handoff`](ownership-handoff) (`OwnershipHandoff`) | Come passa un writer la proprietà a un altro writer? | Claim e writer |
 | [`partition-removal`](partition-removal) (`PartitionRemoval`) | Come si rimuove una partizione con `REQUIRE_EMPTY` o `DISCARD_ENTITIES`, e quando la rimozione diventa effettiva? | Commit e tick, finestra di retention |
 | [`entity-metadata`](entity-metadata) (`EntityMetadata`) | Come si scrivono, leggono e cancellano i metadati delle entità? | Writer e commit |
-| [`conditional-writes`](conditional-writes) (`ConditionalWrites`) | Come si scrive solo se sono vere condizioni sui metadati? | Metadati delle entità |
+| [`snapshot-decisions`](snapshot-decisions) (`SnapshotDecisions`) | Come si decidono le scritture su uno snapshot, e quali scritture lo snapshot non vede ancora? | Metadati delle entità, commit e tick |
 
 ## Persistenza
 

@@ -36,7 +36,7 @@
         <module>ownership-handoff</module>
         <module>partition-removal</module>
         <module>entity-metadata</module>
-        <module>conditional-writes</module>
+        <module>snapshot-decisions</module>
         <module>save-and-load</module>
         <module>save-management</module>
         <module>concurrent-reader-writer</module>

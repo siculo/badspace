@@ -4,7 +4,7 @@ title: "Casi d’uso attuali"
 description: "Scenari realizzabili con il prototipo corrente ed esempi eseguibili per esplorare l’API."
 tags: [badspace, documentation]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:11:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:21:18Z }
 ---
 
 # Dal componente al caso d’uso
@@ -26,7 +26,7 @@ già presenti. Il software sceglie le politiche e costruisce il coordinamento.
 | Interrogare insieme più partizioni, per esempio entità statiche e dinamiche con indici diversi | Insieme di snapshot dello stesso tick, query aggregate e decisione del software sui fallimenti | `multi-partition-queries` |
 | Limitare quanto un reader trattiene memoria | Scadenza obbligatoria delle acquisizioni e rilascio esplicito | `acquisition-timeouts` |
 | Rimuovere partizioni lasciando finire i reader | Richiesta del writer, ritiro al tick successivo e distruzione dopo gli ultimi utilizzi | `partition-removal` |
-| Usare valori applicativi e scritture condizionate | Metadati per entità, confronto dei valori attesi e modifica atomica | `entity-metadata`, `conditional-writes` |
+| Usare valori applicativi e decidere le scritture su uno snapshot | Metadati per entità, lettura dello snapshot, decisioni del tick tenute dal writer e scritture senza condizioni | `entity-metadata`, `snapshot-decisions` |
 | Salvare e ricaricare dati | Copia dello snapshot, salvataggio sul nodo e creazione di una nuova partizione dai dati salvati | `save-and-load`, `save-management`, `periodic-saves` |
 
 # Politiche costruibili sui dati attuali
@@ -35,8 +35,9 @@ I metadati applicativi permettono di rappresentare una versione, una
 riserva, un responsabile o una scadenza. Il software ne sceglie il
 significato e applica le scritture con il token del writer. Per esempio,
 una modifica proposta da un altro componente può essere accettata solo
-se il metadato di versione è ancora quello atteso. BADSPACE verifica la
-condizione atomicamente nella partizione; il software gestisce la proposta.
+se il metadato di versione nello snapshot è ancora quello atteso e il
+writer non l'ha già cambiato nel tick. Il confronto lo fa il writer, che
+gestisce la proposta; BADSPACE non verifica condizioni nella partizione.
 
 Il software può distribuire un batch di scritture su più tick e fare
 commit alla fine. I tick senza commit ripetono lo stato confermato

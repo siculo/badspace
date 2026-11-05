@@ -4,7 +4,7 @@ title: "Glossario dell’implementazione corrente"
 description: "Definizioni dei termini usati dal prototipo corrente: spazi, partizioni, writer, tick, snapshot, acquisizioni, insiemi di snapshot, metadati e salvataggi."
 tags: [badspace, glossary]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:11:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:21:18Z }
 ---
 
 # Termini
@@ -48,7 +48,6 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:11:39Z }
 | claim | Operazione che dà la proprietà di una partizione: compare-and-set sulla generazione, che riesce solo se la generazione è ancora quella attesa. Serve a prendere una partizione libera, a passarla a un altro writer e a revocarla. Vedi [proprietà della partizione](/current/architecture/partition-ownership.md#operazioni). |
 | Handle del writer | Oggetto dell'API, `AutoCloseable`, che porta il token di scrittura e offre scritture, commit e rimozione della partizione; `close()` rilascia la proprietà. Nel codice `PartitionWriter2`/`PartitionWriter3`. Vedi [Contratto dell’API](/current/api/operations.md#proprietà-e-handle-del-writer). |
 | Metadati applicativi | Coppie chiave → valore di un'entità, con chiavi stringa e valori `long`, che il software legge e scrive liberamente; separate dalla posizione, cambiano nello stesso commit dei dati e fanno parte dello snapshot. La rimozione dell'entità le cancella. Nel codice `ApplicationMetadata`. Vedi [metadati delle entità](/current/architecture/entity-metadata.md#metadati-applicativi). |
-| Scrittura condizionata | Scrittura applicata solo se una condizione sui metadati è vera (compare-and-set): un batch tutto-o-niente di condizioni e scritture di posizioni e metadati, che con una condizione falsa non cambia niente e restituisce le condizioni false. Nel codice `ConditionalWrite2`/`ConditionalWrite3` con `MetadataCondition`, `updateIf` e `compareAndSetMetadata`. Vedi [metadati delle entità](/current/architecture/entity-metadata.md#forma). |
 | k | Numero di tick consultabili di una partizione: con tick corrente T e creazione C si acquisiscono gli snapshot da `max(T − k, C)` a `T − 1`. k ≥ 1, default 1; con k = 1 si acquisisce solo `S(T − 1)`. Nel codice `retainedTicks`. Vedi [conservazione degli snapshot](/current/architecture/snapshot-retention.md). |
 | Finestra di conservazione | Gli snapshot dei tick `max(T − k, C) ≤ n ≤ T − 1` di una partizione, e per una partizione ritirata solo quelli con `n < removalTick`: i soli che ammettono nuove acquisizioni. Vedi [conservazione degli snapshot](/current/architecture/snapshot-retention.md#finestra-di-conservazione). |
 | Catalogo degli snapshot | Gli snapshot di una partizione tenuti dal nodo per la finestra di conservazione, con il tick da cui vale ciascuno; si pubblica tutto insieme all'avanzamento del tick. Vedi [conservazione degli snapshot](/current/architecture/snapshot-retention.md#nel-prototipo). |
