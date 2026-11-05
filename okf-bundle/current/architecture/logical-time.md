@@ -4,7 +4,7 @@ title: Tick logico
 description: "Tempo logico di spazio, nodi e partizioni: avanzamento monotono, salti, pubblicazione degli snapshot e propagazione non atomica."
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:44:48Z }
 ---
 
 # Primitiva
@@ -120,8 +120,9 @@ Il tick regola commit, pubblicazione e acquisizioni (vedi [conservazione
 degli snapshot](/current/architecture/snapshot-retention.md#nel-prototipo)). La
 rimozione segue la [semantica con gli
 stati](/current/architecture/partition-removal.md#nel-prototipo). Il lock per partizione
-è un `ReentrantLock` nello storage, preso da scritture, `commit()`,
-richiesta di rimozione e `setTick`, mai dai reader.
+è un `ReentrantLock` nello storage, preso da `commit()`, che applica il
+batch delle scritture e prepara lo snapshot, rollback, cambi di
+proprietà, richiesta di rimozione e `setTick`, mai dai reader.
 
 - **Contratto del nodo** (`PartitionNode2`/`PartitionNode3`):
   `setTick(long)`, `tick()`, `tick(PartitionId)` e

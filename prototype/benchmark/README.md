@@ -3,9 +3,12 @@
 *[Italiano](README-it.md)*
 
 This module measures the speed and the memory of the spatial indices of a
-partition. It uses [JMH](https://github.com/openjdk/jmh) and works on the
-public contract of the node (`PartitionNode2`), so it also measures the cost
-of the storage, not only the cost of the index. Only 2D for now, except the
+partition. It uses [JMH](https://github.com/openjdk/jmh) and works on a local
+node (`LocalPartitionNode2`), so it also measures the cost of the storage, not
+only the cost of the index. The node gets the writes only with the commit, in a
+batch: the benchmarks of the writes give the batch to the storage with
+`NodeWrites`, without the commit, so they measure the slots and the index alone,
+as before the writes went to the commit. Only 2D for now, except the
 benchmarks of the [persistence](#persistence), which also measure 3D.
 
 The linear scan is the reference: every new index is compared with it.
@@ -143,6 +146,11 @@ nohup ./bench.sh run --plan plans/index-comparison-full.json > plan.log 2>&1 &
 snapshots](#commits-and-snapshots)) with the linear scan, the uniform grid and
 the grid of quadtrees, in one report. It takes about 10-15 minutes.
 
+`buffered-writes.json` measures the writes kept in the writer (see [Writes
+kept in the writer](#writes-kept-in-the-writer)): the commit of large batches
+through the buffer, and the memory of the buffer. It takes about 15-20
+minutes.
+
 `persistence-cost-quick.json` and `persistence-cost-full.json` measure the costs
 of the [persistence](#persistence) in 2D and 3D, in one report. The quick one
 takes about 10 minutes, the full one about 1 hour.
@@ -160,6 +168,7 @@ takes about 10 minutes, the full one about 1 hour.
 | `PartitionBenchmark.findNearest` | k-nearest query. | µs per call |
 | `Footprint.bytesPerEntity` | Memory used by the partition, storage and index together. | bytes per entity |
 | `CommitBenchmark.commitTick` | A tick of the writer: move a fraction of the entities, commit and move the tick. | µs per call |
+| `CommitBenchmark.commitTickWithTheWriter` | The same tick through the buffer of the writer (`PendingWrites2`), which sends the moves in one batch. | µs per call |
 | `CommitBenchmark.movesWithoutCommit` | The same moves without a commit, the reference for `commitTick`. | µs per call |
 | `CommitBenchmark.acquireAndRelease` | Acquire the latest snapshot and release it. | µs per call |
 | `PersistenceBenchmark2.copy`, `PersistenceBenchmark3.copy` | Copy the published snapshot for a save. | ms per call |
@@ -167,6 +176,7 @@ takes about 10 minutes, the full one about 1 hour.
 | `PersistenceBenchmark2.load`, `PersistenceBenchmark3.load` | Load a save into a new partition. | ms per call |
 | `PersistenceSizes2.fileBytes`, `PersistenceSizes3.fileBytes` | Size of the save file, in total and per entity (`fileBytesPerEntity`). | bytes |
 | `PersistenceSizes2.copyBytes`, `PersistenceSizes3.copyBytes` | Memory kept by the copy of the snapshot, in total and per entity (`copyBytesPerEntity`). An estimate. | bytes |
+| `BufferSizes.bytesPerEntity` | Memory of the buffer of the writes with a set of each entity, and its metadata with `FIXED`. An estimate. | bytes per entity |
 
 Lower is always better.
 
@@ -190,6 +200,23 @@ With `readers` greater than 0, some threads, not measured, keep acquiring the
 latest snapshot, asking it for the 10 entities nearest to a point and
 releasing it: they keep snapshots alive, so the commits find fewer buffers in
 the pool, and they compete with the writer.
+
+### Writes kept in the writer
+
+The writer keeps its writes in a buffer and sends them to the node in one batch
+at the commit. `CommitBenchmark.commitTickWithTheWriter` makes the tick of
+`commitTick` through the buffer: the difference is the cost of the buffer and of
+the batch. The commit holds the lock of the partition while it applies the batch
+and prepares the snapshot, so a move of the tick that arrives meanwhile waits up
+to the time of `commitTick`, which also measures the move of the tick. With
+`movingFraction` 1 and `size` 1000000 the batch has a million entities.
+
+`BufferSizes.bytesPerEntity` measures the memory of the buffer before the
+commit, like `Footprint`: the heap with the buffer minus the heap before it,
+after a garbage collection. The entities and the metadata writes exist before
+the buffer, so only the composition by entity counts. Like the benchmarks of
+the commits, it runs only with an include pattern, for example
+`--include BufferSizes`, and it takes the parameters `size` and `metadata`.
 
 ### Persistence
 
@@ -294,9 +321,9 @@ mvn -f .. install -DskipTests
 | `shape` | findInRegion | `BOX` | `BOX`, `CIRCLE` |
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | the same |
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
-| `movingFraction` | commitTick, movesWithoutCommit | 0, 0.01, 0.1, 1 | the same |
-| `readers` | commitTick, movesWithoutCommit, acquireAndRelease | 0, 2 | the same |
-| `metadata` | persistence | `NONE`, `FIXED` | the same |
+| `movingFraction` | commitTick, commitTickWithTheWriter, movesWithoutCommit | 0, 0.01, 0.1, 1 | the same |
+| `readers` | commitTick, commitTickWithTheWriter, movesWithoutCommit, acquireAndRelease | 0, 2 | the same |
+| `metadata` | persistence, BufferSizes | `NONE`, `FIXED` | the same |
 
 An index name gives the index and its parameters:
 

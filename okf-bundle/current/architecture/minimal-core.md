@@ -4,7 +4,7 @@ title: "Nucleo delle partizioni"
 description: "Garanzie e principi del livello base già presenti: proprietà, scritture, commit, tempo logico, snapshot, rimozione e persistenza."
 tags: [badspace, documentation]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:21:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:44:48Z }
 ---
 
 # Criterio
@@ -38,6 +38,7 @@ coordinamento usando l’[API](/current/api/components.md).
 | Rimozione | Letture storiche conservate fino alla fine della finestra e degli utilizzi | [Rimozione](/current/architecture/partition-removal.md) |
 | Persistenza | Copia autonoma e salvataggio di uno snapshot; caricamento in una nuova partizione | [Persistenza](/current/decisions/persistence.md) |
 
-Le scritture, i commit e l’avanzamento del tick della stessa partizione
-sono ordinati da un lock per partizione. I reader non prendono quel lock
+Le scritture restano nel writer fino al commit; i commit, i cambi di
+proprietà e l’avanzamento del tick della stessa partizione sono ordinati
+da un lock per partizione. I reader non prendono quel lock
 e non bloccano il writer. Writer di partizioni diverse lavorano indipendentemente.

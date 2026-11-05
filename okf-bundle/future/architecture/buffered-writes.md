@@ -4,7 +4,7 @@ title: "Scritture accumulate nel writer"
 description: "Parti ancora da fare del refactoring delle scritture accumulate: fallimenti sul batch, stato del buffer, misure ed esiti remoti."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-05T13:14:33Z
+timestamp: 2026-11-05T13:45:51Z
 ---
 
 # Stato e obiettivo
@@ -22,8 +22,10 @@ Sono definiti anche lo stato del buffer dopo successo, rifiuto e
 fallimento, uguale a quello delle scritture inviate una alla volta, e il
 rapporto con il recupero sul nodo (vedi
 [stato del buffer](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)).
-Restano da fare le misure di memoria e di durata del commit e il
-protocollo remoto degli esiti.
+Le prime [misure](/current/architecture/partition-commit.md#costi-del-buffer-e-del-commit)
+di memoria del buffer e di durata del commit sono fatte con il profilo
+rapido. Restano da fare il profilo completo, le decisioni su limiti e
+ottimizzazioni che ne seguono, e il protocollo remoto degli esiti.
 
 Il software legge uno snapshot, esegue la propria logica e costruisce le
 scritture, come descritto nelle
@@ -31,6 +33,31 @@ scritture, come descritto nelle
 non legge lo stato mutabile attraverso l'esito di una scrittura.
 Lo snapshot letto può non comprendere commit ancora pending, anche di un
 precedente proprietario; il refactoring non introduce letture del pending.
+
+# Costi da valutare
+
+Le misure con il profilo rapido mostrano tre costi da valutare:
+
+- **Memoria del buffer**, circa 230 byte per entità con le sole `set`:
+  ogni modifica ha un oggetto e due mappe dei metadati create subito, e
+  la mappa per ID usa chiavi `Long`. Mappe create alla prima scrittura
+  dei metadati, o strutture di primitivi, la ridurrebbero.
+- **Tempo del buffer**, circa 90–300 ns per entità scritta, che con
+  batch grandi porta il tick dal writer a 1,2–2 volte il tick con le
+  scritture date direttamente allo storage.
+- **Durata del lock**, uguale a tutto il commit del batch: un
+  avanzamento del tick aspetta l'intero batch. Un limite alla dimensione
+  dei batch, o un'applicazione del batch fuori dal lock seguita da uno
+  scambio sotto il lock, la ridurrebbero; la prima scelta toglie
+  l'atomicità dei batch divisi, la seconda richiede di progettare la
+  preparazione su una copia dello stato.
+
+Un primo lancio del piano si è fermato per un crash della JVM: un
+`SIGSEGV` nel codice compilato da C2 (OSR) di `WriteBuffer2.changes()`,
+con OpenJDK 25.0.2, con 1 000 000 di entità tutte in movimento nella
+grid uniforme. Il prototipo non usa codice nativo né `Unsafe`, e il
+secondo lancio, con lo stesso codice, è arrivato in fondo: va verificato
+se si ripete, per esempio con un'altra versione del JDK.
 
 # Rifiuti ed esiti
 

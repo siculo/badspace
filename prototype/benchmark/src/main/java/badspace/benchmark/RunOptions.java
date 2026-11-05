@@ -49,7 +49,7 @@ record RunOptions(
     void check() {
         params.forEach(BenchmarkParams::check);
         if (buildBenchmarks().isEmpty() && operationBenchmarks().isEmpty() && !measuresFootprint()
-                && persistenceBenchmarks().isEmpty() && persistenceSizes().isEmpty()) {
+                && !measuresBufferSizes() && persistenceBenchmarks().isEmpty() && persistenceSizes().isEmpty()) {
             throw new IllegalArgumentException("No benchmark matches: " + include);
         }
         if (usesSaveDirectory() && Files.exists(saveDirectory) && !Files.isDirectory(saveDirectory)) {
@@ -100,6 +100,15 @@ record RunOptions(
     /** Returns true if the run writes files in {@link #saveDirectory}. */
     boolean usesSaveDirectory() {
         return !persistenceBenchmarks().isEmpty() || !persistenceSizes().isEmpty();
+    }
+
+    /**
+     * Returns true if the run measures the memory of the buffer of the writes. Like the
+     * benchmarks of the commits, it runs only when the options give an include pattern that
+     * matches it.
+     */
+    boolean measuresBufferSizes() {
+        return !include.pattern().isEmpty() && include.matcher(BufferSizes.BENCHMARK).find();
     }
 
     boolean measuresFootprint() {

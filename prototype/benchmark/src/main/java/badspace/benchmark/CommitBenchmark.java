@@ -6,6 +6,7 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.EntityWrite2;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.PendingWrites2;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.service.partition.NodeWrites;
 import java.util.ArrayList;
@@ -91,6 +92,10 @@ public class CommitBenchmark {
 
         List<EntityWrite2> moved;
         List<EntityWrite2> original;
+        // The same moves as entities, for the writes through the buffer of the writer.
+        List<Entity2> movedEntities;
+        List<Entity2> originalEntities;
+        PendingWrites2 pending;
         boolean movedBack = true;
 
         @Override
@@ -99,11 +104,19 @@ public class CommitBenchmark {
                 throw new IllegalArgumentException("Moving fraction is not between 0 and 1: " + movingFraction);
             }
             int count = (int) Math.round(size * movingFraction);
-            List<Entity2> entities = List.copyOf(shuffledEntities().subList(0, count));
-            original = NodeWrites.sets(entities);
-            moved = NodeWrites.sets(entities.stream()
+            originalEntities = List.copyOf(shuffledEntities().subList(0, count));
+            movedEntities = originalEntities.stream()
                     .map(e -> new Entity2(e.id(), Movement.LOCAL.move(e.position(), STEP, workload, random)))
-                    .toList());
+                    .toList();
+            original = NodeWrites.sets(originalEntities);
+            moved = NodeWrites.sets(movedEntities);
+            pending = new PendingWrites2(node, WRITE_TOKEN, node.limits(PARTITION_ID));
+        }
+
+        /** Returns the moves of the next tick as entities, like {@link #nextMoves()}. */
+        List<Entity2> nextMovedEntities() {
+            movedBack = !movedBack;
+            return movedBack ? originalEntities : movedEntities;
         }
 
         /** Returns the moves of the next tick: the moved positions, then the original ones, and so on. */
@@ -122,6 +135,19 @@ public class CommitBenchmark {
     public void commitTick(TickState s) {
         move(s);
         NodeWrites.commit(s.node, WorkloadState.WRITE_TOKEN);
+        s.node.setTick(++s.tick);
+    }
+
+    /**
+     * The same tick as {@link #commitTick}, through the buffer of the writer: the moves go to
+     * a {@link PendingWrites2} and the commit sends them to the node in one batch, as the
+     * writer handle of the API does. The difference from commitTick is the cost of the buffer
+     * and of the batch.
+     */
+    @Benchmark
+    public void commitTickWithTheWriter(TickState s) {
+        s.pending.setAll(s.nextMovedEntities());
+        s.pending.commit();
         s.node.setTick(++s.tick);
     }
 

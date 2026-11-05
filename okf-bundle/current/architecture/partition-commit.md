@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:14:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:44:48Z }
 ---
 
 # Primitiva
@@ -258,6 +258,53 @@ scrittura, e non basterebbe comunque: proprietà e salute possono
 cambiare tra la scrittura e il commit, che deve controllarle di nuovo.
 Il writer che vuole saperlo prima può leggere `ownership()` e
 `health()` della partizione.
+
+### Costi del buffer e del commit
+
+Il piano `plans/buffered-writes.json` del modulo di benchmark misura un
+tick con spostamenti, commit e avanzamento del tick in tre modi: gli
+spostamenti scritti direttamente nello storage (`commitTick`), lo
+stesso tick attraverso il buffer del writer (`commitTickWithTheWriter`)
+e gli spostamenti da soli (`movesWithoutCommit`); misura anche la
+memoria del buffer (`BufferSizes`).
+
+Risultati del 2026-11-05 sulla macchina dedicata, profilo rapido, codice
+del commit `cd4422a` con i benchmark del buffer non ancora committati
+(`prototype/benchmark/results/2026-11-05-1452-*`), distribuzione
+uniforme, senza reader, in millisecondi per tick:
+
+| Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer |
+|---|---|---|---|---|
+| Scansione lineare, 100 000 | 100% | 8,6 | 9,2 | 18,1 |
+| Scansione lineare, 1 000 000 | 1% | 0,8 | 1,6 | 2,4 |
+| Scansione lineare, 1 000 000 | 10% | 20 | 24 | 41 |
+| Scansione lineare, 1 000 000 | 100% | 279 | 282 | 490 |
+| Grid uniforme 100, 1 000 000 | 100% | 339 | 371 | 594 |
+| Griglia di quadtree 128, 1 000 000 | 1% | 2,5 | 5,3 | 7,0 |
+| Griglia di quadtree 128, 1 000 000 | 100% | 599 | 672 | 963 |
+
+- **Il buffer costa circa 90–300 ns per entità scritta**, la
+  differenza tra il tick dal writer e il tick: il tick dal writer dura
+  da 1,2 a 2 volte il tick, di più con la scansione lineare, dove il
+  resto del tick costa meno. Il costo viene dalla mappa per ID, dagli
+  oggetti di ogni modifica e dalla lista del batch.
+- **Il buffer occupa circa 230–240 byte per entità** con le sole `set`,
+  e circa 470–480 con 4 metadati per entità, in aggiunta alle entità e
+  alle scritture che il writer ha già costruito. Il valore non cambia
+  tra 1000 e 1 000 000 di entità.
+- **Il commit tiene il lock per tutto il batch.** Applicazione del batch
+  e preparazione dello snapshot avvengono sotto il lock della
+  partizione, quindi un avanzamento del tick che arriva durante un
+  commit aspetta fino alla durata del tick misurato: circa 0,3 s con
+  1 000 000 di entità tutte in movimento nella scansione lineare, 0,7 s
+  nella griglia di quadtree, pochi millisecondi con l'1%. Con le
+  scritture inviate una alla volta il lock si prendeva a ogni chiamata, e
+  l'avanzamento poteva passare tra una scrittura e l'altra; ora aspetta
+  il batch intero, in cambio di un batch atomico rispetto al tick.
+
+Il profilo completo è da fare con lo stesso piano. Batch così grandi su una sola partizione sono
+un caso limite: di solito le entità si dividono su più partizioni, e il
+costo per partizione scende di conseguenza.
 
 ## Sequenza dei commit
 

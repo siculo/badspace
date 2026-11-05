@@ -111,6 +111,18 @@ class BenchmarkPlanTest {
     }
 
     @Test
+    void bufferSizesRunOnlyWhenTheIncludePatternChoosesThem() {
+        BenchmarkPlan plan = BenchmarkPlan.parse("""
+                { "groups": [ { "runs": [
+                  { "name": "default" },
+                  { "name": "buffer", "include": "BufferSizes" }
+                ] } ] }
+                """, DATE);
+        assertFalse(plan.groups().get(0).runs().get(0).measuresBufferSizes());
+        assertTrue(plan.groups().get(0).runs().get(1).measuresBufferSizes());
+    }
+
+    @Test
     void commitBenchmarksRunOnlyWhenTheIncludePatternChoosesThem() {
         BenchmarkPlan plan = BenchmarkPlan.parse("""
                 { "groups": [ { "runs": [
@@ -124,6 +136,7 @@ class BenchmarkPlanTest {
         assertTrue(defaults.stream().noneMatch(name -> name.startsWith(CommitBenchmark.class.getName())));
         assertEquals(List.of(CommitBenchmark.class.getName() + ".acquireAndRelease",
                         CommitBenchmark.class.getName() + ".commitTick",
+                        CommitBenchmark.class.getName() + ".commitTickWithTheWriter",
                         CommitBenchmark.class.getName() + ".movesWithoutCommit"),
                 plan.groups().get(0).runs().get(1).operationBenchmarks());
         assertEquals(List.of(CommitBenchmark.class.getName() + ".acquireAndRelease"),

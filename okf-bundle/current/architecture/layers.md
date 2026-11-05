@@ -4,7 +4,7 @@ title: "Architettura a livelli"
 description: "Software, API pubblica e nodi locali del prototipo Java: responsabilità, dipendenze e organizzazione dei moduli."
 tags: [badspace, documentation]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T13:44:48Z }
 ---
 
 # Livelli
@@ -126,8 +126,8 @@ dei loro dati; tutti i componenti sono nello stesso processo.
 
 Il proxy `Partition2` o `Partition3` conosce nodo e ID della partizione;
 il software usa il nome pubblico della partizione. Il contratto
-`PartitionNode2`/`PartitionNode3` riceve ID, token di scrittura e
-identificatori delle acquisizioni. Il nodo si fida dell’univocità degli
+`PartitionNode2`/`PartitionNode3` riceve ID, token di scrittura,
+batch delle scritture al commit e identificatori delle acquisizioni. Il nodo si fida dell’univocità degli
 ID generati dall’API e non verifica quelli presenti su altri nodi.
 
 Il diagramma seguente mostra i riferimenti fra gli oggetti dell’API per

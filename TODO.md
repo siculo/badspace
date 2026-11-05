@@ -206,7 +206,7 @@ Direzione concordata nel [bundle](okf-bundle/future/architecture/buffered-writes
 - [x] Accumulare le modifiche nell'handle del writer, senza chiamate al nodo fino al commit; sostituire nel contratto del nodo le singole scritture con un commit che riceve token e batch, applicato alla base confermata anche se pending, con una sola chiamata anche sul nodo locale; controlli locali e definitivi sul nodo, commit vuoti e più commit cumulativi nello stesso tick
 - [x] Adattare applicazione atomica, preparazione degli snapshot, ripristino e segnalazioni dei fallimenti al batch; verificare rifiuti senza modifiche, fallimenti senza perdita del pending precedente e recupero necessario, oltre alla concorrenza con tick e cambio di proprietà
 - [x] Adattare rollback, close, claim e release al buffer locale; definire lo stato del buffer dopo successo, rifiuto e fallimento certo, mantenendo il recupero sul nodo; verificare scarto locale, token superati e assenza di scritture residue sul nodo tra i commit
-- [ ] Migrare test di integrazione, esempi e benchmark; misurare memoria del buffer, costo del commit e ritardo dell'avanzamento del tick con batch grandi; completare documentazione di API, commit, proprietà, fallimenti, metadati, ID, glossari, casi d'uso e indici, spostando in `current/` solo quanto verificato sul codice
+- [x] Migrare test di integrazione, esempi e benchmark; misurare memoria del buffer, costo del commit e ritardo dell'avanzamento del tick con batch grandi; completare documentazione di API, commit, proprietà, fallimenti, metadati, ID, glossari, casi d'uso e indici, spostando in `current/` solo quanto verificato sul codice
 
 <a id="fare-grpc"></a>
 ### Nodo gRPC [↑](#blocchi)
