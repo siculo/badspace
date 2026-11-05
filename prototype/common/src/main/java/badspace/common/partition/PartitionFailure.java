@@ -12,7 +12,7 @@ import java.util.Objects;
  *
  * @param operation the operation that failed
  * @param component the structure where the failure happened, or {@link PartitionComponent#UNKNOWN}
- * @param outcome whether the writes not committed are discarded or the partition needs a recovery
+ * @param outcome whether the partition is back at the last commit or needs a recovery
  * @param baseTick the tick of the last commit, the state that the partition keeps; for a
  *        partition without commits, its creation tick. More commits in the same tick have the
  *        same base tick.

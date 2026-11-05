@@ -4,12 +4,21 @@ title: "Metadati di sistema ed estensioni"
 description: "Epoca, stato, destinazione, tombstone e condizioni richieste dai protocolli futuri; estensioni ancora aperte dei metadati."
 tags: [badspace, documentation]
 status: draft
+timestamp: 2026-11-05T08:21:18Z
 generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
 ---
 
 # Stato
 
-I metadati di sistema e le tombstone non sono implementati. Il prototipo offre i [metadati applicativi](/future/architecture/entity-metadata.md).
+I metadati di sistema e le tombstone non sono implementati. Il prototipo offre i [metadati applicativi](/current/architecture/entity-metadata.md).
+
+Il [refactoring concordato delle scritture](/future/architecture/buffered-writes.md)
+ha eliminato le conditional writes dall'API e dal contratto del nodo. Le ipotesi
+su condizioni atomiche e loro collocazione descritte sotto appartengono al
+progetto precedente della migrazione: vanno riesaminate quando si introdurrà
+quel protocollo. Non costituiscono una decisione di reintrodurre le primitive
+eliminate. La lettura di uno snapshot da sola non garantisce le stesse
+precondizioni sullo stato più recente.
 
 # Primitiva
 
@@ -84,8 +93,8 @@ con queste operazioni:
 
 - Nomi e firme delle chiamate dell'API dei metadati che ancora non ci
   sono (metadati di sistema, condizioni sui metadati di sistema,
-  tombstone): si definiscono con lo sviluppo del prototipo. Lettura,
-  scrittura e scritture condizionate dei metadati applicativi sono [nel
+  tombstone): si definiscono con lo sviluppo del prototipo. Lettura e
+  scrittura dei metadati applicativi sono [nel
   prototipo](/current/architecture/entity-metadata.md#nel-prototipo).
 
 # Condizioni sui dati di sistema

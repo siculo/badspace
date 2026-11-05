@@ -28,6 +28,7 @@
         <module>batch-writes</module>
         <module>commits-and-ticks</module>
         <module>writer-rollback</module>
+        <module>write-modes</module>
         <module>snapshot-queries</module>
         <module>snapshot-isolation</module>
         <module>snapshot-retention</module>
@@ -36,7 +37,7 @@
         <module>ownership-handoff</module>
         <module>partition-removal</module>
         <module>entity-metadata</module>
-        <module>conditional-writes</module>
+        <module>snapshot-decisions</module>
         <module>save-and-load</module>
         <module>save-management</module>
         <module>concurrent-reader-writer</module>

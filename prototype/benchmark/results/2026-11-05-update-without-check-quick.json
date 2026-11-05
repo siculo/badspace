@@ -1,0 +1,734 @@
+[
+{
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "1",
+            "distribution" : "UNIFORM",
+            "index" : "LINEAR_SCAN",
+            "movement" : "LOCAL",
+            "size" : "100000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 0.032881839516625086,
+            "scoreError" : 0.014038508490799713,
+            "scoreConfidence" : [
+                0.018843331025825374,
+                0.0469203480074248
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.032379208964223534,
+                "50.0" : 0.03249860841904044,
+                "90.0" : 0.03376770116661128,
+                "95.0" : 0.03376770116661128,
+                "99.0" : 0.03376770116661128,
+                "99.9" : 0.03376770116661128,
+                "99.99" : 0.03376770116661128,
+                "99.999" : 0.03376770116661128,
+                "99.9999" : 0.03376770116661128,
+                "100.0" : 0.03376770116661128
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    0.032379208964223534,
+                    0.03249860841904044,
+                    0.03376770116661128
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "1",
+            "distribution" : "UNIFORM",
+            "index" : "LINEAR_SCAN",
+            "movement" : "LOCAL",
+            "size" : "1000000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 0.03449834671094946,
+            "scoreError" : 0.005340506897067794,
+            "scoreConfidence" : [
+                0.029157839813881665,
+                0.039838853608017255
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.03417782779481651,
+                "50.0" : 0.034565642326816505,
+                "90.0" : 0.03475157001121536,
+                "95.0" : 0.03475157001121536,
+                "99.0" : 0.03475157001121536,
+                "99.9" : 0.03475157001121536,
+                "99.99" : 0.03475157001121536,
+                "99.999" : 0.03475157001121536,
+                "99.9999" : 0.03475157001121536,
+                "100.0" : 0.03475157001121536
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    0.03417782779481651,
+                    0.03475157001121536,
+                    0.034565642326816505
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "1",
+            "distribution" : "UNIFORM",
+            "index" : "UNIFORM_GRID_100",
+            "movement" : "LOCAL",
+            "size" : "100000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 0.050843248207901696,
+            "scoreError" : 0.010544148804731032,
+            "scoreConfidence" : [
+                0.04029909940317067,
+                0.061387397012632725
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.05033863143292374,
+                "50.0" : 0.05071732435377262,
+                "90.0" : 0.05147378883700872,
+                "95.0" : 0.05147378883700872,
+                "99.0" : 0.05147378883700872,
+                "99.9" : 0.05147378883700872,
+                "99.99" : 0.05147378883700872,
+                "99.999" : 0.05147378883700872,
+                "99.9999" : 0.05147378883700872,
+                "100.0" : 0.05147378883700872
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    0.05033863143292374,
+                    0.05071732435377262,
+                    0.05147378883700872
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "1",
+            "distribution" : "UNIFORM",
+            "index" : "UNIFORM_GRID_100",
+            "movement" : "LOCAL",
+            "size" : "1000000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 0.0485600304944464,
+            "scoreError" : 0.03715633139583512,
+            "scoreConfidence" : [
+                0.011403699098611275,
+                0.08571636189028152
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.04680640460221339,
+                "50.0" : 0.04807978890104878,
+                "90.0" : 0.050793897980077024,
+                "95.0" : 0.050793897980077024,
+                "99.0" : 0.050793897980077024,
+                "99.9" : 0.050793897980077024,
+                "99.99" : 0.050793897980077024,
+                "99.999" : 0.050793897980077024,
+                "99.9999" : 0.050793897980077024,
+                "100.0" : 0.050793897980077024
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    0.04807978890104878,
+                    0.050793897980077024,
+                    0.04680640460221339
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "1",
+            "distribution" : "UNIFORM",
+            "index" : "GRID_QUADTREE_128",
+            "movement" : "LOCAL",
+            "size" : "100000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 0.11017455877942463,
+            "scoreError" : 0.03670929636527295,
+            "scoreConfidence" : [
+                0.07346526241415167,
+                0.1468838551446976
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.10825371153848236,
+                "50.0" : 0.1100029272342102,
+                "90.0" : 0.11226703756558133,
+                "95.0" : 0.11226703756558133,
+                "99.0" : 0.11226703756558133,
+                "99.9" : 0.11226703756558133,
+                "99.99" : 0.11226703756558133,
+                "99.999" : 0.11226703756558133,
+                "99.9999" : 0.11226703756558133,
+                "100.0" : 0.11226703756558133
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    0.1100029272342102,
+                    0.11226703756558133,
+                    0.10825371153848236
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "1",
+            "distribution" : "UNIFORM",
+            "index" : "GRID_QUADTREE_128",
+            "movement" : "LOCAL",
+            "size" : "1000000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 0.12042722539541217,
+            "scoreError" : 0.02119175665137272,
+            "scoreConfidence" : [
+                0.09923546874403946,
+                0.14161898204678489
+            ],
+            "scorePercentiles" : {
+                "0.0" : 0.11974660601305036,
+                "50.0" : 0.11976660392134322,
+                "90.0" : 0.1217684662518429,
+                "95.0" : 0.1217684662518429,
+                "99.0" : 0.1217684662518429,
+                "99.9" : 0.1217684662518429,
+                "99.99" : 0.1217684662518429,
+                "99.999" : 0.1217684662518429,
+                "99.9999" : 0.1217684662518429,
+                "100.0" : 0.1217684662518429
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    0.1217684662518429,
+                    0.11974660601305036,
+                    0.11976660392134322
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "distribution" : "UNIFORM",
+            "index" : "LINEAR_SCAN",
+            "movement" : "LOCAL",
+            "size" : "100000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 2.6866717581946222,
+            "scoreError" : 0.18463346930558,
+            "scoreConfidence" : [
+                2.5020382888890422,
+                2.8713052275002022
+            ],
+            "scorePercentiles" : {
+                "0.0" : 2.679308799657121,
+                "50.0" : 2.6824943385094002,
+                "90.0" : 2.6982121364173453,
+                "95.0" : 2.6982121364173453,
+                "99.0" : 2.6982121364173453,
+                "99.9" : 2.6982121364173453,
+                "99.99" : 2.6982121364173453,
+                "99.999" : 2.6982121364173453,
+                "99.9999" : 2.6982121364173453,
+                "100.0" : 2.6982121364173453
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    2.6982121364173453,
+                    2.6824943385094002,
+                    2.679308799657121
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "distribution" : "UNIFORM",
+            "index" : "LINEAR_SCAN",
+            "movement" : "LOCAL",
+            "size" : "1000000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 3.579291924179376,
+            "scoreError" : 0.15462251768991203,
+            "scoreConfidence" : [
+                3.424669406489464,
+                3.7339144418692882
+            ],
+            "scorePercentiles" : {
+                "0.0" : 3.5733130769670467,
+                "50.0" : 3.5755714939405854,
+                "90.0" : 3.5889912016304972,
+                "95.0" : 3.5889912016304972,
+                "99.0" : 3.5889912016304972,
+                "99.9" : 3.5889912016304972,
+                "99.99" : 3.5889912016304972,
+                "99.999" : 3.5889912016304972,
+                "99.9999" : 3.5889912016304972,
+                "100.0" : 3.5889912016304972
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    3.5755714939405854,
+                    3.5889912016304972,
+                    3.5733130769670467
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "distribution" : "UNIFORM",
+            "index" : "UNIFORM_GRID_100",
+            "movement" : "LOCAL",
+            "size" : "100000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 5.454742907183512,
+            "scoreError" : 0.32456285186470674,
+            "scoreConfidence" : [
+                5.130180055318805,
+                5.779305759048219
+            ],
+            "scorePercentiles" : {
+                "0.0" : 5.4371231762736185,
+                "50.0" : 5.454406373676694,
+                "90.0" : 5.472699171600223,
+                "95.0" : 5.472699171600223,
+                "99.0" : 5.472699171600223,
+                "99.9" : 5.472699171600223,
+                "99.99" : 5.472699171600223,
+                "99.999" : 5.472699171600223,
+                "99.9999" : 5.472699171600223,
+                "100.0" : 5.472699171600223
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    5.454406373676694,
+                    5.4371231762736185,
+                    5.472699171600223
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "distribution" : "UNIFORM",
+            "index" : "UNIFORM_GRID_100",
+            "movement" : "LOCAL",
+            "size" : "1000000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 6.85357992466113,
+            "scoreError" : 0.5133740417886169,
+            "scoreConfidence" : [
+                6.340205882872513,
+                7.3669539664497465
+            ],
+            "scorePercentiles" : {
+                "0.0" : 6.8270423048570725,
+                "50.0" : 6.850611051752007,
+                "90.0" : 6.88308641737431,
+                "95.0" : 6.88308641737431,
+                "99.0" : 6.88308641737431,
+                "99.9" : 6.88308641737431,
+                "99.99" : 6.88308641737431,
+                "99.999" : 6.88308641737431,
+                "99.9999" : 6.88308641737431,
+                "100.0" : 6.88308641737431
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    6.8270423048570725,
+                    6.850611051752007,
+                    6.88308641737431
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "distribution" : "UNIFORM",
+            "index" : "GRID_QUADTREE_128",
+            "movement" : "LOCAL",
+            "size" : "100000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 14.726547139136422,
+            "scoreError" : 6.335191255412108,
+            "scoreConfidence" : [
+                8.391355883724312,
+                21.06173839454853
+            ],
+            "scorePercentiles" : {
+                "0.0" : 14.396889582733813,
+                "50.0" : 14.69369128620953,
+                "90.0" : 15.089060548465925,
+                "95.0" : 15.089060548465925,
+                "99.0" : 15.089060548465925,
+                "99.9" : 15.089060548465925,
+                "99.99" : 15.089060548465925,
+                "99.999" : 15.089060548465925,
+                "99.9999" : 15.089060548465925,
+                "100.0" : 15.089060548465925
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    14.396889582733813,
+                    15.089060548465925,
+                    14.69369128620953
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    },
+    {
+        "commit" : "2971eb909a9b-dirty",
+        "environment" : {"os" : "Linux 5.15.0-198-generic", "arch" : "amd64", "processors" : "12"},
+        "jmhVersion" : "1.37",
+        "benchmark" : "badspace.benchmark.PartitionBenchmark.update",
+        "mode" : "avgt",
+        "threads" : 1,
+        "forks" : 1,
+        "jvm" : "java",
+        "jvmArgs" : [
+            "--sun-misc-unsafe-memory-access=allow",
+            "--sun-misc-unsafe-memory-access=allow"
+        ],
+        "jdkVersion" : "25.0.2",
+        "vmName" : "OpenJDK 64-Bit Server VM",
+        "vmVersion" : "25.0.2+10-69",
+        "warmupIterations" : 2,
+        "warmupTime" : "500 ms",
+        "warmupBatchSize" : 1,
+        "measurementIterations" : 3,
+        "measurementTime" : "500 ms",
+        "measurementBatchSize" : 1,
+        "params" : {
+            "batchSize" : "100",
+            "distribution" : "UNIFORM",
+            "index" : "GRID_QUADTREE_128",
+            "movement" : "LOCAL",
+            "size" : "1000000",
+            "step" : "10"
+        },
+        "primaryMetric" : {
+            "score" : 21.270415861135145,
+            "scoreError" : 2.87223084700688,
+            "scoreConfidence" : [
+                18.398185014128266,
+                24.142646708142024
+            ],
+            "scorePercentiles" : {
+                "0.0" : 21.10240687763713,
+                "50.0" : 21.294286839192985,
+                "90.0" : 21.414553866575318,
+                "95.0" : 21.414553866575318,
+                "99.0" : 21.414553866575318,
+                "99.9" : 21.414553866575318,
+                "99.99" : 21.414553866575318,
+                "99.999" : 21.414553866575318,
+                "99.9999" : 21.414553866575318,
+                "100.0" : 21.414553866575318
+            },
+            "scoreUnit" : "us/op",
+            "rawData" : [
+                [
+                    21.294286839192985,
+                    21.10240687763713,
+                    21.414553866575318
+                ]
+            ]
+        },
+        "secondaryMetrics" : {
+        }
+    }
+]

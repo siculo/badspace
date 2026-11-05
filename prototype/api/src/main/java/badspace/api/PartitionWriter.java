@@ -6,10 +6,19 @@ import java.util.List;
 
 /**
  * Operations shared by the writer handles of 2D and 3D partitions. A writer handle carries the
- * {@link WriteToken} of the owner of a partition, and every write, commit and removal goes to
- * the node with it: if the ownership changed after the token was given, they fail with
- * {@code OwnershipChangedException} and the partition does not change. The operations that
- * depend on the number of dimensions, like insert and update, are only in PartitionWriter2 and
+ * {@link WriteToken} of the owner of a partition. The {@linkplain
+ * badspace.common.partition.WriteMode write mode} of the node of the partition decides when the
+ * writes reach the node: in the direct mode, the mode of a node in the same process, each write
+ * goes to the node at once and the commit confirms them; in the buffered mode, the mode of a
+ * remote node, the writes stay in the handle, composed by entity, and the commit sends them to
+ * the node in one call, unless a {@link #flush()} sends them before. The two modes give the
+ * same results: the writes apply in their order to the last commit of the partition, and the
+ * same writes make the same commits. The writes, the
+ * commit and the removal go to the node with the token: if the ownership changed after the token
+ * was given, they fail with {@code OwnershipChangedException} and the partition does not change.
+ * The only difference between the modes is when this check, and the one of the state of the
+ * partition, happen: in the direct mode at each write, with the buffer at the commit. The operations that
+ * depend on the number of dimensions, like insert and set, are only in PartitionWriter2 and
  * PartitionWriter3. The application metadata of the entities do not depend on them, so their
  * writes are here. The handle has no reads: the writer reads the snapshots, like any reader.
  * <p>
@@ -22,25 +31,29 @@ public interface PartitionWriter extends AutoCloseable {
     /** Returns the token of the handle, for example to send it to another writer. */
     WriteToken token();
 
-    /** Removes an entity. Fails with NoSuchElementException if the ID is not in the partition. */
+    /**
+     * Removes an entity with its application metadata. If the ID is not in the partition, it
+     * does nothing. The ID can come back later with {@code set} of PartitionWriter2 and
+     * PartitionWriter3, as the same entity without the old metadata.
+     */
     void remove(long entityId);
 
     /**
-     * Removes many entities in one call. Fails with NoSuchElementException if an ID is not
-     * in the partition, and with IllegalArgumentException if an ID appears twice.
-     * If it fails, no entity is removed.
+     * Removes many entities in one call, like {@link #remove(long)} for each ID: the IDs not
+     * in the partition, also the ones that appear more than once, are skipped.
      */
     void removeAll(long[] entityIds);
 
     /**
-     * Sets a key of the application metadata of an entity to the value. Fails with
-     * NoSuchElementException if the ID is not in the partition.
+     * Sets a key of the application metadata of an entity to the value. If the entity is not
+     * in the partition, it does nothing: the write does not add the entity, also if a later
+     * {@code set} adds it.
      */
     void putMetadata(long entityId, String key, long value);
 
     /**
-     * Deletes a key of the application metadata of an entity; if the key has no value, it does
-     * nothing. Fails with NoSuchElementException if the ID is not in the partition.
+     * Deletes a key of the application metadata of an entity; if the key has no value or the
+     * entity is not in the partition, it does nothing.
      */
     void deleteMetadata(long entityId, String key);
 
@@ -48,38 +61,50 @@ public interface PartitionWriter extends AutoCloseable {
      * Writes the application metadata of many entities in one call: each write sets or deletes
      * one key of one entity, in the order of the list, so if more writes change the same key
      * the last one wins. The metadata are confirmed by the same commit as the positions.
-     * Removing an entity deletes its metadata. Fails with NoSuchElementException if an ID is not
-     * in the partition; in this case no metadata change.
+     * Removing an entity deletes its metadata. The writes on an entity not in the partition are
+     * skipped, like in {@link #putMetadata}.
      */
     void updateMetadataAll(List<MetadataWrite> writes);
 
     /**
-     * Sets a key of the application metadata of an entity to the value only if the key has
-     * the expected value now, with the writes not committed yet: a compare-and-set. Returns
-     * whether it set the value; if the key has another value or no value, nothing changes.
-     * Fails with NoSuchElementException if the ID is not in the partition. For more conditions
-     * and writes in one batch, {@code updateIf} of PartitionWriter2 and PartitionWriter3.
+     * Sends at once to the node the writes that the handle keeps, without confirming them: the
+     * next commit confirms them, and a rollback, a change of the ownership or a failure
+     * discards them, like the writes of the direct mode. With the buffer it lets the writer
+     * send its writes in pieces: the buffer keeps only the writes after the last flush, and
+     * each flush holds the lock of the partition only for its own piece, so a move of the
+     * tick can come between two flushes and publishes only the last commit. In the direct mode
+     * the writes are on the node already, and the flush does nothing. A rejected flush changes
+     * nothing and the writes stay, for example with OwnershipChangedException or
+     * IllegalStateException; a flush that fails after the checks, with
+     * PartitionFailureException or an Error, leaves the partition at the last commit and
+     * discards the writes.
      */
-    boolean compareAndSetMetadata(long entityId, String key, long expected, long value);
+    void flush();
 
     /**
-     * Confirms the writes in the current tick of the partition: the snapshot of the tick will
-     * have them.
-     * Each commit confirms the full current state, including the effects of earlier commits
-     * unless later writes change or remove them. Only the last commit of a tick defines its
-     * snapshot; readers cannot acquire the intermediate states. Writes after the last commit
-     * stay uncommitted and carry over to the next tick. A commit with no writes is valid.
-     * This call does not advance the tick, wait for the next tick or stop further writes
-     * in the same tick. The writer decides whether to wait before writing again.
-     * The snapshot becomes acquirable when the tick moves forward, with {@code acquire(tick)}
-     * and {@code acquireLatest()} of Partition2 and Partition3.
+     * Confirms the writes of the handle in the current tick of the partition: in the direct mode
+     * the node has them already, with the buffer the commit sends to the node the ones not
+     * flushed yet, and the node applies them to the last commit and confirms them in one step. The snapshot of the tick
+     * will have them. Each commit confirms the full state, including the effects of earlier
+     * commits unless the writes change or remove them. Only the last commit of a tick defines
+     * its snapshot; readers cannot acquire the intermediate states. The writes made before the
+     * commit can come from many ticks; the writes after it wait for the next commit. A commit
+     * with no writes is valid. This call does not advance the tick, wait for the next tick or
+     * stop further writes in the same tick. The writer decides whether to wait before writing
+     * again. The snapshot becomes acquirable when the tick moves forward, with
+     * {@code acquire(tick)} and {@code acquireLatest()} of Partition2 and Partition3. After the
+     * commit there are no writes to confirm. A rejected commit changes nothing and the writes
+     * stay, for example with OwnershipChangedException or IllegalStateException; a commit that
+     * fails after the checks, with PartitionFailureException or an Error, leaves the partition
+     * at the last commit and discards the writes. In the direct mode also a write that fails
+     * after the checks does so.
      */
     void commit();
 
     /**
-     * Discards the writes not committed: the state of the writer goes back to the last commit,
-     * also if the tick has not moved yet, and the commits stay confirmed. The writes of the
-     * ticks before are discarded too, and the writer keeps the ownership. It is also the
+     * Discards the writes that are not committed, also the ones of the ticks before: the
+     * handle discards the ones in its buffer, and the node goes back to the last commit. The
+     * commits stay confirmed and the writer keeps the ownership. It is also the
      * recovery of a partition whose {@code health()} says that it needs one: when the restore
      * works, the partition is healthy again. A rollback without writes after the last commit
      * does nothing. Fails with OwnershipChangedException if the ownership changed, with
@@ -101,8 +126,8 @@ public interface PartitionWriter extends AutoCloseable {
 
     /**
      * Removes the partition from its node, following its removal policy: the last operation of
-     * the writer. After this call the writes and the commits fail with IllegalStateException,
-     * and the writes not committed are discarded. The removal becomes effective at the next move
+     * the writer. The writes not committed are discarded, and after this call the writes and the
+     * commits fail with IllegalStateException. The removal becomes effective at the next move
      * of the tick; readers can still acquire the snapshots of the ticks before it while they are
      * in the retention window. Fails with IllegalStateException if the policy is REQUIRE_EMPTY
      * and the last commit has entities (in this case the partition does not change), or if the
@@ -111,8 +136,8 @@ public interface PartitionWriter extends AutoCloseable {
     void removePartition();
 
     /**
-     * Releases the ownership if the token of the handle is still the current one: the partition
-     * has no owner and the writes not committed are discarded. It does nothing if the ownership
+     * Discards the writes of the handle and releases the ownership if the token of the handle is
+     * still the current one: the partition has no owner. It does nothing if the ownership
      * already went to someone else, after the removal of the partition, after its destruction,
      * and when it is called again, so it never fails.
      */

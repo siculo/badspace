@@ -4,7 +4,7 @@ title: Concorrenza
 description: Concorrenza di BADSPACE risolta con un solo writer per partizione e più reader; il sistema nel suo insieme ha più writer senza lock granulari.
 tags: [badspace, design, concurrency, partitioning]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T15:17:58Z }
 ---
 
 # Opzioni considerate
@@ -28,7 +28,11 @@ con un numero di generazione che blocca i writer non più proprietari
 Le scritture sono raggruppate in [commit](/current/architecture/partition-commit.md)
 che non richiedono gestione dei conflitti tra writer validi.
 Il lock della partizione ordina comunque scritture, commit, cambi di
-proprietà e avanzamenti del tick.
+proprietà e avanzamenti del tick, ed è equo: un writer che fa commit uno
+dopo l'altro non passa davanti a un avanzamento del tick già in attesa,
+che aspetta al più la scrittura o il commit in corso. Le scritture
+arrivano alla partizione subito o con il commit, secondo la [modalità di
+scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura) del nodo.
 
 I reader non bloccano mai il writer: il writer non aspetta query,
 acquisizioni o persistenza. L'avanzamento del

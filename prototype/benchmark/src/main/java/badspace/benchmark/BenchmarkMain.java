@@ -201,6 +201,11 @@ public final class BenchmarkMain {
                     allParams.get("size").stream().map(Integer::valueOf).toList())
                     .forEach(f -> measures.add(f.toJson()));
         }
+        if (run.measuresBufferSizes()) {
+            measures.addAll(BufferSizes.measure(allParams.get("size").stream().map(Integer::valueOf).toList(),
+                    paramValues(allParams, "metadata", PersistenceBenchmark2.SourceState.class).stream()
+                            .map(MetadataSet::valueOf).toList()));
+        }
         if (run.usesSaveDirectory()) {
             measures.addAll(executePersistence(run, results));
         }

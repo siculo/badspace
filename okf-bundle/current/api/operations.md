@@ -4,7 +4,7 @@ title: "Contratto dell’API corrente"
 description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:31:55Z }
 ---
 
 # Contratto corrente
@@ -43,15 +43,14 @@ dai record avviene al confine con lo storage.
 |---|---|---|
 | Inserimento | `insert(Point)`, `insertAll(List<Point>)` | Sull'handle del writer; restituisce gli ID generati, nello stesso ordine delle posizioni; `insert(x, y[, z])` è una scorciatoia |
 | Lettura per ID | `get(id)`, `getAll(long[])` | Sulla view dello snapshot; `get` restituisce un `Optional`; `getAll` restituisce le entità nell'ordine degli ID e salta quelli assenti |
-| Aggiornamento | `update(id, Point)`, `updateAll(List<Entity>)` | Sull'handle del writer; cambia la posizione; se un ID compare più volte vale l'ultima posizione |
-| Rimozione | `remove(id)`, `removeAll(long[])` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter` |
+| Impostazione della posizione | `set(id, Point)`, `setAll(List<Entity>)` | Sull'handle del writer; un'entità presente si sposta e conserva i metadati applicativi, un'entità assente si aggiunge con lo stesso ID e senza metadati, anche dopo una rimozione; se un ID compare più volte vale l'ultima posizione. L'ID deve venire dal generatore delle entità (vedi [provenienza degli ID](/current/decisions/entity-ids.md#provenienza-degli-id-delle-entità)): una nuova entità riceve un ID nuovo solo con `insert` |
+| Rimozione | `remove(id)`, `removeAll(long[])` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter`; cancella anche i metadati applicativi; idempotente: un ID assente, anche perché ripetuto nell'array, si salta |
 | Numero di entità | `size()` | Sulla view dello snapshot |
 | Limiti | `limits()` | Nell'interfaccia comune `Partition`: le coordinate ammesse per le entità, fissate dall'indice (vedi [limiti delle coordinate](/current/decisions/spatial-indexing.md#limiti-delle-coordinate)) |
 | Query di range | `findInRegion(Region)` | Sulla view dello snapshot; restituisce le entità dentro la regione o sul suo bordo, in ordine non definito |
 | Query k-nearest | `findNearest(Point, count)` | Sulla view dello snapshot; restituisce al più `count` entità, ordinate per distanza dal punto e a parità di distanza per ID |
 | Lettura dei metadati applicativi | `getMetadata(id)`, `getMetadataAll(long[])` | Sulla view dello snapshot, separata dalla lettura delle entità; `getMetadata` restituisce un `Optional` della mappa chiave → valore, vuoto se l'ID non è nello snapshot; `getMetadataAll` restituisce un `ApplicationMetadata` per ID nell'ordine degli ID, con la mappa vuota per un'entità senza metadati, e salta gli ID assenti |
-| Scrittura condizionata | `updateIf(ConditionalWrite)`, `compareAndSetMetadata(id, key, expected, value)` | Sull'handle del writer: `updateIf` in `PartitionWriter2`/`PartitionWriter3`, perché porta posizioni, `compareAndSetMetadata` nell'interfaccia comune. `ConditionalWrite2`/`ConditionalWrite3` contiene condizioni (`MetadataCondition`: `ValueIs` o `Absent` su una chiave di un'entità), posizioni nuove di entità esistenti e scritture dei metadati; si applica solo se tutte le condizioni sono vere sullo stato del writer, scritture non confermate comprese, in un solo passo; restituisce le condizioni false nel loro ordine, lista vuota se applicata. `compareAndSetMetadata` restituisce `true` se ha scritto |
-| Scrittura dei metadati applicativi | `putMetadata(id, key, value)`, `deleteMetadata(id, key)`, `updateMetadataAll(List<MetadataWrite>)` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter`; `MetadataWrite` è `Put` o `Delete` su una chiave di un'entità; le scritture valgono nell'ordine della lista, quindi per la stessa chiave vince l'ultima; confermate dallo stesso commit delle posizioni; la rimozione dell'entità ne cancella i metadati |
+| Scrittura dei metadati applicativi | `putMetadata(id, key, value)`, `deleteMetadata(id, key)`, `updateMetadataAll(List<MetadataWrite>)` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter`; `MetadataWrite` è `Put` o `Delete` su una chiave di un'entità; le scritture valgono nell'ordine della lista, quindi per la stessa chiave vince l'ultima; confermate dallo stesso commit delle posizioni; la rimozione dell'entità ne cancella i metadati; una scrittura su un'entità assente non fa niente e non la crea, anche se una `set` successiva la aggiunge |
 
 Le scritture stanno sull'[handle del
 writer](#proprietà-e-handle-del-writer) (`PartitionWriter2`/`PartitionWriter3`),
@@ -231,17 +230,23 @@ senza proprietario, alla generazione 0.
 |---|---|---|
 | Stato | `ownership()` sulla partizione | Il record `Ownership`: generazione e se la partizione ha un proprietario |
 | Presa | `claim(long expectedGeneration)` sulla partizione | Restituisce `Optional<WriteToken>`: vuoto se la generazione non è più quella attesa; serve anche a passare e revocare la proprietà |
-| Handle | `writer(WriteToken)` sulla partizione | Crea l'handle del writer per un token, anche ricevuto da un altro writer o da un coordinatore; non controlla la generazione, lo fa il nodo alla prima operazione |
+| Handle | `writer(WriteToken)` sulla partizione | Crea l'handle del writer per un token, anche ricevuto da un altro writer o da un coordinatore; non controlla la generazione, lo fa il nodo alla prima operazione che lo raggiunge: una scrittura nella modalità diretta, commit, rollback, tick dell'ultimo commit o rimozione |
 | Token | `token()` sull'handle | Il token dell'handle |
-| Rilascio | `close()` sull'handle; `release` nel contratto del nodo | Scarta le scritture non confermate; idempotente, non fa niente se la proprietà è già passata ad altri o la partizione è distrutta, quindi `close()` non fallisce mai |
+| Rilascio | `close()` sull'handle; `release` nel contratto del nodo | Scarta le scritture non confermate e rilascia la proprietà; idempotente, non fa niente se la proprietà è già passata ad altri o la partizione è distrutta, quindi `close()` non fallisce mai |
 | Salute | `health()` sulla partizione; `health(PartitionId)` nel contratto del nodo | `PartitionHealth.Healthy`, o `RecoveryRequired` con il resoconto del fallimento (vedi [fallimenti e salute](#fallimenti-e-salute)) |
 
 L'**handle del writer** (`PartitionWriter2`/`PartitionWriter3`, con
 l'interfaccia comune `PartitionWriter`) è `AutoCloseable` e porta il
 token: ha le [scritture sulle entità](#operazioni-sulle-entità),
-`commit()` e `removePartition()`. In un `try`-with-resources, se il
-writer esce per un'eccezione prima del commit, `close()` scarta le sue
-scritture come un rollback. Le letture non sono sull'handle: il writer
+`commit()` e `removePartition()`. La [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura) del
+nodo decide quando le scritture gli arrivano: nella modalità diretta,
+quella del nodo locale, ogni scrittura va subito al nodo e il
+[commit](#commit) le conferma; nella modalità con buffer, pensata per il
+nodo remoto, restano nell'handle, composte per entità, e il commit le
+manda tutte insieme, se un `flush()` non le ha già mandate. Le due modalità danno gli stessi commit. In un
+`try`-with-resources, se il writer esce per
+un'eccezione prima del commit, `close()` scarta le sue scritture come
+un rollback. Le letture non sono sull'handle: il writer
 legge come ogni reader, con le [acquisizioni](#acquisizione-degli-snapshot).
 
 `claim` restituisce il token e non l'handle, perché nei passaggi di
@@ -255,13 +260,14 @@ appena passata.
 serializzabile `WriteToken`, con l'ID della partizione e la generazione,
 in `common` come `Acquisition`; lo stato è il record `Ownership`. Le
 operazioni sono `ownership(PartitionId)`, `claim(PartitionId, long)` e
-`release(WriteToken)`, e le scritture, `commit` e le due operazioni di
-rimozione ricevono il token al posto dell'ID della partizione.
+`release(WriteToken)`, e `write`, `commit`, `rollback`, `lastCommitTick`
+e le due operazioni di rimozione ricevono il token al posto dell'ID
+della partizione.
 
 | Errore | Eccezione |
 |---|---|
-| Scrittura, commit o rimozione con un token che non è quello corrente | `OwnershipChangedException`, eccezione di dominio dedicata; la partizione non cambia |
-| Scrittura o commit su una partizione che richiede un recupero, con il token corrente | `IllegalStateException`; la partizione non cambia |
+| Scrittura, flush, commit o rimozione con un token che non è quello corrente | `OwnershipChangedException`, eccezione di dominio dedicata; la partizione non cambia. Nella modalità con buffer le scritture non raggiungono il nodo fino al flush o al commit, quindi il token si controlla lì |
+| Scrittura, flush o commit su una partizione che richiede un recupero, con il token corrente | `IllegalStateException`; la partizione non cambia. Con il buffer arriva al flush o al commit |
 | `claim` dalla rimozione in poi | `IllegalStateException` |
 | Generazione attesa negativa | `IllegalArgumentException` |
 | `writer(token)` con il token di un'altra partizione | `IllegalArgumentException` |
@@ -270,14 +276,17 @@ rimozione ricevono il token al posto dell'ID della partizione.
 ## Commit
 
 Il [commit](/current/architecture/partition-commit.md) si chiude con
-`commit()`, sull'handle del writer, senza numero: conferma
-le scritture fatte fino a quel momento nel tick corrente della
-partizione. Più commit nello stesso tick sono ammessi, e l'ultimo
-definisce lo snapshot del tick; le scritture non confermate passano al
-tick successivo.
+`commit()`, sull'handle del writer, senza numero: conferma nel tick
+corrente le scritture fatte fino a quel momento, applicate all'ultimo
+commit della partizione. Nella modalità diretta il nodo le ha già; con
+il buffer il commit le manda al nodo in una sola chiamata, e il nodo le
+applica e le conferma in un solo passo. Le scritture possono venire da
+più tick; quelle fatte dopo il commit restano non confermate fino al
+commit successivo. Più commit nello stesso tick sono ammessi, e l'ultimo
+definisce lo snapshot del tick.
 
-Ogni commit conferma lo stato cumulativo del writer, compresi gli effetti
-dei commit precedenti che non sono stati modificati o rimossi. Solo lo
+Ogni commit conferma lo stato cumulativo della partizione, compresi gli
+effetti dei commit precedenti che il batch non modifica o rimuove. Solo lo
 stato dell’ultimo commit del tick diventa acquisibile all’avanzamento;
 gli stati intermedi non si acquisiscono. `commit()` non avanza il tick,
 non aspetta il successivo e permette di continuare a scrivere nello
@@ -286,8 +295,9 @@ l’esempio in [Commit e tick](/current/architecture/partition-commit.md#commit-
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Commit | `commit()` sull'handle | Conferma lo stato del writer nel tick corrente; un commit senza scritture è valido |
-| Rollback | `rollback()` sull'handle | Scarta le scritture non confermate, anche dei tick precedenti, e tiene commit, snapshot in attesa e proprietà; è anche il recupero di una partizione che lo richiede (vedi [rollback](/current/architecture/partition-failures.md#rollback)) |
+| Commit | `commit()` sull'handle | Conferma le scritture nel tick corrente, mandandole al nodo nella modalità con buffer; dopo il successo non ci sono scritture non confermate; se il nodo rifiuta il commit le scritture restano, se il commit fallisce dopo i controlli sono scartate, nelle due modalità (vedi [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura)); un commit senza scritture è valido |
+| Flush | `flush()` sull'handle | Con il buffer manda subito al nodo le scritture dell'handle, che le applica senza confermarle; il commit successivo le conferma, un rollback, un cambio di proprietà o un fallimento le scartano. Un flush rifiutato lascia le scritture, uno fallito dopo i controlli le scarta tutte, anche quelle dei flush precedenti. Nella modalità diretta non fa niente (vedi [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura)) |
+| Rollback | `rollback()` sull'handle | Scarta le scritture non confermate, anche dei tick precedenti: svuota il buffer, se c'è, e chiede al nodo di tornare all'ultimo commit; tiene commit, snapshot in attesa e proprietà; è anche il recupero di una partizione che lo richiede (vedi [rollback](/current/architecture/partition-failures.md#rollback)) |
 | Tick dell'ultimo commit | `lastCommitTick()` sull'handle | Il tick dell'ultimo commit; la creazione e il caricamento contano come commit al tick di creazione. Lo cambiano solo i commit del proprietario: dopo `claim` dice al nuovo writer se il tick corrente ha già un commit (vedi [un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick)) |
 | Tick corrente | `tick()` sulla partizione | Il tick della partizione; sostituisce `lastCommit()` |
 | Tick di creazione | `creationTick()` sulla partizione | Il tick in cui la partizione è stata creata: il primo snapshot è `S(creationTick)` |
@@ -300,14 +310,24 @@ l’esempio in [Commit e tick](/current/architecture/partition-commit.md#commit-
 
 Scelte di dettaglio:
 
-- **Scritture rifiutate**: le scritture sono tutto-o-niente, quindi una
-  scrittura rifiutata non cambia nemmeno lo stato del writer. Un
-  fallimento dopo i controlli, invece, annulla tutte le scritture non
-  confermate (vedi [fallimenti e salute](#fallimenti-e-salute)).
+- **Controlli**: nella modalità diretta il nodo controlla limiti, token,
+  stato e salute della partizione a ogni scrittura, e una scrittura
+  rifiutata non cambia la partizione. Con il buffer l'handle controlla
+  subito i limiti delle posizioni, e una scrittura rifiutata non entra
+  nell'handle; token, stato e salute li controlla il nodo al flush o al
+  commit, quindi il writer riceve questi rifiuti da `flush()` o da
+  `commit()` e non dalla scrittura, l'unica differenza tra le modalità
+  nei risultati: un flush o un commit rifiutato non cambia la partizione
+  e l'handle conserva le scritture (vedi [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura)).
+  Un fallimento dopo i controlli, di una scrittura, di un flush o del commit,
+  annulla tutte le scritture non confermate e conserva l'ultimo commit
+  (vedi [fallimenti e salute](#fallimenti-e-salute)).
 - **Rimozione con scritture non confermate**: è permessa, e le scritture
-  si scartano; la politica di rimozione guarda lo stato confermato del
-  tick corrente.
-- **Contratto del nodo**: `commit(WriteToken)`, `rollback(WriteToken)`,
+  non confermate si scartano: quelle dell'handle senza arrivare al nodo,
+  quelle nel nodo senza commit; la politica di rimozione guarda lo stato
+  confermato del tick corrente.
+- **Contratto del nodo**: `writeMode()`, `write(WriteToken, List<EntityWrite>)`,
+  `commit(WriteToken, List<EntityWrite>)`, `rollback(WriteToken)`,
   `lastCommitTick(WriteToken)`,
   `tick(PartitionId)` e `creationTick(PartitionId)`.
 
@@ -519,38 +539,40 @@ In tutti i casi di errore la partizione non viene creata.
 ## Contratto del nodo
 
 Il contratto del [nodo](/current/architecture/layers.md#nodi)
-(`PartitionNode2`/`PartitionNode3`) espone solo le operazioni batch,
-per raggruppare il lavoro su più entità in una chiamata. Nell'API le operazioni su una sola entità sono
-batch di un elemento.
+(`PartitionNode2`/`PartitionNode3`) espone solo operazioni batch, per
+raggruppare il lavoro su più entità in una chiamata. Il nodo dichiara
+la sua [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura) con `writeMode()`. Le scritture sono
+batch di modifiche, `List<EntityWrite2>` (`EntityWrite3` in 3D), che si
+applicano in ordine: nella modalità diretta arrivano con
+`write(WriteToken, List<EntityWrite2>)`, che le applica senza commit, una
+chiamata per ogni scrittura dell'handle, e il commit è
+`commit(WriteToken, List.of())`; con il buffer arrivano tutte con
+`commit(WriteToken, List<EntityWrite2>)`, con al più una modifica finale
+per entità. Il nodo non controlla che sia una sola: se sono di più, le
+applica in ordine. Le prepara `WriteSession2`/`WriteSession3` in
+`common`, che l'handle usa, nella modalità del nodo; la composizione del
+buffer è descritta in [composizione per entità](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer).
 
 ## Scritture tutto-o-niente
 
-Ogni scrittura batch è tutto-o-niente: il nodo prima valida tutto
-l'input, poi lo applica, così una scrittura che fallisce non cambia la
-partizione. È semplice grazie al [writer unico](/current/decisions/concurrency.md)
+Ogni batch, di una scrittura o del commit, è tutto-o-niente: il nodo
+prima controlla tutto l'input, poi lo applica, così un batch rifiutato
+non cambia la partizione. È semplice grazie al [writer unico](/current/decisions/concurrency.md)
 della partizione.
 
 | Errore | Eccezione |
 |---|---|
-| ID inesistente in `update`/`remove`, in una scrittura dei metadati o in una scrittura condizionata, anche solo in una condizione | `NoSuchElementException` |
-| ID già presente o duplicato in `insert`, ID duplicato in `remove` | `IllegalArgumentException` |
-| Posizione fuori dai limiti della partizione in `insert`/`update`/`updateIf` | `IllegalArgumentException` |
+| Posizione fuori dai limiti della partizione in `insert`/`set` | `IllegalArgumentException` alla chiamata: dal nodo nella modalità diretta, dall'handle con il buffer, e il nodo la controlla di nuovo al commit |
 
 Le coordinate `NaN` o infinite sono rifiutate già alla costruzione di
 `Point2`/`Point3`, e un raggio infinito alla costruzione di
 `Circle2`/`Sphere3`, con `IllegalArgumentException`.
 
-Le [scritture condizionate](/current/architecture/entity-metadata.md#forma)
-seguono la stessa regola: il batch si applica solo se tutte le
-condizioni sono vere. Una condizione falsa non è un errore: la
-partizione non cambia e la chiamata restituisce le condizioni fallite,
-senza eccezione.
-
 ## Fallimenti e salute
 
 Gli errori delle tabelle precedenti sono rifiuti: arrivano prima di
-qualsiasi modifica. Un’eccezione dopo i controlli, durante una scrittura
-o un commit, è un [fallimento](/current/architecture/partition-failures.md):
+qualsiasi modifica. Un’eccezione dopo i controlli, mentre il nodo applica
+una scrittura o il batch o prepara il commit, è un [fallimento](/current/architecture/partition-failures.md):
 la partizione annulla tutte le scritture non confermate e conserva
 l’ultimo commit e lo snapshot in attesa. I tipi sono in `common`.
 
@@ -560,7 +582,9 @@ l’ultimo commit e lo snapshot in attesa. I tipi sono in `common`.
 | Fallimento con un `Error`, per esempio `OutOfMemoryError` | L’`Error` così com’è, con l’eventuale fallimento del ripristino tra le eccezioni soppresse |
 | Ripristino fallito | Esito `RECOVERY_REQUIRED` nel resoconto; `health()` diventa `RecoveryRequired` e scritture e commit sono rifiutati finché `rollback()`, `claim` o `release` non ripristinano la partizione |
 
-Il resoconto ha operazione (`WRITE`, `COMMIT`, `CLAIM`, `RELEASE`, `ROLLBACK`),
+Il resoconto ha operazione (`WRITE` per una scrittura della modalità
+diretta, `COMMIT`, anche per l’applicazione del batch, `CLAIM`,
+`RELEASE`, `ROLLBACK`),
 struttura (`SLOTS`, `INDEX`, `METADATA`, `UNKNOWN`), esito
 (`WRITES_DISCARDED` o `RECOVERY_REQUIRED`), tick dell’ultimo commit,
 causa ed eventuale fallimento del ripristino. `health()` si legge da

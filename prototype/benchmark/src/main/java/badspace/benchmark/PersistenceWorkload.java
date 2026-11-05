@@ -7,6 +7,8 @@ import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
+import badspace.common.partition.WriteSession2;
+import badspace.common.partition.WriteSession3;
 import badspace.service.partition.LocalPartitionNode2;
 import badspace.service.partition.LocalPartitionNode3;
 import java.nio.file.Path;
@@ -72,10 +74,11 @@ final class PersistenceWorkload {
         LocalPartitionNode2 node = new LocalPartitionNode2(saveDirectory);
         node.createPartition(WorkloadState.PARTITION_ID, WorkloadState.PARTITION_NAME, IndexConfig.linearScan());
         node.claim(WorkloadState.PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
-        node.insertAll(WorkloadState.WRITE_TOKEN, entities2(size));
-        node.updateMetadataAll(WorkloadState.WRITE_TOKEN, metadata(metadata, size));
+        WriteSession2 writes = WriteSession2.of(node, WorkloadState.WRITE_TOKEN, IndexConfig.linearScan().limits());
+        writes.setAll(entities2(size));
+        writes.updateMetadataAll(metadata(metadata, size));
         // The commit makes the snapshot of the tick; the move of the tick publishes it.
-        node.commit(WorkloadState.WRITE_TOKEN);
+        writes.commit();
         node.setTick(SNAPSHOT_TICK + 1);
         return node;
     }
@@ -85,9 +88,10 @@ final class PersistenceWorkload {
         LocalPartitionNode3 node = new LocalPartitionNode3(saveDirectory);
         node.createPartition(WorkloadState.PARTITION_ID, WorkloadState.PARTITION_NAME, IndexConfig.linearScan());
         node.claim(WorkloadState.PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
-        node.insertAll(WorkloadState.WRITE_TOKEN, entities3(size));
-        node.updateMetadataAll(WorkloadState.WRITE_TOKEN, metadata(metadata, size));
-        node.commit(WorkloadState.WRITE_TOKEN);
+        WriteSession3 writes = WriteSession3.of(node, WorkloadState.WRITE_TOKEN, IndexConfig.linearScan().limits());
+        writes.setAll(entities3(size));
+        writes.updateMetadataAll(metadata(metadata, size));
+        writes.commit();
         node.setTick(SNAPSHOT_TICK + 1);
         return node;
     }

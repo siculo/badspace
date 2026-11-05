@@ -11,15 +11,19 @@ import java.util.Optional;
  * A node serves a single space. The API generates the partition IDs, which are never
  * used again: the node trusts them.
  * Write operations work on many entities in one call, to reduce the number of
- * remote calls. Each write is all or nothing: if it fails, the partition does not change.
+ * remote calls. Each write is all or nothing: if it is rejected, the partition does not change.
+ * The {@linkplain #writeMode() write mode} of the node tells the writer how to send its writes:
+ * one call for each write, with {@link #write(WriteToken, List)}, and then a commit that confirms
+ * them; or all the writes of a commit in one call, with {@link #commit(WriteToken, List)}.
  * <p>
  * Partitions are read only through the snapshots of the ticks, also by their writer:
  * a reader {@linkplain #acquire acquires} a snapshot, reads it through the
  * {@link Acquisition} and then {@linkplain #release releases} it. Nobody reads the
  * state of the writer, so the writes not yet published are in no read.
  * <p>
- * The snapshot of tick n is the state confirmed by the last {@linkplain #commit commit}
- * of tick n, or the state of the tick before if tick n has no commit. It is published
+ * The snapshot of tick n is the state confirmed by the last
+ * {@linkplain #commit(WriteToken, List) commit} of tick n, or the state of the tick before if
+ * tick n has no commit. It is published
  * when the tick of the partition moves past n: the snapshot of the current tick is never
  * acquirable. With the tick T of the partition, its creation tick C and k retained ticks,
  * readers can acquire the snapshots of the ticks from max(T - k, C) to T - 1 (the
@@ -30,8 +34,7 @@ import java.util.Optional;
  * through them and the release are thread-safe.
  * <p>
  * {@link #removePartition} and {@link #dropPartition} are the last operation of the
- * writer: after them the writes and the commits fail with
- * IllegalStateException, and the writes not committed are discarded. The next move of
+ * writer: after them the commits fail with IllegalStateException. The next move of
  * the tick makes the removal effective at the new tick, the removal tick R: the partition
  * exists for the ticks before R. Readers can still acquire the snapshots of the ticks
  * before R while they are in the retention window, and the acquisitions made before stay
@@ -44,10 +47,12 @@ import java.util.Optional;
  * {@link #claim} is a compare-and-set on the generation and the only way to become the owner:
  * it takes a free partition, passes the ownership to another writer and takes it away from
  * the owner, and the caller chooses which one with the generation it gives. The owner gets a
- * {@link WriteToken} and leaves the ownership with {@link #release(WriteToken)}. At each change
- * of the generation the writes not committed are discarded, and the commits stay. The node
- * does not check who calls these operations: the software decides who owns a partition.
- * The writes, the commits and the removals take the token of the owner, and the partition
+ * {@link WriteToken} and leaves the ownership with {@link #release(WriteToken)}. A change of the
+ * generation keeps the commits and discards the writes that the old owner did not commit: the
+ * ones it sent with {@code write}, while the ones it kept in its buffer never reach the
+ * partition. The node does not check who calls these
+ * operations: the software decides who owns a partition. The writes, the commits, the
+ * rollbacks and the removals take the token of the owner, and the partition
  * checks it in the same step as the operation: with a token that is not current they fail
  * with {@link OwnershipChangedException} and the partition does not change, so a writer that
  * lost the ownership cannot change the partition even if it does not know it yet. The moves
@@ -134,7 +139,13 @@ public interface PartitionNode3 {
     /**
      * Moves the tick of the node forward, and then the tick of each of its partitions, also of
      * the ones marked as removed. The partitions move one after the other, not all at the same
-     * moment. The same tick again does nothing, and ticks can be skipped.
+     * moment, in an order that is not defined. The partitions without a commit that is running
+     * move at once, and do not wait for the commits of the others; the node then waits for the
+     * busy ones one at a time, at most for the commit that is running in each, and moves at
+     * once the ones that it finds free again. A busy partition can so wait also for the commit
+     * of another busy partition, and the time of the call can grow with the number of busy
+     * partitions. When the call returns, all the partitions are at the new tick. The same tick again does nothing, and ticks can
+     * be skipped.
      *
      * @param tick the new tick of the node
      * @throws IllegalArgumentException if the tick is less than the tick of the node; in this
@@ -167,8 +178,7 @@ public interface PartitionNode3 {
 
     /**
      * Removes a partition whose last commit has no entities: the removal becomes effective at
-     * the next move of the tick, and the writes not committed are discarded. If the call
-     * fails, the partition does not change.
+     * the next move of the tick. If the call fails, the partition does not change.
      *
      * @param token the token of the owner of the partition
      * @throws UnknownPartitionException if the partition of the token is unknown
@@ -180,8 +190,7 @@ public interface PartitionNode3 {
 
     /**
      * Removes a partition together with its entities: the removal becomes effective at the
-     * next move of the tick, and the writes not committed are discarded. If the call fails,
-     * the partition does not change.
+     * next move of the tick. If the call fails, the partition does not change.
      *
      * @param token the token of the owner of the partition
      * @throws UnknownPartitionException if the partition of the token is unknown
@@ -203,7 +212,7 @@ public interface PartitionNode3 {
 
     /**
      * Returns the health of a partition: healthy, or in need of a recovery after a failure
-     * whose restore did not work. Then the partition refuses writes and commits with
+     * whose restore did not work. Then the partition refuses the commits with
      * IllegalStateException, while its snapshots stay readable; a {@linkplain #rollback
      * rollback} of the owner, or a claim or a release of the ownership, tries the restore
      * again. Any thread can call it, also after the removal of the partition, until it is
@@ -217,10 +226,11 @@ public interface PartitionNode3 {
 
     /**
      * Makes the caller the owner of a partition if the generation of its ownership is still
-     * the expected one: the generation grows by one and the writes not committed are
-     * discarded. With the generation of a free partition it takes the partition; with the
+     * the expected one: the generation grows by one, and the partition goes back to its last
+     * commit, without the writes not committed. With the generation of a free partition it takes the partition; with the
      * generation of the token of the owner it passes the ownership to a new token, or takes it
-     * away from the owner. Any thread can call it: it waits for a write or a commit that is
+     * away from the owner. It also tries the recovery of a partition that {@linkplain #health
+     * needs one}. Any thread can call it: it waits for a write, a commit or a rollback that is
      * running.
      *
      * @param partitionId the ID of the partition
@@ -235,7 +245,8 @@ public interface PartitionNode3 {
 
     /**
      * Leaves the ownership of a partition if the token is the current one: the generation
-     * grows by one, the partition has no owner, and the writes not committed are discarded.
+     * grows by one and the partition has no owner; it goes back to its last commit, and the node
+     * tries the recovery of a partition that {@linkplain #health needs one}.
      * Otherwise it does nothing: also if the ownership has already changed, after the removal
      * of the partition was requested, and if the partition is unknown or destroyed. Any thread
      * can call it.
@@ -245,92 +256,69 @@ public interface PartitionNode3 {
     void release(WriteToken token);
 
     /**
-     * Adds new entities to a partition. The API generates the entity IDs, which must not be
-     * used anywhere else.
-     *
-     * @param token the token of the owner of the partition
-     * @param entities the new entities, with their IDs and positions
-     * @throws IllegalArgumentException if an ID is already in the partition or appears twice in
-     *     the list, or if a position is outside the {@linkplain #limits limits} of the partition
-     * @throws OwnershipChangedException if the token is not the current one
+     * Returns how the writers of the partitions of the node send their writes. It does not
+     * change during the life of the node. Any thread can call it.
      */
-    void insertAll(WriteToken token, List<Entity3> entities);
+    WriteMode writeMode();
 
     /**
-     * Sets the position of existing entities. If an ID appears more than once, the last
-     * position wins.
+     * Applies a batch of writes to a partition without confirming it: the next commit of the
+     * owner confirms it, and a rollback, a claim, a release or a failure discards it. The
+     * writer of a node in the {@linkplain WriteMode#DIRECT direct} mode sends each of its
+     * writes in this way. The changes apply in the order of the list, each to the state of the
+     * partition at that moment: the last commit with the writes sent after it, not the snapshot
+     * that the writer read (see {@link EntityWrite3}). The IDs come from the entity ID
+     * generator of the API: the node trusts them and cannot check where they come from.
      *
      * @param token the token of the owner of the partition
-     * @param entities the IDs of the entities with their new positions
-     * @throws java.util.NoSuchElementException if an ID is not in the partition
+     * @param changes the changes of the entities, which apply in their order
+     * @throws IllegalArgumentException if a position is outside the {@linkplain #limits limits}
+     *     of the partition; in this case nothing changes
+     * @throws OwnershipChangedException if the token is not the current one; in this case
+     *     nothing changes
+     * @throws IllegalStateException if the partition needs a recovery or its removal was
+     *     requested; in this case nothing changes
+     * @throws PartitionFailureException if the write fails after the checks: the partition
+     *     goes back to the last commit, without all the writes not committed; an {@link Error}
+     *     goes to the caller as it is
+     */
+    void write(WriteToken token, List<EntityWrite3> changes);
+
+    /**
+     * Applies a batch of writes to a partition and confirms it in the current tick of the
+     * partition, together with the writes sent before with {@link #write(WriteToken, List)}, in
+     * one step: the snapshot of the tick will have the writes, and becomes acquirable when the
+     * tick of the partition moves forward. The writer of a node in the
+     * {@linkplain WriteMode#BUFFERED buffered} mode sends all its writes here; in the direct
+     * mode the batch is empty. The changes apply like with {@code write}: to the last commit of
+     * the partition, also if it waits for the move of the tick, with the writes sent after it;
+     * each change says what to do with the entity in that state or not (see
+     * {@link EntityWrite3}), and the changes of different entities are independent.
+     * <p>
+     * Each commit confirms the full state, including the effects of earlier commits unless
+     * the writes change or remove them. Only the last commit of a tick defines its snapshot;
+     * readers cannot acquire the intermediate states. A commit with no changes is valid. The
+     * call does not move the tick, wait for the next tick or stop further commits in the same
+     * tick: the writer decides whether to wait before writing again. A rejected commit changes
+     * nothing, and the writes sent before stay; a commit that fails after the checks brings
+     * the partition back to the last commit, without all the writes not committed.
+     *
+     * @param token the token of the owner of the partition
+     * @param changes the final changes of the entities: the API sends at most one for each
+     *     entity, and the node does not check it; more changes of the same entity apply in the
+     *     order of the list
      * @throws IllegalArgumentException if a position is outside the {@linkplain #limits limits}
      *     of the partition
      * @throws OwnershipChangedException if the token is not the current one
      */
-    void updateAll(WriteToken token, List<Entity3> entities);
+    void commit(WriteToken token, List<EntityWrite3> changes);
 
     /**
-     * Removes entities from a partition, with their application metadata.
-     *
-     * @param token the token of the owner of the partition
-     * @param entityIds the IDs of the entities to remove
-     * @throws java.util.NoSuchElementException if an ID is not in the partition
-     * @throws IllegalArgumentException if an ID appears twice
-     * @throws OwnershipChangedException if the token is not the current one
-     */
-    void removeAll(WriteToken token, long[] entityIds);
-
-    /**
-     * Writes the application metadata of existing entities, in the order of the list: if more
-     * writes change the same key, the last one wins. The metadata are confirmed by the same
-     * commit as the positions, and are in the same snapshot.
-     *
-     * @param token the token of the owner of the partition
-     * @param writes the writes, each of which sets or deletes one key of one entity
-     * @throws java.util.NoSuchElementException if an ID is not in the partition
-     * @throws OwnershipChangedException if the token is not the current one
-     */
-    void updateMetadataAll(WriteToken token, List<MetadataWrite> writes);
-
-    /**
-     * Applies a conditional write: it moves entities and writes their application metadata
-     * only if all its conditions are true on the state of the writer, with the writes not
-     * committed yet. Checking the conditions and applying the write is a single step, so no
-     * other write of the partition can come in between. A false condition is not an error:
-     * the partition does not change. If the call fails, the partition does not change either.
-     *
-     * @param token the token of the owner of the partition
-     * @param write the conditions, the positions and the metadata writes
-     * @return the false conditions, in their order, or an empty list if the write was applied
-     * @throws java.util.NoSuchElementException if an ID of the write or of a condition is not
-     *     in the partition
-     * @throws IllegalArgumentException if a position is outside the {@linkplain #limits limits}
-     *     of the partition
-     * @throws OwnershipChangedException if the token is not the current one
-     */
-    List<MetadataCondition> updateIf(WriteToken token, ConditionalWrite3 write);
-
-    /**
-     * Confirms the writes of a partition in its current tick: the snapshot of the tick will
-     * have them, and becomes acquirable when the tick of the partition moves forward. Each
-     * commit confirms the full current state, including the effects of earlier commits unless
-     * later writes change or remove them. Only the last commit of a tick defines its snapshot;
-     * readers cannot acquire the intermediate states. Writes after the last commit stay
-     * uncommitted and carry over to the next tick. A commit with no writes is valid. The call
-     * does not move the tick, wait for the next tick or stop further writes in the same tick:
-     * the writer decides whether to wait before writing again.
-     *
-     * @param token the token of the owner of the partition
-     * @throws OwnershipChangedException if the token is not the current one
-     */
-    void commit(WriteToken token);
-
-    /**
-     * Discards the writes not committed of a partition: the state of the writer goes back to
-     * the last commit, also if it waits for the move of the tick, and the commits stay
-     * confirmed. The writes of the ticks before are discarded too. It is also the recovery of a
-     * partition that {@linkplain #health needs one}: when the restore works, the partition is
-     * healthy again. A rollback without writes after the last commit does nothing.
+     * Brings the state of a partition back to the last commit, also if it waits for the move of
+     * the tick, and the commits stay confirmed: the writes sent with
+     * {@link #write(WriteToken, List)} after the last commit are discarded. It is also the
+     * recovery of a partition that {@linkplain #health needs one}, and when the restore works
+     * the partition is healthy again. On a healthy partition without writes it does nothing.
      *
      * @param token the token of the owner of the partition
      * @throws OwnershipChangedException if the token is not the current one

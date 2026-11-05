@@ -4,12 +4,20 @@ import badspace.common.geometry.Point2;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
+import badspace.common.partition.EntityWrite2;
+import badspace.common.partition.Ownership;
+import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.WriteMode;
+import badspace.common.partition.WriteSession2;
+import badspace.common.partition.WriteToken;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Level;
@@ -65,7 +73,7 @@ public class CommitBenchmark {
         void prepare() {
             prepareMoves();
             // The readers need a published snapshot.
-            node.commit(WRITE_TOKEN);
+            NodeWrites.commit(node, WRITE_TOKEN);
             node.setTick(++tick);
             concurrentReaders = new ConcurrentReaders(node, readers, workload.entities().getFirst().position());
         }
@@ -87,8 +95,12 @@ public class CommitBenchmark {
         @Param({"0", "0.01", "0.1", "1"})
         public double movingFraction;
 
-        List<Entity2> moved;
-        List<Entity2> original;
+        List<EntityWrite2> moved;
+        List<EntityWrite2> original;
+        // The same moves as entities, for the writes through the buffer of the writer.
+        List<Entity2> movedEntities;
+        List<Entity2> originalEntities;
+        WriteSession2 session;
         boolean movedBack = true;
 
         @Override
@@ -97,16 +109,43 @@ public class CommitBenchmark {
                 throw new IllegalArgumentException("Moving fraction is not between 0 and 1: " + movingFraction);
             }
             int count = (int) Math.round(size * movingFraction);
-            original = List.copyOf(shuffledEntities().subList(0, count));
-            moved = original.stream()
+            originalEntities = List.copyOf(shuffledEntities().subList(0, count));
+            movedEntities = originalEntities.stream()
                     .map(e -> new Entity2(e.id(), Movement.LOCAL.move(e.position(), STEP, workload, random)))
                     .toList();
+            original = NodeWrites.sets(originalEntities);
+            moved = NodeWrites.sets(movedEntities);
+            session = WriteSession2.of(node, WRITE_TOKEN, node.limits(PARTITION_ID));
+        }
+
+        /** Returns the moves of the next tick as entities, like {@link #nextMoves()}. */
+        List<Entity2> nextMovedEntities() {
+            movedBack = !movedBack;
+            return movedBack ? originalEntities : movedEntities;
         }
 
         /** Returns the moves of the next tick: the moved positions, then the original ones, and so on. */
-        List<Entity2> nextMoves() {
+        List<EntityWrite2> nextMoves() {
             movedBack = !movedBack;
             return movedBack ? original : moved;
+        }
+    }
+
+    /**
+     * The moves of {@link TickState} through the writes of the writer, on a node in each write
+     * mode: in the direct mode each call goes to the node, with the buffer the commit sends
+     * them in one batch.
+     */
+    @State(Scope.Thread)
+    public static class WriterTickState extends TickState {
+
+        /** The write mode of the node. */
+        @Param({"DIRECT", "BUFFERED"})
+        public WriteMode writeMode;
+
+        @Override
+        WriteMode writeMode() {
+            return writeMode;
         }
     }
 
@@ -114,11 +153,81 @@ public class CommitBenchmark {
     public static class AcquireState extends SnapshotState {
     }
 
+    /**
+     * The moves of {@link TickState}, which a writer on another thread commits again and
+     * again, one batch for each commit, while the benchmark moves the tick: each move of the
+     * tick waits for the commit that holds the lock of the partition when it arrives. With
+     * {@code busyPartitions} greater than 1, the node has more partitions with the same
+     * entities, each with its own writer, so the move of the tick finds commits running on
+     * more partitions.
+     */
+    @State(Scope.Thread)
+    public static class ContendedTickState extends TickState {
+
+        /** Number of partitions of the node with a writer that commits without pauses. */
+        @Param({"1"})
+        public int busyPartitions;
+
+        List<CommittingWriter> writers;
+
+        @Override
+        void prepare() {
+            super.prepare();
+            if (busyPartitions < 1) {
+                throw new IllegalArgumentException("Number of busy partitions is less than 1: " + busyPartitions);
+            }
+            List<WriteToken> tokens = new ArrayList<>(List.of(WRITE_TOKEN));
+            List<EntityWrite2> entities = NodeWrites.sets(workload.entities());
+            for (int i = 1; i < busyPartitions; i++) {
+                PartitionId partitionId = new PartitionId(PARTITION_ID.value() + i);
+                node.createPartition(partitionId, new PartitionName(PARTITION_NAME.value() + "-" + i),
+                        IndexNames.parse(index));
+                WriteToken token = node.claim(partitionId, Ownership.INITIAL.generation()).orElseThrow();
+                node.commit(token, entities);
+                tokens.add(token);
+            }
+            node.setTick(++tick);
+            writers = new ArrayList<>(tokens.size());
+            for (WriteToken token : tokens) {
+                writers.add(new CommittingWriter(commits(token), original, moved));
+            }
+        }
+
+        /**
+         * Returns how the writer of a partition commits a batch: with the commit of the node.
+         * The tests replace it, to stop the writer after a commit that they choose.
+         */
+        Consumer<List<EntityWrite2>> commits(WriteToken token) {
+            return changes -> node.commit(token, changes);
+        }
+
+        @TearDown(Level.Trial)
+        public void stopWriters() throws InterruptedException {
+            for (CommittingWriter writer : writers) {
+                writer.stop();
+            }
+        }
+    }
+
     /** Moves a fraction of the entities, commits and moves the tick: one tick of the writer. */
     @Benchmark
     public void commitTick(TickState s) {
         move(s);
-        s.node.commit(WorkloadState.WRITE_TOKEN);
+        NodeWrites.commit(s.node, WorkloadState.WRITE_TOKEN);
+        s.node.setTick(++s.tick);
+    }
+
+    /**
+     * The same tick as {@link #commitTick}, through the writes of the writer, a
+     * {@link WriteSession2}, as the writer handle of the API does, in the write mode of the
+     * node. In the direct mode the moves go to the node at once, like in commitTick, and the
+     * difference is the cost of building the changes; with the buffer the commit sends them in
+     * one batch, and the difference is also the cost of the buffer.
+     */
+    @Benchmark
+    public void commitTickWithTheWriter(WriterTickState s) {
+        s.session.setAll(s.nextMovedEntities());
+        s.session.commit();
         s.node.setTick(++s.tick);
     }
 
@@ -126,6 +235,19 @@ public class CommitBenchmark {
     @Benchmark
     public void movesWithoutCommit(TickState s) {
         move(s);
+    }
+
+    /**
+     * Moves the tick while a writer on another thread commits the moves of a fraction of the
+     * entities, without pauses between the commits, on each of {@code busyPartitions}
+     * partitions (see {@link ContendedTickState}). The time
+     * is the latency of the move of the tick, mostly the wait for the commit that holds the
+     * lock of the partition; the commits are not measured. With movingFraction 0 the commits
+     * have no changes: the reference.
+     */
+    @Benchmark
+    public void moveTickDuringCommits(ContendedTickState s) {
+        s.node.setTick(++s.tick);
     }
 
     /** Acquires the latest snapshot and releases it. */
@@ -137,9 +259,53 @@ public class CommitBenchmark {
     }
 
     private static void move(TickState s) {
-        List<Entity2> moves = s.nextMoves();
+        List<EntityWrite2> moves = s.nextMoves();
         if (!moves.isEmpty()) {
-            s.node.updateAll(WorkloadState.WRITE_TOKEN, moves);
+            NodeWrites.apply(s.node, WorkloadState.WRITE_TOKEN, moves);
+        }
+    }
+
+    /**
+     * A thread that commits batches on the partition until it is stopped, with no pauses:
+     * the original positions, then the moved ones, and so on. It is not measured.
+     */
+    static final class CommittingWriter {
+
+        private final Thread thread;
+        // Written by the thread that stops the writer, read by the writer.
+        private volatile boolean stopped;
+        private final AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        /** Starts the writer: it commits the moved positions first, with the given commit. */
+        CommittingWriter(Consumer<List<EntityWrite2>> commits, List<EntityWrite2> original, List<EntityWrite2> moved) {
+            thread = new Thread(() -> commit(commits, original, moved), "writer");
+            thread.setDaemon(true);
+            thread.start();
+        }
+
+        private void commit(Consumer<List<EntityWrite2>> commits, List<EntityWrite2> original,
+                List<EntityWrite2> moved) {
+            try {
+                boolean movedBack = true;
+                while (!stopped) {
+                    movedBack = !movedBack;
+                    commits.accept(movedBack ? original : moved);
+                }
+            } catch (Throwable e) {
+                failure.compareAndSet(null, e);
+            }
+        }
+
+        /** Stops the writer and waits for it. Fails if the writer failed or did not stop. */
+        void stop() throws InterruptedException {
+            stopped = true;
+            thread.join(TimeUnit.SECONDS.toMillis(10));
+            if (thread.isAlive()) {
+                throw new IllegalStateException("Writer did not stop");
+            }
+            if (failure.get() != null) {
+                throw new IllegalStateException("Writer failed", failure.get());
+            }
         }
     }
 

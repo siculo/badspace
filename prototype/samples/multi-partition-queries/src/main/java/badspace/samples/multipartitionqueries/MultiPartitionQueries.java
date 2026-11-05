@@ -43,7 +43,7 @@ public final class MultiPartitionQueries {
         space.setTick(1);
 
         // At tick 1 the car moves, and a new partition starts.
-        vehiclesWriter.update(car, point(18, 2));
+        vehiclesWriter.set(car, point(18, 2));
         vehiclesWriter.commit();
         Partition2 drones = space.createPartition(node, partitionName("drones"));
         PartitionWriter2 dronesWriter = drones.writer(drones.claim(0).orElseThrow());

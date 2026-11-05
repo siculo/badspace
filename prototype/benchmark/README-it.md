@@ -3,9 +3,12 @@
 *[English](README.md)*
 
 Questo modulo misura la velocità e la memoria degli indici spaziali di una
-partizione. Usa [JMH](https://github.com/openjdk/jmh) e lavora sul contratto
-pubblico del nodo (`PartitionNode2`), quindi misura anche il costo dello
-storage, non solo quello dell'indice. Per ora solo 2D, tranne i benchmark
+partizione. Usa [JMH](https://github.com/openjdk/jmh) e lavora su un nodo
+locale (`LocalPartitionNode2`), quindi misura anche il costo dello storage, non
+solo quello dell'indice. Il nodo è nella modalità di scrittura diretta, come
+ogni nodo locale: i benchmark delle scritture danno ogni batch al nodo con la sua
+scrittura senza commit, attraverso `NodeWrites`, così misurano solo slot e
+indice. Per ora solo 2D, tranne i benchmark
 della [persistenza](#persistenza), che misurano anche il 3D.
 
 La scansione lineare è il riferimento: ogni nuovo indice si confronta con lei.
@@ -144,6 +147,11 @@ nohup ./bench.sh run --plan plans/index-comparison-full.json > plan.log 2>&1 &
 snapshot](#commit-e-snapshot)) con la scansione lineare, la grid uniforme e
 la griglia di quadtree, in un unico report. Dura circa 10-15 minuti.
 
+`buffered-writes.json` misura le scritture tenute nel writer (vedi [Scritture
+tenute nel writer](#scritture-tenute-nel-writer)): il commit di batch grandi
+attraverso il buffer, l'attesa dell'avanzamento del tick durante i commit e la
+memoria del buffer. Dura circa 25-30 minuti.
+
 `persistence-cost-quick.json` e `persistence-cost-full.json` misurano i costi
 della [persistenza](#persistenza) in 2D e 3D, in un unico report. Quello rapido
 dura circa 10 minuti, quello completo circa 1 ora.
@@ -161,6 +169,8 @@ dura circa 10 minuti, quello completo circa 1 ora.
 | `PartitionBenchmark.findNearest` | Query k-nearest. | µs per chiamata |
 | `Footprint.bytesPerEntity` | Memoria usata dalla partizione, storage e indice insieme. | byte per entità |
 | `CommitBenchmark.commitTick` | Un tick del writer: spostare una frazione delle entità, fare il commit e avanzare il tick. | µs per chiamata |
+| `CommitBenchmark.commitTickWithTheWriter` | Lo stesso tick attraverso la sessione di scrittura del writer (`WriteSession2`), nella modalità diretta o con il buffer, che manda gli spostamenti in un batch. | µs per chiamata |
+| `CommitBenchmark.moveTickDuringCommits` | Avanzare il tick mentre un writer su un altro thread fa il commit degli spostamenti senza pause. | µs per chiamata |
 | `CommitBenchmark.movesWithoutCommit` | Gli stessi spostamenti senza commit, riferimento per `commitTick`. | µs per chiamata |
 | `CommitBenchmark.acquireAndRelease` | Acquisire l'ultimo snapshot e rilasciarlo. | µs per chiamata |
 | `PersistenceBenchmark2.copy`, `PersistenceBenchmark3.copy` | Copiare lo snapshot pubblicato per un salvataggio. | ms per chiamata |
@@ -168,6 +178,7 @@ dura circa 10 minuti, quello completo circa 1 ora.
 | `PersistenceBenchmark2.load`, `PersistenceBenchmark3.load` | Caricare un salvataggio in una nuova partizione. | ms per chiamata |
 | `PersistenceSizes2.fileBytes`, `PersistenceSizes3.fileBytes` | Dimensione del file di salvataggio, totale e per entità (`fileBytesPerEntity`). | byte |
 | `PersistenceSizes2.copyBytes`, `PersistenceSizes3.copyBytes` | Memoria trattenuta dalla copia dello snapshot, totale e per entità (`copyBytesPerEntity`). È una stima. | byte |
+| `BufferSizes.bytesPerEntity` | Memoria del buffer delle scritture con una `set` di ogni entità, e i suoi metadati con `FIXED`. È una stima. | byte per entità |
 
 Più basso è sempre meglio.
 
@@ -191,6 +202,36 @@ Con `readers` maggiore di 0 alcuni thread, non misurati, acquisiscono
 l'ultimo snapshot, chiedono le 10 entità più vicine a un punto e lo
 rilasciano, in continuazione: tengono vivi degli snapshot, così i commit
 trovano meno buffer nel pool, e competono con il writer.
+
+### Scritture tenute nel writer
+
+La modalità di scrittura del nodo decide quando le scritture del writer gli
+arrivano: nella modalità diretta ogni scrittura va subito al nodo, nella
+modalità con buffer il writer tiene le scritture in un buffer e le manda al nodo
+in un batch al commit. `CommitBenchmark.commitTickWithTheWriter` fa il tick di
+`commitTick` attraverso le scritture del writer, in ogni modalità
+(`writeMode`): nella modalità diretta la differenza è il costo della
+costruzione delle modifiche, con il buffer anche quello del buffer e del batch. Con
+`movingFraction` 1 e `size` 1000000 il batch ha un milione di entità.
+
+Con il buffer il commit tiene il lock della partizione mentre applica il batch e
+prepara lo snapshot, quindi un avanzamento del tick che arriva nel frattempo lo aspetta.
+`CommitBenchmark.moveTickDuringCommits` misura solo l'avanzamento del tick,
+mentre un writer su un altro thread, non misurato, fa il commit degli
+spostamenti uno dopo l'altro, senza pause: è il caso peggiore, con un commit
+sempre in corso o appena finito. Va eseguito con `--percentiles` (il piano lo
+fa) per vedere anche le attese lunghe. Il lock è equo, quindi l'avanzamento
+aspetta al più il commit in corso. Con `movingFraction` 0 i commit sono vuoti:
+il riferimento.
+Con `busyPartitions` maggiore di 1 il nodo ha più partizioni con le stesse
+entità, ciascuna con il suo writer che fa commit senza pause.
+
+`BufferSizes.bytesPerEntity` misura la memoria del buffer prima del commit,
+come `Footprint`: l'heap con il buffer meno l'heap di prima, dopo una garbage
+collection. Le entità e le scritture dei metadati esistono prima del buffer,
+quindi conta solo la composizione per entità. Come i benchmark dei commit,
+parte solo con un pattern, per esempio `--include BufferSizes`, e prende i
+parametri `size` e `metadata`.
 
 ### Persistenza
 
@@ -296,9 +337,11 @@ mvn -f .. install -DskipTests
 | `shape` | findInRegion | `BOX` | `BOX`, `CIRCLE` |
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | gli stessi |
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
-| `movingFraction` | commitTick, movesWithoutCommit | 0, 0.01, 0.1, 1 | gli stessi |
-| `readers` | commitTick, movesWithoutCommit, acquireAndRelease | 0, 2 | gli stessi |
-| `metadata` | persistenza | `NONE`, `FIXED` | gli stessi |
+| `movingFraction` | commitTick, commitTickWithTheWriter, moveTickDuringCommits, movesWithoutCommit | 0, 0.01, 0.1, 1 | gli stessi |
+| `readers` | commitTick, commitTickWithTheWriter, moveTickDuringCommits, movesWithoutCommit, acquireAndRelease | 0, 2 | gli stessi |
+| `busyPartitions` | moveTickDuringCommits | 1 | gli stessi |
+| `writeMode` | commitTickWithTheWriter | `DIRECT`, `BUFFERED` | gli stessi |
+| `metadata` | persistenza, BufferSizes | `NONE`, `FIXED` | gli stessi |
 
 Il nome di un indice dà l'indice e i suoi parametri:
 

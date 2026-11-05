@@ -4,6 +4,7 @@ title: "Nodi remoti e distribuzione"
 description: "Direzione scelta per i nodi gRPC, alternative considerate e questioni aperte del futuro confine di rete."
 tags: [badspace, documentation]
 status: draft
+timestamp: 2026-11-04T23:42:12Z
 generated: { by: codex/gpt-6, at: 2026-10-30T15:48:41Z }
 ---
 
@@ -36,7 +37,13 @@ l'opzione ibrida: libreria sopra, servizio sotto.
 
 # Decisioni da prendere
 
-- Errori remoti, timeout e chiamate a lotti nel contratto dei nodi.
+Prima del trasporto remoto è previsto il
+[refactoring delle scritture](/future/architecture/buffered-writes.md):
+il writer accumula le modifiche finali per ID e le trasferisce al commit,
+anche nel caso locale. Per le scritture non si prevede più una chiamata
+remota per ogni operazione, né si conserva il contratto attuale invariato.
+
+- Errori remoti, timeout, dimensione dei batch, riconoscimento dei commit ripetuti e recupero degli esiti incerti nel contratto dei nodi.
 - Eventuale hosting di più nodi, ciascuno riservato al proprio Space, nello stesso servizio remoto: identità, instradamento e ciclo di vita. Vedi [evoluzioni di nodi e Space](/future/architecture/nodes-and-spaces.md).
 - Eventuale servizio per assegnare generatorId, gTick e barriere.
 - Eventuale centralizzazione della destinazione dei salvataggi.

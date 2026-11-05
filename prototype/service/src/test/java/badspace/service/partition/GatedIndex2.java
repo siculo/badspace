@@ -22,6 +22,9 @@ final class GatedIndex2 implements SpatialIndex2 {
     volatile Gate gate;
     // Set by the test thread before the commit starts, read by the writer thread.
     volatile Gate commitGate;
+    // Set by the test thread before the commit starts, read by the writer thread: the first
+    // insertion or move of the batch stops there.
+    volatile Gate notificationGate;
     // Set by the test thread before the restore starts, read by the writer thread.
     volatile Gate restoreGate;
     // The failures that the methods throw, if not null: an exception or an Error. Set by the
@@ -36,12 +39,14 @@ final class GatedIndex2 implements SpatialIndex2 {
 
     @Override
     public void inserted(int slot, Point2 position) {
+        pass(notificationGate);
         throwIfSet(notificationFailure);
         index.inserted(slot, position);
     }
 
     @Override
     public void moved(int slot, Point2 from, Point2 to) {
+        pass(notificationGate);
         throwIfSet(notificationFailure);
         index.moved(slot, from, to);
     }

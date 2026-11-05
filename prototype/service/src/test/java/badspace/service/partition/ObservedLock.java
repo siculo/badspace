@@ -26,6 +26,11 @@ final class ObservedLock extends ReentrantLock {
         super.lock();
     }
 
+    /** Returns whether a thread has started to wait for the lock, without waiting. */
+    boolean waited() {
+        return waiting.getCount() == 0;
+    }
+
     /** Waits until a thread starts to wait for the lock, and fails after the timeout. */
     void awaitWaiting() throws InterruptedException {
         assertTrue(waiting.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS), "no thread waited for the lock");

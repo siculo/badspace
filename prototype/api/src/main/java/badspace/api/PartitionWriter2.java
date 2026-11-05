@@ -1,39 +1,38 @@
 package badspace.api;
 
 import badspace.common.geometry.Point2;
-import badspace.common.partition.ConditionalWrite2;
 import badspace.common.partition.Entity2;
-import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.WriteSession2;
 import badspace.common.partition.WriteToken;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Writer handle of a 2D partition: it carries the token of the owner and sends the writes to
- * the node of the partition with it (see {@link PartitionWriter}). Single-entity operations are
- * batches of one entity: to write many entities, the batch operations make fewer calls to the
- * node. The handle keeps no state of the partition: the node checks the token and the state
- * of the partition at each call.
+ * Writer handle of a 2D partition: it carries the token of the owner and sends the writes
+ * through {@link WriteSession2}, in the write mode of the node (see {@link PartitionWriter}).
+ * The handle generates the IDs of the new entities and applies the removal policy of the
+ * partition. It keeps no state of the partition: at most, with the buffer, the writes not sent.
  */
 public final class PartitionWriter2 implements PartitionWriter {
 
     private final Space2 space;
     private final PartitionNode2 node;
-    private final WriteToken token;
     private final PartitionConfig config;
+    // The write session of the token. Only the writer that uses the handle calls it.
+    private final WriteSession2 session;
 
     PartitionWriter2(Space2 space, PartitionNode2 node, WriteToken token, PartitionConfig config) {
         this.space = space;
         this.node = node;
-        this.token = token;
         this.config = config;
+        this.session = WriteSession2.of(node, token, config.index().limits());
     }
 
     @Override
     public WriteToken token() {
-        return token;
+        return session.token();
     }
 
     /** Adds a new entity and returns its ID. */
@@ -52,32 +51,43 @@ public final class PartitionWriter2 implements PartitionWriter {
      * {@linkplain Partition#limits() limits}; in this case no entity is added.
      */
     public long[] insertAll(List<Point2> positions) {
-        long[] entityIds = new long[positions.size()];
         List<Entity2> entities = new ArrayList<>(positions.size());
+        long[] entityIds = new long[positions.size()];
         for (int i = 0; i < entityIds.length; i++) {
             entityIds[i] = space.nextEntityId();
             entities.add(new Entity2(entityIds[i], positions.get(i)));
         }
-        node.insertAll(token, entities);
+        session.setAll(entities);
         return entityIds;
     }
 
     /**
-     * Moves an entity. Fails with NoSuchElementException if the ID is not in the partition,
-     * and with IllegalArgumentException if the position is outside the
-     * {@linkplain Partition#limits() limits}.
+     * Sets the position of an entity. If the entity is in the partition, it moves and keeps its
+     * application metadata; if not, for example after a {@link #remove(long)}, it is added
+     * again with the same ID and no metadata. The ID must come from the entity ID generator of
+     * the space: from {@link #insert}, from a snapshot of a partition of the space, or from a
+     * partition loaded from a save. A new entity gets a new ID only with {@code insert}.
+     *
+     * @param entityId the ID of the entity
+     * @param position the new position
+     * @throws IllegalArgumentException if the position is outside the
+     *     {@linkplain Partition#limits() limits}
      */
-    public void update(long entityId, Point2 position) {
-        updateAll(List.of(new Entity2(entityId, position)));
+    public void set(long entityId, Point2 position) {
+        setAll(List.of(new Entity2(entityId, position)));
     }
 
     /**
-     * Moves many entities in one call. Fails with NoSuchElementException if an ID is not
-     * in the partition, and with IllegalArgumentException if a position is outside the
-     * {@linkplain Partition#limits() limits}; in these cases no entity moves.
+     * Sets the positions of many entities in one call, like {@link #set(long, Point2)} for
+     * each entity, in the order of the list: if an ID appears more than once, the last position
+     * wins.
+     *
+     * @param entities the IDs of the entities with their positions
+     * @throws IllegalArgumentException if a position is outside the
+     *     {@linkplain Partition#limits() limits}; in this case nothing changes
      */
-    public void updateAll(List<Entity2> entities) {
-        node.updateAll(token, entities);
+    public void setAll(List<Entity2> entities) {
+        session.setAll(entities);
     }
 
     @Override
@@ -87,7 +97,7 @@ public final class PartitionWriter2 implements PartitionWriter {
 
     @Override
     public void removeAll(long[] entityIds) {
-        node.removeAll(token, entityIds);
+        session.removeAll(entityIds);
     }
 
     @Override
@@ -102,53 +112,40 @@ public final class PartitionWriter2 implements PartitionWriter {
 
     @Override
     public void updateMetadataAll(List<MetadataWrite> writes) {
-        node.updateMetadataAll(token, writes);
+        session.updateMetadataAll(writes);
     }
 
     @Override
-    public boolean compareAndSetMetadata(long entityId, String key, long expected, long value) {
-        return updateIf(new ConditionalWrite2(List.of(MetadataCondition.valueIs(entityId, key, expected)), List.of(),
-                List.of(MetadataWrite.put(entityId, key, value)))).isEmpty();
-    }
-
-    /**
-     * Moves entities and writes their application metadata only if all the conditions of the
-     * write are true now, with the writes not committed yet; the check and the write are a
-     * single step. Returns the false conditions, in their order, or an empty list if the write
-     * was applied; with a false condition nothing changes. Fails with NoSuchElementException
-     * if an ID of the write or of a condition is not in the partition, and with
-     * IllegalArgumentException if a position is outside the {@linkplain Partition#limits()
-     * limits}; in these cases nothing changes.
-     */
-    public List<MetadataCondition> updateIf(ConditionalWrite2 write) {
-        return node.updateIf(token, write);
+    public void flush() {
+        session.flush();
     }
 
     @Override
     public void commit() {
-        node.commit(token);
+        session.commit();
     }
 
     @Override
     public void rollback() {
-        node.rollback(token);
+        session.rollback();
     }
 
     @Override
     public long lastCommitTick() {
-        return node.lastCommitTick(token);
+        return node.lastCommitTick(session.token());
     }
 
     @Override
     public void removePartition() {
         switch (config.removalPolicy()) {
-            case REQUIRE_EMPTY -> node.removePartition(token);
-            case DISCARD_ENTITIES -> node.dropPartition(token);
+            case REQUIRE_EMPTY -> node.removePartition(session.token());
+            case DISCARD_ENTITIES -> node.dropPartition(session.token());
         }
+        session.discard();
     }
 
     @Override
     public void close() {
-        node.release(token);
+        session.release();
     }
 }

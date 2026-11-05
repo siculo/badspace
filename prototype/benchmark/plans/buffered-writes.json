@@ -1,0 +1,71 @@
+// Measures the costs of the writes kept in the writer and sent with the commit, in one
+// report. It took about 35-40 minutes before the two write modes, which add the tick of the
+// writer in the direct mode.
+//
+// The first run compares a tick of the writer (commitTickWithTheWriter), in the direct mode
+// and through its buffer (writeMode), with the same tick that writes the batch into the
+// node without the buffer (commitTick) and with the moves
+// alone (movesWithoutCommit), with large batches: up to all the entities of a partition of
+// one million. The second run measures the latency of the moves of the tick while a writer
+// on another thread commits the same batches without pauses: the commit holds the lock of
+// the partition for the application of the batch and the preparation of the snapshot, so
+// the move of the tick waits for it; the run gives the average and the percentiles. The
+// third run does the same with more partitions on the node, each with a busy writer: the
+// move of the tick moves first the partitions whose lock is free, and waits for the busy
+// ones one at a time, so with writers that never pause the time grows with the number of
+// busy partitions. The fourth run measures the memory of the
+// buffer, with and without the metadata (see MetadataSet).
+{
+  "groups": [
+    {
+      "profile": "quick",
+      "report": "buffered-writes",
+      "runs": [
+        {
+          "name": "commit-batch",
+          "index": ["LINEAR_SCAN", "UNIFORM_GRID_100", "GRID_QUADTREE_128"],
+          "include": "CommitBenchmark\\.(commitTick|commitTickWithTheWriter|movesWithoutCommit)$",
+          "params": {
+            "distribution": "UNIFORM",
+            "size": [100000, 1000000],
+            "movingFraction": [0.01, 0.1, 1],
+            "readers": 0
+          }
+        },
+        {
+          "name": "tick-during-commits",
+          "index": ["LINEAR_SCAN", "UNIFORM_GRID_100", "GRID_QUADTREE_128"],
+          "include": "CommitBenchmark\\.moveTickDuringCommits$",
+          "percentiles": true,
+          "params": {
+            "distribution": "UNIFORM",
+            "size": [100000, 1000000],
+            "movingFraction": [0, 0.01, 0.1, 1],
+            "readers": 0
+          }
+        },
+        {
+          "name": "tick-during-commits-busy-partitions",
+          "index": ["LINEAR_SCAN", "GRID_QUADTREE_128"],
+          "include": "CommitBenchmark\\.moveTickDuringCommits$",
+          "percentiles": true,
+          "params": {
+            "distribution": "UNIFORM",
+            "size": 100000,
+            "movingFraction": [0.01, 0.1],
+            "busyPartitions": [1, 2, 4],
+            "readers": 0
+          }
+        },
+        {
+          "name": "buffer-sizes",
+          "include": "BufferSizes",
+          "params": {
+            "size": [1000, 100000, 1000000],
+            "metadata": ["NONE", "FIXED"]
+          }
+        }
+      ]
+    }
+  ]
+}

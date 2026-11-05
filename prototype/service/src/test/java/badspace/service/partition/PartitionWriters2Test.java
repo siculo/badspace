@@ -4,6 +4,7 @@ import static badspace.common.geometry.Point2.point;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
+import static badspace.service.partition.Owners.writes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -76,11 +77,11 @@ class PartitionWriters2Test {
             });
             node.createPartition(P1, nameOf(P1), config, 1);
             node.createPartition(P2, nameOf(P2), config, 1);
-            node.insertAll(owner(node, P1), List.of(new Entity2(10, A)));
+            writes(node, P1).setAll(List.of(new Entity2(10, A)));
             Gate gate = new Gate();
             indexes.getFirst().commitGate = gate;
             AtomicReference<Throwable> failure = new AtomicReference<>();
-            Thread writer = worker(() -> node.commit(owner(node, P1)), failure);
+            Thread writer = worker(() -> writes(node, P1).commit(), failure);
             Thread mover = worker(() -> node.setTick(1), failure);
             writer.start();
             try {
@@ -90,9 +91,9 @@ class PartitionWriters2Test {
                 locks.getFirst().awaitWaiting();
 
                 assertTimeoutPreemptively(TIMEOUT, () -> {
-                    node.insertAll(owner(node, P2), List.of(new Entity2(20, B)));
-                    node.updateAll(owner(node, P2), List.of(new Entity2(20, C)));
-                    node.commit(owner(node, P2));
+                    writes(node, P2).setAll(List.of(new Entity2(20, B)));
+                    writes(node, P2).setAll(List.of(new Entity2(20, C)));
+                    writes(node, P2).commit();
                 }, config + ": the writer of P2 waited for P1");
 
             } finally {
@@ -113,6 +114,129 @@ class PartitionWriters2Test {
     }
 
     /**
+     * The commit of P1 is stopped in the index, while it holds the lock of P1. A move of the
+     * tick moves at once the other partitions, whose lock is free, and then waits only for P1,
+     * which moves when its commit ends.
+     */
+    @Test
+    void moveOfTheTickMovesTheFreePartitionsWhileItWaitsForABusyOne() throws Exception {
+        List<GatedIndex2> indexes = new ArrayList<>();
+        List<ObservedLock> locks = new ArrayList<>();
+        LocalPartitionNode2 node = new LocalPartitionNode2(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
+            ObservedLock lock = new ObservedLock();
+            locks.add(lock);
+            return new PartitionStorage2(index.limits(), slots -> {
+                GatedIndex2 gated = new GatedIndex2(SpatialIndexes.create(index, slots));
+                indexes.add(gated);
+                return gated;
+            }, retainedTicks, clock, tick, lock, new CoordinateBufferPool());
+        });
+        PartitionId p3 = new PartitionId(3);
+        node.createPartition(P1, nameOf(P1));
+        node.createPartition(P2, nameOf(P2));
+        node.createPartition(p3, nameOf(p3));
+        writes(node, P1).setAll(List.of(new Entity2(10, A)));
+        Gate gate = new Gate();
+        indexes.getFirst().commitGate = gate;
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread writer = worker(() -> writes(node, P1).commit(), failure);
+        Thread mover = worker(() -> node.setTick(1), failure);
+        writer.start();
+        try {
+            gate.awaitEntered();
+            mover.start();
+            // The move of the tick waits for P1 only after it moved the free partitions.
+            locks.getFirst().awaitWaiting();
+            assertEquals(1, node.tick(P2));
+            assertEquals(1, node.tick(p3));
+            assertEquals(0, node.tick(P1));
+        } finally {
+            gate.open();
+            join(writer);
+            join(mover);
+        }
+        if (failure.get() != null) {
+            throw new AssertionError("commit or tick worker failed", failure.get());
+        }
+        assertEquals(1, node.tick(P1));
+        assertEquals(List.of(new Entity2(10, A)), read(node, P1, 0, 10));
+    }
+
+    /**
+     * The commits of P1 and P2 are stopped in the index, while they hold their locks, and a
+     * move of the tick moves at once P3, which is free, and then waits for one of the two
+     * busy partitions. The other one ends its commit while the move waits: it stays at the old
+     * tick until the commit of the first one ends, because the move tries it again only then.
+     * At the end all the partitions are at the new tick.
+     */
+    @Test
+    void busyPartitionThatEndsItsCommitWaitsForTheOneThatTheMoveWaitsFor() throws Exception {
+        List<GatedIndex2> indexes = new ArrayList<>();
+        List<ObservedLock> locks = new ArrayList<>();
+        LocalPartitionNode2 node = new LocalPartitionNode2(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
+            ObservedLock lock = new ObservedLock();
+            locks.add(lock);
+            return new PartitionStorage2(index.limits(), slots -> {
+                GatedIndex2 gated = new GatedIndex2(SpatialIndexes.create(index, slots));
+                indexes.add(gated);
+                return gated;
+            }, retainedTicks, clock, tick, lock, new CoordinateBufferPool());
+        });
+        PartitionId p3 = new PartitionId(3);
+        List<PartitionId> busy = List.of(P1, P2);
+        node.createPartition(P1, nameOf(P1));
+        node.createPartition(P2, nameOf(P2));
+        node.createPartition(p3, nameOf(p3));
+        List<Gate> gates = List.of(new Gate(), new Gate());
+        List<Thread> writers = new ArrayList<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        for (int i = 0; i < busy.size(); i++) {
+            PartitionId partitionId = busy.get(i);
+            writes(node, partitionId).setAll(List.of(new Entity2(10, A)));
+            indexes.get(i).commitGate = gates.get(i);
+            writers.add(worker(() -> writes(node, partitionId).commit(), failure));
+        }
+        Thread mover = worker(() -> node.setTick(1), failure);
+        try {
+            for (int i = 0; i < busy.size(); i++) {
+                writers.get(i).start();
+                gates.get(i).awaitEntered();
+            }
+            mover.start();
+            // The move waits for the lock of one of the two busy partitions: the other one is
+            // the one that ends its commit first.
+            long deadline = System.nanoTime() + TIMEOUT.toNanos();
+            while (!locks.get(0).waited() && !locks.get(1).waited()) {
+                assertTrue(System.nanoTime() < deadline, "the move of the tick did not wait for a partition");
+                Thread.onSpinWait();
+            }
+            int waitedFor = locks.get(0).waited() ? 0 : 1;
+            int other = 1 - waitedFor;
+            assertEquals(1, node.tick(p3));
+            gates.get(other).open();
+            join(writers.get(other));
+            assertEquals(0, node.tick(busy.get(other)), "the move moved a partition before the one it waits for");
+            assertEquals(0, node.tick(busy.get(waitedFor)));
+        } finally {
+            gates.forEach(Gate::open);
+            writers.forEach(writer -> {
+                try {
+                    join(writer);
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+            join(mover);
+        }
+        if (failure.get() != null) {
+            throw new AssertionError("commit or tick worker failed", failure.get());
+        }
+        assertEquals(1, node.tick(P1));
+        assertEquals(1, node.tick(P2));
+        assertEquals(1, node.tick(p3));
+    }
+
+    /**
      * Each writer moves the entities of its partition at each commit, and removes and inserts
      * one again at each even commit; the tick moves on another thread. The entities of all
      * the partitions have the same IDs but a different row in y, so a snapshot with an entity
@@ -130,7 +254,7 @@ class PartitionWriters2Test {
         for (int w = 0; w < WRITERS; w++) {
             partitionIds[w] = new PartitionId(w + 1);
             node.createPartition(partitionIds[w], nameOf(partitionIds[w]), CONFIGS.get(w % CONFIGS.size()), 2);
-            node.insertAll(owner(node, partitionIds[w]), entitiesAt(w, 0, entityIds));
+            writes(node, partitionIds[w]).setAll(entitiesAt(w, 0, entityIds));
         }
 
         CountDownLatch observed = new CountDownLatch(READERS);
@@ -152,15 +276,15 @@ class PartitionWriters2Test {
                         List<Entity2> moved = entitiesAt(partition, version, entityIds);
                         if (version % 2 == 0) {
                             // A removal and an insertion: the IDs change in this commit.
-                            node.removeAll(owner(node, partitionId), new long[] {entityIds[ENTITIES - 1]});
-                            node.insertAll(owner(node, partitionId), moved.subList(ENTITIES - 1, ENTITIES));
-                            node.updateAll(owner(node, partitionId), moved.subList(0, ENTITIES - 1));
+                            writes(node, partitionId).removeAll(new long[] {entityIds[ENTITIES - 1]});
+                            writes(node, partitionId).setAll(moved.subList(ENTITIES - 1, ENTITIES));
+                            writes(node, partitionId).setAll(moved.subList(0, ENTITIES - 1));
                         } else {
-                            // Two calls, so the state of the writer between them is mixed.
-                            node.updateAll(owner(node, partitionId), moved.subList(0, ENTITIES / 2));
-                            node.updateAll(owner(node, partitionId), moved.subList(ENTITIES / 2, ENTITIES));
+                            // Two calls make one batch: the commit sends it to the node whole.
+                            writes(node, partitionId).setAll(moved.subList(0, ENTITIES / 2));
+                            writes(node, partitionId).setAll(moved.subList(ENTITIES / 2, ENTITIES));
                         }
-                        node.commit(owner(node, partitionId));
+                        writes(node, partitionId).commit();
                         if (version == VERSIONS / 2) {
                             middle.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                             await(observed);

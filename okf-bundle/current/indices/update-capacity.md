@@ -4,7 +4,7 @@ title: Capacità degli aggiornamenti per tick
 description: Quante entità per partizione si possono aggiornare in un tick, dati i tick al secondo, nel caso peggiore e in media; modello con il costo di un aggiornamento e di un cambio di foglia o di cella, e prima stima dalle misure.
 tags: [badspace, spatial-indexing, performance, tick, benchmark]
 status: draft
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T18:54:02Z }
 ---
 
 # Domanda
@@ -127,6 +127,22 @@ distribuzioni e i movimenti, con lo stesso budget di 4,2 ms:
 | Griglia di quadtree, celle 256 | circa 220 ns (`CORRIDORS`, teletrasporto) | circa 19 000 | circa 350 ns | circa 12 000 |
 | Grid uniforme, celle 400 | circa 84 ns (`UNIFORM`, teletrasporto) | circa 50 000 | circa 112 ns | circa 37 000 |
 | Scansione lineare | circa 28 ns | circa 150 000 | circa 33 ns | circa 127 000 |
+
+Queste cifre sono il costo dell'indice e degli slot, senza il commit e
+senza le scritture del writer. Il percorso completo, dal
+[writer](/current/architecture/partition-commit.md#costi-del-buffer-e-del-commit)
+al commit, costa di più. Nella modalità diretta del nodo locale, con
+1 000 000 di entità e il 10% in movimento, costa circa 140 ns per entità
+scritta con la scansione lineare, 270 con la grid uniforme e 600 con la
+griglia di quadtree, e con l'1% circa 120 ns con la scansione lineare;
+con il buffer circa 210, 330 e 630 ns (misure del 2026-11-05 con
+Temurin 25.0.5,
+`prototype/benchmark/results/2026-11-05-commit-tick-write-modes-quick.*`).
+Il budget di 4,2 ms dà allora, nella modalità diretta, circa 30 000
+entità scritte per tick con la scansione lineare e 7000 con la griglia
+di quadtree. Con gli indici più economici la differenza viene
+soprattutto dalla copia degli snapshot e dalle modifiche costruite a
+ogni scrittura, con il buffer anche dal buffer.
 
 Con 1 000 000 di entità `c0` e `c1` non si ricavano da questi due
 punti: con più entità le foglie sono più piccole, e la frequenza dei

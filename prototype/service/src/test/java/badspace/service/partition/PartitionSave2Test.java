@@ -4,6 +4,7 @@ import static badspace.common.partition.Entity2.entity;
 import static badspace.common.partition.MetadataWrite.put;
 import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
+import static badspace.service.partition.Owners.writes;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -76,9 +77,9 @@ class PartitionSave2Test {
 
     @Test
     void saveHasTheIdsPositionsAndMetadataOfTheSnapshot() throws IOException {
-        node.insertAll(owner(node, P1), List.of(entity(1, 1, 2), entity(2, 3, 4)));
-        node.updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
-        node.commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 2), entity(2, 3, 4)));
+        writes(node, P1).updateMetadataAll(List.of(put(1, "version", 7), put(1, "owner", -3)));
+        writes(node, P1).commit();
         node.setTick(1);
         PartitionCopy2 saved = PartitionSave2.read(fileOf(node.saveLatest(P1)), nameOf(P1));
         assertEquals(0, saved.tick());
@@ -98,11 +99,11 @@ class PartitionSave2Test {
     @Test
     void saveAtATickChoosesThatSnapshot() throws IOException {
         node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
-        node.insertAll(owner(node, P2), List.of(entity(1, 1, 1)));
-        node.commit(owner(node, P2));
+        writes(node, P2).setAll(List.of(entity(1, 1, 1)));
+        writes(node, P2).commit();
         node.setTick(1);
-        node.insertAll(owner(node, P2), List.of(entity(2, 2, 2)));
-        node.commit(owner(node, P2));
+        writes(node, P2).setAll(List.of(entity(2, 2, 2)));
+        writes(node, P2).commit();
         node.setTick(2);
         assertEquals(1, PartitionSave2.read(fileOf(node.save(P2, 0)), nameOf(P2)).size());
         assertEquals(2, PartitionSave2.read(fileOf(node.save(P2, 1)), nameOf(P2)).size());
@@ -111,10 +112,9 @@ class PartitionSave2Test {
 
     @Test
     void savesOfTheSameTickWriteTheSameBytes() throws IOException {
-        node.insertAll(owner(node, P1), List.of(entity(1, 1, 2), entity(2, 3, 4)));
-        node.updateMetadataAll(owner(node, P1),
-                List.of(put(1, "b", 1), put(1, "a", 2), put(2, "c", 3), put(2, "a", 4)));
-        node.commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 2), entity(2, 3, 4)));
+        writes(node, P1).updateMetadataAll(List.of(put(1, "b", 1), put(1, "a", 2), put(2, "c", 3), put(2, "a", 4)));
+        writes(node, P1).commit();
         node.setTick(1);
         byte[] first = Files.readAllBytes(fileOf(node.save(P1, 0)));
         byte[] second = Files.readAllBytes(fileOf(node.save(P1, 0)));
@@ -125,9 +125,9 @@ class PartitionSave2Test {
     @Test
     void savesOfTheSameTickAtTheSameTimeLeaveOneValidSave() throws Exception {
         for (int i = 0; i < 1000; i++) {
-            node.insertAll(owner(node, P1), List.of(entity(i, i % 4, i / 4 % 4)));
+            writes(node, P1).setAll(List.of(entity(i, i % 4, i / 4 % 4)));
         }
-        node.commit(owner(node, P1));
+        writes(node, P1).commit();
         node.setTick(1);
         int saves = 8;
         List<Callable<SavedPartition>> tasks = new ArrayList<>();
@@ -276,8 +276,8 @@ class PartitionSave2Test {
 
     @Test
     void readRejectsACorruptedSave() throws IOException {
-        node.insertAll(owner(node, P1), List.of(entity(1, 1, 2)));
-        node.commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 2)));
+        writes(node, P1).commit();
         node.setTick(1);
         Path file = fileOf(node.saveLatest(P1));
         byte[] bytes = Files.readAllBytes(file);

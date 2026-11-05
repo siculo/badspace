@@ -68,7 +68,7 @@ public final class MultiWriter {
             try (PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow())) {
                 long entityId = writer.insert(startX, 0);
                 for (int step = 1; step <= TICKS; step++) {
-                    writer.update(entityId, point(startX + step, 0));
+                    writer.set(entityId, point(startX + step, 0));
                     writer.commit();
                     System.out.printf("  %s committed tick %d%n", partition.name().value(), partition.tick());
                     endOfTick.await(BARRIER_TIMEOUT_SECONDS, TimeUnit.SECONDS);

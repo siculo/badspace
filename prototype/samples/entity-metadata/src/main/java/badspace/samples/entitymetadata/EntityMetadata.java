@@ -39,7 +39,7 @@ public final class EntityMetadata {
 
             // The ship moves and changes its metadata in the same commit. A batch changes many
             // keys of many entities in one call.
-            writer.update(ship, point(5, 5));
+            writer.set(ship, point(5, 5));
             writer.updateMetadataAll(List.of(put(ship, "health", 80), put(ship, "team", 2)));
             writer.deleteMetadata(bullet, "expiryTick");
             writer.commit();

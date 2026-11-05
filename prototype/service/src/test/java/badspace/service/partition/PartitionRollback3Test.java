@@ -1,5 +1,7 @@
 package badspace.service.partition;
 
+import static badspace.service.partition.Owners.assertRejected;
+import static badspace.service.partition.Owners.writes;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.Entity3.entity;
 import static badspace.service.partition.Names.nameOf;
@@ -18,6 +20,7 @@ import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -26,13 +29,21 @@ import java.util.Map;
 import java.util.Random;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.Parameter;
+import org.junit.jupiter.params.ParameterizedClass;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Checks the rollback of the writer of a 3D partition on the node: it discards the writes not
  * committed, also of the ticks before, keeps the commits and the ownership, and gives the same
  * state as a release and a new claim.
  */
+@ParameterizedClass
+@EnumSource(WriteMode.class)
 class PartitionRollback3Test {
+
+    @Parameter
+    WriteMode mode;
 
     private static final PartitionId P1 = new PartitionId(1);
     private static final List<IndexConfig> CONFIGS = List.of(
@@ -47,22 +58,22 @@ class PartitionRollback3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3();
+        node = new LocalPartitionNode3(mode);
         node.createPartition(P1, nameOf(P1));
         token = node.claim(P1, 0).orElseThrow();
     }
 
     @Test
     void rollbackDiscardsAlsoTheWritesOfTheTicksBeforeAndKeepsTheOwnership() {
-        node.insertAll(token, List.of(entity(1, 1, 1, 1)));
-        node.updateMetadataAll(token, List.of(MetadataWrite.put(1, "hp", 1)));
-        node.commit(token);
+        writes(node, token).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, token).updateMetadataAll(List.of(MetadataWrite.put(1, "hp", 1)));
+        writes(node, token).commit();
         node.setTick(1);
-        node.insertAll(token, List.of(entity(2, 2, 2, 2)));
+        writes(node, token).setAll(List.of(entity(2, 2, 2, 2)));
         node.setTick(2);
-        node.updateAll(token, List.of(entity(1, 9, 9, 9)));
-        node.updateMetadataAll(token, List.of(MetadataWrite.put(1, "hp", 2)));
-        node.rollback(token);
+        writes(node, token).setAll(List.of(entity(1, 9, 9, 9)));
+        writes(node, token).updateMetadataAll(List.of(MetadataWrite.put(1, "hp", 2)));
+        writes(node, token).rollback();
         assertEquals(new Ownership(1, true), node.ownership(P1));
         assertSame(PartitionHealth.HEALTHY, node.health(P1));
         Acquisition acquisition = publish();
@@ -73,38 +84,38 @@ class PartitionRollback3Test {
 
     @Test
     void rollbackKeepsTheCommitThatWaitsForTheMoveOfTheTick() {
-        node.insertAll(token, List.of(entity(1, 1, 1, 1)));
-        node.commit(token);
-        node.insertAll(token, List.of(entity(2, 2, 2, 2)));
-        node.rollback(token);
+        writes(node, token).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, token).commit();
+        writes(node, token).setAll(List.of(entity(2, 2, 2, 2)));
+        writes(node, token).rollback();
         node.setTick(1);
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(node.acquire(P1, 0, defaultTimeout()), IDS));
-        node.insertAll(token, List.of(entity(3, 3, 3, 3)));
+        writes(node, token).setAll(List.of(entity(3, 3, 3, 3)));
         assertEquals(List.of(entity(1, 1, 1, 1), entity(3, 3, 3, 3)), node.getAll(publish(), IDS));
     }
 
     @Test
     void rollbackBeforeTheFirstCommitLeavesThePartitionEmpty() {
-        node.insertAll(token, List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2)));
-        node.rollback(token);
+        writes(node, token).setAll(List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2)));
+        writes(node, token).rollback();
         assertEquals(List.of(), node.getAll(publish(), IDS));
     }
 
     @Test
     void rollbackWithoutWritesChangesNothing() {
-        node.insertAll(token, List.of(entity(1, 1, 1, 1)));
-        node.commit(token);
-        node.rollback(token);
-        node.rollback(token);
+        writes(node, token).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, token).commit();
+        writes(node, token).rollback();
+        writes(node, token).rollback();
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(publish(), IDS));
     }
 
     @Test
     void rollbackWithAnOldTokenIsRefusedAndChangesNothing() {
         WriteToken second = node.claim(P1, token.generation()).orElseThrow();
-        node.insertAll(second, List.of(entity(1, 1, 1, 1)));
-        assertThrows(OwnershipChangedException.class, () -> node.rollback(token));
-        node.commit(second);
+        writes(node, second).setAll(List.of(entity(1, 1, 1, 1)));
+        assertThrows(OwnershipChangedException.class, () -> writes(node, token).rollback());
+        writes(node, second).commit();
         node.setTick(1);
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(node.acquireLatest(P1, defaultTimeout()), IDS));
     }
@@ -112,7 +123,7 @@ class PartitionRollback3Test {
     @Test
     void rollbackAfterTheRemovalIsRefused() {
         node.dropPartition(token);
-        assertThrows(IllegalStateException.class, () -> node.rollback(token));
+        assertThrows(IllegalStateException.class, () -> writes(node, token).rollback());
     }
 
     /**
@@ -123,8 +134,8 @@ class PartitionRollback3Test {
     @Test
     void rollbackGivesTheSameStateAsAReleaseAndAClaim() {
         for (IndexConfig config : CONFIGS) {
-            LocalPartitionNode3 rolledBack = new LocalPartitionNode3();
-            LocalPartitionNode3 released = new LocalPartitionNode3();
+            LocalPartitionNode3 rolledBack = new LocalPartitionNode3(mode);
+            LocalPartitionNode3 released = new LocalPartitionNode3(mode);
             rolledBack.createPartition(P1, nameOf(P1), config);
             released.createPartition(P1, nameOf(P1), config);
             WriteToken rollbackToken = rolledBack.claim(P1, 0).orElseThrow();
@@ -132,11 +143,11 @@ class PartitionRollback3Test {
             for (int round = 0; round < 3; round++) {
                 writeRandomly(rolledBack, rollbackToken, new Random(round), 200);
                 writeRandomly(released, releaseToken, new Random(round), 200);
-                rolledBack.commit(rollbackToken);
-                released.commit(releaseToken);
+                writes(rolledBack, rollbackToken).commit();
+                writes(released, releaseToken).commit();
                 writeRandomly(rolledBack, rollbackToken, new Random(~round), 100);
                 writeRandomly(released, releaseToken, new Random(~round), 100);
-                rolledBack.rollback(rollbackToken);
+                writes(rolledBack, rollbackToken).rollback();
                 released.release(releaseToken);
                 releaseToken = released.claim(P1, releaseToken.generation() + 1).orElseThrow();
                 writeRandomly(rolledBack, rollbackToken, new Random(round + 100), 50);
@@ -159,12 +170,12 @@ class PartitionRollback3Test {
                     new Point3(random.nextInt(-100, 100), random.nextInt(-100, 100), random.nextInt(-100, 100)));
             boolean remove = random.nextBoolean();
             try {
-                target.insertAll(writer, List.of(entity));
+                writes(target, writer).setAll(List.of(entity));
             } catch (IllegalArgumentException present) {
                 if (remove) {
-                    target.removeAll(writer, new long[] {entityId});
+                    writes(target, writer).removeAll(new long[] {entityId});
                 } else {
-                    target.updateAll(writer, List.of(entity));
+                    writes(target, writer).setAll(List.of(entity));
                 }
             }
         }
@@ -172,7 +183,7 @@ class PartitionRollback3Test {
 
     /** Commits, moves the tick and returns the entities of the snapshot, sorted by ID, and the nearest ones. */
     private static List<List<Entity3>> content(LocalPartitionNode3 target, WriteToken writer) {
-        target.commit(writer);
+        writes(target, writer).commit();
         target.setTick(target.tick() + 1);
         Acquisition acquisition = target.acquireLatest(P1, defaultTimeout());
         List<Entity3> all = new ArrayList<>(target.findInRegion(acquisition, EVERYWHERE));
@@ -184,7 +195,7 @@ class PartitionRollback3Test {
 
     /** Commits, moves the tick and acquires the snapshot just published. */
     private Acquisition publish() {
-        node.commit(token);
+        writes(node, token).commit();
         node.setTick(node.tick() + 1);
         return node.acquireLatest(P1, defaultTimeout());
     }

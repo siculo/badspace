@@ -4,7 +4,7 @@ title: Tick logico
 description: "Tempo logico di spazio, nodi e partizioni: avanzamento monotono, salti, pubblicazione degli snapshot e propagazione non atomica."
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T16:38:54Z }
 ---
 
 # Primitiva
@@ -95,6 +95,17 @@ partizione devono avere un ordine definito:
 - **Creazione e avanzamento del nodo** hanno un ordine tra loro: una
   partizione creata mentre il nodo propaga un tick non deve restare
   indietro di un tick.
+- **Le partizioni libere avanzano per prime.** Il nodo fa avanzare
+  subito le partizioni che non hanno un commit in corso, poi aspetta una
+  partizione occupata alla volta e, dopo ogni attesa, riprova subito le
+  altre. Una partizione libera al momento di una scansione non aspetta i
+  commit delle partizioni occupate. Una partizione occupata alla
+  scansione può invece aspettare anche il commit della partizione che il
+  nodo ha scelto di aspettare, se il suo finisce prima: il nodo la
+  riprova solo alla fine di quell'attesa, e allora può trovarla di nuovo
+  occupata. Il tempo dell'avanzamento può quindi crescere con il numero
+  di partizioni occupate. Quando l'avanzamento del nodo termina, tutte
+  le partizioni sono al tick nuovo.
 
 # Perché il tick sta nel livello base
 
@@ -120,8 +131,10 @@ Il tick regola commit, pubblicazione e acquisizioni (vedi [conservazione
 degli snapshot](/current/architecture/snapshot-retention.md#nel-prototipo)). La
 rimozione segue la [semantica con gli
 stati](/current/architecture/partition-removal.md#nel-prototipo). Il lock per partizione
-è un `ReentrantLock` nello storage, preso da scritture, `commit()`,
-richiesta di rimozione e `setTick`, mai dai reader.
+è un `ReentrantLock` equo nello storage, preso dalle scritture della
+modalità diretta, da `commit()`, che con il buffer applica anche il
+batch delle scritture, e prepara lo snapshot, da rollback, cambi di
+proprietà, richiesta di rimozione e `setTick`, mai dai reader.
 
 - **Contratto del nodo** (`PartitionNode2`/`PartitionNode3`):
   `setTick(long)`, `tick()`, `tick(PartitionId)` e
@@ -132,11 +145,19 @@ richiesta di rimozione e `setTick`, mai dai reader.
   `createPartition`: una partizione creata durante un avanzamento nasce
   prima, e allora avanza anche lei, o dopo, al tick nuovo. `setTick`
   avanza anche le partizioni rimosse, e in ogni partizione cerca le
-  acquisizioni scadute.
+  acquisizioni scadute. Le partizioni avanzano in più giri: in ogni giro
+  `setTick` prova il lock di tutte le partizioni rimaste con `tryLock`,
+  che lo prende se è libero anche quando altri thread lo aspettano, e fa
+  avanzare quelle che lo ottengono; poi aspetta il lock della prima
+  partizione rimasta, che è equo, quindi al più il commit in corso, e
+  ricomincia con le altre.
 - **Storage**: tick e tick di creazione stanno nel catalogo degli
   snapshot, pubblicato a ogni avanzamento; `setTick` dello storage
   pubblica lo snapshot in attesa e restituisce vero se finisce una
-  partizione rimossa, e il nodo allora la toglie.
+  partizione rimossa, e il nodo allora la toglie. `trySetTick` fa lo
+  stesso senza aspettare il lock e restituisce un `TickMove`: `BUSY` se
+  il lock è di un altro thread, `MOVED` o `DESTROYED` se la partizione è
+  avanzata.
 - **API**: `Space.setTick(long)` e `tick()`; lo spazio tiene in un
   insieme per identità i nodi creati con `createNode`, e chiama `setTick`
   su un nodo nuovo prima di registrarlo. Un `ReentrantLock` ordina
@@ -153,7 +174,14 @@ lock quest'ultimo test fallisce. Altri test, con latch e senza sleep,
 verificano che un avanzamento durante la factory raggiunga il nodo nuovo,
 che un avanzamento aspetti la registrazione, che un caricamento non
 blocchi gli avanzamenti, e che due spazi con nodi distinti e gli stessi
-generatori avanzino in modo indipendente.
+generatori avanzino in modo indipendente. Un test con il commit di una
+partizione fermo nell'indice verifica che l'avanzamento faccia avanzare
+subito le altre partizioni del nodo e aspetti solo quella occupata; con
+l'avanzamento sequenziale di prima il test fallisce. Un altro test ferma
+i commit di due partizioni: l'avanzamento fa avanzare subito la terza e
+aspetta una delle due, e l'altra, liberata durante l'attesa, resta al
+tick vecchio finché finisce il commit della prima; alla fine tutte sono
+al tick nuovo.
 
 # Correlati
 

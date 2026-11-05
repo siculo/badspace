@@ -10,10 +10,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -24,17 +26,23 @@ import badspace.common.geometry.Point3;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.ApplicationMetadata;
-import badspace.common.partition.ConditionalWrite3;
 import badspace.common.partition.Entity3;
+import badspace.common.partition.EntityWrite3;
+import badspace.common.partition.FailureOutcome;
 import badspace.common.partition.IndexConfig;
-import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
+import badspace.common.partition.OwnershipChangedException;
+import badspace.common.partition.PartitionComponent;
+import badspace.common.partition.PartitionFailure;
+import badspace.common.partition.PartitionFailureException;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode3;
+import badspace.common.partition.PartitionOperation;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import java.time.Duration;
 import java.util.List;
@@ -59,7 +67,8 @@ class Space3Test {
     private final AtomicLong partitionIds = new AtomicLong(100);
     private final SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
     private final Space3 space = new Space3(config);
-    private final PartitionNode3 node = mock(PartitionNode3.class);
+    // The writes of the tests go to the node in one batch at the commit, like with a remote node.
+    private final PartitionNode3 node = buffered(mock(PartitionNode3.class));
     private final Node3 handle = space.createNode(() -> node);
 
     private static final Point3 A = new Point3(1, 2, 3);
@@ -129,12 +138,148 @@ class Space3Test {
     }
 
     @Test
-    void insertAllMakesOneBatchWithGeneratedIdsInPositionOrder() {
+    void writesMakeNoCallsAndTheCommitSendsOneBatchWithTheGeneratedIds() {
         PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
         clearInvocations(node);
         assertArrayEquals(new long[] {11, 12}, writer.insertAll(List.of(A, B)));
-        verify(node).insertAll(TOKEN, List.of(new Entity3(11, A), new Entity3(12, B)));
+        writer.set(11, B);
+        writer.putMetadata(12, "version", 1);
+        verifyNoInteractions(node);
+        writer.commit();
+        verify(node).commit(TOKEN, List.of(new EntityWrite3(11, false, B, List.of(), List.of()),
+                new EntityWrite3(12, false, B, List.of(), List.of(MetadataWrite.put(12, "version", 1)))));
         verifyNoMoreInteractions(node);
+    }
+
+    @Test
+    void directWritesGoToTheNodeAtOnceAndTheCommitConfirmsThem() {
+        PartitionNode3 direct = mock(PartitionNode3.class);
+        when(direct.writeMode()).thenReturn(WriteMode.DIRECT);
+        PartitionWriter3 writer = space.createPartition(space.createNode(() -> direct), NAME).writer(TOKEN);
+        long entityId = writer.insert(A);
+        writer.set(entityId, B);
+        writer.putMetadata(entityId, "a", 1);
+        writer.updateMetadataAll(List.of(MetadataWrite.put(entityId, "b", 2), MetadataWrite.delete(entityId, "a"),
+                MetadataWrite.put(entityId + 1, "c", 3)));
+        writer.remove(entityId);
+        writer.removeAll(new long[0]);
+        writer.flush();
+        writer.commit();
+        writer.rollback();
+        writer.close();
+        var order = inOrder(direct);
+        order.verify(direct).write(TOKEN, List.of(EntityWrite3.set(new Entity3(entityId, A))));
+        order.verify(direct).write(TOKEN, List.of(EntityWrite3.set(new Entity3(entityId, B))));
+        order.verify(direct).write(TOKEN, List.of(EntityWrite3.metadataOf(entityId, List.of(MetadataWrite.put(entityId, "a", 1)))));
+        order.verify(direct).write(TOKEN, List.of(
+                EntityWrite3.metadataOf(entityId, List.of(MetadataWrite.put(entityId, "b", 2), MetadataWrite.delete(entityId, "a"))),
+                EntityWrite3.metadataOf(entityId + 1, List.of(MetadataWrite.put(entityId + 1, "c", 3)))));
+        order.verify(direct).write(TOKEN, List.of(EntityWrite3.removal(entityId)));
+        // An empty write and the flush make no call.
+        order.verify(direct).commit(TOKEN, List.of());
+        order.verify(direct).rollback(TOKEN);
+        order.verify(direct).release(TOKEN);
+        verify(direct, times(5)).write(any(), any());
+    }
+
+    @Test
+    void directWriteThatTheNodeRejectsFailsAtOnce() {
+        PartitionNode3 direct = mock(PartitionNode3.class);
+        when(direct.writeMode()).thenReturn(WriteMode.DIRECT);
+        PartitionWriter3 writer = space.createPartition(space.createNode(() -> direct), NAME).writer(TOKEN);
+        doThrow(new OwnershipChangedException("Token is not current")).when(direct).write(any(), any());
+        assertThrows(OwnershipChangedException.class, () -> writer.insert(A));
+        writer.commit();
+        verify(direct).commit(TOKEN, List.of());
+    }
+
+    @Test
+    void flushSendsTheBufferWithoutTheCommitAndTheCommitSendsTheRest() {
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
+        long a = writer.insert(A);
+        writer.flush();
+        // An empty buffer makes no call.
+        writer.flush();
+        long b = writer.insert(B);
+        writer.commit();
+        var order = inOrder(node);
+        order.verify(node).write(TOKEN, List.of(EntityWrite3.set(new Entity3(a, A))));
+        order.verify(node).commit(TOKEN, List.of(EntityWrite3.set(new Entity3(b, B))));
+        verify(node, times(1)).write(any(), any());
+    }
+
+    @Test
+    void rejectedFlushKeepsTheWritesAndAFailedOneDiscardsThem() {
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
+        long entityId = writer.insert(A);
+        List<EntityWrite3> batch = List.of(EntityWrite3.set(new Entity3(entityId, A)));
+        doThrow(new OwnershipChangedException("Token is not current")).when(node).write(TOKEN, batch);
+        assertThrows(OwnershipChangedException.class, writer::flush);
+        PartitionFailure report = new PartitionFailure(PartitionOperation.WRITE, PartitionComponent.INDEX,
+                FailureOutcome.WRITES_DISCARDED, 0, new IllegalStateException("Index failure"), null);
+        doThrow(new PartitionFailureException(report)).when(node).write(TOKEN, batch);
+        assertThrows(PartitionFailureException.class, writer::flush);
+        writer.commit();
+        verify(node, times(2)).write(TOKEN, batch);
+        verify(node).commit(TOKEN, List.of());
+    }
+
+    @Test
+    void successfulCommitEmptiesTheWriterAndARejectedOneKeepsItsWrites() {
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
+        long entityId = writer.insert(A);
+        List<EntityWrite3> batch = List.of(new EntityWrite3(entityId, false, A, List.of(), List.of()));
+        doThrow(new IllegalStateException("Recovery required")).when(node).commit(TOKEN, batch);
+        assertThrows(IllegalStateException.class, writer::commit);
+        doNothing().when(node).commit(TOKEN, batch);
+        writer.commit();
+        writer.commit();
+        var order = inOrder(node);
+        order.verify(node, times(2)).commit(TOKEN, batch);
+        order.verify(node).commit(TOKEN, List.of());
+    }
+
+    @Test
+    void failedCommitDiscardsTheWritesOfTheWriter() {
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
+        long entityId = writer.insert(A);
+        List<EntityWrite3> batch = List.of(new EntityWrite3(entityId, false, A, List.of(), List.of()));
+        PartitionFailure report = new PartitionFailure(PartitionOperation.COMMIT, PartitionComponent.INDEX,
+                FailureOutcome.WRITES_DISCARDED, 0, new IllegalStateException("Index failure"), null);
+        doThrow(new PartitionFailureException(report)).when(node).commit(TOKEN, batch);
+        assertThrows(PartitionFailureException.class, writer::commit);
+        writer.insert(B);
+        OutOfMemoryError error = new OutOfMemoryError("Memory failure");
+        doThrow(error).when(node).commit(TOKEN, List.of(new EntityWrite3(entityId + 1, false, B, List.of(), List.of())));
+        assertSame(error, assertThrows(OutOfMemoryError.class, writer::commit));
+        writer.commit();
+        verify(node).commit(TOKEN, List.of());
+    }
+
+    @Test
+    void rollbackAndCloseDiscardTheWritesOfTheWriter() {
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
+        writer.insert(A);
+        writer.rollback();
+        writer.commit();
+        writer.insert(B);
+        writer.close();
+        var order = inOrder(node);
+        order.verify(node).rollback(TOKEN);
+        order.verify(node).commit(TOKEN, List.of());
+        order.verify(node).release(TOKEN);
+        verify(node, times(1)).commit(any(), any());
+    }
+
+    @Test
+    void positionOutsideTheLimitsIsRejectedAtTheWriteAndNothingIsKept() {
+        PartitionWriter3 writer = space.createPartition(handle, NAME,
+                PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(1))).writer(TOKEN);
+        assertThrows(IllegalArgumentException.class, () -> writer.insertAll(List.of(A, new Point3(2e9, 0, 0))));
+        assertThrows(IllegalArgumentException.class,
+                () -> writer.setAll(List.of(new Entity3(7, A), new Entity3(8, new Point3(2e9, 0, 0)))));
+        writer.commit();
+        verify(node).commit(TOKEN, List.of());
     }
 
     @Test
@@ -142,8 +287,9 @@ class Space3Test {
         for (RemovalPolicy policy : RemovalPolicy.values()) {
             Partition3 partition = space.createPartition(handle, NAME, PartitionConfig.defaults().withRemovalPolicy(policy));
             PartitionId id = new PartitionId(partitionIds.get());
+            PartitionWriter3 writer = partition.writer(new WriteToken(id, 1));
             clearInvocations(node);
-            partition.writer(new WriteToken(id, 1)).removePartition();
+            writer.removePartition();
             if (policy == RemovalPolicy.REQUIRE_EMPTY) {
                 verify(node).removePartition(new WriteToken(id, 1));
             } else {
@@ -159,7 +305,8 @@ class Space3Test {
         doThrow(new IllegalStateException("Partition is not empty")).when(node).removePartition(TOKEN);
         assertThrows(IllegalStateException.class, writer::removePartition);
         writer.insert(A);
-        verify(node).insertAll(TOKEN, List.of(new Entity3(11, A)));
+        writer.commit();
+        verify(node).commit(TOKEN, List.of(new EntityWrite3(11, false, A, List.of(), List.of())));
     }
 
 
@@ -395,7 +542,7 @@ class Space3Test {
         clearInvocations(node);
         assertSame(TOKEN, writer.token());
         long entityId = writer.insert(A);
-        writer.update(entityId, B);
+        writer.set(entityId, B);
         writer.putMetadata(entityId, "version", 2);
         writer.deleteMetadata(entityId, "owner");
         List<MetadataWrite> writes = List.of(MetadataWrite.put(entityId, "a", 1), MetadataWrite.delete(entityId, "b"));
@@ -405,29 +552,10 @@ class Space3Test {
         writer.removePartition();
         writer.close();
         var order = inOrder(node);
-        order.verify(node).insertAll(TOKEN, List.of(new Entity3(entityId, A)));
-        order.verify(node).updateAll(TOKEN, List.of(new Entity3(entityId, B)));
-        order.verify(node).updateMetadataAll(TOKEN, List.of(MetadataWrite.put(entityId, "version", 2)));
-        order.verify(node).updateMetadataAll(TOKEN, List.of(MetadataWrite.delete(entityId, "owner")));
-        order.verify(node).updateMetadataAll(TOKEN, writes);
-        order.verify(node).removeAll(TOKEN, new long[] {entityId});
-        order.verify(node).commit(TOKEN);
+        order.verify(node).commit(TOKEN, List.of(new EntityWrite3(entityId, true, null, List.of(), List.of())));
         order.verify(node).removePartition(TOKEN);
         order.verify(node).release(TOKEN);
         order.verifyNoMoreInteractions();
-    }
-
-    @Test
-    void conditionalWritesPassTheTokenAndReturnTheFalseConditions() {
-        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
-        MetadataCondition condition = MetadataCondition.valueIs(7, "version", 1);
-        ConditionalWrite3 write = new ConditionalWrite3(List.of(condition), List.of(),
-                List.of(MetadataWrite.put(7, "version", 2)));
-        when(node.updateIf(TOKEN, write)).thenReturn(List.of(condition));
-        assertEquals(List.of(condition), writer.updateIf(write));
-        assertFalse(writer.compareAndSetMetadata(7, "version", 1, 2));
-        when(node.updateIf(TOKEN, write)).thenReturn(List.of());
-        assertTrue(writer.compareAndSetMetadata(7, "version", 1, 2));
     }
 
     @Test
@@ -530,5 +658,11 @@ class Space3Test {
             Thread.currentThread().interrupt();
             throw new AssertionError(e);
         }
+    }
+
+    /** Returns the node, in the buffered mode. */
+    private static PartitionNode3 buffered(PartitionNode3 node) {
+        when(node.writeMode()).thenReturn(WriteMode.BUFFERED);
+        return node;
     }
 }

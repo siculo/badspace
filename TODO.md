@@ -37,7 +37,11 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Commit della partizione](okf-bundle/current/architecture/partition-commit.md#strutture-transazionali), [Fallimenti e salute della partizione](okf-bundle/current/architecture/partition-failures.md), [Proprietà della partizione](okf-bundle/current/architecture/partition-ownership.md#un-writer-per-tick), [Estensioni delle strutture transazionali](okf-bundle/future/architecture/transactional-components.md).
 
-- [ ] **Nodo gRPC:** nodo remoto dietro il contratto dei nodi. → [cose da fare](#fare-grpc) · [decisioni](#decisioni-grpc)
+- [x] **Scritture accumulate nel writer:** modifiche finali per ID nel client, `set` con inserimento se assente, rimozioni idempotenti, eliminazione delle conditional writes e un solo invio atomico al commit; modalità di scrittura diretta per il nodo locale e con buffer per il remoto, con gli stessi risultati. → [cose da fare](#fare-scritture) · [decisioni](#decisioni-scritture)
+
+  Documenti: [Scritture accumulate nel writer](okf-bundle/future/architecture/buffered-writes.md), [Commit della partizione](okf-bundle/current/architecture/partition-commit.md), [Fallimenti e salute della partizione](okf-bundle/current/architecture/partition-failures.md).
+
+- [ ] **Nodo gRPC:** nodo remoto dietro il contratto dei nodi, dopo il refactoring delle scritture. → [cose da fare](#fare-grpc) · [decisioni](#decisioni-grpc)
 
   Documenti: [Nodi remoti e distribuzione](okf-bundle/future/decisions/tool-type.md), [Analisi del nodo gRPC](okf-bundle/future/analyses/grpc-node.md), [Architettura a livelli](okf-bundle/current/architecture/layers.md).
 
@@ -191,6 +195,22 @@ Comportamento, proposta del contratto e criteri di verifica nel [bundle](okf-bun
 - [x] Esporre al proprietario il tick dell'ultimo commit, con la creazione e il caricamento contati come commit, così che chi prende la proprietà per recuperare un writer bloccato sappia se le scritture del tick sono già confermate (le letture del pending tramite il writer non servono nell'[uso con un writer per tick](okf-bundle/current/architecture/partition-ownership.md#un-writer-per-tick))
 - [x] Completare test di fallimento e concorrenza e client d'esempio delle nuove operazioni
 
+<a id="fare-scritture"></a>
+### Scritture accumulate nel writer [↑](#blocchi)
+
+Implementato; nel [bundle](okf-bundle/future/architecture/buffered-writes.md) restano i costi da valutare e gli esiti remoti, che si progettano con il nodo gRPC. Ogni passo comprende 2D e 3D, test pertinenti, migrazione dei chiamanti e aggiornamento progressivo di `current/` e `future/`. Si usano gli indici esistenti; non si riprende il TODO degli indici e non si anticipa il protocollo gRPC.
+
+- [x] Sostituire `update`/`updateAll` con `set`/`setAll`, che inseriscono se l'ID manca; rendere `remove` idempotente; conservare la generazione dell'ID in `insert` e definire il vincolo sulla costruzione di entità con soli ID provenienti dall'`IdGenerator`, inclusi snapshot e caricamento
+- [x] Eliminare `updateIf`, `compareAndSetMetadata` e i tipi dedicati alle conditional writes dall'API e dal contratto del nodo; migrare test ed esempi verso logica su snapshot e scritture incondizionate, rendendo esplicita la visibilità degli snapshot
+- [x] Definire e implementare la composizione per ID e per chiave: ultima posizione, presenza o assenza, cancellazioni dei metadati e azzeramento dopo rimozione e reinserimento; metadati su entità assenti senza creazione implicita e con la regola descritta nel bundle; confrontare il risultato con un modello sequenziale delle nuove operazioni
+- [x] Accumulare le modifiche nell'handle del writer, senza chiamate al nodo fino al commit; sostituire nel contratto del nodo le singole scritture con un commit che riceve token e batch, applicato alla base confermata anche se pending, con una sola chiamata anche sul nodo locale; controlli locali e definitivi sul nodo, commit vuoti e più commit cumulativi nello stesso tick
+- [x] Adattare applicazione atomica, preparazione degli snapshot, ripristino e segnalazioni dei fallimenti al batch; verificare rifiuti senza modifiche, fallimenti senza perdita del pending precedente e recupero necessario, oltre alla concorrenza con tick e cambio di proprietà
+- [x] Adattare rollback, close, claim e release al buffer locale; definire lo stato del buffer dopo successo, rifiuto e fallimento certo, mantenendo il recupero sul nodo; verificare scarto locale, token superati e assenza di scritture residue sul nodo tra i commit
+- [x] Migrare test di integrazione, esempi e benchmark; misurare memoria del buffer, costo del commit e ritardo dell'avanzamento del tick con batch grandi; completare documentazione di API, commit, proprietà, fallimenti, metadati, ID, glossari, casi d'uso e indici, spostando in `current/` solo quanto verificato sul codice
+- [x] Due modalità di scrittura scelte dal nodo (`WriteMode`): diretta, con ogni scrittura subito sul nodo con `write(WriteToken, List<EntityWrite>)` e il commit che la conferma, predefinita per il nodo locale; con buffer, come finora, per il nodo remoto. `WriteSession2`/`WriteSession3` diventa un'interfaccia con le due implementazioni; test end-to-end e del nodo nelle due modalità, esempio `write-modes`, parametro `writeMode` in `commitTickWithTheWriter`
+- [x] Misurare sulla macchina dedicata il tick dal writer nelle due modalità (`commitTickWithTheWriter`) e confrontarlo con `commitTick` e con `main`: la modalità diretta costa da 1,0 a 1,4 volte `main`, fino a 2,1 con la scansione lineare e batch grandi, e da 0,6 a 0,95 volte la modalità con buffer
+- [x] Flush esplicito del writer: con il buffer `flush()` manda subito le scritture accumulate al nodo con `write`, senza commit, e il commit equivale a flush e commit in una sola chiamata; nella modalità diretta non fa niente. Rifiuto e fallimento come al commit; test dell'API, end-to-end nelle due modalità e del nodo con buffer, esempio `write-modes`. La ripetizione sicura di un flush resta per il protocollo degli esiti remoti
+
 <a id="fare-grpc"></a>
 ### Nodo gRPC [↑](#blocchi)
 
@@ -209,7 +229,7 @@ Comportamento, proposta del contratto e criteri di verifica nel [bundle](okf-bun
 ### Tombstone e migrazione [↑](#blocchi)
 
 - [ ] Metadati di sistema delle entità nello strato service (epoca, stato, destinazione), in sola lettura per il software, nello snapshot di ogni commit
-- [ ] Lettura dei metadati di sistema nell'API dei metadati e scritture condizionate anche sui metadati di sistema
+- [ ] Lettura dei metadati di sistema nell'API dei metadati; riesaminare i controlli su epoca, stato e destinazione del protocollo dopo la rimozione delle conditional writes, senza reintrodurle implicitamente (vedi [refactoring delle scritture](okf-bundle/future/architecture/buffered-writes.md#attuazione-e-verifiche))
 - [ ] Tombstone alla rimozione
 - [ ] Regola di inserimento con confronto dell'epoca
 - [ ] Lettura ed eliminazione delle tombstone
@@ -291,7 +311,7 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [x] k configurabile per partizione: numero di tick consultabili, ≥ 1, default 1 (sostituisce gli snapshot passati oltre al corrente, default 0)
 - [x] Acquisizione e rilascio degli snapshot: acquisizione al tick e ultimo (`S(T − 1)`), atomica rispetto all'avanzamento del tick, pin fuori dalla finestra, scadenza obbligatoria con clock monotono (durata zero rifiutata, senza rinnovo), acquisizioni leggibili dopo la rimozione della partizione
 - [x] Rimozione della partizione: `remove()` ultima operazione del writer, ritiro al primo avanzamento del tick, snapshot dei tick precedenti acquisibili nella finestra, distruzione quando sono usciti tutti e nessuno li usa
-- [x] Scritture condizionate al posto delle transazioni
+- [x] Scritture condizionate al posto delle transazioni: scelta implementata nel contratto corrente, da superare con il [refactoring delle scritture](#fare-scritture)
 - [x] Regole delle tombstone ed epoca
 - [x] Protocollo di migrazione (outbox con consumer idempotente)
 - [x] GC delle tombstone su conferma, non a TTL
@@ -300,7 +320,7 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [x] Forma delle chiamate per il commit e il tick (`commit()` senza numero, `setTick` sullo spazio, `tick()`, `creationTick()`; sostituisce `commit(n)`)
 - [x] Limiti delle coordinate fissati dall'indice: tetto globale 2^60, 2^30 celle per lato per gli indici a celle, query senza limiti, solo valori finiti (niente `NaN` né infiniti)
 - [x] Struttura dei metadati applicativi: chiavi `String`, valori `long`, nessun limite sul numero e sulla lunghezza delle chiavi per ora; nel prototipo una `HashTrie` copy-on-write, con lettura per ID separata da quella delle entità → [Metadati delle entità](okf-bundle/current/architecture/entity-metadata.md#metadati-applicativi)
-- [x] Forma delle scritture condizionate: batch tutto-o-niente con condizioni "chiave = valore" o "chiave assente" e scritture di metadati e posizioni; una condizione falsa restituisce le condizioni fallite, senza eccezione → [Metadati delle entità](okf-bundle/current/architecture/entity-metadata.md#forma)
+- [x] Forma delle scritture condizionate, rimosse con il [refactoring delle scritture](#fare-scritture): batch tutto-o-niente con condizioni "chiave = valore" o "chiave assente" e scritture di metadati e posizioni; una condizione falsa restituisce le condizioni fallite, senza eccezione → [Metadati delle entità](okf-bundle/current/architecture/entity-metadata.md#decisioni-su-uno-snapshot)
 
 <a id="decisioni-persistenza"></a>
 ### Persistenza [↑](#blocchi)
@@ -317,10 +337,22 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 
 - [x] Forma delle chiamate: insieme di snapshot dello stesso tick, scelto dal chiamante, su una lista di handle (vuota ammessa); i fallimenti di disponibilità sono un esito e non un'eccezione, senza modalità "tutti o nessuno", perché la decisione è del chiamante; un solo tick per tutte le partizioni; nessun registro dei nomi nello spazio → [Query su più partizioni](okf-bundle/current/architecture/multi-partition-queries.md)
 
+<a id="decisioni-scritture"></a>
+### Scritture accumulate nel writer [↑](#blocchi)
+
+- [x] Accumulazione nel client delle modifiche finali per ID, comune a nodi locali e remoti, senza registro ordinato completo da trasferire; un solo invio atomico al commit
+- [x] Rimozione delle conditional writes: logica applicativa basata su snapshot; `update` diventa `set` con inserimento se assente, rimozione idempotente e possibile reinserimento dello stesso ID; azzeramento dei metadati dopo rimozione e reinserimento
+- [x] Vincolo sulla provenienza degli ID: regola del contratto, non controllo; un ID passato a `set` viene dal generatore delle entità attraverso `insert`, anche tramite snapshot o caricamento, e il nodo si fida degli ID ricevuti (vedi [provenienza degli ID](okf-bundle/current/decisions/entity-ids.md#provenienza-degli-id-delle-entità))
+- [x] Composizione dei metadati su entità assenti: regola sequenziale, il risultato del batch è quello delle chiamate una alla volta sulla base; una scrittura su un'entità assente in quel momento non fa niente, anche se una `set` successiva la aggiunge. Forma della modifica finale per entità: rimozione, posizione, metadati validi solo se l'entità era nella base, metadati dopo la `set` → [scritture accumulate](okf-bundle/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)
+- [x] Forma del batch nel contratto del nodo e controlli locali: `commit(WriteToken, List<EntityWrite>)` con al più una modifica per entità, preparata da `WriteSession2`/`WriteSession3` in `common`, usato dall'handle e dai test del nodo; l'handle controlla subito i limiti delle posizioni, il nodo controlla al commit token, stato, salute e limiti, e applica in ordine più modifiche della stessa entità senza rifiutarle; il buffer resta dopo un commit rifiutato e si svuota dopo uno fallito → [scritture accumulate](okf-bundle/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)
+- [x] Stato del buffer dopo un fallimento certo e rapporto tra rollback locale e recupero della partizione sul nodo: lo stesso comportamento delle scritture inviate una alla volta; un rifiuto lascia le scritture nel buffer, un fallimento certo le scarta; `rollback()` svuota il buffer e chiede al nodo il ripristino, che è anche il recupero → [stato del buffer](okf-bundle/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)
+- [x] Modalità di scrittura: le sceglie il nodo, con un valore fisso (`WriteMode`) finché non ci sono nodi remoti: diretta per il nodo locale, con buffer per il remoto. Un solo handle del writer e un solo contratto del nodo, con due implementazioni di `WriteSession`; le due modalità sono equivalenti nei risultati, e cambiano solo il momento dei rifiuti per token e stato e la durata del lock → [modalità di scrittura](okf-bundle/current/architecture/partition-commit.md#modalità-di-scrittura)
+- [x] Limiti e costi di memoria, dimensione dei batch e durata del commit, in base alle misure: nessun limite imposto da BADSPACE; i costi sono documentati e il writer, se serve, divide le scritture con il flush. Una tabella con chiavi `long` e campi in array paralleli nel buffer resta una possibile ottimizzazione futura → [costi del buffer e del commit](okf-bundle/current/architecture/partition-commit.md#costi-del-buffer-e-del-commit), [costi da valutare](okf-bundle/future/architecture/buffered-writes.md#costi-da-valutare)
+
 <a id="decisioni-grpc"></a>
 ### Nodo gRPC [↑](#blocchi)
 
-- [ ] Chiamate a lotti ed errori remoti nel contratto dei nodi
+- [ ] Errori remoti e protocollo del commit a batch: riconoscimento dei tentativi ripetuti, recupero e conservazione dell'esito, buffer congelato dopo un esito incerto e un solo commit in corso per writer; il tick non identifica da solo una richiesta (vedi [scritture accumulate](okf-bundle/future/architecture/buffered-writes.md#rifiuti-ed-esiti))
 - [ ] Eventuale hosting di più nodi, ciascuno riservato a uno Space, nello stesso servizio remoto; identità e ciclo di vita da valutare → [Nodi, servizi e Space](okf-bundle/future/architecture/nodes-and-spaces.md)
 
 <a id="decisioni-migrazione"></a>

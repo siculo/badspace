@@ -44,9 +44,10 @@ classe.
 
 | Esempio | Domanda | Prerequisiti |
 |---|---|---|
-| [`batch-writes`](batch-writes) (`BatchWrites`) | Come si inseriscono, aggiornano e rimuovono molte entità in una chiamata, e che cosa succede quando un batch è rifiutato? | Writer e commit |
+| [`batch-writes`](batch-writes) (`BatchWrites`) | Come si inseriscono, impostano e rimuovono molte entità in una chiamata, e che cosa succede quando un batch è rifiutato? | Writer e commit |
 | [`commits-and-ticks`](commits-and-ticks) (`CommitsAndTicks`) | Quando i reader vedono un commit? Che cosa succede con più commit in un tick, e con le scritture dopo l'ultimo commit? | Writer e commit |
 | [`writer-rollback`](writer-rollback) (`WriterRollback`) | Come scarta un writer le scritture non confermate, anche dei tick precedenti, e come controllo la salute della partizione? | Commit e tick |
+| [`write-modes`](write-modes) (`WriteModes`) | Quando arrivano le scritture al nodo, subito, al commit o con un flush, e cosa cambia tra le due modalità di scrittura? | Commit e tick, ownership |
 
 ## Snapshot
 
@@ -65,7 +66,7 @@ classe.
 | [`ownership-handoff`](ownership-handoff) (`OwnershipHandoff`) | Come passa un writer la proprietà a un altro writer? | Claim e writer |
 | [`partition-removal`](partition-removal) (`PartitionRemoval`) | Come si rimuove una partizione con `REQUIRE_EMPTY` o `DISCARD_ENTITIES`, e quando la rimozione diventa effettiva? | Commit e tick, finestra di retention |
 | [`entity-metadata`](entity-metadata) (`EntityMetadata`) | Come si scrivono, leggono e cancellano i metadati delle entità? | Writer e commit |
-| [`conditional-writes`](conditional-writes) (`ConditionalWrites`) | Come si scrive solo se sono vere condizioni sui metadati? | Metadati delle entità |
+| [`snapshot-decisions`](snapshot-decisions) (`SnapshotDecisions`) | Come si decidono le scritture su uno snapshot, e quali scritture lo snapshot non vede ancora? | Metadati delle entità, commit e tick |
 
 ## Persistenza
 

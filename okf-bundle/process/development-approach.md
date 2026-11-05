@@ -4,7 +4,7 @@ title: Approccio di sviluppo
 description: BADSPACE viene sviluppato per prototipi minimali, verificati da test di integrazione e accompagnati da client d'esempio costruiti man mano, per validare le decisioni di progettazione sul campo; si assume che gli sviluppatori sappiano quello che fanno e i controlli li aiutano a prevenire errori; lo sviluppo è incrementale, ogni concetto nuovo porta con sé le estensioni che richiede e i meccanismi si implementano una volta e si estendono quando servono nuovi dati; i test partono dalla semantica, preferiscono componenti reali e verificano effetti, risorse e concorrenza; le scelte che dipendono dalle prestazioni si basano su benchmark relativi a un riferimento.
 tags: [badspace, methodology, prototyping]
 status: stable
-generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:21:18Z }
 ---
 
 # Approccio
@@ -52,8 +52,8 @@ livelli sottostanti le restrizioni dell'API per proteggere da chiamate
 dirette. I controlli si collocano dove servono a prevenire l'errore o a
 garantire la correttezza dell'operazione. Per esempio, l'API distingue
 i [metadati](/current/architecture/entity-metadata.md) applicativi da quelli di
-sistema, mentre verifica e applicazione di una scrittura condizionata
-avvengono atomicamente nella partizione.
+sistema, mentre il controllo dei limiti delle coordinate avviene nella
+partizione, che applica il batch tutto-o-niente.
 
 Le garanzie di correttezza documentate
 restano parte del contratto: per esempio commit atomici, snapshot

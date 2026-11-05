@@ -4,6 +4,7 @@ title: Casi d'uso
 description: I casi d'uso che BADSPACE vuole supportare, ciascuno con la sua configurazione delle partizioni e i soli meccanismi che gli servono.
 tags: [badspace, use-cases, partitioning]
 status: stable
+timestamp: 2026-11-05T10:14:34Z
 generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
 ---
 
@@ -29,6 +30,18 @@ Gli scenari specifici dei giochi sono indicati con "Gioco".
 | Gioco: strategia mista per tipo di entità | Geometria statica divisa per zone con indice build-once; proiettili (molte scritture, poche query, densità regolare) in un'unica partizione globale con una grid uniforme a celle grandi, l'indice più economico nelle scritture; giocatori (molte query, spesso raccolti in gruppi densi) con una griglia di quadtree, che non crolla nelle query con i dati a cluster ma costa di più nelle scritture | Aggregazione tra partizioni con indici diversi |
 | Carico sbilanciato tra zone | Si cede un'intera partizione calda a un altro writer, o la si divide | [Ribilanciamento e split](/future/mechanisms/rebalancing-and-split.md) |
 | Server distribuito o cluster | Partizioni su [nodi](/current/architecture/layers.md#nodi) separati (processi o macchine), contratto dei nodi esposto via gRPC; l'API resta nel processo del software | Tutti, con coordinamento esterno del gTick |
+
+# Scritture locali e remote
+
+Un caso d'uso del nodo remoto è costruire molte modifiche nel client e
+trasferirne soltanto l'effetto finale per ID al commit. La modalità con
+buffer è già [disponibile](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer),
+anche sul nodo locale creato in quella modalità: lettura di uno
+snapshot, logica applicativa e accumulazione nell'handle, senza chiamate
+al nodo per ogni singola modifica; il nodo locale usa invece la
+[modalità diretta](/current/architecture/partition-commit.md#modalità-di-scrittura), con gli stessi risultati. Con un nodo remoto
+restano da progettare gli esiti incerti del commit (vedi
+[scritture accumulate](/future/architecture/buffered-writes.md#rifiuti-ed-esiti)).
 
 # Space indipendenti e risorse condivise
 

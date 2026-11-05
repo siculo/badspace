@@ -4,6 +4,7 @@ import static badspace.common.geometry.Point3.point;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
+import static badspace.service.partition.Owners.writes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -72,7 +73,7 @@ class AcquisitionConcurrency3Test {
         for (IndexConfig config : CONFIGS) {
             GatedIndex3[] index = new GatedIndex3[1];
             PartitionStorage3 storage = gatedStorage(config, index, 1);
-            storage.insertAll(owner(storage), List.of(new Entity3(10, A), new Entity3(20, B)));
+            storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(10, A), new Entity3(20, B))));
             long acquisitionId = storage.acquire(publish(storage), 0);
             Gate gate = new Gate();
             index[0].gate = gate;
@@ -84,11 +85,11 @@ class AcquisitionConcurrency3Test {
                 // The query is stopped in the index. The writer changes the slots and the
                 // index, commits and moves the tick twice: it must not wait for the query.
                 assertTimeoutPreemptively(TIMEOUT, () -> {
-                    storage.updateAll(owner(storage), List.of(new Entity3(10, C)));
-                    storage.removeAll(owner(storage), new long[] {20});
-                    storage.insertAll(owner(storage), List.of(new Entity3(30, D)));
+                    storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(10, C))));
+                    storage.apply(owner(storage), Changes3.removals(new long[] {20}));
+                    storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(30, D))));
                     publish(storage);
-                    storage.updateAll(owner(storage), List.of(new Entity3(30, A)));
+                    storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(30, A))));
                     publish(storage);
                     }, config + ": the writer waited for a query");
                 assertEquals(3, storage.tick());
@@ -108,7 +109,7 @@ class AcquisitionConcurrency3Test {
         for (IndexConfig config : CONFIGS) {
             GatedIndex3[] index = new GatedIndex3[1];
             PartitionStorage3 storage = gatedStorage(config, index, 1);
-            storage.insertAll(owner(storage), List.of(new Entity3(10, A)));
+            storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(10, A))));
             StorageSnapshot3 snapshot = publish(storage);
             long acquisitionId = storage.acquire(snapshot, 0);
             Gate gate = new Gate();
@@ -121,7 +122,7 @@ class AcquisitionConcurrency3Test {
                 storage.release(acquisitionId);
                 assertThrows(IllegalStateException.class, () -> storage.admit(acquisitionId, 0));
                 // The snapshot leaves the window too: only the query still holds it.
-                storage.removeAll(owner(storage), new long[] {10});
+                storage.apply(owner(storage), Changes3.removals(new long[] {10}));
                 publish(storage);
                 assertEquals(0, storage.acquisitionCount());
                 assertFalse(snapshot.isEnded(), config + ": the snapshot ended during the query");
@@ -148,7 +149,7 @@ class AcquisitionConcurrency3Test {
             GatedIndex3[] index = new GatedIndex3[1];
             PartitionStorage3 storage = new PartitionStorage3(config.limits(),
                     slots -> index[0] = new GatedIndex3(SpatialIndexes.create(config, slots)), 1, clock);
-            storage.insertAll(owner(storage), List.of(new Entity3(10, A)));
+            storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(10, A))));
             StorageSnapshot3 snapshot = publish(storage);
             long acquisitionA = storage.acquire(snapshot, 0, AcquireOptions.timeout(TIMEOUT));
             Gate gate = new Gate();
@@ -199,7 +200,7 @@ class AcquisitionConcurrency3Test {
                 entityIds[i] = i + 1;
                 entities.add(new Entity3(entityIds[i], positionAt(0, entityIds[i])));
             }
-            node.insertAll(owner(node, P1), entities);
+            writes(node, P1).setAll(entities);
 
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -256,8 +257,8 @@ class AcquisitionConcurrency3Test {
                     for (long id : entityIds) {
                         moved.add(new Entity3(id, positionAt(tick, id)));
                     }
-                    node.updateAll(owner(node, P1), moved);
-                    node.commit(owner(node, P1));
+                    writes(node, P1).setAll(moved);
+                    writes(node, P1).commit();
                     if (tick == 2) {
                         await(observed);
                     }
@@ -301,7 +302,7 @@ class AcquisitionConcurrency3Test {
     void racingAcquisitionsQueriesAndReleasesEndEachSnapshotOnce() throws Exception {
         for (IndexConfig config : CONFIGS) {
             PartitionStorage3 storage = new PartitionStorage3(config, 2);
-            storage.insertAll(owner(storage), List.of(new Entity3(10, A), new Entity3(20, B)));
+            storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(10, A), new Entity3(20, B))));
             storage.commit(owner(storage));
             storage.setTick(2);
             CountDownLatch observed = new CountDownLatch(READERS);
@@ -412,7 +413,7 @@ class AcquisitionConcurrency3Test {
         for (IndexConfig config : CONFIGS) {
             LocalPartitionNode3 node = new LocalPartitionNode3();
             node.createPartition(P1, nameOf(P1), config, 1);
-            node.insertAll(owner(node, P1), List.of(new Entity3(10, A), new Entity3(20, B)));
+            writes(node, P1).setAll(List.of(new Entity3(10, A), new Entity3(20, B)));
             CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -464,7 +465,7 @@ class AcquisitionConcurrency3Test {
                 start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                 for (long tick = 1; tick <= TICKS; tick++) {
                     node.setTick(tick);
-                    node.commit(owner(node, P1));
+                    writes(node, P1).commit();
                     if (tick == 2) {
                         await(observed);
                     }
@@ -500,7 +501,7 @@ class AcquisitionConcurrency3Test {
             PartitionStorage3 storage = new PartitionStorage3(config.limits(),
                     slots -> index[0] = new GatedIndex3(SpatialIndexes.create(config, slots)), 2,
                     MonotonicClock.SYSTEM, 0, lock, new CoordinateBufferPool());
-            storage.insertAll(owner(storage), List.of(new Entity3(10, A)));
+            storage.apply(owner(storage), Changes3.sets(List.of(new Entity3(10, A))));
             Gate gate = new Gate();
             index[0].commitGate = gate;
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -546,7 +547,7 @@ class AcquisitionConcurrency3Test {
                 entityIds[i] = i + 1;
                 entities.add(new Entity3(entityIds[i], positionAt(0, entityIds[i])));
             }
-            node.insertAll(owner(node, P1), entities);
+            writes(node, P1).setAll(entities);
 
             CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
@@ -597,10 +598,10 @@ class AcquisitionConcurrency3Test {
                         for (long id : entityIds) {
                             moved.add(new Entity3(id, positionAt(version, id)));
                         }
-                        // Two calls, so the state of the writer between them is mixed.
-                        node.updateAll(owner(node, P1), moved.subList(0, ENTITIES / 2));
-                        node.updateAll(owner(node, P1), moved.subList(ENTITIES / 2, ENTITIES));
-                        node.commit(owner(node, P1));
+                        // Two calls make one batch: the commit sends it to the node whole.
+                        writes(node, P1).setAll(moved.subList(0, ENTITIES / 2));
+                        writes(node, P1).setAll(moved.subList(ENTITIES / 2, ENTITIES));
+                        writes(node, P1).commit();
                         if (version == VERSIONS / 2) {
                             await(observed);
                         }

@@ -2,12 +2,11 @@ package badspace.service.partition;
 
 import badspace.common.geometry.Point2;
 import badspace.common.partition.AcquireOptions;
-import badspace.common.partition.ConditionalWrite2;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
+import badspace.common.partition.EntityWrite2;
 import badspace.common.partition.FailureOutcome;
 import badspace.common.partition.IndexConfig;
-import badspace.common.partition.MetadataCondition;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
@@ -37,7 +36,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
@@ -141,7 +139,8 @@ final class PartitionStorage2 {
     static final long NOT_CLAIMED = -1;
 
     // Orders the moves of the tick and the operations that change the partition: each of
-    // them runs while holding it. The readers never take it.
+    // them runs while holding it. The readers never take it. The storages of the nodes have a
+    // fair lock, which the threads take in the order in which they wait for it.
     private final ReentrantLock writerLock;
     // The state of the writer, which the next commit confirms. Changed only while holding
     // writerLock; the index reads it through its view of the slots.
@@ -259,7 +258,10 @@ final class PartitionStorage2 {
      */
     PartitionStorage2(CoordinateLimits limits, Function<SlotView2, SpatialIndex2> indexFactory,
             int retainedTicks, MonotonicClock clock, long creationTick) {
-        this(limits, indexFactory, retainedTicks, clock, creationTick, new ReentrantLock(),
+        // A fair lock: a writer that commits again and again cannot take the lock before a move
+        // of the tick that already waits for it, so the move waits at most the commit that is
+        // running. With an unfair lock the writer took it again first, for many commits.
+        this(limits, indexFactory, retainedTicks, clock, creationTick, new ReentrantLock(true),
                 new CoordinateBufferPool());
     }
 
@@ -305,146 +307,6 @@ final class PartitionStorage2 {
     }
 
     // Writes of the owner.
-
-    void insertAll(long generation, List<Entity2> entities) {
-        writerLock.lock();
-        try {
-            checkWritable(generation);
-            Set<Long> seen = new HashSet<>();
-            for (Entity2 e : entities) {
-                if (slots.slotOf(e.id()) != SlotSnapshot2.NONE || !seen.add(e.id())) {
-                    throw new IllegalArgumentException("Duplicate entity ID: " + e.id());
-                }
-                checkLimits(e.id(), e.position());
-            }
-            try {
-                step = PartitionComponent.SLOTS;
-                slots.ensureCapacity(slots.size() + entities.size());
-                for (Entity2 e : entities) {
-                    insert(e.id(), e.position());
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.WRITE, failure);
-            }
-        } finally {
-            writerLock.unlock();
-        }
-    }
-
-    void updateAll(long generation, List<Entity2> entities) {
-        writerLock.lock();
-        try {
-            checkWritable(generation);
-            for (Entity2 e : entities) {
-                existingSlot(e.id());
-                checkLimits(e.id(), e.position());
-            }
-            try {
-                for (Entity2 e : entities) {
-                    move(slots.slotOf(e.id()), e.position());
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.WRITE, failure);
-            }
-        } finally {
-            writerLock.unlock();
-        }
-    }
-
-    /**
-     * Applies the writes of the application metadata, in their order: if more writes set
-     * the same key, the last one wins. Fails with NoSuchElementException if an entity is not
-     * in the partition; in this case nothing changes.
-     */
-    void updateMetadataAll(long generation, List<MetadataWrite> writes) {
-        writerLock.lock();
-        try {
-            checkWritable(generation);
-            for (MetadataWrite write : writes) {
-                existingSlot(write.entityId());
-            }
-            try {
-                step = PartitionComponent.METADATA;
-                for (MetadataWrite write : writes) {
-                    metadata.write(write);
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.WRITE, failure);
-            }
-        } finally {
-            writerLock.unlock();
-        }
-    }
-
-    /**
-     * Applies a conditional write if all its conditions are true on the state of the writer:
-     * first the positions, then the metadata. Returns the false conditions, in their order; if
-     * there are any, nothing changes. Fails with NoSuchElementException if an entity of the
-     * write or of a condition is not in the partition, and with IllegalArgumentException if a
-     * position is outside the limits; in these cases nothing changes.
-     */
-    List<MetadataCondition> updateIf(long generation, ConditionalWrite2 write) {
-        writerLock.lock();
-        try {
-            checkWritable(generation);
-            for (MetadataCondition condition : write.conditions()) {
-                existingSlot(condition.entityId());
-            }
-            for (Entity2 e : write.positions()) {
-                existingSlot(e.id());
-                checkLimits(e.id(), e.position());
-            }
-            for (MetadataWrite metadataWrite : write.metadata()) {
-                existingSlot(metadataWrite.entityId());
-            }
-            List<MetadataCondition> failed = new ArrayList<>();
-            for (MetadataCondition condition : write.conditions()) {
-                if (!metadata.holds(condition)) {
-                    failed.add(condition);
-                }
-            }
-            if (!failed.isEmpty()) {
-                return failed;
-            }
-            try {
-                for (Entity2 e : write.positions()) {
-                    move(slots.slotOf(e.id()), e.position());
-                }
-                step = PartitionComponent.METADATA;
-                for (MetadataWrite metadataWrite : write.metadata()) {
-                    metadata.write(metadataWrite);
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.WRITE, failure);
-            }
-            return List.of();
-        } finally {
-            writerLock.unlock();
-        }
-    }
-
-    void removeAll(long generation, long[] entityIds) {
-        writerLock.lock();
-        try {
-            checkWritable(generation);
-            Set<Long> seen = new HashSet<>();
-            for (long id : entityIds) {
-                existingSlot(id);
-                if (!seen.add(id)) {
-                    throw new IllegalArgumentException("Duplicate entity ID: " + id);
-                }
-            }
-            try {
-                for (long id : entityIds) {
-                    remove(id);
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.WRITE, failure);
-            }
-        } finally {
-            writerLock.unlock();
-        }
-    }
 
     // Load.
 
@@ -511,16 +373,84 @@ final class PartitionStorage2 {
     // Commit and move of the tick.
 
     /**
-     * Confirms the writes in the current tick and returns the snapshot of the commit. The next
-     * move of the tick publishes it, unless a later commit in the same tick replaces it: then
-     * the returned snapshot must not be read any more, because its buffer can go to a later
-     * commit. It does not remove the expired acquisitions: the caller calls
-     * {@link #removeExpired} after it and takes its result, because after the release of the
-     * lock the partition can be removed and its last snapshot can end. Only the writer can call
-     * it. Fails with OwnershipChangedException if generation is not the one of the owner, with
-     * IllegalStateException if the partition needs a recovery, and with
-     * PartitionFailureException if the commit fails: then the writes not committed are
-     * discarded.
+     * Applies a batch of changes to the last commit and confirms it, in the same step and
+     * under the lock, like {@link #apply} and then {@link #commit(long)}. Fails like them, so a
+     * rejected batch changes nothing, and a failure discards the batch with all the writes not
+     * committed, and keeps the last commit.
+     */
+    StorageSnapshot2 commit(long generation, List<EntityWrite2> changes) {
+        writerLock.lock();
+        try {
+            checkWritable(generation);
+            applyChecked(changes, PartitionOperation.COMMIT);
+            return commitWrites();
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
+    /**
+     * Applies a batch of changes to the state of the writer, without confirming it: the write
+     * of the node in the direct mode. Each change applies in
+     * the order that {@link EntityWrite2} describes, and the changes apply in the order of the
+     * list, each on the state of that moment. Only the writer can call it. Fails with
+     * IllegalArgumentException if a position is outside the limits, with
+     * OwnershipChangedException if generation is not the one of the owner, and with
+     * IllegalStateException if the partition needs a recovery or its removal was requested:
+     * in these cases nothing changes. Fails with PartitionFailureException if a change fails,
+     * as a failure of a write: then the state of the writer goes back to the last commit.
+     */
+    void apply(long generation, List<EntityWrite2> changes) {
+        writerLock.lock();
+        try {
+            checkWritable(generation);
+            applyChecked(changes, PartitionOperation.WRITE);
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
+    /**
+     * Checks the limits of the changes and applies them, after the check of the generation.
+     * A failure after the checks is a failure of the operation. The caller holds writerLock.
+     */
+    private void applyChecked(List<EntityWrite2> changes, PartitionOperation operation) {
+        // With the buffer the writer sends at most one change for each entity, and the node
+        // trusts it: more changes of the same entity apply in order. The limits are checked,
+        // because a position outside them would break the cells of the index.
+        int added = 0;
+        for (EntityWrite2 change : changes) {
+            if (change.position() != null) {
+                checkLimits(change.entityId(), change.position());
+                if (change.removed() || slots.slotOf(change.entityId()) == SlotSnapshot2.NONE) {
+                    added++;
+                }
+            }
+        }
+        try {
+            step = PartitionComponent.SLOTS;
+            // A change that removes the entity and adds it again is counted as an addition:
+            // the capacity can be a bit larger than needed, but it is never too small.
+            slots.ensureCapacity(slots.size() + added);
+            for (EntityWrite2 change : changes) {
+                apply(change);
+            }
+        } catch (Throwable failure) {
+            throw failed(operation, failure);
+        }
+    }
+
+    /**
+     * Confirms the state of the writer in the current tick, the second step of a commit, and
+     * returns the snapshot of the commit. The next move of the tick publishes it, unless a
+     * later commit in the same tick replaces it: then the returned snapshot must not be read
+     * any more, because its buffer can go to a later commit. It does not remove the expired
+     * acquisitions: the caller calls {@link #removeExpired} after it and takes its result,
+     * because after the release of the lock the partition can be removed and its last snapshot
+     * can end. Only the writer can call it. Fails with OwnershipChangedException if generation
+     * is not the one of the owner, with IllegalStateException if the partition needs a
+     * recovery, and with PartitionFailureException if the commit fails: then the state of the
+     * writer goes back to the last commit.
      */
     StorageSnapshot2 commit(long generation) {
         writerLock.lock();
@@ -579,21 +509,37 @@ final class PartitionStorage2 {
      * new tick. The same tick again does nothing, and does not make the removal effective.
      * Returns true if this destroys a removed partition. Fails with IllegalArgumentException if
      * the tick is less than the tick of the partition. The thread that moves the tick of the
-     * node calls it, also while the writer works: it waits for a write or a commit that is
-     * running.
+     * node calls it, also while the writer works: it waits for the commit that is running.
      */
     boolean setTick(long tick) {
+        writerLock.lock();
+        return moveTickAndUnlock(tick) == TickMove.DESTROYED;
+    }
+
+    /**
+     * Moves the tick like {@link #setTick} if the lock of the partition is free now, without
+     * waiting for it: also if other threads wait for it. Returns BUSY if another thread holds
+     * the lock, and then nothing changes. Fails like setTick.
+     */
+    TickMove trySetTick(long tick) {
+        if (!writerLock.tryLock()) {
+            return TickMove.BUSY;
+        }
+        return moveTickAndUnlock(tick);
+    }
+
+    /** Moves the tick for setTick and trySetTick, which hold writerLock: it releases it. */
+    private TickMove moveTickAndUnlock(long tick) {
         SnapshotCatalog2 current;
         SnapshotCatalog2 next;
         StorageSnapshot2 published;
-        writerLock.lock();
         try {
             current = catalog;
             if (tick < current.tick()) {
                 throw new IllegalArgumentException("Tick " + tick + " is less than the tick " + current.tick());
             }
             if (tick == current.tick()) {
-                return false;
+                return TickMove.MOVED;
             }
             published = pending;
             pending = null;
@@ -617,7 +563,7 @@ final class PartitionStorage2 {
         for (int i = 0; i < current.size() - kept; i++) {
             lastEnded |= lifetime.leaveWindow(current.snapshotAt(i));
         }
-        return destroyedIf(acquisitions.removeExpired() | lastEnded);
+        return destroyedIf(acquisitions.removeExpired() | lastEnded) ? TickMove.DESTROYED : TickMove.MOVED;
     }
 
     // Removal.
@@ -1092,6 +1038,37 @@ final class PartitionStorage2 {
         }
     }
 
+    /** Applies the final change of an entity to the state of the writer, in the order of its steps. */
+    private void apply(EntityWrite2 change) {
+        long entityId = change.entityId();
+        // One lookup of the slot for each change: the batches move many entities, and with
+        // the cheapest indices a second lookup costs about as much as the move.
+        int slot = slots.slotOf(entityId);
+        boolean inBase = slot != SlotSnapshot2.NONE;
+        if (change.removed() && inBase) {
+            remove(entityId);
+            slot = SlotSnapshot2.NONE;
+        }
+        if (change.position() != null) {
+            if (slot == SlotSnapshot2.NONE) {
+                insert(entityId, change.position());
+            } else {
+                move(slot, change.position());
+            }
+        }
+        List<MetadataWrite> ifInBase = inBase ? change.metadataIfInBase() : List.of();
+        if (ifInBase.isEmpty() && change.metadata().isEmpty()) {
+            return;
+        }
+        step = PartitionComponent.METADATA;
+        for (MetadataWrite write : ifInBase) {
+            metadata.write(write);
+        }
+        for (MetadataWrite write : change.metadata()) {
+            metadata.write(write);
+        }
+    }
+
     /** Returns the commit that confirms the writes made now: the next one in the sequence. */
     private long nextCommit() {
         return commitSequence + 1;
@@ -1102,15 +1079,6 @@ final class PartitionStorage2 {
             throw new IllegalArgumentException("Position of entity " + entityId + " is outside the limits "
                     + limits.min() + ", " + limits.max() + ": " + position);
         }
-    }
-
-    /** Returns the slot of an entity. Fails with NoSuchElementException if the ID is not in the slots. */
-    private int existingSlot(long entityId) {
-        int slot = slots.slotOf(entityId);
-        if (slot == SlotSnapshot2.NONE) {
-            throw new NoSuchElementException("Unknown entity ID: " + entityId);
-        }
-        return slot;
     }
 
     /**

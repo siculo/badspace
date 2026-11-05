@@ -4,25 +4,31 @@ title: Fallimenti e salute della partizione
 description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione, rollback e recupero."
 tags: [badspace, architecture, transactions, recovery]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T15:22:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:31:55Z }
 ---
 
 # Primitiva
 
 Un’operazione del writer può non riuscire in due modi.
 
-- **Rifiuto.** La partizione controlla tutto l’input, il token e il
-  proprio stato prima di cambiare qualcosa. Un’operazione rifiutata,
-  per esempio con un ID inesistente o un token non corrente, non cambia
-  niente: le scritture non confermate precedenti restano.
+- **Rifiuto.** La partizione controlla le modifiche, il token e il
+  proprio stato prima di cambiare qualcosa: a ogni scrittura nella
+  [modalità diretta](/current/architecture/partition-commit.md#modalità-di-scrittura), e al flush o al commit, su tutto il batch, nella
+  modalità con buffer, dove l'handle rifiuta subito solo una posizione
+  fuori dai limiti. Una scrittura, un flush o un commit rifiutato, per esempio con un token
+  non corrente, non cambia niente, e le scritture non confermate di
+  prima restano, nel nodo o nell'handle.
 - **Fallimento.** Un’eccezione arriva dopo i controlli, mentre la
-  partizione sta applicando una scrittura o preparando un
+  partizione sta applicando una scrittura o un batch, o preparando un
   [commit](/current/architecture/partition-commit.md#strutture-transazionali).
-  Lo stato del writer potrebbe essere a metà, quindi la partizione
-  **annulla tutte le scritture non confermate**, anche quelle dei tick
-  precedenti, riportando le strutture all’ultimo commit con lo stesso
-  ripristino del [cambio di proprietà](/current/architecture/partition-ownership.md#cambio-di-proprietà).
-  Ultimo commit e snapshot in attesa non cambiano.
+  Lo stato delle strutture potrebbe essere a metà, quindi la partizione
+  **annulla tutte le scritture non confermate**, riportando le strutture
+  all’ultimo commit con lo stesso ripristino del [cambio di proprietà](/current/architecture/partition-ownership.md#cambio-di-proprietà).
+  Ultimo commit e snapshot in attesa non cambiano, e con il buffer
+  l'handle scarta le sue scritture: il risultato è lo stesso nelle due
+  modalità. Il rapporto dice l'operazione: `WRITE` per una scrittura
+  della modalità diretta o per un flush con il buffer, `COMMIT` per il
+  commit.
 
 Un fallimento dipende da un bug o da una situazione limite, come
 l’esaurimento della memoria, non dall’input. Il software non lo
@@ -58,10 +64,10 @@ ammesse in ciascuno stato sono nella tabella.
 
 | Operazione | Partizione sana | Recupero necessario |
 |---|---|---|
-| Scritture e commit | Ammessi | Rifiutati con `IllegalStateException`, dopo il controllo del token |
+| Commit | Ammesso | Rifiutato con `IllegalStateException`, dopo il controllo del token |
 | Letture degli snapshot, avanzamento del tick, salvataggi | Ammessi | Ammessi: leggono e pubblicano solo stati confermati e integri |
-| `rollback` del proprietario | Scarta le scritture non confermate | Ritenta il ripristino: se riesce la partizione torna sana, se fallisce lo segnala con un nuovo resoconto |
-| `claim` e `release` | Scartano le scritture non confermate | Ritentano il ripristino: se riesce la partizione torna sana, se fallisce la proprietà cambia comunque |
+| `rollback` del proprietario | L'handle scarta le sue scritture; sul nodo non c'è niente da scartare | Ritenta il ripristino: se riesce la partizione torna sana, se fallisce lo segnala con un nuovo resoconto |
+| `claim` e `release` | Sul nodo non c'è niente da scartare: le scritture del writer sono nel suo handle | Ritentano il ripristino: se riesce la partizione torna sana, se fallisce la proprietà cambia comunque |
 | Rimozione della partizione | Ammessa | Ammessa: guarda solo l’ultimo commit |
 
 La proprietà cambia anche se il ripristino fallisce: un coordinatore può
@@ -71,11 +77,13 @@ la partizione nello stato di recupero.
 # Rollback
 
 Il **rollback** del writer scarta tutte le scritture dopo l’ultimo
-commit riuscito, anche quelle dei tick precedenti, e riparte dal pending
-se c’è, altrimenti dall’ultimo stato confermato; prima del primo commit
-dallo stato vuoto. Non tocca gli snapshot pubblicati, non annulla commit
-riusciti e non cambia la proprietà. Senza scritture dopo l’ultimo commit
-non fa niente.
+commit riuscito, anche quelle dei tick precedenti: svuota il buffer
+dell'handle, se c'è, poi chiede al nodo di tornare all'ultimo commit,
+anche se aspetta ancora l'avanzamento del tick. Il nodo scarta così le
+scritture che ha già ricevuto, quelle della modalità diretta e quelle
+dei flush con il buffer; se non ne ha, su una partizione sana non c'è
+niente da riportare indietro. Non tocca gli snapshot
+pubblicati, non annulla commit riusciti e non cambia la proprietà.
 
 Il rollback è anche il **recupero** chiesto dal writer: su una partizione
 che richiede un recupero ritenta il ripristino con il token del
@@ -95,7 +103,7 @@ Un fallimento produce un resoconto, il record `PartitionFailure`:
 
 | Campo | Significato |
 |---|---|
-| `operation` | `WRITE`, `COMMIT`, `CLAIM`, `RELEASE` o `ROLLBACK` |
+| `operation` | `WRITE`, per una scrittura della modalità diretta o per un flush con il buffer, `COMMIT`, sia nell’applicazione del batch sia nella preparazione dello snapshot, `CLAIM`, `RELEASE` o `ROLLBACK` |
 | `component` | `SLOTS`, `INDEX`, `METADATA` o `UNKNOWN`: la struttura in cui è avvenuto |
 | `outcome` | `WRITES_DISCARDED` se il ripristino è riuscito, `RECOVERY_REQUIRED` altrimenti |
 | `baseTick` | Il tick dell’ultimo commit, lo stato che la partizione conserva; la creazione e il caricamento contano come commit al tick di creazione |
@@ -130,9 +138,12 @@ chiamante riceve comunque il fallimento originale.
 
 # Nel prototipo
 
-Lo storage (`PartitionStorage2`/`PartitionStorage3`) separa in ogni
-scrittura i controlli dall’applicazione e avvolge l’applicazione e la
-preparazione del commit in un solo punto di gestione dei fallimenti.
+Lo storage (`PartitionStorage2`/`PartitionStorage3`) fa il commit di un
+batch in due passi, sotto lo stesso lock: `apply`, che controlla tutto il
+batch prima di applicarlo allo stato del writer, e `commit`, che prepara
+e accetta lo snapshot. I due passi hanno un solo punto di gestione dei
+fallimenti, e un fallimento in uno qualsiasi dei due è un fallimento del
+commit.
 Durante il lavoro tiene la struttura in corso, per il campo `component`,
 e il tick dell’ultimo commit, per `baseTick`. La salute è un campo
 `volatile` scritto sotto il lock della partizione, come la proprietà.
@@ -162,12 +173,12 @@ sostituiscono per far fallire un'allocazione.
 I test dello storage, in 2D e 3D, provocano i fallimenti con l’indice e
 il pool dei buffer dei test, e con un costruttore dello storage per i
 test che mette slot e metadati dentro componenti dei commit che possono
-fallire nella preparazione, nell’abbandono e nel ripristino: un fallimento nelle notifiche all’indice
-annulla anche le scritture di un tick precedente, mentre un rifiuto le
-lascia; un fallimento nella preparazione degli slot o dell’indice
-annulla le scritture e lascia intatto lo snapshot in attesa; un
-fallimento con ripristino fallito porta al recupero necessario, con
-scritture e commit rifiutati, il token non corrente rifiutato per primo,
+fallire nella preparazione, nell’abbandono e nel ripristino: un batch
+rifiutato, con una posizione fuori dai limiti, non cambia niente; un fallimento nelle notifiche all’indice
+durante l’applicazione del batch, o nella preparazione degli slot o
+dell’indice, annulla il batch e lascia intatto lo snapshot in attesa, e
+lo stesso batch inviato di nuovo si applica intero; un fallimento con
+ripristino fallito porta al recupero necessario, con i commit rifiutati, il token non corrente rifiutato per primo,
 la pubblicazione dell’ultimo commit e la rimozione ammessa; `claim`
 ritenta il ripristino e, mentre fallisce, cambia comunque la proprietà;
 `release` lo completa e la partizione torna sana; il rollback fa lo
@@ -195,6 +206,22 @@ pool senza commit, e il commit dopo il ripristino lo riusa copiando
 anche la pagina che non ha più la scrittura scartata; il fallimento
 della restituzione va tra le soppresse, tranne quando è la stessa
 istanza.
+
+I test del commit a batch sul nodo, in 2D e 3D (`BatchCommit2Test`/
+`BatchCommit3Test`), usano un nodo con buffer, scrivono con
+`WriteSession2`/`WriteSession3` e
+fermano il batch alla prima notifica all’indice: un avanzamento del tick
+o un `claim` che arriva durante l’applicazione aspetta il lock, e dopo
+lo snapshot o il nuovo proprietario trovano il batch intero. Verificano
+anche che un batch rifiutato lasci lo snapshot in attesa e il tick
+dell’ultimo commit, che un batch fallito lasci lo snapshot in attesa e
+il writer senza le sue scritture, e che dopo un ripristino fallito i
+commit siano rifiutati fino al rollback del nodo: il commit rifiutato
+conserva le scritture del writer, che il commit dopo il recupero
+conferma, mentre quelle del commit fallito sono perse. I test dell'API
+verificano con un nodo finto che un commit rifiutato lasci le scritture
+nell'handle e che uno fallito, con `PartitionFailureException` o con un
+`Error`, le scarti.
 
 # Correlati
 

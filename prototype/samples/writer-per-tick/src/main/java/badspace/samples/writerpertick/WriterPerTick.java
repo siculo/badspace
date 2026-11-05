@@ -104,7 +104,7 @@ public final class WriterPerTick {
             try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
                 position = snapshot.get(ship).orElseThrow();
             }
-            writer.update(ship, position.add(1, 0));
+            writer.set(ship, position.add(1, 0));
             writer.commit();
             System.out.printf("%s: moved the ship from %s and committed tick %d%n", name, position, tick);
             if (stuckAfterCommit != null) {

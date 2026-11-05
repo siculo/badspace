@@ -16,9 +16,10 @@ import badspace.api.SpaceConfig;
 import badspace.common.geometry.Point3;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.SavedPartition;
-import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
+import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.UnknownPartitionException;
+import badspace.common.partition.WriteMode;
 import badspace.service.partition.LocalPartitionNode3;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,13 +29,21 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.Parameter;
+import org.junit.jupiter.params.ParameterizedClass;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * The relation between spaces and nodes with the local nodes of the service: each space creates
  * its own nodes, moves only them, and accepts only its own nodes and partitions. Space3Test in
  * the api module checks the same calls with framework mocks.
  */
+@ParameterizedClass
+@EnumSource(WriteMode.class)
 class SpaceNodes3EndToEndTest {
+
+    @Parameter
+    WriteMode mode;
 
     private static final PartitionName WORLD = new PartitionName("world");
     private static final Point3 POSITION = new Point3(1, 1, 1);
@@ -48,8 +57,8 @@ class SpaceNodes3EndToEndTest {
     @Test
     void spacesWithTheirOwnNodesMoveIndependently() {
         Space3 other = new Space3(config);
-        Partition3 moving = space.createPartition(space.createNode(LocalPartitionNode3::new), WORLD);
-        Partition3 still = other.createPartition(other.createNode(LocalPartitionNode3::new), WORLD,
+        Partition3 moving = space.createPartition(space.createNode(this::newNode), WORLD);
+        Partition3 still = other.createPartition(other.createNode(this::newNode), WORLD,
                 PartitionConfig.defaults().withRetainedTicks(2).withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES));
         PartitionWriter3 writer = writer(still);
         long entityId = writer.insert(POSITION);
@@ -83,7 +92,7 @@ class SpaceNodes3EndToEndTest {
     @Test
     void nodeCreatedAfterSomeMovesFollowsTheSpaceAlsoWithoutPartitions() {
         space.setTick(3);
-        LocalPartitionNode3 local = new LocalPartitionNode3();
+        LocalPartitionNode3 local = newNode();
         Node3 node = space.createNode(() -> local);
         assertEquals(3, local.tick());
         space.setTick(4);
@@ -101,7 +110,7 @@ class SpaceNodes3EndToEndTest {
     @Test
     void handleOfAnotherSpaceChangesNoPartitionOrFile(@TempDir Path directory) {
         Space3 other = new Space3(config);
-        Node3 foreign = other.createNode(() -> new LocalPartitionNode3(directory));
+        Node3 foreign = other.createNode(() -> new LocalPartitionNode3(directory, mode));
         Partition3 partition = other.createPartition(foreign, WORLD);
         other.setTick(1);
         SavedPartition saved = partition.saveLatest();
@@ -123,8 +132,8 @@ class SpaceNodes3EndToEndTest {
     @Test
     void snapshotSetWithAPartitionOfAnotherSpaceAcquiresNothing() {
         Space3 other = new Space3(config);
-        Partition3 foreign = other.createPartition(other.createNode(LocalPartitionNode3::new), WORLD);
-        Partition3 own = space.createPartition(space.createNode(LocalPartitionNode3::new), WORLD);
+        Partition3 foreign = other.createPartition(other.createNode(this::newNode), WORLD);
+        Partition3 own = space.createPartition(space.createNode(this::newNode), WORLD);
         space.setTick(1);
         other.setTick(1);
 
@@ -142,8 +151,8 @@ class SpaceNodes3EndToEndTest {
     @Test
     void nodesWithTheirOwnDirectoriesKeepTheSavesOfTheSameNameApart(@TempDir Path eastDirectory,
             @TempDir Path westDirectory) {
-        Node3 east = space.createNode(() -> new LocalPartitionNode3(eastDirectory));
-        Node3 west = space.createNode(() -> new LocalPartitionNode3(westDirectory));
+        Node3 east = space.createNode(() -> new LocalPartitionNode3(eastDirectory, mode));
+        Node3 west = space.createNode(() -> new LocalPartitionNode3(westDirectory, mode));
         // A new node gives its saves also before its first partition.
         assertEquals(List.of(), space.saves(east));
 
@@ -176,5 +185,10 @@ class SpaceNodes3EndToEndTest {
 
     private static PartitionWriter3 writer(Partition3 partition) {
         return partition.writer(partition.claim(0).orElseThrow());
+    }
+
+    /** Returns a node in the same process, in the write mode of the test. */
+    private LocalPartitionNode3 newNode() {
+        return new LocalPartitionNode3(mode);
     }
 }

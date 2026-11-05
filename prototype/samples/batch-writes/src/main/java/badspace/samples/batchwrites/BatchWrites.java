@@ -11,12 +11,12 @@ import badspace.api.PartitionWriter2;
 import badspace.api.Space2;
 import badspace.api.SpaceConfig;
 import badspace.api.id.SnowflakeIdGenerator;
+import badspace.common.partition.CoordinateLimits;
 import badspace.service.partition.LocalPartitionNode2;
 import java.util.List;
-import java.util.NoSuchElementException;
 
 /**
- * Sample client: batch writes insert, update or remove many entities in one call to the node.
+ * Sample client: batch writes insert, set or remove many entities in one call to the node.
  * A batch is all or nothing: if one of its entities is rejected, no entity of the batch changes.
  */
 public final class BatchWrites {
@@ -29,14 +29,19 @@ public final class BatchWrites {
         try (PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow())) {
             // The IDs are in the same order as the positions.
             long[] ids = writer.insertAll(List.of(point(1, 1), point(2, 2), point(3, 3)));
-            writer.updateAll(List.of(entity(ids[0], 10, 10), entity(ids[1], 20, 20)));
+            writer.setAll(List.of(entity(ids[0], 10, 10), entity(ids[1], 20, 20)));
             writer.removeAll(new long[] {ids[2]});
 
-            // The third entity is removed, so the whole batch is rejected: the first entity
-            // does not move to (99,99).
+            // Removing an entity that is not there does nothing, and set adds the entity again
+            // with the same ID.
+            writer.remove(ids[2]);
+            writer.set(ids[2], point(30, 30));
+
+            // The second position is outside the limits, so the whole batch is rejected: the
+            // first entity does not move to (99,99).
             try {
-                writer.updateAll(List.of(entity(ids[0], 99, 99), entity(ids[2], 30, 30)));
-            } catch (NoSuchElementException e) {
+                writer.setAll(List.of(entity(ids[0], 99, 99), entity(ids[1], 2 * CoordinateLimits.MAX_ABS, 0)));
+            } catch (IllegalArgumentException e) {
                 System.out.printf("Rejected batch: %s%n", e.getMessage());
             }
 
