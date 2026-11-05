@@ -1032,23 +1032,28 @@ final class PartitionStorage2 {
     /** Applies the final change of an entity to the state of the writer, in the order of its steps. */
     private void apply(EntityWrite2 change) {
         long entityId = change.entityId();
-        boolean inBase = slots.slotOf(entityId) != SlotSnapshot2.NONE;
+        // One lookup of the slot for each change: the batches move many entities, and with
+        // the cheapest indices a second lookup costs about as much as the move.
+        int slot = slots.slotOf(entityId);
+        boolean inBase = slot != SlotSnapshot2.NONE;
         if (change.removed() && inBase) {
             remove(entityId);
+            slot = SlotSnapshot2.NONE;
         }
         if (change.position() != null) {
-            int slot = slots.slotOf(entityId);
             if (slot == SlotSnapshot2.NONE) {
                 insert(entityId, change.position());
             } else {
                 move(slot, change.position());
             }
         }
+        List<MetadataWrite> ifInBase = inBase ? change.metadataIfInBase() : List.of();
+        if (ifInBase.isEmpty() && change.metadata().isEmpty()) {
+            return;
+        }
         step = PartitionComponent.METADATA;
-        if (inBase) {
-            for (MetadataWrite write : change.metadataIfInBase()) {
-                metadata.write(write);
-            }
+        for (MetadataWrite write : ifInBase) {
+            metadata.write(write);
         }
         for (MetadataWrite write : change.metadata()) {
             metadata.write(write);
