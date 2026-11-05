@@ -13,9 +13,9 @@ Un’operazione del writer può non riuscire in due modi.
 
 - **Rifiuto.** La partizione controlla le modifiche, il token e il
   proprio stato prima di cambiare qualcosa: a ogni scrittura nella
-  [modalità diretta](/current/architecture/partition-commit.md#modalità-di-scrittura), e al commit, su tutto il batch, nella modalità
-  con buffer, dove l'handle rifiuta subito solo una posizione fuori dai
-  limiti. Una scrittura o un commit rifiutato, per esempio con un token
+  [modalità diretta](/current/architecture/partition-commit.md#modalità-di-scrittura), e al flush o al commit, su tutto il batch, nella
+  modalità con buffer, dove l'handle rifiuta subito solo una posizione
+  fuori dai limiti. Una scrittura, un flush o un commit rifiutato, per esempio con un token
   non corrente, non cambia niente, e le scritture non confermate di
   prima restano, nel nodo o nell'handle.
 - **Fallimento.** Un’eccezione arriva dopo i controlli, mentre la
@@ -27,7 +27,8 @@ Un’operazione del writer può non riuscire in due modi.
   Ultimo commit e snapshot in attesa non cambiano, e con il buffer
   l'handle scarta le sue scritture: il risultato è lo stesso nelle due
   modalità. Il rapporto dice l'operazione: `WRITE` per una scrittura
-  della modalità diretta, `COMMIT` per il commit.
+  della modalità diretta o per un flush con il buffer, `COMMIT` per il
+  commit.
 
 Un fallimento dipende da un bug o da una situazione limite, come
 l’esaurimento della memoria, non dall’input. Il software non lo
@@ -76,11 +77,12 @@ la partizione nello stato di recupero.
 # Rollback
 
 Il **rollback** del writer scarta tutte le scritture dopo l’ultimo
-commit riuscito, anche quelle dei tick precedenti, svuotando il suo
-handle; poi chiede al nodo di tornare al pending se c’è, altrimenti
-all’ultimo stato confermato, prima del primo commit allo stato vuoto.
-Sul nodo, su una partizione sana, non c'è niente da riportare indietro,
-perché le scritture arrivano solo con il commit. Non tocca gli snapshot
+commit riuscito, anche quelle dei tick precedenti: svuota il buffer
+dell'handle, se c'è, poi chiede al nodo di tornare all'ultimo commit,
+anche se aspetta ancora l'avanzamento del tick. Il nodo scarta così le
+scritture che ha già ricevuto, quelle della modalità diretta e quelle
+dei flush con il buffer; se non ne ha, su una partizione sana non c'è
+niente da riportare indietro. Non tocca gli snapshot
 pubblicati, non annulla commit riusciti e non cambia la proprietà.
 
 Il rollback è anche il **recupero** chiesto dal writer: su una partizione
@@ -101,7 +103,7 @@ Un fallimento produce un resoconto, il record `PartitionFailure`:
 
 | Campo | Significato |
 |---|---|
-| `operation` | `COMMIT`, sia nell’applicazione del batch sia nella preparazione dello snapshot, `CLAIM`, `RELEASE` o `ROLLBACK` |
+| `operation` | `WRITE`, per una scrittura della modalità diretta o per un flush con il buffer, `COMMIT`, sia nell’applicazione del batch sia nella preparazione dello snapshot, `CLAIM`, `RELEASE` o `ROLLBACK` |
 | `component` | `SLOTS`, `INDEX`, `METADATA` o `UNKNOWN`: la struttura in cui è avvenuto |
 | `outcome` | `WRITES_DISCARDED` se il ripristino è riuscito, `RECOVERY_REQUIRED` altrimenti |
 | `baseTick` | Il tick dell’ultimo commit, lo stato che la partizione conserva; la creazione e il caricamento contano come commit al tick di creazione |

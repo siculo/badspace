@@ -243,7 +243,7 @@ nodo decide quando le scritture gli arrivano: nella modalità diretta,
 quella del nodo locale, ogni scrittura va subito al nodo e il
 [commit](#commit) le conferma; nella modalità con buffer, pensata per il
 nodo remoto, restano nell'handle, composte per entità, e il commit le
-manda tutte insieme. Le due modalità danno gli stessi commit. In un
+manda tutte insieme, se un `flush()` non le ha già mandate. Le due modalità danno gli stessi commit. In un
 `try`-with-resources, se il writer esce per
 un'eccezione prima del commit, `close()` scarta le sue scritture come
 un rollback. Le letture non sono sull'handle: il writer
@@ -266,8 +266,8 @@ della partizione.
 
 | Errore | Eccezione |
 |---|---|
-| Scrittura, commit o rimozione con un token che non è quello corrente | `OwnershipChangedException`, eccezione di dominio dedicata; la partizione non cambia. Nella modalità con buffer le scritture non raggiungono il nodo, quindi il token si controlla al commit |
-| Scrittura o commit su una partizione che richiede un recupero, con il token corrente | `IllegalStateException`; la partizione non cambia. Con il buffer arriva al commit |
+| Scrittura, flush, commit o rimozione con un token che non è quello corrente | `OwnershipChangedException`, eccezione di dominio dedicata; la partizione non cambia. Nella modalità con buffer le scritture non raggiungono il nodo fino al flush o al commit, quindi il token si controlla lì |
+| Scrittura, flush o commit su una partizione che richiede un recupero, con il token corrente | `IllegalStateException`; la partizione non cambia. Con il buffer arriva al flush o al commit |
 | `claim` dalla rimozione in poi | `IllegalStateException` |
 | Generazione attesa negativa | `IllegalArgumentException` |
 | `writer(token)` con il token di un'altra partizione | `IllegalArgumentException` |
@@ -314,11 +314,12 @@ Scelte di dettaglio:
   stato e salute della partizione a ogni scrittura, e una scrittura
   rifiutata non cambia la partizione. Con il buffer l'handle controlla
   subito i limiti delle posizioni, e una scrittura rifiutata non entra
-  nell'handle; token, stato e salute li controlla il nodo al commit,
-  quindi il writer riceve questi rifiuti dal `commit()` e non dalla
-  scrittura, l'unica differenza tra le modalità nei risultati: un commit
-  rifiutato non cambia la partizione e l'handle conserva le scritture.
-  Un fallimento dopo i controlli, di una scrittura o del commit,
+  nell'handle; token, stato e salute li controlla il nodo al flush o al
+  commit, quindi il writer riceve questi rifiuti da `flush()` o da
+  `commit()` e non dalla scrittura, l'unica differenza tra le modalità
+  nei risultati: un flush o un commit rifiutato non cambia la partizione
+  e l'handle conserva le scritture (vedi [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura)).
+  Un fallimento dopo i controlli, di una scrittura, di un flush o del commit,
   annulla tutte le scritture non confermate e conserva l'ultimo commit
   (vedi [fallimenti e salute](#fallimenti-e-salute)).
 - **Rimozione con scritture non confermate**: è permessa, e le scritture

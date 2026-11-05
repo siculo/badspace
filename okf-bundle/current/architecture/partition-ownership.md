@@ -95,10 +95,11 @@ Restano fuori dal fencing:
 # Cambio di proprietà
 
 - **Il confine è il commit.** A ogni cambio di generazione (`claim` o
-  `release`) le scritture non confermate si scartano: nella modalità
-  diretta il nodo le riporta all'ultimo commit, con il buffer sono
-  nell'handle del vecchio writer, e il commit che le porterebbe è
-  rifiutato. Un commit fatto
+  `release`) le scritture non confermate si scartano: il nodo torna
+  all'ultimo commit, senza quelle che ha già ricevuto, nella modalità
+  diretta o con un flush; quelle rimaste nel buffer sono nell'handle del
+  vecchio writer, e il flush o il commit che le porterebbe è rifiutato.
+  Un commit fatto
   prima del cambio resta confermato, anche se lo snapshot del suo tick
   non è ancora pubblicato: il nuovo proprietario parte da quello stato,
   e i suoi commit nello stesso tick si aggiungono, con l'ultimo che
@@ -114,7 +115,7 @@ Restano fuori dal fencing:
   con esattezza quali dei suoi commit sono entrati.
 - **Il vecchio writer lo scopre alla prossima operazione che va al
   nodo**, che viene rifiutata: la prossima scrittura nella modalità
-  diretta, il prossimo commit con il buffer. Le sue scritture non
+  diretta, il prossimo flush o commit con il buffer. Le sue scritture non
   confermate non raggiungono la partizione: il cambio di proprietà
   scarta quelle già nel nodo, e quelle nel buffer restano nell'handle
   (vedi [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura)); può anche controllare
@@ -286,11 +287,12 @@ spazio crea le partizioni senza proprietario.
   nell'ordine slot, indice, metadati: gli slot tornano con la
   numerazione del commit e l'indice al proprio snapshot dello stesso
   commit, senza notifiche per le scritture scartate. Il commit
-  successivo copia quello che è cambiato. Nella modalità diretta il
-  ripristino scarta le scritture non confermate del vecchio writer; con
-  il buffer le scritture arrivano allo storage solo con il commit, quindi
-  tra un commit e l'altro slot e indice sono già all'ultimo commit e il
-  ripristino conta per il recupero di una partizione che lo richiede. Se il ripristino
+  successivo copia quello che è cambiato. Il ripristino scarta le
+  scritture non confermate che lo storage ha ricevuto dal vecchio writer,
+  nella modalità diretta o con un flush; con il buffer e senza flush le
+  scritture arrivano allo storage solo con il commit, quindi tra un commit
+  e l'altro slot e indice sono già all'ultimo commit e il ripristino conta
+  per il recupero di una partizione che lo richiede. Se il ripristino
   fallisce la proprietà cambia comunque e la partizione richiede un
   recupero; su una partizione che lo richiede, `claim` e `release`
   ritentano il ripristino e, se riesce, la partizione torna sana (vedi
