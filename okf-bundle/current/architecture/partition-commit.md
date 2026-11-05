@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T16:30:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T16:38:54Z }
 ---
 
 # Primitiva
@@ -363,9 +363,10 @@ sequenziale di prima con quello di adesso, a parità di lock equo
   una alla volta, al più un commit ciascuna: il totale cresce con il
   numero di partizioni occupate. Per aspettarle tutte nello stesso
   momento servirebbe un avanzamento in parallelo o rimandato al writer.
-- **Il guadagno è per le partizioni libere**, che non aspettano più i
-  commit delle altre: è il caso comune, con poche partizioni che hanno un
-  commit in corso. La misura dà solo la durata dell'intero `setTick`;
+- **Il guadagno è per le partizioni libere al momento della scansione**,
+  che non aspettano più i commit delle altre: è il caso comune, con poche
+  partizioni che hanno un commit in corso. Una partizione occupata alla
+  scansione può invece aspettare anche il commit di un'altra. La misura dà solo la durata dell'intero `setTick`;
   la garanzia la verifica un test con il commit di una partizione fermo
   nell'indice (vedi [tick logico](/current/architecture/logical-time.md#nel-prototipo)).
 - Con una sola partizione occupata le due versioni fanno la stessa cosa,

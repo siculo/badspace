@@ -136,9 +136,12 @@ public interface PartitionNode2 {
     /**
      * Moves the tick of the node forward, and then the tick of each of its partitions, also of
      * the ones marked as removed. The partitions move one after the other, not all at the same
-     * moment, in an order that is not defined: the ones with a commit that is running move
-     * after the others, so a partition waits only for its own commit. When the call returns,
-     * all the partitions are at the new tick. The same tick again does nothing, and ticks can
+     * moment, in an order that is not defined. The partitions without a commit that is running
+     * move at once, and do not wait for the commits of the others; the node then waits for the
+     * busy ones one at a time, at most for the commit that is running in each, and moves at
+     * once the ones that it finds free again. A busy partition can so wait also for the commit
+     * of another busy partition, and the time of the call can grow with the number of busy
+     * partitions. When the call returns, all the partitions are at the new tick. The same tick again does nothing, and ticks can
      * be skipped.
      *
      * @param tick the new tick of the node

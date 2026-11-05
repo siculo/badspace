@@ -163,6 +163,80 @@ class PartitionWriters3Test {
     }
 
     /**
+     * The commits of P1 and P2 are stopped in the index, while they hold their locks, and a
+     * move of the tick moves at once P3, which is free, and then waits for one of the two
+     * busy partitions. The other one ends its commit while the move waits: it stays at the old
+     * tick until the commit of the first one ends, because the move tries it again only then.
+     * At the end all the partitions are at the new tick.
+     */
+    @Test
+    void busyPartitionThatEndsItsCommitWaitsForTheOneThatTheMoveWaitsFor() throws Exception {
+        List<GatedIndex3> indexes = new ArrayList<>();
+        List<ObservedLock> locks = new ArrayList<>();
+        LocalPartitionNode3 node = new LocalPartitionNode3(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
+            ObservedLock lock = new ObservedLock();
+            locks.add(lock);
+            return new PartitionStorage3(index.limits(), slots -> {
+                GatedIndex3 gated = new GatedIndex3(SpatialIndexes.create(index, slots));
+                indexes.add(gated);
+                return gated;
+            }, retainedTicks, clock, tick, lock, new CoordinateBufferPool());
+        });
+        PartitionId p3 = new PartitionId(3);
+        List<PartitionId> busy = List.of(P1, P2);
+        node.createPartition(P1, nameOf(P1));
+        node.createPartition(P2, nameOf(P2));
+        node.createPartition(p3, nameOf(p3));
+        List<Gate> gates = List.of(new Gate(), new Gate());
+        List<Thread> writers = new ArrayList<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        for (int i = 0; i < busy.size(); i++) {
+            PartitionId partitionId = busy.get(i);
+            writes(node, partitionId).setAll(List.of(new Entity3(10, A)));
+            indexes.get(i).commitGate = gates.get(i);
+            writers.add(worker(() -> writes(node, partitionId).commit(), failure));
+        }
+        Thread mover = worker(() -> node.setTick(1), failure);
+        try {
+            for (int i = 0; i < busy.size(); i++) {
+                writers.get(i).start();
+                gates.get(i).awaitEntered();
+            }
+            mover.start();
+            // The move waits for the lock of one of the two busy partitions: the other one is
+            // the one that ends its commit first.
+            long deadline = System.nanoTime() + TIMEOUT.toNanos();
+            while (!locks.get(0).waited() && !locks.get(1).waited()) {
+                assertTrue(System.nanoTime() < deadline, "the move of the tick did not wait for a partition");
+                Thread.onSpinWait();
+            }
+            int waitedFor = locks.get(0).waited() ? 0 : 1;
+            int other = 1 - waitedFor;
+            assertEquals(1, node.tick(p3));
+            gates.get(other).open();
+            join(writers.get(other));
+            assertEquals(0, node.tick(busy.get(other)), "the move moved a partition before the one it waits for");
+            assertEquals(0, node.tick(busy.get(waitedFor)));
+        } finally {
+            gates.forEach(Gate::open);
+            writers.forEach(writer -> {
+                try {
+                    join(writer);
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+            join(mover);
+        }
+        if (failure.get() != null) {
+            throw new AssertionError("commit or tick worker failed", failure.get());
+        }
+        assertEquals(1, node.tick(P1));
+        assertEquals(1, node.tick(P2));
+        assertEquals(1, node.tick(p3));
+    }
+
+    /**
      * Each writer moves the entities of its partition at each commit, and removes and inserts
      * one again at each even commit; the tick moves on another thread. The entities of all
      * the partitions have the same IDs but a different row in y, so a snapshot with an entity

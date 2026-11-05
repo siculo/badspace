@@ -4,7 +4,7 @@ title: Tick logico
 description: "Tempo logico di spazio, nodi e partizioni: avanzamento monotono, salti, pubblicazione degli snapshot e propagazione non atomica."
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T15:37:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T16:38:54Z }
 ---
 
 # Primitiva
@@ -98,9 +98,14 @@ partizione devono avere un ordine definito:
 - **Le partizioni libere avanzano per prime.** Il nodo fa avanzare
   subito le partizioni che non hanno un commit in corso, poi aspetta una
   partizione occupata alla volta e, dopo ogni attesa, riprova subito le
-  altre. Una partizione aspetta così solo il proprio commit, e non quelli
-  delle partizioni avanzate prima di lei; quando l'avanzamento del nodo
-  termina, tutte le partizioni sono al tick nuovo.
+  altre. Una partizione libera al momento di una scansione non aspetta i
+  commit delle partizioni occupate. Una partizione occupata alla
+  scansione può invece aspettare anche il commit della partizione che il
+  nodo ha scelto di aspettare, se il suo finisce prima: il nodo la
+  riprova solo alla fine di quell'attesa, e allora può trovarla di nuovo
+  occupata. Il tempo dell'avanzamento può quindi crescere con il numero
+  di partizioni occupate. Quando l'avanzamento del nodo termina, tutte
+  le partizioni sono al tick nuovo.
 
 # Perché il tick sta nel livello base
 
@@ -171,7 +176,11 @@ blocchi gli avanzamenti, e che due spazi con nodi distinti e gli stessi
 generatori avanzino in modo indipendente. Un test con il commit di una
 partizione fermo nell'indice verifica che l'avanzamento faccia avanzare
 subito le altre partizioni del nodo e aspetti solo quella occupata; con
-l'avanzamento sequenziale di prima il test fallisce.
+l'avanzamento sequenziale di prima il test fallisce. Un altro test ferma
+i commit di due partizioni: l'avanzamento fa avanzare subito la terza e
+aspetta una delle due, e l'altra, liberata durante l'attesa, resta al
+tick vecchio finché finisce il commit della prima; alla fine tutte sono
+al tick nuovo.
 
 # Correlati
 

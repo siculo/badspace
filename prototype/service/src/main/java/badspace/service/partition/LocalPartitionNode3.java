@@ -210,8 +210,8 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
             // the creation and the load hold tickLock.
             List<Map.Entry<PartitionId, PartitionStorage3>> waiting = new ArrayList<>(partitions.entrySet());
             while (!waiting.isEmpty()) {
-                // First all the partitions whose lock is free, so they do not wait for a
-                // commit of another partition.
+                // First all the partitions whose lock is free now, so they do not wait for
+                // the commits of the busy ones.
                 Iterator<Map.Entry<PartitionId, PartitionStorage3>> free = waiting.iterator();
                 while (free.hasNext()) {
                     Map.Entry<PartitionId, PartitionStorage3> e = free.next();
@@ -224,7 +224,8 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
                     }
                 }
                 // Then it waits for one busy partition, at most for the commit that is running
-                // because the lock is fair, and tries the others again.
+                // because the lock is fair, and tries the others again. A partition that was
+                // busy in the scan can wait for this commit too, also if its own ends before.
                 if (!waiting.isEmpty()) {
                     Map.Entry<PartitionId, PartitionStorage3> e = waiting.removeFirst();
                     if (e.getValue().setTick(tick)) {

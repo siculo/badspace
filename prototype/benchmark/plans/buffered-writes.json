@@ -9,8 +9,9 @@
 // the partition for the application of the batch and the preparation of the snapshot, so
 // the move of the tick waits for it; the run gives the average and the percentiles. The
 // third run does the same with more partitions on the node, each with a busy writer: the
-// move of the tick moves first the partitions whose lock is free, so it waits about one
-// commit, not one commit for each busy partition. The fourth run measures the memory of the
+// move of the tick moves first the partitions whose lock is free, and waits for the busy
+// ones one at a time, so with writers that never pause the time grows with the number of
+// busy partitions. The fourth run measures the memory of the
 // buffer, with and without the metadata (see MetadataSet).
 {
   "groups": [
