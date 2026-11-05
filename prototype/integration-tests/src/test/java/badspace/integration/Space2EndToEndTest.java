@@ -548,6 +548,53 @@ class Space2EndToEndTest {
     }
 
     @Test
+    void flushedWritesWaitForTheCommitAndARollbackDiscardsThem() {
+        Partition2 partition = space.createPartition(space.createNode(this::newNode), nextName());
+        try (PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow())) {
+            long a = writer.insert(new Point2(1, 1));
+            writer.flush();
+            // The move of the tick publishes only the last commit: the creation, with no entities.
+            space.setTick(1);
+            try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
+                assertEquals(0, snapshot.size());
+            }
+            long b = writer.insert(new Point2(2, 2));
+            writer.flush();
+            writer.commit();
+            space.setTick(2);
+            try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
+                assertEquals(Optional.of(new Point2(1, 1)), snapshot.get(a));
+                assertEquals(Optional.of(new Point2(2, 2)), snapshot.get(b));
+            }
+            writer.set(a, new Point2(5, 5));
+            writer.flush();
+            writer.rollback();
+            writer.commit();
+            space.setTick(3);
+            try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
+                assertEquals(Optional.of(new Point2(1, 1)), snapshot.get(a));
+            }
+        }
+    }
+
+    @Test
+    void claimDiscardsTheFlushedWritesOfTheOldOwner() {
+        Partition2 partition = space.createPartition(space.createNode(this::newNode), nextName());
+        WriteToken token = partition.claim(0).orElseThrow();
+        PartitionWriter2 old = partition.writer(token);
+        old.insert(new Point2(1, 1));
+        old.flush();
+        try (PartitionWriter2 next = partition.writer(partition.claim(token.generation()).orElseThrow())) {
+            next.commit();
+        }
+        assertThrows(OwnershipChangedException.class, old::commit);
+        space.setTick(1);
+        try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
+            assertEquals(0, snapshot.size());
+        }
+    }
+
+    @Test
     void ownerPassesTheOwnershipWithATokenThatTheNextWriterUses() {
         Partition2 partition = space.createPartition(space.createNode(this::newNode), nextName());
         PartitionWriter2 first = partition.writer(partition.claim(0).orElseThrow());

@@ -1,7 +1,7 @@
 ---
 type: Architecture Primitive
 title: "Scritture accumulate nel writer"
-description: "Parti ancora da fare del refactoring delle scritture accumulate: flush esplicito, costi del buffer ed esiti remoti."
+description: "Parti ancora da fare del refactoring delle scritture accumulate: costi del buffer ed esiti remoti."
 tags: [badspace, architecture, transactions, api]
 status: draft
 timestamp: 2026-11-05T18:54:02Z
@@ -29,7 +29,8 @@ il nodo sceglie la [modalità di scrittura](/current/architecture/partition-comm
 modalità diretta, con ogni scrittura subito sul nodo, e il buffer resta
 per il nodo remoto, con gli stessi risultati; la modalità diretta costa
 da 1,0 a 1,4 volte il tick di `main`, fino a 2,1 volte con la scansione
-lineare e batch grandi. Restano da fare il flush esplicito, il profilo completo, le
+lineare e batch grandi. Con il buffer il writer può mandare le scritture
+a pezzi con il [flush](/current/architecture/partition-commit.md#modalità-di-scrittura). Restano da fare il profilo completo, le
 decisioni su limiti e ottimizzazioni che ne seguono, e il protocollo
 remoto degli esiti.
 
@@ -39,30 +40,6 @@ scritture, come descritto nelle
 non legge lo stato mutabile attraverso l'esito di una scrittura.
 Lo snapshot letto può non comprendere commit ancora pending, anche di un
 precedente proprietario; il refactoring non introduce letture del pending.
-
-# Flush esplicito
-
-Il prossimo passo è un'operazione `flush()` del writer: nella modalità
-con buffer manda subito al nodo le scritture accumulate, con la
-scrittura senza commit che la modalità diretta usa già, e il commit
-diventa un flush seguito dal commit; nella modalità diretta non fa
-niente. Il software sceglie quando mandare le scritture a pezzi:
-
-- **la memoria del buffer** resta quella delle scritture dall'ultimo
-  flush;
-- **il lock** si prende per ogni pezzo, e l'avanzamento del tick può
-  passare tra due flush senza rompere l'atomicità del commit, perché
-  pubblica solo l'ultimo commit; il commit finale tiene il lock per
-  l'ultimo pezzo e per la preparazione dello snapshot;
-- **le chiamate in rete** sono una per flush, non una per scrittura.
-
-In cambio tornano nel nodo, tra un commit e l'altro, scritture non
-confermate anche nella modalità con buffer, come nella modalità diretta.
-Ripetere un flush dopo un esito incerto non è sempre sicuro: le scritture
-dei metadati che valgono solo se l'entità era nella base dipendono dallo
-stato su cui si applicano, e il protocollo degli [esiti
-remoti](#rifiuti-ed-esiti) dovrà tenerne conto. Il flush non toglie il
-costo del buffer, che resta per le scritture tra due flush.
 
 # Costi da valutare
 
@@ -86,9 +63,9 @@ costi da valutare:
   stesso nodo l'avanzamento le aspetta una alla volta; un avanzamento in
   parallelo, o rimandato al writer che lo applica alla fine del commit,
   le aspetterebbe insieme, con più coordinamento da progettare. Il
-  [flush esplicito](#flush-esplicito) la ridurrebbe senza toccare
-  l'atomicità del commit; un limite alla dimensione dei commit la toglie
-  ai commit divisi, e un'applicazione del batch fuori dal lock seguita da
+  [flush](/current/architecture/partition-commit.md#modalità-di-scrittura) la riduce già, se il writer manda le scritture a pezzi,
+  senza toccare l'atomicità del commit; un limite alla dimensione dei
+  commit la toglierebbe ai commit divisi, e un'applicazione del batch fuori dal lock seguita da
   uno scambio sotto il lock richiede di progettare la preparazione su una
   copia dello stato.
 
@@ -116,6 +93,10 @@ Il protocollo e la conservazione degli esiti si progettano con il
 [nodo gRPC](/future/analyses/grpc-node.md), senza anticiparli nel refactoring locale.
 La ripetizione di `set` non rende automaticamente sicura la ripetizione
 dell'intero commit, che potrebbe altrimenti ricadere in un tick diverso.
+Lo stesso vale per il flush: ripeterlo dopo un esito incerto non è
+sempre sicuro, perché le scritture dei metadati che valgono solo se
+l'entità era nella base dipendono dallo stato su cui si applicano, e un
+primo flush riuscito cambia quello stato.
 
 # Attuazione e verifiche
 

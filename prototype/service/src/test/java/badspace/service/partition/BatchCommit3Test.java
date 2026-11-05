@@ -14,6 +14,7 @@ import badspace.common.partition.EntityWrite3;
 import badspace.common.partition.PartitionFailureException;
 import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionOperation;
 import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteSession3;
 import badspace.common.partition.WriteToken;
@@ -143,6 +144,21 @@ class BatchCommit3Test {
         // Like a failure of the writes sent one by one: the writes are gone.
         writes.commit();
         node.setTick(2);
+        assertEquals(List.of(new Entity3(1, A)), latest());
+    }
+
+    @Test
+    void failedFlushDiscardsAlsoTheWritesFlushedBefore() {
+        WriteSession3 writes = writes(node, token);
+        writes.setAll(List.of(new Entity3(2, B)));
+        writes.flush();
+        writes.setAll(List.of(new Entity3(3, C)));
+        index[0].notificationFailure = new IllegalStateException("Index failure for the test");
+        PartitionFailureException failure = assertThrows(PartitionFailureException.class, writes::flush);
+        index[0].notificationFailure = null;
+        assertSame(PartitionOperation.WRITE, failure.failure().operation());
+        writes.commit();
+        node.setTick(1);
         assertEquals(List.of(new Entity3(1, A)), latest());
     }
 

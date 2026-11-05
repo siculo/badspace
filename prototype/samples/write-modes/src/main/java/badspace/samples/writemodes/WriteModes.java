@@ -21,7 +21,8 @@ import badspace.service.partition.LocalPartitionNode2;
  * commit confirms them. A remote node would be in the buffered mode: the writer keeps the
  * writes and the commit sends them in one call. Here a local node in the buffered mode stands
  * for the remote one. The same writes make the same commits in the two modes; only the moment
- * of a rejection changes, for example after the ownership went to another writer.
+ * of a rejection changes, for example after the ownership went to another writer. With the
+ * buffer the writer can also send its writes in pieces with a flush, before the commit.
  */
 public final class WriteModes {
 
@@ -45,6 +46,25 @@ public final class WriteModes {
             try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
                 System.out.printf("%s: %d entities, ship at %s with %s%n", mode, snapshot.size(),
                         snapshot.get(ship).orElseThrow(), snapshot.getMetadata(ship).orElseThrow());
+            }
+
+            // Many writes in pieces: with the buffer each flush sends a piece to the node, so the
+            // buffer stays small; in the direct mode the flush does nothing. The move of the
+            // tick between two pieces publishes only the last commit, and the commit confirms
+            // all the pieces together.
+            long[] cargo = new long[3];
+            for (int i = 0; i < cargo.length; i++) {
+                cargo[i] = writer.insert(10 + i, 10);
+                writer.flush();
+                space.setTick(space.tick() + 1);
+            }
+            try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
+                System.out.printf("%s: before the commit of the pieces, %d entities%n", mode, snapshot.size());
+            }
+            writer.commit();
+            space.setTick(space.tick() + 1);
+            try (AcquiredSnapshot2 snapshot = partition.acquireLatest()) {
+                System.out.printf("%s: after the commit of the pieces, %d entities%n", mode, snapshot.size());
             }
 
             // Another writer takes the ownership. The old writer finds out at its next write in

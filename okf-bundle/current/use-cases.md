@@ -18,6 +18,7 @@ già presenti. Il software sceglie le politiche e costruisce il coordinamento.
 | Rimuovere un'entità e reinserirla con lo stesso ID | `remove`, idempotente, e poi `set` con l'ID dell'entità; i vecchi metadati applicativi non tornano | `batch-writes` |
 | Preparare molte scritture, anche su più tick, e confermarle insieme | Scritture non confermate fino al commit: nel nodo, nella modalità diretta del nodo locale, o nell'handle, composte per entità e mandate in un solo batch, nella modalità con buffer | `batch-writes`, `commits-and-ticks` |
 | Capire quando le scritture arrivano al nodo e cosa cambia tra le modalità | Modalità di scrittura del nodo (`WriteMode`): diretta o con buffer, con gli stessi commit e i rifiuti alla scrittura o al commit | `write-modes` |
+| Mandare molte scritture a pezzi prima del commit | `flush()` sull'handle: con il buffer manda subito le scritture al nodo, senza commit; nella modalità diretta non fa niente | `write-modes` |
 | Aggiornare partizioni in parallelo | Un writer per partizione su thread diversi, con tick comune | `multi-writer` |
 | Far avanzare in modo indipendente più simulazioni nello stesso processo | Uno spazio per simulazione, ciascuno con i propri nodi creati dalla factory e il proprio tick | Nessun esempio; lo verificano i test di integrazione `SpaceNodes2EndToEndTest` e `SpaceNodes3EndToEndTest` |
 | Passare una partizione a un altro writer | `claim` sulla generazione attesa, consegna del token nuovo | `ownership-handoff` |

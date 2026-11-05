@@ -59,6 +59,11 @@ final class DirectWriteSession2 implements WriteSession2 {
     }
 
     @Override
+    public void flush() {
+        // The writes are on the node already.
+    }
+
+    @Override
     public void commit() {
         node.commit(token, List.of());
     }

@@ -66,8 +66,25 @@ public interface WriteSession2 {
     void updateMetadataAll(List<MetadataWrite> writes);
 
     /**
+     * Sends the writes kept by the session to the node at once, without confirming them (see
+     * {@link PartitionNode2#write(WriteToken, List)}): the next commit confirms them, like the
+     * writes of the direct mode, and a rollback, a claim, a release or a failure discards them.
+     * After the flush the session keeps no writes. In the direct mode the session keeps none,
+     * so the flush does nothing. If the node rejects the flush, nothing changes and the writes
+     * stay; if it fails after the checks, the node goes back to the last commit and the writes
+     * are discarded, like at the commit.
+     *
+     * @throws OwnershipChangedException if the token is not the current one; the writes stay
+     * @throws PartitionFailureException if the write fails after the checks; the writes are
+     *     discarded, and an {@link Error} goes to the caller as it is, also after discarding them
+     */
+    void flush();
+
+    /**
      * Confirms the writes in the current tick of the partition (see
-     * {@link PartitionNode2#commit(WriteToken, List)}). After the commit there are no writes. If
+     * {@link PartitionNode2#commit(WriteToken, List)}): the ones already on the node and the
+     * ones kept by the session, which the commit sends in the same call, like a flush and a
+     * commit in one step. After the commit there are no writes. If
      * the node rejects the commit, nothing changes and the writes stay; if the commit fails
      * after the checks, the node goes back to the last commit and the writes are discarded.
      *

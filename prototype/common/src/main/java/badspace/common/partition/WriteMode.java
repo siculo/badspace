@@ -17,9 +17,10 @@ public enum WriteMode {
     DIRECT,
     /**
      * The writer keeps the writes in a buffer, composed by entity, and the commit sends them to
-     * the node in one call, which applies and confirms them. Between the commits the node has
-     * no writes of the owner. The mode of a remote node: one call for each commit, whatever the
-     * number of writes.
+     * the node in one call, which applies and confirms them. The writer can also send them
+     * before, with a flush, without the commit; without flushes the node has no writes of the
+     * owner between the commits. The mode of a remote node: one call for each commit, or for
+     * each flush, whatever the number of writes.
      */
     BUFFERED
 }

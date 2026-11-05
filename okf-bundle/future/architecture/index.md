@@ -1,6 +1,6 @@
 # Percorso di lettura
 
-* [Scritture accumulate nel writer](./buffered-writes.md) - Parti ancora da fare del refactoring delle scritture accumulate: flush esplicito, costi del buffer ed esiti remoti.
+* [Scritture accumulate nel writer](./buffered-writes.md) - Parti ancora da fare del refactoring delle scritture accumulate: costi del buffer ed esiti remoti.
 
 * [Evoluzioni di nodi, servizi e Space](./nodes-and-spaces.md) - Hosting remoto di più nodi, recupero dei nodi vuoti e possibili operazioni tra Space con tempi indipendenti.
 

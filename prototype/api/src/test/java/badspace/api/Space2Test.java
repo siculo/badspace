@@ -163,6 +163,7 @@ class Space2Test {
                 MetadataWrite.put(entityId + 1, "c", 3)));
         writer.remove(entityId);
         writer.removeAll(new long[0]);
+        writer.flush();
         writer.commit();
         writer.rollback();
         writer.close();
@@ -174,7 +175,7 @@ class Space2Test {
                 EntityWrite2.metadataOf(entityId, List.of(MetadataWrite.put(entityId, "b", 2), MetadataWrite.delete(entityId, "a"))),
                 EntityWrite2.metadataOf(entityId + 1, List.of(MetadataWrite.put(entityId + 1, "c", 3)))));
         order.verify(direct).write(TOKEN, List.of(EntityWrite2.removal(entityId)));
-        // An empty write makes no call, like with the buffer.
+        // An empty write and the flush make no call.
         order.verify(direct).commit(TOKEN, List.of());
         order.verify(direct).rollback(TOKEN);
         order.verify(direct).release(TOKEN);
@@ -190,6 +191,37 @@ class Space2Test {
         assertThrows(OwnershipChangedException.class, () -> writer.insert(A));
         writer.commit();
         verify(direct).commit(TOKEN, List.of());
+    }
+
+    @Test
+    void flushSendsTheBufferWithoutTheCommitAndTheCommitSendsTheRest() {
+        PartitionWriter2 writer = space.createPartition(handle, NAME).writer(TOKEN);
+        long a = writer.insert(A);
+        writer.flush();
+        // An empty buffer makes no call.
+        writer.flush();
+        long b = writer.insert(B);
+        writer.commit();
+        var order = inOrder(node);
+        order.verify(node).write(TOKEN, List.of(EntityWrite2.set(new Entity2(a, A))));
+        order.verify(node).commit(TOKEN, List.of(EntityWrite2.set(new Entity2(b, B))));
+        verify(node, times(1)).write(any(), any());
+    }
+
+    @Test
+    void rejectedFlushKeepsTheWritesAndAFailedOneDiscardsThem() {
+        PartitionWriter2 writer = space.createPartition(handle, NAME).writer(TOKEN);
+        long entityId = writer.insert(A);
+        List<EntityWrite2> batch = List.of(EntityWrite2.set(new Entity2(entityId, A)));
+        doThrow(new OwnershipChangedException("Token is not current")).when(node).write(TOKEN, batch);
+        assertThrows(OwnershipChangedException.class, writer::flush);
+        PartitionFailure report = new PartitionFailure(PartitionOperation.WRITE, PartitionComponent.INDEX,
+                FailureOutcome.WRITES_DISCARDED, 0, new IllegalStateException("Index failure"), null);
+        doThrow(new PartitionFailureException(report)).when(node).write(TOKEN, batch);
+        assertThrows(PartitionFailureException.class, writer::flush);
+        writer.commit();
+        verify(node, times(2)).write(TOKEN, batch);
+        verify(node).commit(TOKEN, List.of());
     }
 
     @Test

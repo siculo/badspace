@@ -11,8 +11,9 @@ import java.util.List;
  * writes reach the node: in the direct mode, the mode of a node in the same process, each write
  * goes to the node at once and the commit confirms them; in the buffered mode, the mode of a
  * remote node, the writes stay in the handle, composed by entity, and the commit sends them to
- * the node in one call. The two modes give the same results: the writes apply in their order to
- * the last commit of the partition, and the same writes make the same commits. The writes, the
+ * the node in one call, unless a {@link #flush()} sends them before. The two modes give the
+ * same results: the writes apply in their order to the last commit of the partition, and the
+ * same writes make the same commits. The writes, the
  * commit and the removal go to the node with the token: if the ownership changed after the token
  * was given, they fail with {@code OwnershipChangedException} and the partition does not change.
  * The only difference between the modes is when this check, and the one of the state of the
@@ -66,9 +67,24 @@ public interface PartitionWriter extends AutoCloseable {
     void updateMetadataAll(List<MetadataWrite> writes);
 
     /**
+     * Sends at once to the node the writes that the handle keeps, without confirming them: the
+     * next commit confirms them, and a rollback, a change of the ownership or a failure
+     * discards them, like the writes of the direct mode. With the buffer it lets the writer
+     * send its writes in pieces: the buffer keeps only the writes after the last flush, and
+     * each flush holds the lock of the partition only for its own piece, so a move of the
+     * tick can come between two flushes and publishes only the last commit. In the direct mode
+     * the writes are on the node already, and the flush does nothing. A rejected flush changes
+     * nothing and the writes stay, for example with OwnershipChangedException or
+     * IllegalStateException; a flush that fails after the checks, with
+     * PartitionFailureException or an Error, leaves the partition at the last commit and
+     * discards the writes.
+     */
+    void flush();
+
+    /**
      * Confirms the writes of the handle in the current tick of the partition: in the direct mode
-     * the node has them already, with the buffer the commit sends them to the node, which
-     * applies them to the last commit and confirms them in one step. The snapshot of the tick
+     * the node has them already, with the buffer the commit sends to the node the ones not
+     * flushed yet, and the node applies them to the last commit and confirms them in one step. The snapshot of the tick
      * will have them. Each commit confirms the full state, including the effects of earlier
      * commits unless the writes change or remove them. Only the last commit of a tick defines
      * its snapshot; readers cannot acquire the intermediate states. The writes made before the

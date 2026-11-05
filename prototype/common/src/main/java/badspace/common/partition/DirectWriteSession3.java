@@ -59,6 +59,11 @@ final class DirectWriteSession3 implements WriteSession3 {
     }
 
     @Override
+    public void flush() {
+        // The writes are on the node already.
+    }
+
+    @Override
     public void commit() {
         node.commit(token, List.of());
     }

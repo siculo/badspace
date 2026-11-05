@@ -159,6 +159,29 @@ Il diagramma mostra le chiamate al nodo di un commit con due scritture;
 nella modalità con buffer le scritture restano nell'handle fino al
 commit.
 
+Con il buffer il writer può anche mandare le scritture prima del commit,
+con **`flush()`**: il buffer va al nodo in una chiamata, che lo applica
+senza confermarlo, come le scritture della modalità diretta, e si
+svuota. Il commit conferma le scritture mandate con i flush insieme a
+quelle rimaste nel buffer, che manda nella stessa chiamata: equivale a
+un flush seguito dal commit, in un solo passo. Nella modalità diretta le
+scritture sono già nel nodo, e `flush()` non fa niente. Il flush serve a
+mandare molte scritture a pezzi: il buffer tiene solo quelle dopo
+l'ultimo flush, ogni flush tiene il lock della partizione solo per il
+proprio pezzo, e con un nodo remoto le chiamate sono una per pezzo.
+
+```text
+  con buffer e flush
+  writer                 nodo
+  "set(A, p)"            |
+  "flush()"      ------> applica, senza confermare
+  "set(B, q)"            |
+  "commit()"     ------> applica e conferma A e B
+```
+
+Il diagramma mostra un commit con un flush intermedio; un avanzamento del
+tick tra il flush e il commit pubblica solo l'ultimo commit, senza A.
+
 **Le due modalità danno lo stesso risultato.** In entrambe le scritture
 si applicano nel loro ordine all'**ultimo commit** della partizione,
 anche se aspetta ancora l'avanzamento del tick, non allo snapshot che il
@@ -172,6 +195,8 @@ snapshot. Anche i rifiuti e i fallimenti seguono le stesse regole:
 |---|---|---|
 | Scrittura rifiutata (solo diretta: token non corrente, partizione rimossa o in recupero, input non valido) | Non cambia | Restano quelle di prima |
 | Scrittura fallita dopo i controlli (solo diretta) | Torna all'ultimo commit, o resta in recupero necessario | Scartate tutte |
+| Flush rifiutato (solo con buffer) | Non cambia | Restano, nel nodo e nel buffer |
+| Flush fallito dopo i controlli (solo con buffer) | Torna all'ultimo commit, o resta in recupero necessario | Scartate tutte, anche quelle dei flush precedenti |
 | Commit riuscito | Ha le scritture nel commit del tick corrente | Nessuna |
 | Commit rifiutato (token non corrente, partizione rimossa o in recupero, input non valido) | Non cambia | Restano, nel nodo o nel buffer |
 | Commit fallito dopo i controlli (`PartitionFailureException` o `Error`) | Torna all'ultimo commit, o resta in recupero necessario | Scartate tutte |
@@ -181,10 +206,11 @@ snapshot. Anche i rifiuti e i fallimenti seguono le stesse regole:
 
 Nella modalità diretta le scritture non confermate sono nel nodo, e il
 ripristino all'ultimo commit le scarta: al rollback, a un fallimento e
-al cambio di proprietà. Con il buffer sono nell'handle: `rollback()` e
-`close()` svuotano il buffer, poi vanno al nodo per il ripristino e per
-il rilascio, e tra un commit e l'altro il nodo non ha scritture del
-writer da scartare. In entrambi i casi le scritture di un writer che ha
+al cambio di proprietà. Con il buffer sono nell'handle, e nel nodo
+quelle dei flush: `rollback()` e `close()` svuotano il buffer, poi vanno
+al nodo per il ripristino e per il rilascio, che scartano anche le
+scritture dei flush. Senza flush, tra un commit e l'altro il nodo non ha
+scritture del writer da scartare. In entrambi i casi le scritture di un writer che ha
 perso la proprietà non arrivano alla partizione: il nodo le rifiuta,
 alla scrittura o al commit che le porterebbe.
 
@@ -206,7 +232,9 @@ alla scrittura o al commit che le porterebbe.
   commit, quindi le scritture non confermate restano fuori dallo
   snapshot in entrambe le modalità. Con il buffer il commit tiene il
   lock per tutto il batch, e l'avanzamento del tick può aspettare fino
-  alla sua durata (vedi [costi](#costi-del-buffer-e-del-commit)).
+  alla sua durata (vedi [costi](#costi-del-buffer-e-del-commit)); con i
+  flush ogni pezzo tiene il lock solo per sé, e il commit per l'ultimo
+  pezzo e per la preparazione dello snapshot.
 
 ## Scritture accumulate nel writer
 
@@ -555,12 +583,15 @@ implementazioni package-private:
   rimozione e per ogni gruppo di scritture consecutive dei metadati di
   un'entità, e lo manda con `write(WriteToken, List<EntityWrite2>)` del
   nodo, che lo applica senza commit; senza modifiche non chiama il nodo.
-  Il commit è `commit(token, List.of())`, e non tiene niente nel client;
+  Il commit è `commit(token, List.of())`, `flush()` non fa niente, e non
+  tiene niente nel client;
 - `BufferedWriteSession2`/`BufferedWriteSession3` tiene nodo, token e
   limiti della partizione, controlla i limiti alla chiamata, manda il batch al commit
   con `commit(WriteToken, List<EntityWrite2>)` e lo svuota dopo il
-  successo; `rollback()` e `release()` lo svuotano prima di andare al
-  nodo. La composizione è in `WriteBuffer2`/`WriteBuffer3`,
+  successo; `flush()` lo manda con `write`, senza commit, e lo svuota
+  dopo il successo o dopo un fallimento, come il commit, mentre un
+  rifiuto lo lascia com'è; `rollback()` e `release()` lo svuotano prima
+  di andare al nodo. La composizione è in `WriteBuffer2`/`WriteBuffer3`,
   package-private in `common`, che produce un `EntityWrite2`/
   `EntityWrite3` per entità; i test la confrontano con l'esecuzione delle
   chiamate una alla volta, anche su 5000 sequenze casuali di `set`,

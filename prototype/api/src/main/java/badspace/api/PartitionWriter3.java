@@ -116,6 +116,11 @@ public final class PartitionWriter3 implements PartitionWriter {
     }
 
     @Override
+    public void flush() {
+        session.flush();
+    }
+
+    @Override
     public void commit() {
         session.commit();
     }

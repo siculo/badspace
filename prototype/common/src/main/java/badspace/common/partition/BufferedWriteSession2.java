@@ -5,7 +5,8 @@ import java.util.List;
 /**
  * The write session of the owner of a 2D partition in the {@linkplain WriteMode#BUFFERED buffered}
  * mode. The writes make no calls to the node: they stay here, composed by entity (see
- * {@link EntityWrite2}), and {@link #commit()} sends them to the node in one call. The
+ * {@link EntityWrite2}), and {@link #commit()} sends them to the node in one call;
+ * {@link #flush()} sends them before, without the commit. The
  * positions are checked against the limits of the partition at once; the node checks the
  * token and the state of the partition at the commit. A rejected commit keeps the writes, and
  * a failed one discards them, like in the direct mode. It is not thread-safe.
@@ -53,6 +54,20 @@ final class BufferedWriteSession2 implements WriteSession2 {
         for (MetadataWrite write : writes) {
             buffer.write(write);
         }
+    }
+
+    @Override
+    public void flush() {
+        if (buffer.isEmpty()) {
+            return;
+        }
+        try {
+            node.write(token, buffer.changes());
+        } catch (PartitionFailureException | Error failure) {
+            buffer.clear();
+            throw failure;
+        }
+        buffer.clear();
     }
 
     @Override
