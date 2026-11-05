@@ -7,17 +7,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The batch of writes of a 3D writer, composed by entity: the writer keeps its writes here
- * until the commit, which sends {@link #changes()} to the node in one call. For each entity it
- * keeps only the final change against the base, not the list of the calls (see {@link
- * EntityWrite3}). The result is the same as making the writes one by one, in their order: a
- * set moves the entity or adds it with the same ID, a removal deletes it with its metadata, a
- * metadata write on an entity that is not there does nothing. The buffer does not know the
- * base, so a metadata write before any set or removal of its entity stays for the case that
- * the entity is in the base. The buffer does not check the positions against the limits. It is
- * not thread-safe.
+ * The batch of writes of a 3D writer, composed by entity: {@link PendingWrites3} keeps the
+ * writes here until the commit, which sends {@link #changes()} to the node in one call. For
+ * each entity it keeps only the final change against the base, not the list of the calls (see
+ * {@link EntityWrite3}). The result is the same as making the writes one by one, in their
+ * order: a set moves the entity or adds it with the same ID, a removal deletes it with its
+ * metadata, a metadata write on an entity that is not there does nothing. The buffer does not
+ * know the base, so a metadata write before any set or removal of its entity stays for the
+ * case that the entity is in the base. The buffer does not check the positions against the
+ * limits. It is not thread-safe.
  */
-public final class WriteBuffer3 {
+final class WriteBuffer3 {
 
     /** The change of one entity while the buffer composes it. */
     private static final class Change {
@@ -34,12 +34,12 @@ public final class WriteBuffer3 {
     private final Map<Long, Change> byEntity = new LinkedHashMap<>();
 
     /** Sets the position of the entity: it moves, or it is added with the same ID. */
-    public void set(Entity3 entity) {
+    void set(Entity3 entity) {
         change(entity.id()).position = entity.position();
     }
 
     /** Removes the entity with its metadata; if the entity is not there, it does nothing. */
-    public void remove(long entityId) {
+    void remove(long entityId) {
         Change change = change(entityId);
         change.removed = true;
         change.position = null;
@@ -48,7 +48,7 @@ public final class WriteBuffer3 {
     }
 
     /** Writes one key of the metadata of an entity; if the entity is not there, it does nothing. */
-    public void write(MetadataWrite write) {
+    void write(MetadataWrite write) {
         Change change = change(write.entityId());
         if (change.position != null) {
             // After a set the entity is there, whatever the base: the write is applied, and
@@ -62,7 +62,7 @@ public final class WriteBuffer3 {
     }
 
     /** Returns whether the buffer has no writes. */
-    public boolean isEmpty() {
+    boolean isEmpty() {
         return byEntity.isEmpty();
     }
 
@@ -71,7 +71,7 @@ public final class WriteBuffer3 {
      * write of each entity. An entity whose writes do nothing, like metadata writes after a
      * removal, can still have a change.
      */
-    public List<EntityWrite3> changes() {
+    List<EntityWrite3> changes() {
         List<EntityWrite3> changes = new ArrayList<>(byEntity.size());
         for (Map.Entry<Long, Change> entry : byEntity.entrySet()) {
             Change change = entry.getValue();
@@ -82,7 +82,7 @@ public final class WriteBuffer3 {
     }
 
     /** Discards all the writes. */
-    public void clear() {
+    void clear() {
         byEntity.clear();
     }
 

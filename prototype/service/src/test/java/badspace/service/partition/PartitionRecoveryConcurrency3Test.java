@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import static badspace.service.partition.Owners.writes;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.Entity3.entity;
 import static badspace.service.partition.Names.nameOf;
@@ -52,14 +53,14 @@ class PartitionRecoveryConcurrency3Test {
 
     @Test
     void claimThatArrivesDuringARollbackWaitsForIt() throws Exception {
-        Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(token);
-        Writes3.of(node).insertAll(token, List.of(entity(2, 2, 2, 2)));
+        writes(node, token).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, token).commit();
+        writes(node, token).setAll(List.of(entity(2, 2, 2, 2)));
         Gate gate = new Gate();
         index[0].restoreGate = gate;
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<WriteToken> claimed = new AtomicReference<>();
-        Thread writer = worker(() -> Writes3.of(node).rollback(token), failure);
+        Thread writer = worker(() -> writes(node, token).rollback(), failure);
         Thread claimer = worker(() -> claimed.set(node.claim(P1, token.generation()).orElseThrow()), failure);
         writer.start();
         try {
@@ -78,22 +79,22 @@ class PartitionRecoveryConcurrency3Test {
         if (failure.get() != null) {
             throw new AssertionError("rollback or claim failed", failure.get());
         }
-        assertThrows(OwnershipChangedException.class, () -> Writes3.of(node).rollback(token));
+        assertThrows(OwnershipChangedException.class, () -> writes(node, token).rollback());
         index[0].restoreGate = null;
-        Writes3.of(node).commit(claimed.get());
+        writes(node, claimed.get()).commit();
         node.setTick(1);
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(node.acquireLatest(P1, defaultTimeout()), IDS));
     }
 
     @Test
     void moveOfTheTickThatArrivesDuringARollbackPublishesTheLastCommit() throws Exception {
-        Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(token);
-        Writes3.of(node).insertAll(token, List.of(entity(2, 2, 2, 2)));
+        writes(node, token).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, token).commit();
+        writes(node, token).setAll(List.of(entity(2, 2, 2, 2)));
         Gate gate = new Gate();
         index[0].restoreGate = gate;
         AtomicReference<Throwable> failure = new AtomicReference<>();
-        Thread writer = worker(() -> Writes3.of(node).rollback(token), failure);
+        Thread writer = worker(() -> writes(node, token).rollback(), failure);
         Thread ticker = worker(() -> node.setTick(1), failure);
         writer.start();
         try {
@@ -116,12 +117,12 @@ class PartitionRecoveryConcurrency3Test {
     @Test
     void tickOfTheLastCommitWaitsForTheCommitThatIsRunning() throws Exception {
         node.setTick(1);
-        Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1)));
+        writes(node, token).setAll(List.of(entity(1, 1, 1, 1)));
         Gate gate = new Gate();
         index[0].commitGate = gate;
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicLong lastCommitTick = new AtomicLong(-1);
-        Thread writer = worker(() -> Writes3.of(node).commit(token), failure);
+        Thread writer = worker(() -> writes(node, token).commit(), failure);
         Thread reader = worker(() -> lastCommitTick.set(node.lastCommitTick(token)), failure);
         writer.start();
         try {
@@ -147,12 +148,12 @@ class PartitionRecoveryConcurrency3Test {
     @Test
     void newOwnerSeesTheCommitThatWasRunningWhenItTookThePartition() throws Exception {
         node.setTick(1);
-        Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1)));
+        writes(node, token).setAll(List.of(entity(1, 1, 1, 1)));
         Gate gate = new Gate();
         index[0].commitGate = gate;
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<WriteToken> claimed = new AtomicReference<>();
-        Thread writer = worker(() -> Writes3.of(node).commit(token), failure);
+        Thread writer = worker(() -> writes(node, token).commit(), failure);
         Thread claimer = worker(() -> claimed.set(node.claim(P1, token.generation()).orElseThrow()), failure);
         writer.start();
         try {

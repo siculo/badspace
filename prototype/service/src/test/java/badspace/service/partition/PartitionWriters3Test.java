@@ -4,6 +4,7 @@ import static badspace.common.geometry.Point3.point;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
+import static badspace.service.partition.Owners.writes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -76,11 +77,11 @@ class PartitionWriters3Test {
             });
             node.createPartition(P1, nameOf(P1), config, 1);
             node.createPartition(P2, nameOf(P2), config, 1);
-            Writes3.of(node).insertAll(owner(node, P1), List.of(new Entity3(10, A)));
+            writes(node, P1).setAll(List.of(new Entity3(10, A)));
             Gate gate = new Gate();
             indexes.getFirst().commitGate = gate;
             AtomicReference<Throwable> failure = new AtomicReference<>();
-            Thread writer = worker(() -> Writes3.of(node).commit(owner(node, P1)), failure);
+            Thread writer = worker(() -> writes(node, P1).commit(), failure);
             Thread mover = worker(() -> node.setTick(1), failure);
             writer.start();
             try {
@@ -90,9 +91,9 @@ class PartitionWriters3Test {
                 locks.getFirst().awaitWaiting();
 
                 assertTimeoutPreemptively(TIMEOUT, () -> {
-                    Writes3.of(node).insertAll(owner(node, P2), List.of(new Entity3(20, B)));
-                    Writes3.of(node).setAll(owner(node, P2), List.of(new Entity3(20, C)));
-                    Writes3.of(node).commit(owner(node, P2));
+                    writes(node, P2).setAll(List.of(new Entity3(20, B)));
+                    writes(node, P2).setAll(List.of(new Entity3(20, C)));
+                    writes(node, P2).commit();
                 }, config + ": the writer of P2 waited for P1");
 
             } finally {
@@ -130,7 +131,7 @@ class PartitionWriters3Test {
         for (int w = 0; w < WRITERS; w++) {
             partitionIds[w] = new PartitionId(w + 1);
             node.createPartition(partitionIds[w], nameOf(partitionIds[w]), CONFIGS.get(w % CONFIGS.size()), 2);
-            Writes3.of(node).insertAll(owner(node, partitionIds[w]), entitiesAt(w, 0, entityIds));
+            writes(node, partitionIds[w]).setAll(entitiesAt(w, 0, entityIds));
         }
 
         CountDownLatch observed = new CountDownLatch(READERS);
@@ -152,15 +153,15 @@ class PartitionWriters3Test {
                         List<Entity3> moved = entitiesAt(partition, version, entityIds);
                         if (version % 2 == 0) {
                             // A removal and an insertion: the IDs change in this commit.
-                            Writes3.of(node).removeAll(owner(node, partitionId), new long[] {entityIds[ENTITIES - 1]});
-                            Writes3.of(node).insertAll(owner(node, partitionId), moved.subList(ENTITIES - 1, ENTITIES));
-                            Writes3.of(node).setAll(owner(node, partitionId), moved.subList(0, ENTITIES - 1));
+                            writes(node, partitionId).removeAll(new long[] {entityIds[ENTITIES - 1]});
+                            writes(node, partitionId).setAll(moved.subList(ENTITIES - 1, ENTITIES));
+                            writes(node, partitionId).setAll(moved.subList(0, ENTITIES - 1));
                         } else {
                             // Two calls, so the state of the writer between them is mixed.
-                            Writes3.of(node).setAll(owner(node, partitionId), moved.subList(0, ENTITIES / 2));
-                            Writes3.of(node).setAll(owner(node, partitionId), moved.subList(ENTITIES / 2, ENTITIES));
+                            writes(node, partitionId).setAll(moved.subList(0, ENTITIES / 2));
+                            writes(node, partitionId).setAll(moved.subList(ENTITIES / 2, ENTITIES));
                         }
-                        Writes3.of(node).commit(owner(node, partitionId));
+                        writes(node, partitionId).commit();
                         if (version == VERSIONS / 2) {
                             middle.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                             await(observed);

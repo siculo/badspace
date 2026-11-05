@@ -2,39 +2,39 @@ package badspace.api;
 
 import badspace.common.geometry.Point2;
 import badspace.common.partition.Entity2;
-import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.PartitionNode2;
-import badspace.common.partition.WriteBuffer2;
+import badspace.common.partition.PendingWrites2;
 import badspace.common.partition.WriteToken;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Writer handle of a 2D partition: it carries the token of the owner, keeps the writes in a
- * {@link WriteBuffer2} and sends them to the node of the partition with the token at the
+ * Writer handle of a 2D partition: it carries the token of the owner and keeps the writes in
+ * {@link PendingWrites2}, which sends them to the node of the partition with the token at the
  * commit, in one call (see {@link PartitionWriter}). The writes make no calls to the node: the
- * handle checks the positions against the limits at once, and the node checks the token and
- * the state of the partition at the commit. The handle keeps no state of the partition.
+ * positions are checked against the limits at once, and the node checks the token and the
+ * state of the partition at the commit. The handle generates the IDs of the new entities and
+ * applies the removal policy of the partition. It keeps no state of the partition.
  */
 public final class PartitionWriter2 implements PartitionWriter {
 
     private final Space2 space;
     private final PartitionNode2 node;
-    private final WriteToken token;
     private final PartitionConfig config;
-    // The writes not committed yet. Only the writer that uses the handle reads and changes it.
-    private final WriteBuffer2 buffer = new WriteBuffer2();
+    // The writes not committed yet. Only the writer that uses the handle reads and changes them.
+    private final PendingWrites2 pending;
 
     PartitionWriter2(Space2 space, PartitionNode2 node, WriteToken token, PartitionConfig config) {
         this.space = space;
         this.node = node;
-        this.token = token;
         this.config = config;
+        this.pending = new PendingWrites2(node, token, config.index().limits());
     }
 
     @Override
     public WriteToken token() {
-        return token;
+        return pending.token();
     }
 
     /** Adds a new entity and returns its ID. */
@@ -53,16 +53,13 @@ public final class PartitionWriter2 implements PartitionWriter {
      * {@linkplain Partition#limits() limits}; in this case no entity is added.
      */
     public long[] insertAll(List<Point2> positions) {
-        for (Point2 position : positions) {
-            checkLimits(position);
-        }
+        List<Entity2> entities = new ArrayList<>(positions.size());
         long[] entityIds = new long[positions.size()];
         for (int i = 0; i < entityIds.length; i++) {
             entityIds[i] = space.nextEntityId();
+            entities.add(new Entity2(entityIds[i], positions.get(i)));
         }
-        for (int i = 0; i < entityIds.length; i++) {
-            buffer.set(new Entity2(entityIds[i], positions.get(i)));
-        }
+        pending.setAll(entities);
         return entityIds;
     }
 
@@ -92,12 +89,7 @@ public final class PartitionWriter2 implements PartitionWriter {
      *     {@linkplain Partition#limits() limits}; in this case nothing changes
      */
     public void setAll(List<Entity2> entities) {
-        for (Entity2 entity : entities) {
-            checkLimits(entity.position());
-        }
-        for (Entity2 entity : entities) {
-            buffer.set(entity);
-        }
+        pending.setAll(entities);
     }
 
     @Override
@@ -107,9 +99,7 @@ public final class PartitionWriter2 implements PartitionWriter {
 
     @Override
     public void removeAll(long[] entityIds) {
-        for (long entityId : entityIds) {
-            buffer.remove(entityId);
-        }
+        pending.removeAll(entityIds);
     }
 
     @Override
@@ -124,48 +114,35 @@ public final class PartitionWriter2 implements PartitionWriter {
 
     @Override
     public void updateMetadataAll(List<MetadataWrite> writes) {
-        for (MetadataWrite write : writes) {
-            buffer.write(write);
-        }
+        pending.updateMetadataAll(writes);
     }
 
     @Override
     public void commit() {
-        node.commit(token, buffer.changes());
-        buffer.clear();
+        pending.commit();
     }
 
     @Override
     public void rollback() {
-        buffer.clear();
-        node.rollback(token);
+        pending.rollback();
     }
 
     @Override
     public long lastCommitTick() {
-        return node.lastCommitTick(token);
+        return node.lastCommitTick(pending.token());
     }
 
     @Override
     public void removePartition() {
         switch (config.removalPolicy()) {
-            case REQUIRE_EMPTY -> node.removePartition(token);
-            case DISCARD_ENTITIES -> node.dropPartition(token);
+            case REQUIRE_EMPTY -> node.removePartition(pending.token());
+            case DISCARD_ENTITIES -> node.dropPartition(pending.token());
         }
-        buffer.clear();
+        pending.discard();
     }
 
     @Override
     public void close() {
-        buffer.clear();
-        node.release(token);
-    }
-
-    private void checkLimits(Point2 position) {
-        CoordinateLimits limits = config.index().limits();
-        if (!limits.contains(position)) {
-            throw new IllegalArgumentException("Position outside the limits " + limits.min() + ", " + limits.max()
-                    + ": " + position);
-        }
+        pending.release();
     }
 }

@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import static badspace.service.partition.Owners.writes;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.Entity2.entity;
 import static badspace.service.partition.Names.nameOf;
@@ -54,15 +55,15 @@ class PartitionRollback2Test {
 
     @Test
     void rollbackDiscardsAlsoTheWritesOfTheTicksBeforeAndKeepsTheOwnership() {
-        Writes2.of(node).insertAll(token, List.of(entity(1, 1, 1)));
-        Writes2.of(node).updateMetadataAll(token, List.of(MetadataWrite.put(1, "hp", 1)));
-        Writes2.of(node).commit(token);
+        writes(node, token).setAll(List.of(entity(1, 1, 1)));
+        writes(node, token).updateMetadataAll(List.of(MetadataWrite.put(1, "hp", 1)));
+        writes(node, token).commit();
         node.setTick(1);
-        Writes2.of(node).insertAll(token, List.of(entity(2, 2, 2)));
+        writes(node, token).setAll(List.of(entity(2, 2, 2)));
         node.setTick(2);
-        Writes2.of(node).setAll(token, List.of(entity(1, 9, 9)));
-        Writes2.of(node).updateMetadataAll(token, List.of(MetadataWrite.put(1, "hp", 2)));
-        Writes2.of(node).rollback(token);
+        writes(node, token).setAll(List.of(entity(1, 9, 9)));
+        writes(node, token).updateMetadataAll(List.of(MetadataWrite.put(1, "hp", 2)));
+        writes(node, token).rollback();
         assertEquals(new Ownership(1, true), node.ownership(P1));
         assertSame(PartitionHealth.HEALTHY, node.health(P1));
         Acquisition acquisition = publish();
@@ -73,38 +74,38 @@ class PartitionRollback2Test {
 
     @Test
     void rollbackKeepsTheCommitThatWaitsForTheMoveOfTheTick() {
-        Writes2.of(node).insertAll(token, List.of(entity(1, 1, 1)));
-        Writes2.of(node).commit(token);
-        Writes2.of(node).insertAll(token, List.of(entity(2, 2, 2)));
-        Writes2.of(node).rollback(token);
+        writes(node, token).setAll(List.of(entity(1, 1, 1)));
+        writes(node, token).commit();
+        writes(node, token).setAll(List.of(entity(2, 2, 2)));
+        writes(node, token).rollback();
         node.setTick(1);
         assertEquals(List.of(entity(1, 1, 1)), node.getAll(node.acquire(P1, 0, defaultTimeout()), IDS));
-        Writes2.of(node).insertAll(token, List.of(entity(3, 3, 3)));
+        writes(node, token).setAll(List.of(entity(3, 3, 3)));
         assertEquals(List.of(entity(1, 1, 1), entity(3, 3, 3)), node.getAll(publish(), IDS));
     }
 
     @Test
     void rollbackBeforeTheFirstCommitLeavesThePartitionEmpty() {
-        Writes2.of(node).insertAll(token, List.of(entity(1, 1, 1), entity(2, 2, 2)));
-        Writes2.of(node).rollback(token);
+        writes(node, token).setAll(List.of(entity(1, 1, 1), entity(2, 2, 2)));
+        writes(node, token).rollback();
         assertEquals(List.of(), node.getAll(publish(), IDS));
     }
 
     @Test
     void rollbackWithoutWritesChangesNothing() {
-        Writes2.of(node).insertAll(token, List.of(entity(1, 1, 1)));
-        Writes2.of(node).commit(token);
-        Writes2.of(node).rollback(token);
-        Writes2.of(node).rollback(token);
+        writes(node, token).setAll(List.of(entity(1, 1, 1)));
+        writes(node, token).commit();
+        writes(node, token).rollback();
+        writes(node, token).rollback();
         assertEquals(List.of(entity(1, 1, 1)), node.getAll(publish(), IDS));
     }
 
     @Test
     void rollbackWithAnOldTokenIsRefusedAndChangesNothing() {
         WriteToken second = node.claim(P1, token.generation()).orElseThrow();
-        Writes2.of(node).insertAll(second, List.of(entity(1, 1, 1)));
-        assertThrows(OwnershipChangedException.class, () -> Writes2.of(node).rollback(token));
-        Writes2.of(node).commit(second);
+        writes(node, second).setAll(List.of(entity(1, 1, 1)));
+        assertThrows(OwnershipChangedException.class, () -> writes(node, token).rollback());
+        writes(node, second).commit();
         node.setTick(1);
         assertEquals(List.of(entity(1, 1, 1)), node.getAll(node.acquireLatest(P1, defaultTimeout()), IDS));
     }
@@ -112,7 +113,7 @@ class PartitionRollback2Test {
     @Test
     void rollbackAfterTheRemovalIsRefused() {
         node.dropPartition(token);
-        assertThrows(IllegalStateException.class, () -> Writes2.of(node).rollback(token));
+        assertThrows(IllegalStateException.class, () -> writes(node, token).rollback());
     }
 
     /**
@@ -132,11 +133,11 @@ class PartitionRollback2Test {
             for (int round = 0; round < 3; round++) {
                 writeRandomly(rolledBack, rollbackToken, new Random(round), 200);
                 writeRandomly(released, releaseToken, new Random(round), 200);
-                Writes2.of(rolledBack).commit(rollbackToken);
-                Writes2.of(released).commit(releaseToken);
+                writes(rolledBack, rollbackToken).commit();
+                writes(released, releaseToken).commit();
                 writeRandomly(rolledBack, rollbackToken, new Random(~round), 100);
                 writeRandomly(released, releaseToken, new Random(~round), 100);
-                Writes2.of(rolledBack).rollback(rollbackToken);
+                writes(rolledBack, rollbackToken).rollback();
                 released.release(releaseToken);
                 releaseToken = released.claim(P1, releaseToken.generation() + 1).orElseThrow();
                 writeRandomly(rolledBack, rollbackToken, new Random(round + 100), 50);
@@ -158,12 +159,12 @@ class PartitionRollback2Test {
             Entity2 entity = new Entity2(entityId, new Point2(random.nextInt(-100, 100), random.nextInt(-100, 100)));
             boolean remove = random.nextBoolean();
             try {
-                Writes2.of(target).insertAll(writer, List.of(entity));
+                writes(target, writer).setAll(List.of(entity));
             } catch (IllegalArgumentException present) {
                 if (remove) {
-                    Writes2.of(target).removeAll(writer, new long[] {entityId});
+                    writes(target, writer).removeAll(new long[] {entityId});
                 } else {
-                    Writes2.of(target).setAll(writer, List.of(entity));
+                    writes(target, writer).setAll(List.of(entity));
                 }
             }
         }
@@ -171,7 +172,7 @@ class PartitionRollback2Test {
 
     /** Commits, moves the tick and returns the entities of the snapshot, sorted by ID, and the nearest ones. */
     private static List<List<Entity2>> content(LocalPartitionNode2 target, WriteToken writer) {
-        Writes2.of(target).commit(writer);
+        writes(target, writer).commit();
         target.setTick(target.tick() + 1);
         Acquisition acquisition = target.acquireLatest(P1, defaultTimeout());
         List<Entity2> all = new ArrayList<>(target.findInRegion(acquisition, EVERYWHERE));
@@ -183,7 +184,7 @@ class PartitionRollback2Test {
 
     /** Commits, moves the tick and acquires the snapshot just published. */
     private Acquisition publish() {
-        Writes2.of(node).commit(token);
+        writes(node, token).commit();
         node.setTick(node.tick() + 1);
         return node.acquireLatest(P1, defaultTimeout());
     }

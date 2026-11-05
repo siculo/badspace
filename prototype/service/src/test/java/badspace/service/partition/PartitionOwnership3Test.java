@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import static badspace.service.partition.Owners.writes;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.Entity3.entity;
 import static badspace.service.partition.Names.nameOf;
@@ -131,11 +132,11 @@ class PartitionOwnership3Test {
             setUp();
             node.createPartition(P2, nameOf(P2), config);
             WriteToken first = node.claim(P2, 0).orElseThrow();
-            Writes3.of(node).insertAll(first, List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2), entity(3, 3, 3, 3)));
-            Writes3.of(node).commit(first);
-            Writes3.of(node).insertAll(first, List.of(entity(4, 4, 4, 4)));
-            Writes3.of(node).setAll(first, List.of(entity(1, 9, 9, 9)));
-            Writes3.of(node).removeAll(first, new long[] {2});
+            writes(node, first).setAll(List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2), entity(3, 3, 3, 3)));
+            writes(node, first).commit();
+            writes(node, first).setAll(List.of(entity(4, 4, 4, 4)));
+            writes(node, first).setAll(List.of(entity(1, 9, 9, 9)));
+            writes(node, first).removeAll(new long[] {2});
             WriteToken second = node.claim(P2, first.generation()).orElseThrow();
             assertEquals(List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2), entity(3, 3, 3, 3)), content(publish(second)),
                     config.toString());
@@ -145,10 +146,10 @@ class PartitionOwnership3Test {
     @Test
     void releaseDiscardsTheWritesNotCommitted() {
         WriteToken token = node.claim(P1, 0).orElseThrow();
-        Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(token);
-        Writes3.of(node).setAll(token, List.of(entity(1, 5, 5, 5)));
-        Writes3.of(node).insertAll(token, List.of(entity(2, 2, 2, 2)));
+        writes(node, token).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, token).commit();
+        writes(node, token).setAll(List.of(entity(1, 5, 5, 5)));
+        writes(node, token).setAll(List.of(entity(2, 2, 2, 2)));
         // The owner can decide not to commit and leave the ownership.
         node.release(token);
         WriteToken next = node.claim(P1, node.ownership(P1).generation()).orElseThrow();
@@ -158,7 +159,7 @@ class PartitionOwnership3Test {
     @Test
     void discardBeforeTheFirstCommitLeavesThePartitionEmpty() {
         WriteToken first = node.claim(P1, 0).orElseThrow();
-        Writes3.of(node).insertAll(first, List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2)));
+        writes(node, first).setAll(List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2)));
         WriteToken second = node.claim(P1, first.generation()).orElseThrow();
         assertEquals(List.of(), content(publish(second)));
     }
@@ -166,11 +167,11 @@ class PartitionOwnership3Test {
     @Test
     void newOwnerStartsFromTheCommitsOfTheCurrentTick() {
         WriteToken first = node.claim(P1, 0).orElseThrow();
-        Writes3.of(node).insertAll(first, List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(first);
+        writes(node, first).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, first).commit();
         WriteToken second = node.claim(P1, first.generation()).orElseThrow();
-        Writes3.of(node).insertAll(second, List.of(entity(2, 2, 2, 2)));
-        Writes3.of(node).commit(second);
+        writes(node, second).setAll(List.of(entity(2, 2, 2, 2)));
+        writes(node, second).commit();
         node.setTick(1);
         // Both commits are of tick 0: the last one has the state confirmed by the first.
         Acquisition acquisition = node.acquire(P1, 0, defaultTimeout());
@@ -188,7 +189,7 @@ class PartitionOwnership3Test {
             long nextId = 1;
             for (int round = 0; round < 3; round++) {
                 nextId = writeRandomly(token, random, model, nextId, 200);
-                Writes3.of(node).commit(token);
+                writes(node, token).commit();
                 // Writes that the claim discards; the next round uses new IDs after them.
                 nextId = writeRandomly(token, random, new LinkedHashMap<>(model), nextId, 100);
                 token = node.claim(P2, token.generation()).orElseThrow();
@@ -207,14 +208,14 @@ class PartitionOwnership3Test {
             node.createPartition(P2, nameOf(P2), config);
             WriteToken first = node.claim(P2, 0).orElseThrow();
             List<Entity3> committed = List.of(E1, E2, E3, E4, E5);
-            Writes3.of(node).insertAll(first, committed);
-            Writes3.of(node).updateMetadataAll(first, List.of(MetadataWrite.put(2, "hp", 10), MetadataWrite.put(4, "hp", 20)));
-            Writes3.of(node).commit(first);
+            writes(node, first).setAll(committed);
+            writes(node, first).updateMetadataAll(List.of(MetadataWrite.put(2, "hp", 10), MetadataWrite.put(4, "hp", 20)));
+            writes(node, first).commit();
             // The removal of 1 moves 5 into its slot; the writes change positions and metadata.
-            Writes3.of(node).removeAll(first, new long[] {1, 4});
-            Writes3.of(node).insertAll(first, List.of(NEW_ENTITY));
-            Writes3.of(node).setAll(first, List.of(MOVED_E3));
-            Writes3.of(node).updateMetadataAll(first, List.of(MetadataWrite.put(2, "hp", 11), MetadataWrite.put(5, "hp", 30)));
+            writes(node, first).removeAll(new long[] {1, 4});
+            writes(node, first).setAll(List.of(NEW_ENTITY));
+            writes(node, first).setAll(List.of(MOVED_E3));
+            writes(node, first).updateMetadataAll(List.of(MetadataWrite.put(2, "hp", 11), MetadataWrite.put(5, "hp", 30)));
             WriteToken second = node.claim(P2, first.generation()).orElseThrow();
             Acquisition restored = publish(second);
             String where = config.toString();
@@ -224,8 +225,8 @@ class PartitionOwnership3Test {
             assertEquals(List.of(new ApplicationMetadata(2, Map.of("hp", 10L)), new ApplicationMetadata(4, Map.of("hp", 20L)),
                     new ApplicationMetadata(5, Map.of())), node.getMetadataAll(restored, new long[] {2, 4, 5}), where);
             // The new owner goes on from the restored state.
-            Writes3.of(node).removeAll(second, new long[] {1});
-            Writes3.of(node).insertAll(second, List.of(NEW_ENTITY));
+            writes(node, second).removeAll(new long[] {1});
+            writes(node, second).setAll(List.of(NEW_ENTITY));
             Acquisition next = publish(second);
             List<Entity3> expected = List.of(E2, E3, E4, E5, NEW_ENTITY);
             assertEquals(expected, content(next), where);
@@ -270,13 +271,13 @@ class PartitionOwnership3Test {
     @Test
     void commitsAndRemovalsWithAnOldTokenAreRejectedAndChangeNothing() {
         WriteToken old = node.claim(P1, 0).orElseThrow();
-        Writes3.of(node).insertAll(old, List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(old);
+        writes(node, old).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, old).commit();
         WriteToken current = node.claim(P1, old.generation()).orElseThrow();
-        Writes3.of(node).insertAll(old, List.of(entity(2, 2, 2, 2)));
-        Writes3.of(node).setAll(old, List.of(entity(1, 5, 5, 5)));
-        Writes3.of(node).removeAll(old, new long[] {1});
-        assertOwnershipChanged(() -> Writes3.of(node).commit(old));
+        writes(node, old).setAll(List.of(entity(2, 2, 2, 2)));
+        writes(node, old).setAll(List.of(entity(1, 5, 5, 5)));
+        writes(node, old).removeAll(new long[] {1});
+        assertOwnershipChanged(() -> writes(node, old).commit());
         assertOwnershipChanged(() -> node.removePartition(old));
         assertOwnershipChanged(() -> node.dropPartition(old));
         assertEquals(new Ownership(2, true), node.ownership(P1));
@@ -285,22 +286,22 @@ class PartitionOwnership3Test {
 
     @Test
     void commitsWithoutAnOwnerAreRejected() {
-        Writes3.of(node).insertAll(new WriteToken(P1, 1), List.of(entity(1, 1, 1, 1)));
-        assertOwnershipChanged(() -> Writes3.of(node).commit(new WriteToken(P1, 1)));
+        writes(node, new WriteToken(P1, 1)).setAll(List.of(entity(1, 1, 1, 1)));
+        assertOwnershipChanged(() -> writes(node, new WriteToken(P1, 1)).commit());
         WriteToken token = node.claim(P1, 0).orElseThrow();
         node.release(token);
-        Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1)));
-        assertOwnershipChanged(() -> Writes3.of(node).commit(token));
+        writes(node, token).setAll(List.of(entity(1, 1, 1, 1)));
+        assertOwnershipChanged(() -> writes(node, token).commit());
         // A token that names the free state is not a token of an owner either.
-        assertOwnershipChanged(() -> Writes3.of(node).commit(new WriteToken(P1, 2)));
+        assertOwnershipChanged(() -> writes(node, new WriteToken(P1, 2)).commit());
     }
 
     @Test
     void removalOfAPartitionThatWasRemovedIsRejectedBeforeTheToken() {
         WriteToken token = node.claim(P1, 0).orElseThrow();
         node.removePartition(token);
-        assertThrows(IllegalStateException.class, () -> Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1))));
-        assertThrows(IllegalStateException.class, () -> Writes3.of(node).commit(new WriteToken(P1, 7)));
+        assertThrows(IllegalStateException.class, () -> writes(node, token).setAll(List.of(entity(1, 1, 1, 1))));
+        assertThrows(IllegalStateException.class, () -> writes(node, new WriteToken(P1, 7)).commit());
     }
 
     @Test
@@ -311,12 +312,12 @@ class PartitionOwnership3Test {
             LocalPartitionNode3 gated = gatedNode(index, lock);
             gated.createPartition(P1, nameOf(P1), config, 1);
             WriteToken old = gated.claim(P1, 0).orElseThrow();
-            Writes3.of(gated).insertAll(old, List.of(entity(1, 1, 1, 1)));
+            writes(gated, old).setAll(List.of(entity(1, 1, 1, 1)));
             Gate gate = new Gate();
             index[0].commitGate = gate;
             AtomicReference<Throwable> failure = new AtomicReference<>();
             AtomicReference<WriteToken> claimed = new AtomicReference<>();
-            Thread writer = worker(() -> Writes3.of(gated).commit(old), failure);
+            Thread writer = worker(() -> writes(gated, old).commit(), failure);
             Thread claimer = worker(() -> claimed.set(gated.claim(P1, old.generation()).orElseThrow()), failure);
             writer.start();
             try {
@@ -333,9 +334,9 @@ class PartitionOwnership3Test {
                 throw new AssertionError(config + ": commit or claim failed", failure.get());
             }
             // The commit ended before the claim: its write stays, and the old token is rejected.
-            assertOwnershipChanged(() -> Writes3.of(gated).commit(old));
+            assertOwnershipChanged(() -> writes(gated, old).commit());
             index[0].commitGate = null;
-            Writes3.of(gated).commit(claimed.get());
+            writes(gated, claimed.get()).commit();
             gated.setTick(1);
             assertEquals(List.of(entity(1, 1, 1, 1)),
                     gated.getAll(gated.acquireLatest(P1, defaultTimeout()), new long[] {1}), config.toString());
@@ -372,8 +373,8 @@ class PartitionOwnership3Test {
     @Test
     void releaseDuringTheWritesKeepsExactlyTheCommitsThatEndedBefore() throws Exception {
         WriteToken token = node.claim(P1, 0).orElseThrow();
-        Writes3.of(node).insertAll(token, List.of(entity(1, 0, 0, 0)));
-        Writes3.of(node).commit(token);
+        writes(node, token).setAll(List.of(entity(1, 0, 0, 0)));
+        writes(node, token).commit();
         CountDownLatch someCommits = new CountDownLatch(10);
         AtomicLong lastCommitted = new AtomicLong();
         AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -382,8 +383,8 @@ class PartitionOwnership3Test {
         Thread writer = worker(() -> {
             try {
                 for (long step = 1; ; step++) {
-                    Writes3.of(node).setAll(token, List.of(entity(1, step, step, step)));
-                    Writes3.of(node).commit(token);
+                    writes(node, token).setAll(List.of(entity(1, step, step, step)));
+                    writes(node, token).commit();
                     lastCommitted.set(step);
                     someCommits.countDown();
                 }
@@ -406,8 +407,8 @@ class PartitionOwnership3Test {
     @Test
     void moveOfTheTickDuringClaimsLeavesTheOwnershipAndTheTicksConsistent() throws Exception {
         WriteToken first = node.claim(P1, 0).orElseThrow();
-        Writes3.of(node).insertAll(first, List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(first);
+        writes(node, first).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, first).commit();
         CyclicBarrier start = new CyclicBarrier(2);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<WriteToken> last = new AtomicReference<>(first);
@@ -443,11 +444,11 @@ class PartitionOwnership3Test {
             LocalPartitionNode3 gated = gatedNode(index, lock);
             gated.createPartition(P1, nameOf(P1), config, 1);
             WriteToken old = gated.claim(P1, 0).orElseThrow();
-            Writes3.of(gated).insertAll(old, List.of(entity(1, 1, 1, 1)));
+            writes(gated, old).setAll(List.of(entity(1, 1, 1, 1)));
             Gate gate = new Gate();
             index[0].commitGate = gate;
             AtomicReference<Throwable> failure = new AtomicReference<>();
-            Thread writer = worker(() -> Writes3.of(gated).commit(old), failure);
+            Thread writer = worker(() -> writes(gated, old).commit(), failure);
             Thread releaser = worker(() -> gated.release(old), failure);
             writer.start();
             try {
@@ -466,9 +467,9 @@ class PartitionOwnership3Test {
             }
             // The commit ended before the release: its write stays, and the old token is rejected.
             assertEquals(new Ownership(2, false), gated.ownership(P1), config.toString());
-            assertOwnershipChanged(() -> Writes3.of(gated).commit(old));
+            assertOwnershipChanged(() -> writes(gated, old).commit());
             WriteToken next = gated.claim(P1, 2).orElseThrow();
-            Writes3.of(gated).commit(next);
+            writes(gated, next).commit();
             gated.setTick(1);
             assertEquals(List.of(entity(1, 1, 1, 1)),
                     gated.getAll(gated.acquireLatest(P1, defaultTimeout()), new long[] {1}), config.toString());
@@ -533,16 +534,16 @@ class PartitionOwnership3Test {
             int choice = model.isEmpty() ? 0 : random.nextInt(3);
             if (choice == 0) {
                 Entity3 entity = new Entity3(nextId++, randomPoint(random));
-                Writes3.of(node).insertAll(token, List.of(entity));
+                writes(node, token).setAll(List.of(entity));
                 model.put(entity.id(), entity);
             } else {
                 long entityId = new ArrayList<>(model.keySet()).get(random.nextInt(model.size()));
                 if (choice == 1) {
                     Entity3 entity = new Entity3(entityId, randomPoint(random));
-                    Writes3.of(node).setAll(token, List.of(entity));
+                    writes(node, token).setAll(List.of(entity));
                     model.put(entityId, entity);
                 } else {
-                    Writes3.of(node).removeAll(token, new long[] {entityId});
+                    writes(node, token).removeAll(new long[] {entityId});
                     model.remove(entityId);
                 }
             }
@@ -576,7 +577,7 @@ class PartitionOwnership3Test {
      * acquires the snapshot just published.
      */
     private Acquisition publish(WriteToken token) {
-        Writes3.of(node).commit(token);
+        writes(node, token).commit();
         node.setTick(node.tick() + 1);
         return node.acquireLatest(token.partitionId(), defaultTimeout());
     }

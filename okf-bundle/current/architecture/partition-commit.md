@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:14:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:57:18Z }
 ---
 
 # Primitiva
@@ -299,16 +299,22 @@ metadati riprendono la mappa di C1.
 
 # Nel prototipo
 
-Il buffer delle scritture è `WriteBuffer2`/`WriteBuffer3` in `common`,
-che compone le scritture in un `EntityWrite2`/`EntityWrite3` per
-entità; l'handle del writer ne ha uno. I test lo confrontano con
-l'esecuzione delle chiamate una alla volta, anche su 5000 sequenze
-casuali di `set`, `remove` e scritture dei metadati su basi casuali. Il
-contratto del nodo ha `commit(WriteToken, List<EntityWrite2>)` al posto
-delle singole scritture; lo storage applica le modifiche e prepara il
-commit sotto lo stesso lock. I test del nodo scrivono attraverso un
-piccolo client dei test con un buffer per token, come l'handle; i
-benchmark delle scritture misurano slot e indice senza il commit,
+Il buffer delle scritture è `PendingWrites2`/`PendingWrites3` in
+`common`: tiene nodo, token e limiti della partizione, controlla i
+limiti alla chiamata, manda il batch al commit e lo svuota dopo il
+successo; `rollback()` e `release()` lo svuotano prima di andare al
+nodo. Dipende solo dal contratto del nodo, quindi vale per ogni nodo.
+L'handle del writer ne ha uno e aggiunge quello che è dell'API: la
+generazione degli ID, le scorciatoie su una sola entità e la politica
+di rimozione. La composizione è in `WriteBuffer2`/`WriteBuffer3`,
+package-private in `common`, che produce un `EntityWrite2`/
+`EntityWrite3` per entità; i test la confrontano con l'esecuzione delle
+chiamate una alla volta, anche su 5000 sequenze casuali di `set`,
+`remove` e scritture dei metadati su basi casuali. Il contratto del
+nodo ha `commit(WriteToken, List<EntityWrite2>)` al posto delle singole
+scritture; lo storage applica le modifiche e prepara il commit sotto lo
+stesso lock. I test del nodo scrivono con lo stesso `PendingWrites2`/
+`PendingWrites3`, uno per token; i benchmark delle scritture misurano slot e indice senza il commit,
 scrivendo direttamente nello storage del nodo locale, perché restino
 confrontabili con le misure precedenti.
 

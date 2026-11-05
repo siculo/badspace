@@ -6,6 +6,7 @@ import static badspace.common.partition.Entity3.entity;
 import static badspace.common.partition.PartitionName.partitionName;
 import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
+import static badspace.service.partition.Owners.writes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -57,7 +58,7 @@ class LocalPartitionNode3Test {
     @Test
     void partitionUsesTheIndexChosenAtCreation() {
         node.createPartition(P2, nameOf(P2), IndexConfig.uniformGrid(1));
-        Writes3.of(node).insertAll(owner(node, P2), List.of(entity(1, 1, 2, 3), entity(2, 5, 5, 5)));
+        writes(node, P2).setAll(List.of(entity(1, 1, 2, 3), entity(2, 5, 5, 5)));
         assertEquals(List.of(entity(1, 1, 2, 3)), node.findNearest(publish(P2), new Point3(0, 0, 0), 1));
         assertThrows(IllegalArgumentException.class, () -> node.createPartition(P2, nameOf(P2), IndexConfig.linearScan()));
     }
@@ -71,7 +72,7 @@ class LocalPartitionNode3Test {
     @Test
     void partitionCanUseTheGridQuadtree() {
         node.createPartition(P2, nameOf(P2), IndexConfig.gridQuadtree(1, 1));
-        Writes3.of(node).insertAll(owner(node, P2), List.of(entity(1, 1, 2, 3), entity(2, 5, 5, 5)));
+        writes(node, P2).setAll(List.of(entity(1, 1, 2, 3), entity(2, 5, 5, 5)));
         assertEquals(List.of(entity(1, 1, 2, 3)), node.findNearest(publish(P2), new Point3(0, 0, 0), 1));
     }
 
@@ -80,22 +81,22 @@ class LocalPartitionNode3Test {
         node.createPartition(P2, nameOf(P2), IndexConfig.gridQuadtree(128));
         assertEquals(IndexConfig.linearScan().limits(), node.limits(P1));
         assertEquals(IndexConfig.gridQuadtree(128).limits(), node.limits(P2));
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(3, 0, 0, 0x1p40)));
-        assertThrows(IllegalArgumentException.class, () -> Writes3.of(node).insertAll(owner(node, P2), List.of(entity(3, 0, 0, 0x1p40))));
+        writes(node, P1).setAll(List.of(entity(3, 0, 0, 0x1p40)));
+        assertThrows(IllegalArgumentException.class, () -> writes(node, P2).setAll(List.of(entity(3, 0, 0, 0x1p40))));
         assertEquals(0, node.size(publish(P2)));
     }
 
     @Test
     void insertAddsEntitiesToTheirPartitionOnly() {
         node.createPartition(P2, nameOf(P2));
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(42, 1, 2, 11), entity(43, 3, 4, 13)));
+        writes(node, P1).setAll(List.of(entity(42, 1, 2, 11), entity(43, 3, 4, 13)));
         assertEquals(2, node.size(publish(P1)));
         assertEquals(0, node.size(publish(P2)));
     }
 
     @Test
     void getReturnsFoundEntitiesInOrderAndSkipsUnknownIds() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2, 11), entity(2, 3, 4, 13)));
+        writes(node, P1).setAll(List.of(entity(1, 1, 2, 11), entity(2, 3, 4, 13)));
         assertEquals(List.of(entity(2, 3, 4, 13), entity(1, 1, 2, 11)), node.getAll(publish(P1), new long[] {2, 99, 1}));
     }
 
@@ -105,16 +106,16 @@ class LocalPartitionNode3Test {
         for (int i = 0; i < 1000; i++) {
             entities.add(entity(i, i, -i, i + 10));
         }
-        Writes3.of(node).insertAll(owner(node, P1), entities.subList(0, 10));
-        Writes3.of(node).insertAll(owner(node, P1), entities.subList(10, 1000));
+        writes(node, P1).setAll(entities.subList(0, 10));
+        writes(node, P1).setAll(entities.subList(10, 1000));
         assertEquals(1000, node.size(publish(P1)));
         assertEquals(List.of(entity(999, 999, -999, 1009)), node.getAll(publish(P1), new long[] {999}));
     }
 
     @Test
     void commitWithTwoChangesOfAnEntityOrAPositionOutsideTheLimitsChangesNothing() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 0, 0, 0)));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 0, 0, 0)));
+        writes(node, P1).commit();
         EntityWrite3 added = new EntityWrite3(2, false, new Point3(1, 1, 1), List.of(), List.of());
         EntityWrite3 removed = new EntityWrite3(1, true, null, List.of(), List.of());
         assertThrows(IllegalArgumentException.class, () -> node.commit(owner(node, P1),
@@ -126,82 +127,82 @@ class LocalPartitionNode3Test {
 
     @Test
     void setMovesEntitiesInThePartition() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2, 11), entity(2, 3, 4, 13)));
-        Writes3.of(node).setAll(owner(node, P1), List.of(entity(2, 5, 6, 15), entity(1, 7, 8, 17)));
+        writes(node, P1).setAll(List.of(entity(1, 1, 2, 11), entity(2, 3, 4, 13)));
+        writes(node, P1).setAll(List.of(entity(2, 5, 6, 15), entity(1, 7, 8, 17)));
         assertEquals(List.of(entity(1, 7, 8, 17), entity(2, 5, 6, 15)), node.getAll(publish(P1), new long[] {1, 2}));
     }
 
     @Test
     void setAddsAnEntityNotInThePartitionWithTheSameId() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2, 11)));
-        Writes3.of(node).setAll(owner(node, P1), List.of(entity(1, 9, 9, 19), entity(99, 0, 0, 10)));
+        writes(node, P1).setAll(List.of(entity(1, 1, 2, 11)));
+        writes(node, P1).setAll(List.of(entity(1, 9, 9, 19), entity(99, 0, 0, 10)));
         assertEquals(2, node.size(publish(P1)));
         assertEquals(List.of(entity(1, 9, 9, 19), entity(99, 0, 0, 10)), node.getAll(publish(P1), new long[] {1, 99}));
     }
 
     @Test
     void setOfAnIdTwiceAddsOneEntityAtTheLastPosition() {
-        Writes3.of(node).setAll(owner(node, P1), List.of(entity(5, 1, 1, 1), entity(5, 2, 2, 2)));
+        writes(node, P1).setAll(List.of(entity(5, 1, 1, 1), entity(5, 2, 2, 2)));
         assertEquals(1, node.size(publish(P1)));
         assertEquals(List.of(entity(5, 2, 2, 2)), node.getAll(publish(P1), new long[] {5}));
     }
 
     @Test
     void setWithAPositionOutsideTheLimitsChangesNothing() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2, 11)));
+        writes(node, P1).setAll(List.of(entity(1, 1, 2, 11)));
         Entity3 outside = entity(99, Double.MAX_VALUE, 0, 0);
         assertThrows(IllegalArgumentException.class,
-                () -> Writes3.of(node).setAll(owner(node, P1), List.of(entity(1, 9, 9, 19), entity(2, 0, 0, 0), outside)));
+                () -> writes(node, P1).setAll(List.of(entity(1, 9, 9, 19), entity(2, 0, 0, 0), outside)));
         assertEquals(1, node.size(publish(P1)));
         assertEquals(List.of(entity(1, 1, 2, 11)), node.getAll(publish(P1), new long[] {1, 2, 99}));
     }
 
     @Test
     void removeKeepsTheOtherEntities() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 11), entity(2, 2, 2, 12), entity(3, 3, 3, 13), entity(4, 4, 4, 14)));
-        Writes3.of(node).removeAll(owner(node, P1), new long[] {1, 3});
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 11), entity(2, 2, 2, 12), entity(3, 3, 3, 13), entity(4, 4, 4, 14)));
+        writes(node, P1).removeAll(new long[] {1, 3});
         assertEquals(2, node.size(publish(P1)));
         assertEquals(List.of(entity(2, 2, 2, 12), entity(4, 4, 4, 14)), node.getAll(publish(P1), new long[] {1, 2, 3, 4}));
-        Writes3.of(node).removeAll(owner(node, P1), new long[] {4, 2});
+        writes(node, P1).removeAll(new long[] {4, 2});
         assertEquals(0, node.size(publish(P1)));
     }
 
     @Test
     void removedIdCanBeSetAgain() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 11)));
-        Writes3.of(node).removeAll(owner(node, P1), new long[] {1});
-        Writes3.of(node).setAll(owner(node, P1), List.of(entity(1, 2, 2, 12)));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 11)));
+        writes(node, P1).removeAll(new long[] {1});
+        writes(node, P1).setAll(List.of(entity(1, 2, 2, 12)));
         assertEquals(List.of(entity(1, 2, 2, 12)), node.getAll(publish(P1), new long[] {1}));
     }
 
     @Test
     void removeSkipsIdsNotInThePartitionAndRepeatedIds() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 11), entity(2, 2, 2, 12)));
-        Writes3.of(node).removeAll(owner(node, P1), new long[] {1, 99, 1});
-        Writes3.of(node).removeAll(owner(node, P1), new long[] {1});
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 11), entity(2, 2, 2, 12)));
+        writes(node, P1).removeAll(new long[] {1, 99, 1});
+        writes(node, P1).removeAll(new long[] {1});
         assertEquals(1, node.size(publish(P1)));
         assertEquals(List.of(entity(2, 2, 2, 12)), node.getAll(publish(P1), new long[] {1, 2, 99}));
     }
 
     @Test
     void findInRegionWithBoxIncludesTheBorder() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 0, 0, 0), entity(2, 2, 2, 2), entity(3, 1, 1, 1), entity(4, 3, 1, 1)));
+        writes(node, P1).setAll(List.of(entity(1, 0, 0, 0), entity(2, 2, 2, 2), entity(3, 1, 1, 1), entity(4, 3, 1, 1)));
         assertEquals(Set.of(entity(1, 0, 0, 0), entity(2, 2, 2, 2), entity(3, 1, 1, 1)),
                 new HashSet<>(node.findInRegion(publish(P1), new Box3(new Point3(0, 0, 0), new Point3(2, 2, 2)))));
     }
 
     @Test
     void findInRegionWithRoundShapeIncludesTheBorder() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 0, 0, 0), entity(2, 3, 0, 0), entity(3, 0, -3, 0), entity(4, 3, 3, 0)));
+        writes(node, P1).setAll(List.of(entity(1, 0, 0, 0), entity(2, 3, 0, 0), entity(3, 0, -3, 0), entity(4, 3, 3, 0)));
         assertEquals(Set.of(entity(1, 0, 0, 0), entity(2, 3, 0, 0), entity(3, 0, -3, 0)),
                 new HashSet<>(node.findInRegion(publish(P1), new Sphere3(new Point3(0, 0, 0), 3))));
     }
 
     @Test
     void findInRegionSeesUpdatesAndRemovals() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 0, 0, 0), entity(2, 1, 1, 0), entity(3, 9, 9, 0)));
-        Writes3.of(node).setAll(owner(node, P1), List.of(entity(3, 1, 0, 0)));
-        Writes3.of(node).removeAll(owner(node, P1), new long[] {2});
+        writes(node, P1).setAll(List.of(entity(1, 0, 0, 0), entity(2, 1, 1, 0), entity(3, 9, 9, 0)));
+        writes(node, P1).setAll(List.of(entity(3, 1, 0, 0)));
+        writes(node, P1).removeAll(new long[] {2});
         assertEquals(Set.of(entity(1, 0, 0, 0), entity(3, 1, 0, 0)),
                 new HashSet<>(node.findInRegion(publish(P1), new Sphere3(new Point3(0, 0, 0), 2))));
     }
@@ -213,20 +214,20 @@ class LocalPartitionNode3Test {
 
     @Test
     void findNearestSortsByDistanceThenById() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(5, 4, 0, 0), entity(4, 0, 1, 0), entity(3, -1, 0, 0), entity(2, 0, -2, 0), entity(1, 10, 10, 0)));
+        writes(node, P1).setAll(List.of(entity(5, 4, 0, 0), entity(4, 0, 1, 0), entity(3, -1, 0, 0), entity(2, 0, -2, 0), entity(1, 10, 10, 0)));
         assertEquals(List.of(entity(3, -1, 0, 0), entity(4, 0, 1, 0), entity(2, 0, -2, 0)),
                 node.findNearest(publish(P1), new Point3(0, 0, 0), 3));
     }
 
     @Test
     void findNearestReturnsAllEntitiesWhenCountIsLarger() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 2, 0, 0), entity(2, 1, 0, 0)));
+        writes(node, P1).setAll(List.of(entity(1, 2, 0, 0), entity(2, 1, 0, 0)));
         assertEquals(List.of(entity(2, 1, 0, 0), entity(1, 2, 0, 0)), node.findNearest(publish(P1), new Point3(0, 0, 0), 10));
     }
 
     @Test
     void findNearestWithZeroCountIsEmptyAndNegativeCountFails() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 0, 0, 0)));
+        writes(node, P1).setAll(List.of(entity(1, 0, 0, 0)));
         assertEquals(List.of(), node.findNearest(publish(P1), new Point3(0, 0, 0), 0));
         assertThrows(IllegalArgumentException.class, () -> node.findNearest(publish(P1), new Point3(0, 0, 0), -1));
     }
@@ -237,7 +238,7 @@ class LocalPartitionNode3Test {
         for (int i = 0; i < 1000; i++) {
             entities.add(entity(i, i, 0, 0));
         }
-        Writes3.of(node).insertAll(owner(node, P1), entities);
+        writes(node, P1).setAll(entities);
         assertEquals(List.of(entity(500, 500, 0, 0), entity(499, 499, 0, 0), entity(501, 501, 0, 0)),
                 node.findNearest(publish(P1), new Point3(500, 0, 0), 3));
     }
@@ -245,8 +246,8 @@ class LocalPartitionNode3Test {
 
     @Test
     void commitIsPublishedAtTheMoveOfTheTick() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P1).commit();
         assertReason(Reason.NOT_YET_PUBLISHED, () -> node.acquireLatest(P1, defaultTimeout()));
         node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
@@ -257,8 +258,8 @@ class LocalPartitionNode3Test {
     @Test
     void eachPartitionHasItsOwnCommits() {
         node.createPartition(P2, nameOf(P2));
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P1).commit();
         node.setTick(1);
         assertEquals(1, node.size(node.acquireLatest(P1, defaultTimeout())));
         assertEquals(0, node.size(node.acquireLatest(P2, defaultTimeout())));
@@ -345,12 +346,12 @@ class LocalPartitionNode3Test {
 
     @Test
     void acquiredSnapshotHasOnlyTheCommittedWrites() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1)));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 1)));
         node.setTick(1);
         Acquisition beforeCommit = node.acquireLatest(P1, defaultTimeout());
         assertEquals(0, beforeCommit.tick());
         assertEquals(0, node.size(beforeCommit));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).commit();
         node.setTick(2);
         Acquisition afterCommit = node.acquireLatest(P1, defaultTimeout());
         assertEquals(1, afterCommit.tick());
@@ -359,12 +360,12 @@ class LocalPartitionNode3Test {
 
     @Test
     void acquiredSnapshotDoesNotSeeLaterWrites() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P1).commit();
         node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
-        Writes3.of(node).removeAll(owner(node, P1), new long[] {1});
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).removeAll(new long[] {1});
+        writes(node, P1).commit();
         node.setTick(2);
         assertEquals(new Acquisition(P1, acquisition.id(), 0), acquisition);
         assertEquals(1, node.size(acquisition));
@@ -389,8 +390,8 @@ class LocalPartitionNode3Test {
         node.setTick(100);
         node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
         for (int tick = 100; tick < 110; tick++) {
-            Writes3.of(node).insertAll(owner(node, P2), List.of(entity(tick, tick, 0, 0)));
-            Writes3.of(node).commit(owner(node, P2));
+            writes(node, P2).setAll(List.of(entity(tick, tick, 0, 0)));
+            writes(node, P2).commit();
             node.setTick(tick + 1);
         }
         // T = 110 and k = 5: the snapshots of the ticks from 105 to 109.
@@ -408,8 +409,8 @@ class LocalPartitionNode3Test {
     void skippedTicksHaveTheSnapshotOfTheLastCommitBeforeThem() {
         node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
         node.setTick(102);
-        Writes3.of(node).insertAll(owner(node, P2), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P2));
+        writes(node, P2).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P2).commit();
         node.setTick(105);
         for (long tick = 102; tick < 105; tick++) {
             assertEquals(1, node.size(node.acquire(P2, tick, defaultTimeout())));
@@ -445,12 +446,12 @@ class LocalPartitionNode3Test {
     @Test
     void snapshotOutsideTheWindowStaysReadableWhileAcquired() {
         node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 2);
-        Writes3.of(node).insertAll(owner(node, P2), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P2));
+        writes(node, P2).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P2).commit();
         node.setTick(1);
         Acquisition acquisition = node.acquire(P2, 0, defaultTimeout());
-        Writes3.of(node).removeAll(owner(node, P2), new long[] {1});
-        Writes3.of(node).commit(owner(node, P2));
+        writes(node, P2).removeAll(new long[] {1});
+        writes(node, P2).commit();
         node.setTick(2);
         node.setTick(3);
         assertReason(Reason.OUT_OF_RETENTION, () -> node.acquire(P2, 0, defaultTimeout()));
@@ -461,8 +462,8 @@ class LocalPartitionNode3Test {
 
     @Test
     void twoReadersOfTheSameSnapshotAreIndependent() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P1).commit();
         node.setTick(1);
         Acquisition first = node.acquireLatest(P1, defaultTimeout());
         Acquisition second = node.acquire(P1, 0, defaultTimeout());
@@ -516,8 +517,8 @@ class LocalPartitionNode3Test {
 
     @Test
     void failedQueryKeepsTheAcquisition() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P1).commit();
         node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         assertThrows(IllegalArgumentException.class, () -> node.findNearest(acquisition, new Point3(0, 0, 0), -1));
@@ -529,8 +530,8 @@ class LocalPartitionNode3Test {
 
     @Test
     void queriesGiveBackTheSnapshotAlsoWhenTheyFail() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P1).commit();
         node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         assertEquals(1, node.size(acquisition));
@@ -541,7 +542,7 @@ class LocalPartitionNode3Test {
         assertThrows(IllegalArgumentException.class, () -> node.size(wrongTick));
         node.release(acquisition);
         // With no queries left, the snapshot ends when it leaves the window.
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).commit();
         node.setTick(2);
         node.dropPartition(owner(node, P1));
         node.setTick(3);
@@ -644,13 +645,13 @@ class LocalPartitionNode3Test {
 
     @Test
     void commitRejectsUnknownPartition() {
-        assertThrows(IllegalArgumentException.class, () -> Writes3.of(node).commit(owner(node, P2)));
+        assertThrows(IllegalArgumentException.class, () -> writes(node, P2).commit());
     }
 
     @Test
     void removedPartitionIsDestroyedWhenItsTicksLeaveTheWindow() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P1).commit();
         node.setTick(1);
         node.dropPartition(owner(node, P1));
         node.setTick(2);
@@ -681,8 +682,8 @@ class LocalPartitionNode3Test {
         node.setTick(1);
         node.dropPartition(owner(node, P1));
         assertEquals(1, node.tick(P1));
-        assertThrows(IllegalStateException.class, () -> Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1))));
-        assertThrows(IllegalStateException.class, () -> Writes3.of(node).commit(owner(node, P1)));
+        assertThrows(IllegalStateException.class, () -> writes(node, P1).setAll(List.of(entity(1, 1, 1, 1))));
+        assertThrows(IllegalStateException.class, () -> writes(node, P1).commit());
         assertThrows(IllegalStateException.class, () -> node.removePartition(owner(node, P1)));
         assertThrows(IllegalStateException.class, () -> node.dropPartition(owner(node, P1)));
         assertEquals(1, node.tick(P1));
@@ -698,8 +699,8 @@ class LocalPartitionNode3Test {
         node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
         for (int tick = 100; tick <= 102; tick++) {
             node.setTick(tick);
-            Writes3.of(node).insertAll(owner(node, P2), List.of(entity(tick, tick, 0, 0)));
-            Writes3.of(node).commit(owner(node, P2));
+            writes(node, P2).setAll(List.of(entity(tick, tick, 0, 0)));
+            writes(node, P2).commit();
         }
         node.dropPartition(owner(node, P2));
         node.setTick(105);
@@ -723,9 +724,9 @@ class LocalPartitionNode3Test {
 
     @Test
     void removalDiscardsTheWritesNotCommitted() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P1));
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(2, 2, 2, 2)));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P1).commit();
+        writes(node, P1).setAll(List.of(entity(2, 2, 2, 2)));
         node.dropPartition(owner(node, P1));
         node.setTick(1);
         assertEquals(List.of(entity(1, 1, 1, 1)),
@@ -745,8 +746,8 @@ class LocalPartitionNode3Test {
 
     @Test
     void acquisitionStaysReadableAfterTheRemovalUntilItsRelease() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(node, P1).commit();
         node.setTick(1);
         Acquisition acquisition = node.acquireLatest(P1, defaultTimeout());
         node.dropPartition(owner(node, P1));
@@ -825,24 +826,24 @@ class LocalPartitionNode3Test {
 
     @Test
     void removeRejectsAPartitionWithCommittedEntitiesAndChangesNothing() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(new Entity3(1, new Point3(1, 1, 0))));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(new Entity3(1, new Point3(1, 1, 0))));
+        writes(node, P1).commit();
         assertThrows(IllegalStateException.class, () -> node.removePartition(owner(node, P1)));
         assertEquals(1, node.size(publish(P1)));
-        Writes3.of(node).insertAll(owner(node, P1), List.of(new Entity3(2, new Point3(2, 2, 0))));
+        writes(node, P1).setAll(List.of(new Entity3(2, new Point3(2, 2, 0))));
     }
 
     @Test
     void removeLooksAtTheLastCommitNotAtTheWritesAfterIt() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(new Entity3(1, new Point3(1, 1, 0))));
+        writes(node, P1).setAll(List.of(new Entity3(1, new Point3(1, 1, 0))));
         node.removePartition(owner(node, P1));
-        assertThrows(IllegalStateException.class, () -> Writes3.of(node).commit(owner(node, P1)));
+        assertThrows(IllegalStateException.class, () -> writes(node, P1).commit());
     }
 
     @Test
     void dropRemovesPartitionWithItsEntities() {
-        Writes3.of(node).insertAll(owner(node, P1), List.of(new Entity3(1, new Point3(1, 1, 0))));
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(new Entity3(1, new Point3(1, 1, 0))));
+        writes(node, P1).commit();
         node.dropPartition(owner(node, P1));
         node.setTick(1);
         assertEquals(1, node.size(node.acquireLatest(P1, defaultTimeout())));
@@ -874,8 +875,9 @@ class LocalPartitionNode3Test {
     }
 
     @Test
-    void rejectsUnknownPartition() {
-        assertThrows(IllegalArgumentException.class, () -> Writes3.of(node).insertAll(owner(node, P2), List.of(entity(1, 0, 0, 0))));
+    void commitOnAnUnknownPartitionIsRejected() {
+        writes(node, P2).setAll(List.of(entity(1, 0, 0, 0)));
+        assertThrows(UnknownPartitionException.class, () -> writes(node, P2).commit());
     }
 
     /**
@@ -885,8 +887,8 @@ class LocalPartitionNode3Test {
     private static LocalPartitionNode3 timedNode(FakeClock clock) {
         LocalPartitionNode3 timedNode = new LocalPartitionNode3(clock);
         timedNode.createPartition(P1, nameOf(P1));
-        Writes3.of(timedNode).insertAll(owner(timedNode, P1), List.of(entity(1, 1, 1, 1)));
-        Writes3.of(timedNode).commit(owner(timedNode, P1));
+        writes(timedNode, P1).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(timedNode, P1).commit();
         timedNode.setTick(1);
         return timedNode;
     }
@@ -935,8 +937,8 @@ class LocalPartitionNode3Test {
         LocalPartitionNode3 timed = nodeWithClock(clock, storage);
         timed.createPartition(P1, nameOf(P1), IndexConfig.linearScan(), 1);
         WriteToken first = timed.claim(P1, 0).orElseThrow();
-        Writes3.of(timed).insertAll(first, List.of(entity(1, 1, 1, 1)));
-        Writes3.of(timed).commit(first);
+        writes(timed, first).setAll(List.of(entity(1, 1, 1, 1)));
+        writes(timed, first).commit();
         timed.setTick(1);
         Acquisition acquisition = timed.acquire(P1, 0, AcquireOptions.timeout(Duration.ofNanos(1)));
         // The commit releases the lock of the partition, then the node reads the clock to
@@ -950,7 +952,7 @@ class LocalPartitionNode3Test {
             timed.setTick(3);
             clock.set(10);
         });
-        Writes3.of(timed).commit(first);
+        writes(timed, first).commit();
         assertDestroyed(timed, storage[0], acquisition);
     }
 
@@ -979,7 +981,7 @@ class LocalPartitionNode3Test {
      * snapshot just published, so a test can read what the writer wrote.
      */
     private Acquisition publish(PartitionId partitionId) {
-        Writes3.of(node).commit(owner(node, partitionId));
+        writes(node, partitionId).commit();
         node.setTick(node.tick() + 1);
         return node.acquireLatest(partitionId, defaultTimeout());
     }

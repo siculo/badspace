@@ -4,6 +4,7 @@ import static badspace.common.partition.Entity2.entity;
 import static badspace.common.partition.MetadataWrite.put;
 import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
+import static badspace.service.partition.Owners.writes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -40,9 +41,9 @@ class PartitionCopy2Test {
 
     @Test
     void copyHasTheIdsPositionsAndMetadataOfTheSnapshot() {
-        Writes2.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2), entity(2, 3, 4)));
-        Writes2.of(node).updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
-        Writes2.of(node).commit(owner(node, P1));
+        writes(node, P1).setAll(List.of(entity(1, 1, 2), entity(2, 3, 4)));
+        writes(node, P1).updateMetadataAll(List.of(put(1, "version", 7), put(1, "owner", -3)));
+        writes(node, P1).commit();
         node.setTick(1);
         PartitionCopy2 copy = node.copyLatest(P1);
         assertEquals(0, copy.tick());
@@ -62,11 +63,11 @@ class PartitionCopy2Test {
     @Test
     void copyAtATickChoosesThatSnapshot() {
         node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
-        Writes2.of(node).insertAll(owner(node, P2), List.of(entity(1, 1, 1)));
-        Writes2.of(node).commit(owner(node, P2));
+        writes(node, P2).setAll(List.of(entity(1, 1, 1)));
+        writes(node, P2).commit();
         node.setTick(1);
-        Writes2.of(node).insertAll(owner(node, P2), List.of(entity(2, 2, 2)));
-        Writes2.of(node).commit(owner(node, P2));
+        writes(node, P2).setAll(List.of(entity(2, 2, 2)));
+        writes(node, P2).commit();
         node.setTick(2);
         assertEquals(1, node.copy(P2, 0).size());
         assertEquals(2, node.copy(P2, 1).size());
@@ -75,8 +76,8 @@ class PartitionCopy2Test {
     @Test
     void copyDoesNotDependOnTheLifeOfTheSnapshot() {
         node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 1);
-        Writes2.of(node).insertAll(owner(node, P2), List.of(entity(1, 1, 2)));
-        Writes2.of(node).commit(owner(node, P2));
+        writes(node, P2).setAll(List.of(entity(1, 1, 2)));
+        writes(node, P2).commit();
         node.setTick(1);
         PartitionCopy2 copy = node.copyLatest(P2);
         // The copy released its acquisition, so the partition can be dropped and destroyed.

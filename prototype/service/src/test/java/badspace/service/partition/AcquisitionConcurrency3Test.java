@@ -4,6 +4,7 @@ import static badspace.common.geometry.Point3.point;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
+import static badspace.service.partition.Owners.writes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -199,7 +200,7 @@ class AcquisitionConcurrency3Test {
                 entityIds[i] = i + 1;
                 entities.add(new Entity3(entityIds[i], positionAt(0, entityIds[i])));
             }
-            Writes3.of(node).insertAll(owner(node, P1), entities);
+            writes(node, P1).setAll(entities);
 
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -256,8 +257,8 @@ class AcquisitionConcurrency3Test {
                     for (long id : entityIds) {
                         moved.add(new Entity3(id, positionAt(tick, id)));
                     }
-                    Writes3.of(node).setAll(owner(node, P1), moved);
-                    Writes3.of(node).commit(owner(node, P1));
+                    writes(node, P1).setAll(moved);
+                    writes(node, P1).commit();
                     if (tick == 2) {
                         await(observed);
                     }
@@ -412,7 +413,7 @@ class AcquisitionConcurrency3Test {
         for (IndexConfig config : CONFIGS) {
             LocalPartitionNode3 node = new LocalPartitionNode3();
             node.createPartition(P1, nameOf(P1), config, 1);
-            Writes3.of(node).insertAll(owner(node, P1), List.of(new Entity3(10, A), new Entity3(20, B)));
+            writes(node, P1).setAll(List.of(new Entity3(10, A), new Entity3(20, B)));
             CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -464,7 +465,7 @@ class AcquisitionConcurrency3Test {
                 start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                 for (long tick = 1; tick <= TICKS; tick++) {
                     node.setTick(tick);
-                    Writes3.of(node).commit(owner(node, P1));
+                    writes(node, P1).commit();
                     if (tick == 2) {
                         await(observed);
                     }
@@ -546,7 +547,7 @@ class AcquisitionConcurrency3Test {
                 entityIds[i] = i + 1;
                 entities.add(new Entity3(entityIds[i], positionAt(0, entityIds[i])));
             }
-            Writes3.of(node).insertAll(owner(node, P1), entities);
+            writes(node, P1).setAll(entities);
 
             CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
@@ -598,9 +599,9 @@ class AcquisitionConcurrency3Test {
                             moved.add(new Entity3(id, positionAt(version, id)));
                         }
                         // Two calls, so the state of the writer between them is mixed.
-                        Writes3.of(node).setAll(owner(node, P1), moved.subList(0, ENTITIES / 2));
-                        Writes3.of(node).setAll(owner(node, P1), moved.subList(ENTITIES / 2, ENTITIES));
-                        Writes3.of(node).commit(owner(node, P1));
+                        writes(node, P1).setAll(moved.subList(0, ENTITIES / 2));
+                        writes(node, P1).setAll(moved.subList(ENTITIES / 2, ENTITIES));
+                        writes(node, P1).commit();
                         if (version == VERSIONS / 2) {
                             await(observed);
                         }

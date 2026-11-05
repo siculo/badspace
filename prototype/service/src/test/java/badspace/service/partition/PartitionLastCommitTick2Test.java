@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import static badspace.service.partition.Owners.writes;
 import static badspace.common.partition.Entity2.entity;
 import static badspace.service.partition.Names.nameOf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -42,12 +43,12 @@ class PartitionLastCommitTick2Test {
     void commitGivesTheCurrentTickAndTheMoveOfTheTickKeepsIt() {
         WriteToken token = node.claim(P1, 0).orElseThrow();
         node.setTick(6);
-        Writes2.of(node).insertAll(token, List.of(entity(1, 1, 1)));
-        Writes2.of(node).commit(token);
+        writes(node, token).setAll(List.of(entity(1, 1, 1)));
+        writes(node, token).commit();
         assertEquals(6, node.lastCommitTick(token));
         node.setTick(9);
         assertEquals(6, node.lastCommitTick(token));
-        Writes2.of(node).commit(token);
+        writes(node, token).commit();
         assertEquals(9, node.lastCommitTick(token));
     }
 
@@ -55,11 +56,11 @@ class PartitionLastCommitTick2Test {
     void writesAndRollbackDoNotChangeIt() {
         WriteToken token = node.claim(P1, 0).orElseThrow();
         node.setTick(6);
-        Writes2.of(node).commit(token);
+        writes(node, token).commit();
         node.setTick(7);
-        Writes2.of(node).insertAll(token, List.of(entity(1, 1, 1)));
+        writes(node, token).setAll(List.of(entity(1, 1, 1)));
         assertEquals(6, node.lastCommitTick(token));
-        Writes2.of(node).rollback(token);
+        writes(node, token).rollback();
         assertEquals(6, node.lastCommitTick(token));
     }
 
@@ -71,13 +72,13 @@ class PartitionLastCommitTick2Test {
     void newOwnerKnowsWhetherTheStoppedWriterCommittedInTheCurrentTick() {
         WriteToken stopped = node.claim(P1, 0).orElseThrow();
         node.setTick(6);
-        Writes2.of(node).insertAll(stopped, List.of(entity(1, 1, 1)));
-        Writes2.of(node).commit(stopped);
+        writes(node, stopped).setAll(List.of(entity(1, 1, 1)));
+        writes(node, stopped).commit();
         WriteToken next = node.claim(P1, stopped.generation()).orElseThrow();
         assertEquals(node.tick(), node.lastCommitTick(next));
 
         node.setTick(7);
-        Writes2.of(node).insertAll(next, List.of(entity(2, 2, 2)));
+        writes(node, next).setAll(List.of(entity(2, 2, 2)));
         WriteToken last = node.claim(P1, next.generation()).orElseThrow();
         assertEquals(6, node.lastCommitTick(last));
     }

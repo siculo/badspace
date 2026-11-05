@@ -4,6 +4,7 @@ import static badspace.common.partition.Entity3.entity;
 import static badspace.common.partition.MetadataWrite.put;
 import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
+import static badspace.service.partition.Owners.writes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -118,9 +119,9 @@ class PartitionLoad3Test {
         restarted.loadPartition(LOADED, saved, IndexConfig.linearScan(), 5);
         assertEquals(Ownership.INITIAL, restarted.ownership(LOADED));
         WriteToken token = restarted.claim(LOADED, 0).orElseThrow();
-        Writes3.of(restarted).setAll(token, List.of(entity(1, 5, 5, 0)));
-        Writes3.of(restarted).removeAll(token, new long[] {2});
-        Writes3.of(restarted).commit(token);
+        writes(restarted, token).setAll(List.of(entity(1, 5, 5, 0)));
+        writes(restarted, token).removeAll(new long[] {2});
+        writes(restarted, token).commit();
         restarted.setTick(1);
         Acquisition acquisition = restarted.acquireLatest(LOADED, AcquireOptions.defaultTimeout());
         assertEquals(List.of(entity(1, 5, 5, 0)), restarted.getAll(acquisition, new long[] {1}));
@@ -294,12 +295,12 @@ class PartitionLoad3Test {
      */
     private SavedPartition saveOf(List<Entity3> entities) {
         if (!entities.isEmpty()) {
-            Writes3.of(node).insertAll(owner(node, P1), entities);
+            writes(node, P1).setAll(entities);
         }
         if (entities.stream().anyMatch(e -> e.id() == 1)) {
-            Writes3.of(node).updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
+            writes(node, P1).updateMetadataAll(List.of(put(1, "version", 7), put(1, "owner", -3)));
         }
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).commit();
         node.setTick(1);
         return node.saveLatest(P1);
     }
@@ -308,11 +309,11 @@ class PartitionLoad3Test {
     void loadKeepsTheMetadataKeysExactly() {
         // "?" is what a lax UTF-8 encoder writes for an unpaired surrogate.
         Map<String, Long> values = Map.of("?", 1L, "", 2L, "città", 3L, "\uD83D\uDE80", 4L, "a\uD83D\uDE80b", 5L);
-        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3)));
+        writes(node, P1).setAll(List.of(entity(1, 1, 2, 3)));
         List<MetadataWrite> writes = new ArrayList<>();
         values.forEach((key, value) -> writes.add(put(1, key, value)));
-        Writes3.of(node).updateMetadataAll(owner(node, P1), writes);
-        Writes3.of(node).commit(owner(node, P1));
+        writes(node, P1).updateMetadataAll(writes);
+        writes(node, P1).commit();
         node.setTick(1);
         restarted.loadPartition(LOADED, node.saveLatest(P1), IndexConfig.linearScan(), 5);
         restarted.setTick(1);
