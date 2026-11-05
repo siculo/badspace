@@ -327,46 +327,53 @@ anche la memoria del buffer (`BufferSizes`) e l'attesa dell'avanzamento
 del tick durante i commit (`moveTickDuringCommits`).
 
 Risultati del 2026-11-05 sulla macchina dedicata, profilo rapido,
-Temurin 25.0.5, tutto il piano in un solo run sul codice prima delle due
-modalità, quando il writer aveva solo il buffer
-(`prototype/benchmark/results/2026-11-05-1943-*`): la colonna «Tick dal
-writer» è quindi la modalità con buffer, e il tick dal writer nella
-modalità diretta è ancora da misurare. Allora `commitTick` scriveva
-nello storage con lo stesso passo che ora fa la scrittura del nodo.
-Distribuzione uniforme, senza reader, in millisecondi per tick. L'ultima colonna è il
-tick di `main`, prima del refactoring, con le scritture inviate al nodo
-una alla volta, misurato lo stesso giorno con OpenJDK 25.0.2
-(`2026-11-05-commit-tick-main-quick.*`): le due JVM danno gli stessi
-tempi, entro la variabilità, sullo stesso codice.
+Temurin 25.0.5, con le due modalità nello stesso run
+(`prototype/benchmark/results/2026-11-05-commit-tick-write-modes-quick.*`),
+distribuzione uniforme, senza reader, in millisecondi per tick. L'ultima
+colonna è il tick di `main`, prima del refactoring, con le scritture
+inviate al nodo una alla volta, misurato lo stesso giorno con OpenJDK
+25.0.2 (`2026-11-05-commit-tick-main-quick.*`): le due JVM danno gli
+stessi tempi, entro la variabilità, sullo stesso codice. Le misure di
+memoria e di attesa del tick più sotto vengono dal run precedente del
+piano, solo con il buffer (`2026-11-05-1943-*`), che dava gli stessi
+tempi con buffer entro circa il 10%.
 
-| Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer, con buffer | Tick di `main` |
-|---|---|---|---|---|---|
-| Scansione lineare, 100 000 | 10% | 0,30 | 0,36 | 0,66 | 0,29 |
-| Scansione lineare, 100 000 | 100% | 3,5 | 3,8 | 8,1 | 2,7 |
-| Scansione lineare, 1 000 000 | 1% | 0,42 | 1,1 | 1,5 | 0,98 |
-| Scansione lineare, 1 000 000 | 10% | 9,3 | 9,9 | 24 | 8,1 |
-| Scansione lineare, 1 000 000 | 100% | 123 | 119 | 242 | 98 |
-| Grid uniforme 100, 1 000 000 | 10% | 15 | 23 | 32 | 24 |
-| Grid uniforme 100, 1 000 000 | 100% | 200 | 201 | 317 | 220 |
-| Griglia di quadtree 128, 1 000 000 | 1% | 2,0 | 5,2 | 5,1 | 4,8 |
-| Griglia di quadtree 128, 1 000 000 | 10% | 38 | 54 | 62 | 58 |
-| Griglia di quadtree 128, 1 000 000 | 100% | 459 | 550 | 634 | 558 |
+| Indice ed entità | In movimento | Spostamenti | Tick | Writer, diretta | Writer, con buffer | Tick di `main` |
+|---|---|---|---|---|---|---|
+| Scansione lineare, 100 000 | 10% | 0,30 | 0,35 | 0,43 | 0,66 | 0,29 |
+| Scansione lineare, 100 000 | 100% | 3,4 | 3,5 | 5,8 | 8,8 | 2,7 |
+| Scansione lineare, 1 000 000 | 1% | 0,41 | 1,0 | 1,2 | 1,5 | 0,98 |
+| Scansione lineare, 1 000 000 | 10% | 9,1 | 9,8 | 14 | 21 | 8,1 |
+| Scansione lineare, 1 000 000 | 100% | 113 | 121 | 163 | 266 | 98 |
+| Grid uniforme 100, 1 000 000 | 10% | 16 | 24 | 27 | 33 | 24 |
+| Grid uniforme 100, 1 000 000 | 100% | 196 | 216 | 257 | 362 | 220 |
+| Griglia di quadtree 128, 1 000 000 | 1% | 2,0 | 5,2 | 5,5 | 5,8 | 4,8 |
+| Griglia di quadtree 128, 1 000 000 | 10% | 37 | 57 | 60 | 63 | 58 |
+| Griglia di quadtree 128, 1 000 000 | 100% | 447 | 546 | 566 | 641 | 558 |
 
-- **Il percorso del writer costa da 1,1 a 3 volte quello di `main`.**
-  Il tick dal writer, con buffer, batch e commit, dura da 1,5 a 3 volte
-  il tick di `main` con la scansione lineare, da 1,25 a 1,8 volte con la
-  grid uniforme e da 1,05 a 1,35 volte con la griglia di quadtree: la
-  differenza pesa di più con gli indici economici e con i batch grandi.
+- **Nella modalità diretta il percorso del writer costa da 1,0 a 1,4
+  volte quello di `main`**, e da 1,5 a 2,1 volte solo con la scansione
+  lineare e batch dal 10% in su, dove lo spostamento in sé costa pochi
+  nanosecondi. È da 0,6 a 0,95 volte il tick con buffer: il guadagno è
+  maggiore con gli indici economici e con i batch grandi, dove il buffer
+  pesava di più.
+- **La modalità diretta costa circa 5–45 ns per entità più del tick**, che
+  riceve batch preparati prima della misura: è la costruzione di una
+  modifica per ogni entità e della lista del batch a ogni chiamata del
+  writer. Il resto della differenza con `main` è nel tick stesso, da 1,0
+  a 1,3 volte quello di `main`: l'applicazione dei batch nello storage,
+  con gli spostamenti che costano da 1,0 a 1,6 volte quelli di `main`.
+- **Con il buffer il percorso del writer costa da 1,1 a 3,3 volte quello
+  di `main`**: da 1,5 a 3,3 volte con la scansione lineare, da 1,2 a 1,65
+  volte con la grid uniforme e da 1,1 a 1,2 volte con la griglia di
+  quadtree.
   È il prezzo di un writer che non chiama il nodo a ogni scrittura, che
-  conta soprattutto con un nodo remoto, dove ogni chiamata è un andata e
-  ritorno in rete; per questo il nodo locale usa la modalità diretta.
+  conta con un nodo remoto, dove ogni chiamata è un andata e ritorno in
+  rete; per questo il nodo locale usa la modalità diretta.
 - **Il buffer costa circa 25–140 ns per entità scritta**, la differenza
-  tra il tick dal writer e il tick: di più con molte entità, che non
+  tra il tick con buffer e il tick: di più con molte entità, che non
   stanno nella cache. Il costo viene dalla mappa per ID, dall'oggetto di
-  ogni modifica e dalla lista del batch. La parte restante della
-  differenza con `main` è l'applicazione del batch nello storage: gli
-  spostamenti costano da 1,0 a 1,6 volte quelli di `main`, di più con la
-  scansione lineare, dove lo spostamento in sé costa pochi nanosecondi.
+  ogni modifica e dalla lista del batch.
 - **Il buffer occupa circa 100–110 byte per entità** con le sole `set`,
   e circa 405–415 con 4 metadati per entità, in aggiunta alle entità e
   alle scritture che il writer ha già costruito. Il valore non cambia

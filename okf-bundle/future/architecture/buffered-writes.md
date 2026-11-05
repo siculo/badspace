@@ -1,7 +1,7 @@
 ---
 type: Architecture Primitive
 title: "Scritture accumulate nel writer"
-description: "Parti ancora da fare del refactoring delle scritture accumulate: misure della modalità diretta, flush esplicito, costi del buffer ed esiti remoti."
+description: "Parti ancora da fare del refactoring delle scritture accumulate: flush esplicito, costi del buffer ed esiti remoti."
 tags: [badspace, architecture, transactions, api]
 status: draft
 timestamp: 2026-11-05T18:54:02Z
@@ -27,8 +27,9 @@ di memoria del buffer e di durata del commit sono fatte con il profilo
 rapido. Sul nodo locale il buffer costa più di quanto risparmia, quindi
 il nodo sceglie la [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura): il nodo locale è nella
 modalità diretta, con ogni scrittura subito sul nodo, e il buffer resta
-per il nodo remoto, con gli stessi risultati. Restano da fare le misure
-della modalità diretta, il flush esplicito, il profilo completo, le
+per il nodo remoto, con gli stessi risultati; la modalità diretta costa
+da 1,0 a 1,4 volte il tick di `main`, fino a 2,1 volte con la scansione
+lineare e batch grandi. Restano da fare il flush esplicito, il profilo completo, le
 decisioni su limiti e ottimizzazioni che ne seguono, e il protocollo
 remoto degli esiti.
 
@@ -38,16 +39,6 @@ scritture, come descritto nelle
 non legge lo stato mutabile attraverso l'esito di una scrittura.
 Lo snapshot letto può non comprendere commit ancora pending, anche di un
 precedente proprietario; il refactoring non introduce letture del pending.
-
-# Misure della modalità diretta
-
-Le misure dei costi sono della modalità con buffer, prima delle due
-modalità. Il tick dal writer nella modalità diretta
-(`commitTickWithTheWriter` con `writeMode` `DIRECT`) è da misurare sulla
-macchina dedicata, e da confrontare con `commitTick` e con il tick di
-`main`. Ci si aspetta un costo vicino a `commitTick`: le scritture
-arrivano al nodo come batch, senza la composizione del buffer, ma
-ciascuna crea ancora le sue modifiche.
 
 # Flush esplicito
 
