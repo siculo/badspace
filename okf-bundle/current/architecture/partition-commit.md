@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:31:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:53:16Z }
 ---
 
 # Primitiva
@@ -273,28 +273,32 @@ e gli spostamenti da soli (`movesWithoutCommit`); misura anche la
 memoria del buffer (`BufferSizes`).
 
 Risultati del 2026-11-05 sulla macchina dedicata, profilo rapido, con il
-lock equo e senza il controllo dei duplicati nel nodo
-(`prototype/benchmark/results/2026-11-05-commit-without-check-quick.*`),
+lock equo, senza il controllo dei duplicati nel nodo e con le mappe dei
+metadati del buffer create alla prima scrittura
+(`prototype/benchmark/results/2026-11-05-commit-lazy-maps-quick.*`),
 distribuzione uniforme, senza reader, in millisecondi per tick; l'ultima
-colonna è il tick dal writer con il controllo dei duplicati che il nodo
-faceva prima (`2026-11-05-1611-commit-batch-quick.*`):
+colonna è il tick dal writer prima di queste due ottimizzazioni
+(`2026-11-05-1611-commit-batch-quick.*`):
 
-| Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer | Tick dal writer, con il controllo |
+| Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer | Tick dal writer, prima |
 |---|---|---|---|---|---|
-| Scansione lineare, 100 000 | 100% | 3,8 | 3,7 | 13,4 | 20,7 |
-| Scansione lineare, 1 000 000 | 1% | 0,4 | 1,0 | 1,9 | 2,5 |
-| Scansione lineare, 1 000 000 | 10% | 8,4 | 10,4 | 27,7 | 43,9 |
-| Scansione lineare, 1 000 000 | 100% | 118 | 118 | 366 | 500 |
-| Grid uniforme 100, 1 000 000 | 100% | 213 | 214 | 426 | 660 |
-| Griglia di quadtree 128, 1 000 000 | 1% | 2,2 | 5,1 | 6,4 | 6,7 |
-| Griglia di quadtree 128, 1 000 000 | 100% | 465 | 577 | 761 | 1007 |
+| Scansione lineare, 100 000 | 100% | 3,7 | 4,2 | 8,7 | 20,7 |
+| Scansione lineare, 1 000 000 | 1% | 0,4 | 1,1 | 1,7 | 2,5 |
+| Scansione lineare, 1 000 000 | 10% | 9,5 | 14 | 24 | 44 |
+| Scansione lineare, 1 000 000 | 100% | 120 | 117 | 238 | 500 |
+| Grid uniforme 100, 1 000 000 | 100% | 214 | 213 | 323 | 660 |
+| Griglia di quadtree 128, 1 000 000 | 1% | 2,1 | 5,1 | 5,8 | 6,7 |
+| Griglia di quadtree 128, 1 000 000 | 100% | 495 | 524 | 672 | 1007 |
 
-- **Il buffer costa circa 100–250 ns per entità scritta**, la
-  differenza tra il tick dal writer e il tick: è ora la parte più grande
-  del costo con la scansione lineare e con la grid uniforme, dove il
-  tick dal writer dura da 2 a 3,7 volte il tick, e circa un terzo in più
-  con la griglia di quadtree. Il costo viene dalla mappa per ID, dagli
-  oggetti di ogni modifica e dalla lista del batch.
+- **Il buffer costa circa 45–150 ns per entità scritta**, la differenza
+  tra il tick dal writer e il tick: con la scansione lineare il tick dal
+  writer dura circa 2 volte il tick, con la grid uniforme 1,5 volte, con
+  la griglia di quadtree circa 1,3 volte. Il costo viene dalla mappa per
+  ID, dall'oggetto di ogni modifica e dalla lista del batch.
+- **Le mappe dei metadati create alla prima scrittura** tolgono due
+  mappe vuote per ogni entità scritta senza metadati: il tick dal writer
+  costa da 0,65 a 0,95 volte quello di prima, e la memoria del buffer
+  scende di più della metà (sotto).
 - **Il controllo dei duplicati costava quasi quanto l'indice.** Il nodo
   costruiva un insieme di tutti gli ID del batch per rifiutare due
   modifiche della stessa entità; senza, gli spostamenti con la scansione
@@ -305,10 +309,12 @@ faceva prima (`2026-11-05-1611-commit-batch-quick.*`):
   e 100 000 entità l'aggiornamento costa di nuovo circa 27 ns per
   entità, come nella [capacità degli aggiornamenti per
   tick](/current/indices/update-capacity.md).
-- **Il buffer occupa circa 230–240 byte per entità** con le sole `set`,
-  e circa 470–480 con 4 metadati per entità, in aggiunta alle entità e
-  alle scritture che il writer ha già costruito. Il valore non cambia
-  tra 1000 e 1 000 000 di entità.
+- **Il buffer occupa circa 100–110 byte per entità** con le sole `set`,
+  e circa 405–415 con 4 metadati per entità, in aggiunta alle entità e
+  alle scritture che il writer ha già costruito
+  (`2026-11-05-buffer-sizes-lazy-maps-quick.*`). Prima delle mappe create
+  alla prima scrittura erano circa 230–240 e 470–480 byte. Il valore non
+  cambia tra 1000 e 1 000 000 di entità.
 - **Il commit tiene il lock per tutto il batch.** Applicazione del batch
   e preparazione dello snapshot avvengono sotto il lock della
   partizione, e un avanzamento del tick che arriva durante un commit lo

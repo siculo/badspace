@@ -26,9 +26,11 @@ final class WriteBuffer3 {
         boolean removed;
         // The position of the last set after the last removal, or null.
         Point3 position;
-        // The last write of each key before any set or removal, and after the last set.
-        final Map<String, MetadataWrite> metadataIfInBase = new LinkedHashMap<>();
-        final Map<String, MetadataWrite> metadata = new LinkedHashMap<>();
+        // The last write of each key before any set or removal, and after the last set. Null
+        // until the first write of the group: most changes are sets without metadata, and two
+        // maps for each entity would cost more than the rest of the change.
+        Map<String, MetadataWrite> metadataIfInBase;
+        Map<String, MetadataWrite> metadata;
     }
 
     private final Map<Long, Change> byEntity = new LinkedHashMap<>();
@@ -43,8 +45,8 @@ final class WriteBuffer3 {
         Change change = change(entityId);
         change.removed = true;
         change.position = null;
-        change.metadataIfInBase.clear();
-        change.metadata.clear();
+        change.metadataIfInBase = null;
+        change.metadata = null;
     }
 
     /** Writes one key of the metadata of an entity; if the entity is not there, it does nothing. */
@@ -53,9 +55,17 @@ final class WriteBuffer3 {
         if (change.position != null) {
             // After a set the entity is there, whatever the base: the write is applied, and
             // it replaces a write of the same key that depends on the base.
-            change.metadataIfInBase.remove(write.key());
+            if (change.metadataIfInBase != null) {
+                change.metadataIfInBase.remove(write.key());
+            }
+            if (change.metadata == null) {
+                change.metadata = new LinkedHashMap<>();
+            }
             change.metadata.put(write.key(), write);
         } else if (!change.removed) {
+            if (change.metadataIfInBase == null) {
+                change.metadataIfInBase = new LinkedHashMap<>();
+            }
             change.metadataIfInBase.put(write.key(), write);
         }
         // After a removal and before a set the entity is not there: the write does nothing.
@@ -76,7 +86,7 @@ final class WriteBuffer3 {
         for (Map.Entry<Long, Change> entry : byEntity.entrySet()) {
             Change change = entry.getValue();
             changes.add(new EntityWrite3(entry.getKey(), change.removed, change.position,
-                    List.copyOf(change.metadataIfInBase.values()), List.copyOf(change.metadata.values())));
+                    writes(change.metadataIfInBase), writes(change.metadata)));
         }
         return changes;
     }
@@ -84,6 +94,14 @@ final class WriteBuffer3 {
     /** Discards all the writes. */
     void clear() {
         byEntity.clear();
+    }
+
+    /**
+     * Returns the writes of a group, in their order, as an immutable list: the constructor of
+     * the change does not copy it again. Without writes it is the empty list, with no copy.
+     */
+    private static List<MetadataWrite> writes(Map<String, MetadataWrite> group) {
+        return group == null || group.isEmpty() ? List.of() : List.copyOf(group.values());
     }
 
     private Change change(long entityId) {

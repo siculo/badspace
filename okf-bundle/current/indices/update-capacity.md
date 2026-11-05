@@ -4,7 +4,7 @@ title: Capacità degli aggiornamenti per tick
 description: Quante entità per partizione si possono aggiornare in un tick, dati i tick al secondo, nel caso peggiore e in media; modello con il costo di un aggiornamento e di un cambio di foglia o di cella, e prima stima dalle misure.
 tags: [badspace, spatial-indexing, performance, tick, benchmark]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:31:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:53:16Z }
 ---
 
 # Domanda
@@ -132,12 +132,12 @@ Queste cifre sono il costo dell'indice e degli slot, senza il commit e
 senza il buffer delle scritture del writer. Il percorso completo, dal
 [writer](/current/architecture/partition-commit.md#costi-del-buffer-e-del-commit)
 al commit, costa di più: con 1 000 000 di entità e il 10% in movimento
-circa 280 ns per entità scritta con la scansione lineare, 390 con la grid
-uniforme e 670 con la griglia di quadtree, e con l'1% circa 190 ns con
-la scansione lineare. Il budget di 4,2 ms dà allora circa 15 000 entità
-scritte per tick con la scansione lineare e 6000 con la griglia di
-quadtree. La parte più grande della differenza è il buffer, da ridurre
-prima di rivedere queste stime.
+circa 240 ns per entità scritta con la scansione lineare, 350 con la grid
+uniforme e 640 con la griglia di quadtree, e con l'1% circa 170 ns con
+la scansione lineare. Il budget di 4,2 ms dà allora circa 17 000 entità
+scritte per tick con la scansione lineare e 6500 con la griglia di
+quadtree. Con gli indici più economici la differenza viene soprattutto
+dal buffer e dalla copia degli snapshot.
 
 Con 1 000 000 di entità `c0` e `c1` non si ricavano da questi due
 punti: con più entità le foglie sono più piccole, e la frequenza dei

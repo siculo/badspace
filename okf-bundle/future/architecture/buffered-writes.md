@@ -4,7 +4,7 @@ title: "Scritture accumulate nel writer"
 description: "Parti ancora da fare del refactoring delle scritture accumulate: fallimenti sul batch, stato del buffer, misure ed esiti remoti."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-05T17:31:55Z
+timestamp: 2026-11-05T17:53:16Z
 ---
 
 # Stato e obiettivo
@@ -38,14 +38,15 @@ precedente proprietario; il refactoring non introduce letture del pending.
 
 Le misure con il profilo rapido mostrano tre costi da valutare:
 
-- **Memoria del buffer**, circa 230 byte per entità con le sole `set`:
-  ogni modifica ha un oggetto e due mappe dei metadati create subito, e
-  la mappa per ID usa chiavi `Long`. Mappe create alla prima scrittura
-  dei metadati, o strutture di primitivi, la ridurrebbero.
-- **Tempo del buffer**, circa 100–250 ns per entità scritta, che con
-  batch grandi porta il tick dal writer fino a 3,7 volte il tick con le
-  scritture date direttamente allo storage: è la parte più grande del
-  costo con gli indici più economici.
+- **Memoria del buffer**, circa 105 byte per entità con le sole `set`,
+  dopo le mappe dei metadati create alla prima scrittura: ogni modifica
+  ha ancora un oggetto, e la mappa per ID usa chiavi `Long` e una voce
+  per entità. Una tabella con chiavi `long` e i campi della modifica in
+  array paralleli la ridurrebbe ancora, con una misura JMH che la
+  giustifichi.
+- **Tempo del buffer**, circa 45–150 ns per entità scritta, che con
+  batch grandi porta il tick dal writer fino a circa 2 volte il tick con
+  le scritture date direttamente allo storage.
 - **Durata del lock**, uguale a tutto il commit del batch: un
   avanzamento del tick aspetta l'intero batch in corso, al più uno con il
   lock equo della partizione. Con più partizioni sempre occupate sullo
