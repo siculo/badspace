@@ -40,7 +40,6 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CyclicBarrier;
@@ -361,13 +360,15 @@ class Space2EndToEndTest {
     }
 
     @Test
-    void metadataWriteOnAMissingEntityChangesNothing() {
+    void metadataWriteOnAMissingEntityIsSkipped() {
         Partition2 p = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName());
         long id = writer(p).insert(new Point2(1, 1));
-        assertThrows(NoSuchElementException.class, () -> writer(p).updateMetadataAll(
-                List.of(MetadataWrite.put(id, "version", 1), MetadataWrite.put(id + 1000, "version", 1))));
+        writer(p).updateMetadataAll(
+                List.of(MetadataWrite.put(id, "version", 1), MetadataWrite.put(id + 1000, "version", 1)));
         try (AcquiredSnapshot2 snapshot = publish(p)) {
-            assertEquals(Optional.of(Map.of()), snapshot.getMetadata(id));
+            assertEquals(Optional.of(Map.of("version", 1L)), snapshot.getMetadata(id));
+            assertEquals(Optional.empty(), snapshot.getMetadata(id + 1000));
+            assertEquals(1, snapshot.size());
         }
     }
 

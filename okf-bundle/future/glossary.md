@@ -4,7 +4,7 @@ title: "Glossario degli sviluppi futuri"
 description: "Termini dei protocolli ancora da implementare, da leggere dopo il glossario corrente."
 tags: [badspace, documentation]
 status: draft
-timestamp: 2026-11-05T08:11:39Z
+timestamp: 2026-11-05T09:30:53Z
 generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
 ---
 
@@ -15,6 +15,7 @@ Il [glossario corrente](/current/glossary.md) definisce le primitive già dispon
 | Termine | Significato |
 |---|---|
 | Buffer delle scritture | Modifiche finali per ID accumulate nel writer e inviate insieme al commit; conserva anche cancellazioni e azzeramento dei metadati dopo rimozione e reinserimento. Vedi [scritture accumulate](/future/architecture/buffered-writes.md). |
+| Modifica finale di un'entità | Effetto di tutte le scritture del buffer su un'entità rispetto alla base confermata: rimozione, posizione, metadati validi solo se l'entità era nella base e metadati dopo la `set`. Nel prototipo `EntityWrite2`/`EntityWrite3`. Vedi [scritture accumulate](/future/architecture/buffered-writes.md#composizione-per-identità). |
 | Gruppo di partizioni | Raggruppamento futuro per semplificare configurazione e gestione degli insiemi da interrogare, eventualmente con sottogruppi; semantica ancora da progettare sopra l’API delle partizioni. Vedi [estensioni dell’API](/future/decisions/api-surface.md#gruppi-di-partizioni). |
 | Servizio che ospita nodi | Processo remoto che potrà ospitare più nodi, ciascuno riservato a un solo Space; identità e ciclo di vita da progettare. Vedi [nodi e Space](/future/architecture/nodes-and-spaces.md). |
 | Epoca | Contatore di sistema che cresce a ogni migrazione e stabilisce quale copia è valida. Vedi [metadati delle entità](/future/architecture/entity-metadata.md). |

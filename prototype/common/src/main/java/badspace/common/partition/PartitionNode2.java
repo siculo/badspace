@@ -283,13 +283,14 @@ public interface PartitionNode2 {
     void removeAll(WriteToken token, long[] entityIds);
 
     /**
-     * Writes the application metadata of existing entities, in the order of the list: if more
-     * writes change the same key, the last one wins. The metadata are confirmed by the same
-     * commit as the positions, and are in the same snapshot.
+     * Writes the application metadata of entities, in the order of the list: if more writes
+     * change the same key, the last one wins. A write on an entity not in the partition is
+     * skipped and does not add the entity, also if a later write of the list is on an entity
+     * that is there. The metadata are confirmed by the same commit as the positions, and are
+     * in the same snapshot.
      *
      * @param token the token of the owner of the partition
      * @param writes the writes, each of which sets or deletes one key of one entity
-     * @throws java.util.NoSuchElementException if an ID is not in the partition
      * @throws OwnershipChangedException if the token is not the current one
      */
     void updateMetadataAll(WriteToken token, List<MetadataWrite> writes);

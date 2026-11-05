@@ -36,14 +36,15 @@ public interface PartitionWriter extends AutoCloseable {
     void removeAll(long[] entityIds);
 
     /**
-     * Sets a key of the application metadata of an entity to the value. Fails with
-     * NoSuchElementException if the ID is not in the partition.
+     * Sets a key of the application metadata of an entity to the value. If the entity is not
+     * in the partition, it does nothing: the write does not add the entity, also if a later
+     * {@code set} adds it.
      */
     void putMetadata(long entityId, String key, long value);
 
     /**
-     * Deletes a key of the application metadata of an entity; if the key has no value, it does
-     * nothing. Fails with NoSuchElementException if the ID is not in the partition.
+     * Deletes a key of the application metadata of an entity; if the key has no value or the
+     * entity is not in the partition, it does nothing.
      */
     void deleteMetadata(long entityId, String key);
 
@@ -51,8 +52,8 @@ public interface PartitionWriter extends AutoCloseable {
      * Writes the application metadata of many entities in one call: each write sets or deletes
      * one key of one entity, in the order of the list, so if more writes change the same key
      * the last one wins. The metadata are confirmed by the same commit as the positions.
-     * Removing an entity deletes its metadata. Fails with NoSuchElementException if an ID is not
-     * in the partition; in this case no metadata change.
+     * Removing an entity deletes its metadata. The writes on an entity not in the partition are
+     * skipped, like in {@link #putMetadata}.
      */
     void updateMetadataAll(List<MetadataWrite> writes);
 

@@ -21,7 +21,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -115,11 +114,20 @@ class PartitionMetadata3Test {
     }
 
     @Test
-    void writeOnAnEntityNotInThePartitionFailsAndChangesNothing() {
+    void writeOnAnEntityNotInThePartitionIsSkippedAndDoesNotAddIt() {
         node.updateMetadataAll(token, List.of(put(1, "version", 1)));
-        assertThrows(NoSuchElementException.class,
-                () -> node.updateMetadataAll(token, List.of(put(1, "version", 2), put(99, "version", 1))));
-        assertEquals(List.of(metadata(1, Map.of("version", 1L))), node.getMetadataAll(publish(), new long[] {1}));
+        node.updateMetadataAll(token, List.of(put(1, "version", 2), put(99, "version", 1)));
+        Acquisition acquisition = publish();
+        assertEquals(3, node.size(acquisition));
+        assertEquals(List.of(metadata(1, Map.of("version", 2L))), node.getMetadataAll(acquisition, new long[] {1, 99}));
+    }
+
+    @Test
+    void writeBeforeTheSetThatAddsTheEntityIsSkipped() {
+        node.updateMetadataAll(token, List.of(put(99, "version", 1)));
+        node.setAll(token, List.of(entity(99, 5, 5, 5)));
+        node.updateMetadataAll(token, List.of(put(99, "owner", 7)));
+        assertEquals(List.of(metadata(99, Map.of("owner", 7L))), node.getMetadataAll(publish(), new long[] {99}));
     }
 
     @Test

@@ -4,7 +4,7 @@ title: "Contratto dell’API corrente"
 description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:21:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T09:30:53Z }
 ---
 
 # Contratto corrente
@@ -50,7 +50,7 @@ dai record avviene al confine con lo storage.
 | Query di range | `findInRegion(Region)` | Sulla view dello snapshot; restituisce le entità dentro la regione o sul suo bordo, in ordine non definito |
 | Query k-nearest | `findNearest(Point, count)` | Sulla view dello snapshot; restituisce al più `count` entità, ordinate per distanza dal punto e a parità di distanza per ID |
 | Lettura dei metadati applicativi | `getMetadata(id)`, `getMetadataAll(long[])` | Sulla view dello snapshot, separata dalla lettura delle entità; `getMetadata` restituisce un `Optional` della mappa chiave → valore, vuoto se l'ID non è nello snapshot; `getMetadataAll` restituisce un `ApplicationMetadata` per ID nell'ordine degli ID, con la mappa vuota per un'entità senza metadati, e salta gli ID assenti |
-| Scrittura dei metadati applicativi | `putMetadata(id, key, value)`, `deleteMetadata(id, key)`, `updateMetadataAll(List<MetadataWrite>)` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter`; `MetadataWrite` è `Put` o `Delete` su una chiave di un'entità; le scritture valgono nell'ordine della lista, quindi per la stessa chiave vince l'ultima; confermate dallo stesso commit delle posizioni; la rimozione dell'entità ne cancella i metadati |
+| Scrittura dei metadati applicativi | `putMetadata(id, key, value)`, `deleteMetadata(id, key)`, `updateMetadataAll(List<MetadataWrite>)` | Sull'handle del writer, nell'interfaccia comune `PartitionWriter`; `MetadataWrite` è `Put` o `Delete` su una chiave di un'entità; le scritture valgono nell'ordine della lista, quindi per la stessa chiave vince l'ultima; confermate dallo stesso commit delle posizioni; la rimozione dell'entità ne cancella i metadati; una scrittura su un'entità assente non fa niente e non la crea, anche se una `set` successiva la aggiunge |
 
 Le scritture stanno sull'[handle del
 writer](#proprietà-e-handle-del-writer) (`PartitionWriter2`/`PartitionWriter3`),
@@ -531,7 +531,6 @@ della partizione.
 
 | Errore | Eccezione |
 |---|---|
-| ID inesistente in una scrittura dei metadati | `NoSuchElementException` |
 | ID già presente o duplicato nell'`insertAll` del contratto del nodo, che riceve gli ID generati dall'API | `IllegalArgumentException` |
 | Posizione fuori dai limiti della partizione in `insert`/`set` | `IllegalArgumentException` |
 

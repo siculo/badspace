@@ -4,7 +4,7 @@ title: "Scritture accumulate nel writer"
 description: "Refactoring concordato: modifiche finali per ID nel client, set con inserimento se assente e applicazione atomica sul nodo al commit."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-05T08:21:18Z
+timestamp: 2026-11-05T09:30:53Z
 ---
 
 # Stato e obiettivo
@@ -41,12 +41,12 @@ Le scritture dei metadati mantengono solo l'ultima modifica per chiave,
 distinguendo un valore da una cancellazione. Una `set` ordinaria
 conserva i metadati non modificati.
 
-Per i metadati su un'entità assente si adotta come regola di progetto
-che non creino un'entità senza posizione e siano ignorati finché una
-`set` non la ricrea. Il client non conosce necessariamente la presenza
-nella base: in quel caso decide il nodo sullo stato risultante del batch.
-Il dettaglio della composizione e i casi limite vanno verificati prima
-di fissare la rappresentazione del buffer.
+Per i metadati su un'entità assente vale la regola sequenziale già
+corrente: una scrittura su un'entità che in quel momento non c'è non fa
+niente e non la crea (vedi [metadati applicativi](/current/architecture/entity-metadata.md#metadati-applicativi)).
+Il buffer conserva questo comportamento: il risultato del batch è sempre
+quello delle chiamate eseguite una alla volta, nel loro ordine, sulla
+base confermata.
 
 # Composizione per identità
 
@@ -63,9 +63,53 @@ conoscere o copiare l'intero contenuto della base.
 | `remove(A)`, `set(A, p2)` | A presente in p2, con azzeramento dei vecchi metadati |
 | Due scritture sulla stessa chiave | Solo l'ultima modifica |
 | Scrittura di metadati, poi `remove(A)` | A assente; scritture dei metadati scartate |
+| `remove(A)`, scrittura di metadati | A assente; la scrittura non fa niente |
+| Scrittura di metadati, poi `set(A, p)` | A presente in p; la scrittura vale solo se A era nella base |
+| `set(A, p)`, scrittura di metadati | A presente in p con la scrittura, qualunque sia la base |
 
 Il caso rimozione e reinserimento richiede di conservare nel batch
 l'azzeramento dei metadati precedenti: la sola posizione finale non basta.
+
+Il writer non conosce la base, quindi per ogni entità il batch dice cosa
+fare in entrambi i casi. La modifica finale di un'entità ha quattro parti,
+applicate in quest'ordine:
+
+1. **rimozione**, se nel buffer c'è una `remove`: l'entità della base,
+   se c'è, esce con i suoi metadati;
+2. **posizione**, se dopo l'ultima `remove` c'è una `set`: l'entità si
+   sposta conservando i metadati, oppure si aggiunge senza metadati;
+3. **metadati della base**: le scritture fatte prima di ogni `set` o
+   `remove` dell'entità, quando la sua presenza non era nota; valgono
+   solo se l'entità era nella base;
+4. **metadati dopo la `set`**: valgono sempre, perché l'entità c'è.
+
+Ogni gruppo tiene una sola scrittura per chiave; una scrittura dopo la
+`set` sostituisce quella della stessa chiave che dipende dalla base.
+Le parti 1 e 3 non stanno mai insieme, perché la `remove` scarta le
+scritture precedenti, e la 4 richiede una posizione.
+
+```text
+   "put(A, k)"      "set(A, p)"      "put(A, j)"
+        |                |                |
+        v                v                v
+  +------------+   +------------+   +------------+
+  | metadati   |   | posizione  |   | metadati   |
+  | della base |   | p          |   | dopo la    |
+  | "k"        |   |            |   | set: "j"   |
+  +------------+   +------------+   +------------+
+
+  A nella base:     A in p con i vecchi metadati, k e j
+  A non nella base: A in p con j soltanto
+```
+
+Il diagramma mostra una sola entità senza `remove`; le parti si
+applicano da sinistra a destra.
+
+Nel prototipo la composizione è `WriteBuffer2`/`WriteBuffer3` nell'API,
+che produce un `EntityWrite2`/`EntityWrite3` per entità; i test la
+confrontano con l'esecuzione delle chiamate una alla volta, anche su
+sequenze casuali. Il writer non la usa ancora: le scritture vanno al nodo
+a ogni chiamata, come descritto nel [commit della partizione](/current/architecture/partition-commit.md).
 Le modifiche di entità diverse sono indipendenti; non si introducono
 vincoli tra entità o transazioni tra partizioni.
 

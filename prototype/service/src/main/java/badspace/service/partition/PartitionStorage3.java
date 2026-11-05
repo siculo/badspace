@@ -35,7 +35,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
@@ -369,20 +368,19 @@ final class PartitionStorage3 {
 
     /**
      * Applies the writes of the application metadata, in their order: if more writes set
-     * the same key, the last one wins. Fails with NoSuchElementException if an entity is not
-     * in the partition; in this case nothing changes.
+     * the same key, the last one wins. A write on an entity not in the partition is skipped:
+     * it does not add the entity.
      */
     void updateMetadataAll(long generation, List<MetadataWrite> writes) {
         writerLock.lock();
         try {
             checkWritable(generation);
-            for (MetadataWrite write : writes) {
-                existingSlot(write.entityId());
-            }
             try {
                 step = PartitionComponent.METADATA;
                 for (MetadataWrite write : writes) {
-                    metadata.write(write);
+                    if (slots.slotOf(write.entityId()) != SlotSnapshot3.NONE) {
+                        metadata.write(write);
+                    }
                 }
             } catch (Throwable failure) {
                 throw failed(PartitionOperation.WRITE, failure);
@@ -1070,15 +1068,6 @@ final class PartitionStorage3 {
             throw new IllegalArgumentException("Position of entity " + entityId + " is outside the limits "
                     + limits.min() + ", " + limits.max() + ": " + position);
         }
-    }
-
-    /** Returns the slot of an entity. Fails with NoSuchElementException if the ID is not in the slots. */
-    private int existingSlot(long entityId) {
-        int slot = slots.slotOf(entityId);
-        if (slot == SlotSnapshot3.NONE) {
-            throw new NoSuchElementException("Unknown entity ID: " + entityId);
-        }
-        return slot;
     }
 
     /**

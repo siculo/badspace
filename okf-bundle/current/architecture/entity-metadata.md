@@ -4,7 +4,7 @@ title: "Metadati applicativi"
 description: "Metadati con chiavi stringa e valori long, letti dagli snapshot e scritti dal writer; decisioni del writer prese sugli snapshot."
 tags: [badspace, architecture, partitioning, metadata, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:21:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T09:30:53Z }
 ---
 
 # Ruolo e garanzie
@@ -39,7 +39,12 @@ Per ora **non ci sono limiti** sul numero di chiavi di un'entità né
 sulla lunghezza delle chiavi: nessuna garanzia del sistema ne dipende,
 e il costo di molte chiavi lo paga solo chi le usa.
 
-La rimozione di un'entità ne cancella i metadati applicativi.
+La rimozione di un'entità ne cancella i metadati applicativi. Una
+scrittura dei metadati su un'entità che non è nella partizione non fa
+niente: non crea un'entità senza posizione e non resta in attesa di una
+`set`. Le scritture valgono sullo stato del momento, una dopo l'altra:
+dopo una `remove` e una nuova `set` l'entità riparte senza metadati, e
+una scrittura fatta prima della `set` che l'ha aggiunta è persa.
 
 ## Nel prototipo
 
@@ -61,9 +66,9 @@ La rimozione di un'entità ne cancella i metadati applicativi.
   lista di `MetadataWrite`, ciascuna su una chiave di un'entità: `Put`
   imposta il valore, `Delete` toglie la chiave. Le scritture valgono
   nell'ordine della lista, quindi per la stessa chiave vince l'ultima;
-  la chiamata è tutto-o-niente e fallisce con
-  `NoSuchElementException` se un'entità non è nella partizione, anche
-  inserita e non ancora confermata. Come le altre scritture prende il
+  una scrittura su un'entità che non è nella partizione si salta, mentre
+  un'entità inserita e non ancora confermata riceve i metadati. Come le
+  altre scritture prende il
   token del proprietario, e il cambio di proprietà scarta anche i
   metadati non confermati. `getMetadataAll(acquisition, entityIds)`
   restituisce un `ApplicationMetadata` (ID e mappa chiave → valore) per
