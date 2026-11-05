@@ -10,10 +10,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -25,6 +27,7 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.Entity3;
+import badspace.common.partition.EntityWrite3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
@@ -127,12 +130,58 @@ class Space3Test {
     }
 
     @Test
-    void insertAllMakesOneBatchWithGeneratedIdsInPositionOrder() {
+    void writesMakeNoCallsAndTheCommitSendsOneBatchWithTheGeneratedIds() {
         PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
         clearInvocations(node);
         assertArrayEquals(new long[] {11, 12}, writer.insertAll(List.of(A, B)));
-        verify(node).insertAll(TOKEN, List.of(new Entity3(11, A), new Entity3(12, B)));
+        writer.set(11, B);
+        writer.putMetadata(12, "version", 1);
+        verifyNoInteractions(node);
+        writer.commit();
+        verify(node).commit(TOKEN, List.of(new EntityWrite3(11, false, B, List.of(), List.of()),
+                new EntityWrite3(12, false, B, List.of(), List.of(MetadataWrite.put(12, "version", 1)))));
         verifyNoMoreInteractions(node);
+    }
+
+    @Test
+    void successfulCommitEmptiesTheWriterAndAFailedOneKeepsItsWrites() {
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
+        long entityId = writer.insert(A);
+        List<EntityWrite3> batch = List.of(new EntityWrite3(entityId, false, A, List.of(), List.of()));
+        doThrow(new IllegalStateException("Recovery required")).when(node).commit(TOKEN, batch);
+        assertThrows(IllegalStateException.class, writer::commit);
+        doNothing().when(node).commit(TOKEN, batch);
+        writer.commit();
+        writer.commit();
+        var order = inOrder(node);
+        order.verify(node, times(2)).commit(TOKEN, batch);
+        order.verify(node).commit(TOKEN, List.of());
+    }
+
+    @Test
+    void rollbackAndCloseDiscardTheWritesOfTheWriter() {
+        PartitionWriter3 writer = space.createPartition(handle, NAME).writer(TOKEN);
+        writer.insert(A);
+        writer.rollback();
+        writer.commit();
+        writer.insert(B);
+        writer.close();
+        var order = inOrder(node);
+        order.verify(node).rollback(TOKEN);
+        order.verify(node).commit(TOKEN, List.of());
+        order.verify(node).release(TOKEN);
+        verify(node, times(1)).commit(any(), any());
+    }
+
+    @Test
+    void positionOutsideTheLimitsIsRejectedAtTheWriteAndNothingIsKept() {
+        PartitionWriter3 writer = space.createPartition(handle, NAME,
+                PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(1))).writer(TOKEN);
+        assertThrows(IllegalArgumentException.class, () -> writer.insertAll(List.of(A, new Point3(2e9, 0, 0))));
+        assertThrows(IllegalArgumentException.class,
+                () -> writer.setAll(List.of(new Entity3(7, A), new Entity3(8, new Point3(2e9, 0, 0)))));
+        writer.commit();
+        verify(node).commit(TOKEN, List.of());
     }
 
     @Test
@@ -157,7 +206,8 @@ class Space3Test {
         doThrow(new IllegalStateException("Partition is not empty")).when(node).removePartition(TOKEN);
         assertThrows(IllegalStateException.class, writer::removePartition);
         writer.insert(A);
-        verify(node).insertAll(TOKEN, List.of(new Entity3(11, A)));
+        writer.commit();
+        verify(node).commit(TOKEN, List.of(new EntityWrite3(11, false, A, List.of(), List.of())));
     }
 
 
@@ -403,13 +453,7 @@ class Space3Test {
         writer.removePartition();
         writer.close();
         var order = inOrder(node);
-        order.verify(node).insertAll(TOKEN, List.of(new Entity3(entityId, A)));
-        order.verify(node).setAll(TOKEN, List.of(new Entity3(entityId, B)));
-        order.verify(node).updateMetadataAll(TOKEN, List.of(MetadataWrite.put(entityId, "version", 2)));
-        order.verify(node).updateMetadataAll(TOKEN, List.of(MetadataWrite.delete(entityId, "owner")));
-        order.verify(node).updateMetadataAll(TOKEN, writes);
-        order.verify(node).removeAll(TOKEN, new long[] {entityId});
-        order.verify(node).commit(TOKEN);
+        order.verify(node).commit(TOKEN, List.of(new EntityWrite3(entityId, true, null, List.of(), List.of())));
         order.verify(node).removePartition(TOKEN);
         order.verify(node).release(TOKEN);
         order.verifyNoMoreInteractions();

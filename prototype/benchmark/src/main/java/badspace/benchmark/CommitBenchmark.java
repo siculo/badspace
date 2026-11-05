@@ -6,6 +6,7 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.service.partition.NodeWrites;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -65,7 +66,7 @@ public class CommitBenchmark {
         void prepare() {
             prepareMoves();
             // The readers need a published snapshot.
-            node.commit(WRITE_TOKEN);
+            NodeWrites.commit(node, WRITE_TOKEN);
             node.setTick(++tick);
             concurrentReaders = new ConcurrentReaders(node, readers, workload.entities().getFirst().position());
         }
@@ -118,7 +119,7 @@ public class CommitBenchmark {
     @Benchmark
     public void commitTick(TickState s) {
         move(s);
-        s.node.commit(WorkloadState.WRITE_TOKEN);
+        NodeWrites.commit(s.node, WorkloadState.WRITE_TOKEN);
         s.node.setTick(++s.tick);
     }
 
@@ -139,7 +140,7 @@ public class CommitBenchmark {
     private static void move(TickState s) {
         List<Entity2> moves = s.nextMoves();
         if (!moves.isEmpty()) {
-            s.node.setAll(WorkloadState.WRITE_TOKEN, moves);
+            NodeWrites.setAll(s.node, WorkloadState.WRITE_TOKEN, moves);
         }
     }
 

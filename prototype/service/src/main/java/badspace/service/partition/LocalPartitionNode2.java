@@ -7,6 +7,7 @@ import badspace.common.partition.Acquisition;
 import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity2;
+import badspace.common.partition.EntityWrite2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
@@ -271,29 +272,9 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     @Override
-    public void insertAll(WriteToken token, List<Entity2> entities) {
-        find(token.partitionId()).insertAll(token.generation(), entities);
-    }
-
-    @Override
-    public void setAll(WriteToken token, List<Entity2> entities) {
-        find(token.partitionId()).setAll(token.generation(), entities);
-    }
-
-    @Override
-    public void removeAll(WriteToken token, long[] entityIds) {
-        find(token.partitionId()).removeAll(token.generation(), entityIds);
-    }
-
-    @Override
-    public void updateMetadataAll(WriteToken token, List<MetadataWrite> writes) {
-        find(token.partitionId()).updateMetadataAll(token.generation(), writes);
-    }
-
-    @Override
-    public void commit(WriteToken token) {
+    public void commit(WriteToken token, List<EntityWrite2> changes) {
         PartitionStorage2 storage = find(token.partitionId());
-        storage.commit(token.generation());
+        storage.commit(token.generation(), changes);
         // After the commit releases the lock of the partition, the partition can be removed and
         // retired by other threads: the scan can end its last snapshot.
         removeExpired(token.partitionId(), storage);
@@ -539,6 +520,14 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         if (partitions.remove(partitionId, storage)) {
             names.remove(partitionId);
         }
+    }
+
+    /**
+     * Returns the storage of a partition for its writer, for the benchmarks of the writes
+     * that measure the slots and the index without the commit. Fails like {@link #find}.
+     */
+    PartitionStorage2 writerStorage(PartitionId partitionId) {
+        return find(partitionId);
     }
 
     /**

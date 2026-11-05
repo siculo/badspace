@@ -52,14 +52,14 @@ class PartitionRecoveryConcurrency3Test {
 
     @Test
     void claimThatArrivesDuringARollbackWaitsForIt() throws Exception {
-        node.insertAll(token, List.of(entity(1, 1, 1, 1)));
-        node.commit(token);
-        node.insertAll(token, List.of(entity(2, 2, 2, 2)));
+        Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1)));
+        Writes3.of(node).commit(token);
+        Writes3.of(node).insertAll(token, List.of(entity(2, 2, 2, 2)));
         Gate gate = new Gate();
         index[0].restoreGate = gate;
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<WriteToken> claimed = new AtomicReference<>();
-        Thread writer = worker(() -> node.rollback(token), failure);
+        Thread writer = worker(() -> Writes3.of(node).rollback(token), failure);
         Thread claimer = worker(() -> claimed.set(node.claim(P1, token.generation()).orElseThrow()), failure);
         writer.start();
         try {
@@ -78,22 +78,22 @@ class PartitionRecoveryConcurrency3Test {
         if (failure.get() != null) {
             throw new AssertionError("rollback or claim failed", failure.get());
         }
-        assertThrows(OwnershipChangedException.class, () -> node.rollback(token));
+        assertThrows(OwnershipChangedException.class, () -> Writes3.of(node).rollback(token));
         index[0].restoreGate = null;
-        node.commit(claimed.get());
+        Writes3.of(node).commit(claimed.get());
         node.setTick(1);
         assertEquals(List.of(entity(1, 1, 1, 1)), node.getAll(node.acquireLatest(P1, defaultTimeout()), IDS));
     }
 
     @Test
     void moveOfTheTickThatArrivesDuringARollbackPublishesTheLastCommit() throws Exception {
-        node.insertAll(token, List.of(entity(1, 1, 1, 1)));
-        node.commit(token);
-        node.insertAll(token, List.of(entity(2, 2, 2, 2)));
+        Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1)));
+        Writes3.of(node).commit(token);
+        Writes3.of(node).insertAll(token, List.of(entity(2, 2, 2, 2)));
         Gate gate = new Gate();
         index[0].restoreGate = gate;
         AtomicReference<Throwable> failure = new AtomicReference<>();
-        Thread writer = worker(() -> node.rollback(token), failure);
+        Thread writer = worker(() -> Writes3.of(node).rollback(token), failure);
         Thread ticker = worker(() -> node.setTick(1), failure);
         writer.start();
         try {
@@ -116,12 +116,12 @@ class PartitionRecoveryConcurrency3Test {
     @Test
     void tickOfTheLastCommitWaitsForTheCommitThatIsRunning() throws Exception {
         node.setTick(1);
-        node.insertAll(token, List.of(entity(1, 1, 1, 1)));
+        Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1)));
         Gate gate = new Gate();
         index[0].commitGate = gate;
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicLong lastCommitTick = new AtomicLong(-1);
-        Thread writer = worker(() -> node.commit(token), failure);
+        Thread writer = worker(() -> Writes3.of(node).commit(token), failure);
         Thread reader = worker(() -> lastCommitTick.set(node.lastCommitTick(token)), failure);
         writer.start();
         try {
@@ -147,12 +147,12 @@ class PartitionRecoveryConcurrency3Test {
     @Test
     void newOwnerSeesTheCommitThatWasRunningWhenItTookThePartition() throws Exception {
         node.setTick(1);
-        node.insertAll(token, List.of(entity(1, 1, 1, 1)));
+        Writes3.of(node).insertAll(token, List.of(entity(1, 1, 1, 1)));
         Gate gate = new Gate();
         index[0].commitGate = gate;
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<WriteToken> claimed = new AtomicReference<>();
-        Thread writer = worker(() -> node.commit(token), failure);
+        Thread writer = worker(() -> Writes3.of(node).commit(token), failure);
         Thread claimer = worker(() -> claimed.set(node.claim(P1, token.generation()).orElseThrow()), failure);
         writer.start();
         try {

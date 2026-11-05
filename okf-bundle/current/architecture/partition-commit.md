@@ -1,16 +1,17 @@
 ---
 type: Architecture Primitive
 title: Commit della partizione
-description: "Commit cumulativi nel tick corrente: conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
+description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-02T16:49:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:14:34Z }
 ---
 
 # Primitiva
 
-`commit()` conferma lo stato completo del writer di una partizione,
-con le posizioni e i metadati delle entità. È una transazione limitata alla
+`commit()` manda al nodo le scritture del writer di una partizione e le
+conferma: lo stato confermato è completo, con le posizioni e i metadati
+delle entità. È una transazione limitata alla
 partizione; il [salvataggio su disco](/current/decisions/persistence.md)
 è un’operazione separata.
 
@@ -75,11 +76,12 @@ tempo -----+---------*---------*-----------+-------------------*-----------+----
 
 Il writer completa il batch A nel tick 12. Nei tick 10 e 11 non fa
 commit: i loro snapshot ripetono il contenuto precedente. Le scritture
-restano nello stato del writer e diventano visibili insieme in `S(12)`,
+restano nell'handle del writer e diventano visibili insieme in `S(12)`,
 dal tick 13.
 
-La barra lunga rappresenta una serie di scritture, non una singola
-chiamata che trattiene il lock durante gli avanzamenti del tick.
+La barra lunga rappresenta una serie di scritture nell'handle, che non
+chiamano il nodo e non trattengono il lock della partizione durante gli
+avanzamenti del tick: il lock lo prende solo il commit.
 
 ```text
      Tick 10               Tick 11               Tick 12     Commit    Tick 13
@@ -121,6 +123,112 @@ writer validi della stessa partizione: la
 Se cambia il proprietario nello stesso tick, il successore conserva i
 commit precedenti senza poterli ancora leggere. Il limite è descritto
 nella [visibilità nel tick del passaggio](/current/architecture/partition-ownership.md#visibilità-nel-tick-del-passaggio).
+
+## Scritture accumulate nel writer
+
+Le scritture del writer restano nel suo
+[handle](/current/api/operations.md#proprietà-e-handle-del-writer),
+nel processo del software, e non chiamano il nodo: `commit()` le manda
+tutte insieme, in una sola chiamata, con il token. Il nodo applica il
+batch all'**ultimo commit** della partizione, anche se aspetta ancora
+l'avanzamento del tick, non allo snapshot che il writer ha letto, e lo
+conferma nello stesso passo, sotto il lock della partizione. Il
+comportamento è lo stesso per un nodo locale e per un nodo remoto
+futuro.
+
+```text
+  writer (handle)                                      nodo
+  +-----------------------+                            +-------------------------+
+  | insert, set, remove,  |                            |                         |
+  | metadati: nessuna     | "commit(token, batch)"     | applica il batch        |
+  | chiamata al nodo      |                            | all'ultimo commit e lo  |
+  |                       | -------------------------->| conferma nel tick       |
+  | buffer: una modifica  |                            | corrente, in un passo   |
+  | finale per entità     |                            |                         |
+  +-----------------------+                            +-------------------------+
+```
+
+Il diagramma mostra un solo commit; i controlli e i fallimenti sono più
+sotto e nei [fallimenti della partizione](/current/architecture/partition-failures.md).
+
+Il buffer non tiene la lista delle chiamate: per ogni entità tiene la
+**modifica finale** rispetto alla base, cioè l'ultimo commit. Il
+risultato è sempre quello delle chiamate eseguite una alla volta, nel
+loro ordine, sulla base: `insert` genera l'ID e lo restituisce subito,
+prima del commit; `set` sposta l'entità o la reinserisce con lo stesso
+ID; `remove` la toglie con i metadati applicativi e non fa niente su
+un'entità assente; una scrittura dei metadati su un'entità che in quel
+momento non c'è non fa niente. Una `set` conserva i metadati non
+modificati, e per ogni chiave resta solo l'ultima scrittura, che sia un
+valore o una cancellazione. L'ordine delle chiamate conta solo nella
+composizione: al nodo non arriva una sequenza, e il batch non deve
+conoscere o copiare il contenuto della base.
+
+| Chiamate nel writer | Effetto da trasferire |
+|---|---|
+| `set(A, p1)`, `set(A, p2)` | A presente in p2 |
+| `set(A, p1)`, `remove(A)` | A assente, senza metadati |
+| `remove(A)`, `set(A, p2)` | A presente in p2, con azzeramento dei vecchi metadati |
+| Due scritture sulla stessa chiave | Solo l'ultima modifica |
+| Scrittura di metadati, poi `remove(A)` | A assente; scritture dei metadati scartate |
+| `remove(A)`, scrittura di metadati | A assente; la scrittura non fa niente |
+| Scrittura di metadati, poi `set(A, p)` | A presente in p; la scrittura vale solo se A era nella base |
+| `set(A, p)`, scrittura di metadati | A presente in p con la scrittura, qualunque sia la base |
+
+Il caso rimozione e reinserimento richiede di conservare nel batch
+l'azzeramento dei metadati precedenti: la sola posizione finale non basta.
+
+Il writer non conosce la base, quindi per ogni entità il batch dice cosa
+fare in entrambi i casi. La modifica finale di un'entità ha quattro parti,
+applicate in quest'ordine:
+
+1. **rimozione**, se nel buffer c'è una `remove`: l'entità della base,
+   se c'è, esce con i suoi metadati;
+2. **posizione**, se dopo l'ultima `remove` c'è una `set`: l'entità si
+   sposta conservando i metadati, oppure si aggiunge senza metadati;
+3. **metadati della base**: le scritture fatte prima di ogni `set` o
+   `remove` dell'entità, quando la sua presenza non era nota; valgono
+   solo se l'entità era nella base;
+4. **metadati dopo la `set`**: valgono sempre, perché l'entità c'è.
+
+Ogni gruppo tiene una sola scrittura per chiave; una scrittura dopo la
+`set` sostituisce quella della stessa chiave che dipende dalla base.
+Le parti 1 e 3 non stanno mai insieme, perché la `remove` scarta le
+scritture precedenti, e la 4 richiede una posizione.
+
+```text
+   "put(A, k)"      "set(A, p)"      "put(A, j)"
+        |                |                |
+        v                v                v
+  +------------+   +------------+   +------------+
+  | metadati   |   | posizione  |   | metadati   |
+  | della base |   | p          |   | dopo la    |
+  | "k"        |   |            |   | set: "j"   |
+  +------------+   +------------+   +------------+
+
+  A nella base:     A in p con i vecchi metadati, k e j
+  A non nella base: A in p con j soltanto
+```
+
+Il diagramma mostra una sola entità senza `remove`; le parti si
+applicano da sinistra a destra.
+
+Le modifiche di entità diverse sono indipendenti; non si introducono
+vincoli tra entità o transazioni tra partizioni.
+
+Ridurre le modifiche prima dell'applicazione evita aggiornamenti ripetuti
+dell'indice per la stessa entità. Il costo si sposta verso il buffer del
+client e il commit; il beneficio sui nodi locali non è ancora misurato.
+
+L'handle controlla subito i limiti delle posizioni: una scrittura fuori
+dai limiti non entra nel buffer. Token, stato e salute della partizione
+li controlla il nodo al commit, insieme di nuovo ai limiti e alla
+presenza di una sola modifica per entità; un batch rifiutato non cambia
+la partizione. Dopo un commit riuscito il buffer è vuoto; dopo un commit
+che fallisce il buffer conserva le scritture. `rollback()` e `close()`
+scartano il buffer, poi vanno al nodo per il ripristino e per il
+rilascio; tra un commit e l'altro il nodo non ha scritture del writer da
+scartare.
 
 ## Sequenza dei commit
 
@@ -190,6 +298,19 @@ di C1, che contengono gli slot 0, 1 e 2 con la stessa numerazione; i
 metadati riprendono la mappa di C1.
 
 # Nel prototipo
+
+Il buffer delle scritture è `WriteBuffer2`/`WriteBuffer3` in `common`,
+che compone le scritture in un `EntityWrite2`/`EntityWrite3` per
+entità; l'handle del writer ne ha uno. I test lo confrontano con
+l'esecuzione delle chiamate una alla volta, anche su 5000 sequenze
+casuali di `set`, `remove` e scritture dei metadati su basi casuali. Il
+contratto del nodo ha `commit(WriteToken, List<EntityWrite2>)` al posto
+delle singole scritture; lo storage applica le modifiche e prepara il
+commit sotto lo stesso lock. I test del nodo scrivono attraverso un
+piccolo client dei test con un buffer per token, come l'handle; i
+benchmark delle scritture misurano slot e indice senza il commit,
+scrivendo direttamente nello storage del nodo locale, perché restino
+confrontabili con le misure precedenti.
 
 Lo storage prepara uno snapshot di slot, indice e metadati al commit;
 un commit successivo nello stesso tick lo sostituisce. L’avanzamento

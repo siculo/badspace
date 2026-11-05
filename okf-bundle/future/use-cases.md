@@ -4,7 +4,7 @@ title: Casi d'uso
 description: I casi d'uso che BADSPACE vuole supportare, ciascuno con la sua configurazione delle partizioni e i soli meccanismi che gli servono.
 tags: [badspace, use-cases, partitioning]
 status: stable
-timestamp: 2026-11-04T23:42:12Z
+timestamp: 2026-11-05T10:14:34Z
 generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
 ---
 
@@ -34,10 +34,12 @@ Gli scenari specifici dei giochi sono indicati con "Gioco".
 # Scritture locali e remote
 
 Un caso d'uso comune ai nodi locali e remoti è costruire molte modifiche
-nel client e trasferirne soltanto l'effetto finale per ID al commit.
-Il [refactoring delle scritture](/future/architecture/buffered-writes.md)
-prevede lettura di uno snapshot, logica applicativa e accumulazione locale,
-senza conditional writes né chiamate al nodo per ogni singola modifica.
+nel client e trasferirne soltanto l'effetto finale per ID al commit. Con
+il nodo locale è già [disponibile](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer):
+lettura di uno snapshot, logica applicativa e accumulazione nell'handle,
+senza chiamate al nodo per ogni singola modifica. Con un nodo remoto
+restano da progettare gli esiti incerti del commit (vedi
+[scritture accumulate](/future/architecture/buffered-writes.md#rifiuti-ed-esiti)).
 
 # Space indipendenti e risorse condivise
 

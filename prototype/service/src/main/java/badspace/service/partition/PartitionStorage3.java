@@ -4,6 +4,7 @@ import badspace.common.geometry.Point3;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
+import badspace.common.partition.EntityWrite3;
 import badspace.common.partition.FailureOutcome;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataWrite;
@@ -475,6 +476,50 @@ final class PartitionStorage3 {
     }
 
     // Commit and move of the tick.
+
+    /**
+     * Applies a batch of changes to the last commit and confirms it, in the same step and
+     * under the lock, like {@link #commit(long)}. Each change applies in the order that
+     * {@link EntityWrite3} describes. Fails with IllegalArgumentException if a position is
+     * outside the limits or an entity has more than one change, with OwnershipChangedException
+     * if generation is not the one of the owner, and with IllegalStateException if the
+     * partition needs a recovery or its removal was requested: in these cases nothing changes.
+     * Fails with PartitionFailureException if a change or the commit fails: then the changes are
+     * discarded and the last commit stays.
+     */
+    StorageSnapshot3 commit(long generation, List<EntityWrite3> changes) {
+        writerLock.lock();
+        try {
+            checkWritable(generation);
+            Set<Long> seen = new HashSet<>();
+            int added = 0;
+            for (EntityWrite3 change : changes) {
+                if (!seen.add(change.entityId())) {
+                    throw new IllegalArgumentException("More than one change of entity " + change.entityId());
+                }
+                if (change.position() != null) {
+                    checkLimits(change.entityId(), change.position());
+                    if (change.removed() || slots.slotOf(change.entityId()) == SlotSnapshot3.NONE) {
+                        added++;
+                    }
+                }
+            }
+            try {
+                step = PartitionComponent.SLOTS;
+                // A change that removes the entity and adds it again is counted as an addition:
+                // the capacity can be a bit larger than needed, but it is never too small.
+                slots.ensureCapacity(slots.size() + added);
+                for (EntityWrite3 change : changes) {
+                    apply(change);
+                }
+            } catch (Throwable failure) {
+                throw failed(PartitionOperation.COMMIT, failure);
+            }
+            return commitWrites();
+        } finally {
+            writerLock.unlock();
+        }
+    }
 
     /**
      * Confirms the writes in the current tick and returns the snapshot of the commit. The next
@@ -1055,6 +1100,32 @@ final class PartitionStorage3 {
         index.removed(slot, position);
         if (slot != last) {
             index.relocated(last, slot, slots.positionAt(slot));
+        }
+    }
+
+    /** Applies the final change of an entity to the state of the writer, in the order of its steps. */
+    private void apply(EntityWrite3 change) {
+        long entityId = change.entityId();
+        boolean inBase = slots.slotOf(entityId) != SlotSnapshot3.NONE;
+        if (change.removed() && inBase) {
+            remove(entityId);
+        }
+        if (change.position() != null) {
+            int slot = slots.slotOf(entityId);
+            if (slot == SlotSnapshot3.NONE) {
+                insert(entityId, change.position());
+            } else {
+                move(slot, change.position());
+            }
+        }
+        step = PartitionComponent.METADATA;
+        if (inBase) {
+            for (MetadataWrite write : change.metadataIfInBase()) {
+                metadata.write(write);
+            }
+        }
+        for (MetadataWrite write : change.metadata()) {
+            metadata.write(write);
         }
     }
 

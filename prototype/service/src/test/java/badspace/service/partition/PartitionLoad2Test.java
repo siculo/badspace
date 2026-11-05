@@ -118,9 +118,9 @@ class PartitionLoad2Test {
         restarted.loadPartition(LOADED, saved, IndexConfig.linearScan(), 5);
         assertEquals(Ownership.INITIAL, restarted.ownership(LOADED));
         WriteToken token = restarted.claim(LOADED, 0).orElseThrow();
-        restarted.setAll(token, List.of(entity(1, 5, 5)));
-        restarted.removeAll(token, new long[] {2});
-        restarted.commit(token);
+        Writes2.of(restarted).setAll(token, List.of(entity(1, 5, 5)));
+        Writes2.of(restarted).removeAll(token, new long[] {2});
+        Writes2.of(restarted).commit(token);
         restarted.setTick(1);
         Acquisition acquisition = restarted.acquireLatest(LOADED, AcquireOptions.defaultTimeout());
         assertEquals(List.of(entity(1, 5, 5)), restarted.getAll(acquisition, new long[] {1}));
@@ -293,12 +293,12 @@ class PartitionLoad2Test {
      */
     private SavedPartition saveOf(List<Entity2> entities) {
         if (!entities.isEmpty()) {
-            node.insertAll(owner(node, P1), entities);
+            Writes2.of(node).insertAll(owner(node, P1), entities);
         }
         if (entities.stream().anyMatch(e -> e.id() == 1)) {
-            node.updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
+            Writes2.of(node).updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
         }
-        node.commit(owner(node, P1));
+        Writes2.of(node).commit(owner(node, P1));
         node.setTick(1);
         return node.saveLatest(P1);
     }
@@ -307,11 +307,11 @@ class PartitionLoad2Test {
     void loadKeepsTheMetadataKeysExactly() {
         // "?" is what a lax UTF-8 encoder writes for an unpaired surrogate.
         Map<String, Long> values = Map.of("?", 1L, "", 2L, "città", 3L, "\uD83D\uDE80", 4L, "a\uD83D\uDE80b", 5L);
-        node.insertAll(owner(node, P1), List.of(entity(1, 1, 2)));
+        Writes2.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2)));
         List<MetadataWrite> writes = new ArrayList<>();
         values.forEach((key, value) -> writes.add(put(1, key, value)));
-        node.updateMetadataAll(owner(node, P1), writes);
-        node.commit(owner(node, P1));
+        Writes2.of(node).updateMetadataAll(owner(node, P1), writes);
+        Writes2.of(node).commit(owner(node, P1));
         node.setTick(1);
         restarted.loadPartition(LOADED, node.saveLatest(P1), IndexConfig.linearScan(), 5);
         restarted.setTick(1);

@@ -162,7 +162,8 @@ class Space2EndToEndTest {
         space.setTick(1);
         writer(partition).insert(2, 2);
         writer(partition).removePartition();
-        assertThrows(IllegalStateException.class, () -> writer(partition).insert(3, 3));
+        // The writes stay in the handle: the commit sends them, and the node rejects it.
+        writer(partition).insert(3, 3);
         assertThrows(IllegalStateException.class, writer(partition)::commit);
 
         // The removal is effective at tick 2: the writes not committed were discarded.
@@ -545,7 +546,7 @@ class Space2EndToEndTest {
         // The owner claims with the generation of its own token and sends the new token on.
         WriteToken sent = partition.claim(first.token().generation()).orElseThrow();
         try (PartitionWriter2 next = partition.writer(sent)) {
-            assertThrows(OwnershipChangedException.class, () -> first.insert(new Point2(2, 2)));
+            first.insert(new Point2(2, 2));
             assertThrows(OwnershipChangedException.class, first::commit);
             long b = next.insert(new Point2(3, 3));
             try (AcquiredSnapshot2 snapshot = publish(partition, next)) {

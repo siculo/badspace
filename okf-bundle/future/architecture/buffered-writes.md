@@ -1,25 +1,26 @@
 ---
 type: Architecture Primitive
 title: "Scritture accumulate nel writer"
-description: "Refactoring concordato: modifiche finali per ID nel client, set con inserimento se assente e applicazione atomica sul nodo al commit."
+description: "Parti ancora da fare del refactoring delle scritture accumulate: fallimenti sul batch, stato del buffer, misure ed esiti remoti."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-05T09:30:53Z
+timestamp: 2026-11-05T10:14:34Z
 ---
 
 # Stato e obiettivo
 
-Direzione concordata, implementata in parte. Sono già disponibili `set`
+Direzione concordata, implementata in gran parte. Sono disponibili `set`
 con inserimento se assente, la rimozione idempotente, la rimozione delle
-conditional writes e il vincolo sulla
-[provenienza degli ID](/current/decisions/entity-ids.md#provenienza-degli-id-delle-entità),
-descritti nel [contratto dell'API](/current/api/operations.md#operazioni-sulle-entità).
-Oggi però il writer inoltra ogni scrittura al nodo e il
-[commit](/current/architecture/partition-commit.md) prepara lo snapshot
-dello stato già modificato. Il refactoring sposta l'accumulazione nel
-writer, nel processo del client: solo `commit()` trasferisce al nodo le
-modifiche. Il comportamento sarà comune a nodi
-locali e remoti, prima dell'introduzione di gRPC.
+conditional writes, il vincolo sulla
+[provenienza degli ID](/current/decisions/entity-ids.md#provenienza-degli-id-delle-entità)
+e le [scritture accumulate nel writer](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer):
+l'handle compone le scritture per entità e solo `commit()` le manda al
+nodo, in un batch applicato all'ultimo commit. Restano da fare
+l'adattamento al batch di applicazione atomica, preparazione degli
+snapshot e segnalazioni dei fallimenti, con le relative verifiche; lo
+stato del buffer dopo un fallimento certo e il rapporto con il recupero
+sul nodo; le misure di memoria e di durata del commit; il protocollo
+remoto degli esiti.
 
 Il software legge uno snapshot, esegue la propria logica e costruisce le
 scritture, come descritto nelle
@@ -28,120 +29,24 @@ non legge lo stato mutabile attraverso l'esito di una scrittura.
 Lo snapshot letto può non comprendere commit ancora pending, anche di un
 precedente proprietario; il refactoring non introduce letture del pending.
 
-# Semantica delle operazioni
-
-Il buffer conserva la semantica corrente di `insert`, `set` e `remove`:
-`insert` genera l'ID attraverso l'`IdGenerator` e lo restituisce subito,
-prima del commit; `set` sposta l'entità o la reinserisce con lo stesso
-ID; `remove` cancella anche i metadati applicativi e non fa niente su
-un'entità assente. Il vincolo sulla provenienza degli ID resta una regola
-del contratto anche con il trasporto remoto.
-
-Le scritture dei metadati mantengono solo l'ultima modifica per chiave,
-distinguendo un valore da una cancellazione. Una `set` ordinaria
-conserva i metadati non modificati.
-
-Per i metadati su un'entità assente vale la regola sequenziale già
-corrente: una scrittura su un'entità che in quel momento non c'è non fa
-niente e non la crea (vedi [metadati applicativi](/current/architecture/entity-metadata.md#metadati-applicativi)).
-Il buffer conserva questo comportamento: il risultato del batch è sempre
-quello delle chiamate eseguite una alla volta, nel loro ordine, sulla
-base confermata.
-
-# Composizione per identità
-
-Il writer tiene una mappa per ID, non un registro completo delle chiamate.
-L'ordine delle chiamate determina la composizione locale; non deve essere
-trasferito come sequenza globale al nodo. Per ciascuna entità il batch
-descrive le modifiche finali rispetto alla base confermata, senza dover
-conoscere o copiare l'intero contenuto della base.
-
-| Chiamate nel writer | Effetto da trasferire |
-|---|---|
-| `set(A, p1)`, `set(A, p2)` | A presente in p2 |
-| `set(A, p1)`, `remove(A)` | A assente, senza metadati |
-| `remove(A)`, `set(A, p2)` | A presente in p2, con azzeramento dei vecchi metadati |
-| Due scritture sulla stessa chiave | Solo l'ultima modifica |
-| Scrittura di metadati, poi `remove(A)` | A assente; scritture dei metadati scartate |
-| `remove(A)`, scrittura di metadati | A assente; la scrittura non fa niente |
-| Scrittura di metadati, poi `set(A, p)` | A presente in p; la scrittura vale solo se A era nella base |
-| `set(A, p)`, scrittura di metadati | A presente in p con la scrittura, qualunque sia la base |
-
-Il caso rimozione e reinserimento richiede di conservare nel batch
-l'azzeramento dei metadati precedenti: la sola posizione finale non basta.
-
-Il writer non conosce la base, quindi per ogni entità il batch dice cosa
-fare in entrambi i casi. La modifica finale di un'entità ha quattro parti,
-applicate in quest'ordine:
-
-1. **rimozione**, se nel buffer c'è una `remove`: l'entità della base,
-   se c'è, esce con i suoi metadati;
-2. **posizione**, se dopo l'ultima `remove` c'è una `set`: l'entità si
-   sposta conservando i metadati, oppure si aggiunge senza metadati;
-3. **metadati della base**: le scritture fatte prima di ogni `set` o
-   `remove` dell'entità, quando la sua presenza non era nota; valgono
-   solo se l'entità era nella base;
-4. **metadati dopo la `set`**: valgono sempre, perché l'entità c'è.
-
-Ogni gruppo tiene una sola scrittura per chiave; una scrittura dopo la
-`set` sostituisce quella della stessa chiave che dipende dalla base.
-Le parti 1 e 3 non stanno mai insieme, perché la `remove` scarta le
-scritture precedenti, e la 4 richiede una posizione.
-
-```text
-   "put(A, k)"      "set(A, p)"      "put(A, j)"
-        |                |                |
-        v                v                v
-  +------------+   +------------+   +------------+
-  | metadati   |   | posizione  |   | metadati   |
-  | della base |   | p          |   | dopo la    |
-  | "k"        |   |            |   | set: "j"   |
-  +------------+   +------------+   +------------+
-
-  A nella base:     A in p con i vecchi metadati, k e j
-  A non nella base: A in p con j soltanto
-```
-
-Il diagramma mostra una sola entità senza `remove`; le parti si
-applicano da sinistra a destra.
-
-Nel prototipo la composizione è `WriteBuffer2`/`WriteBuffer3` nell'API,
-che produce un `EntityWrite2`/`EntityWrite3` per entità; i test la
-confrontano con l'esecuzione delle chiamate una alla volta, anche su
-sequenze casuali. Il writer non la usa ancora: le scritture vanno al nodo
-a ogni chiamata, come descritto nel [commit della partizione](/current/architecture/partition-commit.md).
-Le modifiche di entità diverse sono indipendenti; non si introducono
-vincoli tra entità o transazioni tra partizioni.
-
-Ridurre le modifiche prima dell'applicazione evita aggiornamenti ripetuti
-dell'indice per la stessa entità. Il costo si sposta verso il buffer del
-client e il commit; il beneficio sui nodi locali va misurato.
-
 # Commit e ciclo di vita
 
-Il nodo riceve token e batch e li tratta come un'unica operazione rispetto
-all'avanzamento del tick e al cambio di proprietà. Applica le modifiche
-all'ultimo stato confermato, compreso il pending, non allo snapshot letto
-dal client. Prepara e accetta insieme slot, indice e metadati, preservando
-la garanzia tutto-o-niente delle
-[strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali).
+Il nodo applica già il batch e prepara il commit sotto lo stesso lock,
+con il ripristino delle
+[strutture transazionali](/current/architecture/partition-commit.md#strutture-transazionali)
+in caso di fallimento. Va adattato e verificato sul batch: un fallimento
+durante l'applicazione o la preparazione deve conservare l'ultimo commit
+e lo snapshot in attesa, segnalare il fallimento e lasciare la salute
+coerente, anche in concorrenza con l'avanzamento del tick e il cambio di
+proprietà. Ripristino, salute e risorse degli snapshot non spariscono
+solo perché le modifiche arrivano insieme.
 
-Restano commit cumulativi, più commit nello stesso tick e commit vuoti.
-Le scritture accumulate possono attraversare più tick prima del commit.
-L'avanzamento successivo pubblica lo snapshot: il refactoring non rende
-immediatamente leggibile il commit e non modifica la persistenza.
-
-Dopo il successo il writer svuota il buffer. `rollback()` prima dell'invio
-scarta il buffer locale e conserva la proprietà; `close()` scarta il
-buffer e rilascia la proprietà sul nodo. Il recupero di una partizione
-rimasta in errore durante un commit resta distinto dallo svuotamento
-locale e va mantenuto nel contratto. Il cambio di proprietario invalida
-il token dei vecchi buffer, senza modificare i commit riusciti.
-
-Tra commit non ci sono scritture del client da annullare sul nodo.
-Durante l'applicazione del batch restano possibili fallimenti: ripristino,
-salute e risorse degli snapshot non possono essere eliminati solo perché
-le modifiche arrivano insieme.
+Oggi `rollback()` e `close()` scartano il buffer e poi vanno al nodo, e il
+cambio di proprietario invalida il token dei vecchi buffer senza
+modificare i commit riusciti. Va definito come si documentano e si
+verificano rollback, `close`, `claim` e `release` ora che tra un commit e
+l'altro il nodo non ha scritture del writer da scartare, mantenendo il
+recupero della partizione sul nodo distinto dallo svuotamento locale.
 
 # Rifiuti ed esiti
 
@@ -154,9 +59,10 @@ superate nel buffer non vengono applicate al nodo.
 
 Un batch rifiutato non cambia la partizione; un fallimento durante
 l'applicazione o la preparazione deve preservare l'ultimo commit e il
-pending precedente. Il buffer può essere conservato dopo un rifiuto
-certo, per correzione o rollback. Va definito il suo stato dopo un
-fallimento certo con ripristino riuscito o recupero necessario.
+pending precedente. Oggi l'handle conserva il buffer dopo ogni commit
+non riuscito, per correzione o rollback. Va definito se conservarlo
+anche dopo un fallimento certo con ripristino riuscito o recupero
+necessario.
 
 Per il remoto serve distinguere rifiuto, fallimento certo ed esito
 incerto. Un batch a esito incerto resta congelato, senza commit successivi
@@ -176,11 +82,11 @@ documentazione. La rappresentazione concreta del batch, i limiti di memoria
 e dimensione, e la durata del lock durante commit grandi vanno valutati
 senza introdurre ora il trasporto remoto o nuove attività sugli indici.
 
-Verificare la composizione confrontandola con l'esecuzione sequenziale
-delle nuove regole, incluse rimozione e reinserimento, modifiche dei
-metadati, entità assenti e più commit. Verificare inoltre zero chiamate
-al nodo durante l'accumulazione, un solo invio al commit, rollback locale,
-token superati, fallimenti e concorrenza con tick e cambio di proprietà.
+La composizione è verificata contro l'esecuzione sequenziale, e i test
+dell'API verificano zero chiamate al nodo durante l'accumulazione e un
+solo invio al commit. Restano da verificare rollback locale, token
+superati, fallimenti e concorrenza con tick e cambio di proprietà sul
+batch.
 
 La rimozione delle conditional writes richiede di riesaminare, quando
 si arriverà alla migrazione, i controlli su epoca, stato e destinazione

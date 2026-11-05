@@ -4,7 +4,7 @@ title: "Estensioni dell’API"
 description: "Ritorno a snapshot più vecchi, letture del pending, attesa del tick, operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
 tags: [badspace, documentation]
 status: draft
-timestamp: 2026-11-05T08:21:18Z
+timestamp: 2026-11-05T10:14:34Z
 generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
 ---
 
@@ -21,7 +21,7 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 
 | Ambito | Estensione | Stato |
 |---|---|---|
-| Writer | Modifiche finali per ID nel client e un solo invio al commit | Refactoring concordato, in corso: `set` che inserisce se assente, rimozione idempotente e rimozione delle conditional writes sono già [disponibili](/current/api/operations.md#operazioni-sulle-entità); vedi [scritture accumulate](/future/architecture/buffered-writes.md) |
+| Writer | Stato del buffer dopo un fallimento certo e verifiche dei fallimenti sul batch | Refactoring in corso: modifiche finali per ID nel client, un solo invio al commit, `set` che inserisce se assente, rimozione idempotente e rimozione delle conditional writes sono già [disponibili](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer); vedi [scritture accumulate](/future/architecture/buffered-writes.md) |
 | Transazioni | Ritorno a uno snapshot pubblicato più vecchio | Da progettare: annullerebbe anche commit riusciti (vedi [strutture transazionali](/future/architecture/transactional-components.md#ritorno-a-uno-snapshot-più-vecchio)); rollback, segnalazione dei fallimenti e salute della partizione sono già [disponibili](/current/architecture/partition-failures.md) |
 | Writer | Letture del pending tramite il writer | Non necessarie nell'[uso con un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick); tre forme valutate nelle [strutture transazionali](/future/architecture/transactional-components.md#letture-del-pending-tramite-il-writer) |
 | Tick | Attesa dell'inizio di un tick da parte del writer | Da valutare: oggi l'avvisa il software che chiama `setTick` |

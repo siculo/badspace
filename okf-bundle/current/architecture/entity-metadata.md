@@ -4,7 +4,7 @@ title: "Metadati applicativi"
 description: "Metadati con chiavi stringa e valori long, letti dagli snapshot e scritti dal writer; decisioni del writer prese sugli snapshot."
 tags: [badspace, architecture, partitioning, metadata, api]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T09:30:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:14:34Z }
 ---
 
 # Ruolo e garanzie
@@ -62,15 +62,14 @@ una scrittura fatta prima della `set` che l'ha aggiunta è persa.
   insieme a slot e indice. Le scritture non confermate si scartano
   riportando la mappa alla versione dell'ultimo commit, senza ripetere
   le scritture al contrario.
-- **Contratto del nodo.** `updateMetadataAll(token, writes)` applica una
-  lista di `MetadataWrite`, ciascuna su una chiave di un'entità: `Put`
-  imposta il valore, `Delete` toglie la chiave. Le scritture valgono
-  nell'ordine della lista, quindi per la stessa chiave vince l'ultima;
-  una scrittura su un'entità che non è nella partizione si salta, mentre
-  un'entità inserita e non ancora confermata riceve i metadati. Come le
-  altre scritture prende il
-  token del proprietario, e il cambio di proprietà scarta anche i
-  metadati non confermati. `getMetadataAll(acquisition, entityIds)`
+- **Contratto del nodo.** Le scritture dei metadati arrivano con il
+  batch del commit, nella modifica finale di ogni entità
+  (`EntityWrite2`/`EntityWrite3`): liste di `MetadataWrite`, ciascuna su
+  una chiave di un'entità, dove `Put` imposta il valore e `Delete` toglie
+  la chiave. Il buffer dell'handle le compone con la regola sequenziale,
+  quindi per la stessa chiave vince l'ultima e una scrittura su
+  un'entità che in quel momento non c'è non fa niente (vedi
+  [scritture accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)). `getMetadataAll(acquisition, entityIds)`
   restituisce un `ApplicationMetadata` (ID e mappa chiave → valore) per
   ogni ID presente nello snapshot, nello stesso ordine, con la mappa
   vuota per un'entità senza metadati; gli ID assenti si saltano, come

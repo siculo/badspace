@@ -1,4 +1,4 @@
-package badspace.api;
+package badspace.common.partition;
 
 import static badspace.common.geometry.Point2.point;
 import static badspace.common.partition.Entity2.entity;
@@ -9,9 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import badspace.common.geometry.Point2;
-import badspace.common.partition.Entity2;
-import badspace.common.partition.EntityWrite2;
-import badspace.common.partition.MetadataWrite;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;

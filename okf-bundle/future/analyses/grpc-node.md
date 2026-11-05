@@ -4,7 +4,7 @@ title: "Analisi del nodo gRPC"
 description: "Problemi da valutare per i nodi remoti: esiti incerti, ripetizione e ordine delle richieste, timeout, tick, identità, acquisizioni, limiti e protocollo."
 tags: [badspace, analysis, architecture, distribution]
 status: draft
-timestamp: 2026-11-04T23:42:12Z
+timestamp: 2026-11-05T10:14:34Z
 generated: { by: codex/gpt-6, at: 2026-10-30T15:48:41Z }
 ---
 
@@ -12,10 +12,11 @@ generated: { by: codex/gpt-6, at: 2026-10-30T15:48:41Z }
 
 ## Aggiornamento: refactoring concordato delle scritture
 
-Prima di gRPC è ora previsto il
+Prima di gRPC è in corso il
 [refactoring delle scritture](/future/architecture/buffered-writes.md):
-accumulazione delle modifiche finali per ID nel client, senza conditional
-writes, e un solo invio al nodo al commit. Le osservazioni sotto sulle
+l'accumulazione delle modifiche finali per ID nel client, senza conditional
+writes, e un solo invio al nodo al commit sono già
+[disponibili](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer). Le osservazioni sotto sulle
 singole scritture remote descrivono il contratto precedente al refactoring,
 non la direzione scelta. Non serve trasferire l'ordine delle operazioni
 interne al batch; restano da gestire ordine dei commit, richieste in ritardo,

@@ -4,7 +4,7 @@ title: Proprietà della partizione
 description: "Proprietà single-writer con fencing token: passaggio, revoca e rilascio; recupero del writer applicativo e limite di visibilità dei commit nello stesso tick; uso con un writer per tick e tick dell'ultimo commit."
 tags: [badspace, architecture, partitioning, concurrency]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T14:26:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:14:34Z }
 ---
 
 # Primitiva
@@ -72,9 +72,11 @@ partizione non controlla chi chiama `claim` (vedi
 
 # Scritture con il token
 
-Le scritture, `commit()` e `remove()` portano il token. La partizione
+Le scritture restano nell'handle del writer e arrivano alla partizione
+solo con il commit (vedi [scritture accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)):
+`commit()`, `rollback()` e `remove()` portano il token. La partizione
 lo confronta con la generazione corrente **sotto il lock della
-partizione**, lo stesso che ordina scritture, commit e avanzamento del
+partizione**, lo stesso che ordina commit e avanzamento del
 tick (vedi [concorrenza](/current/decisions/concurrency.md)): se il token non è
 quello corrente, l'operazione è rifiutata con un errore dedicato e la
 partizione non cambia.
@@ -92,7 +94,9 @@ Restano fuori dal fencing:
 # Cambio di proprietà
 
 - **Il confine è il commit.** A ogni cambio di generazione (`claim` o
-  `release`) le scritture non confermate si scartano. Un commit fatto
+  `release`) le scritture non confermate si scartano: quelle del
+  vecchio writer sono nel suo handle, e il commit che le porterebbe è
+  rifiutato. Un commit fatto
   prima del cambio resta confermato, anche se lo snapshot del suo tick
   non è ancora pubblicato: il nuovo proprietario parte da quello stato,
   e i suoi commit nello stesso tick si aggiungono, con l'ultimo che
@@ -251,11 +255,12 @@ Lo stato di proprietà è nel nodo: i record `Ownership` (generazione,
 posseduta) e `WriteToken` (ID della partizione, generazione ≥ 1) sono in
 `common`, e il contratto del nodo ha `ownership(PartitionId)`,
 `claim(PartitionId, long)`, che restituisce `Optional<WriteToken>`, e
-`release(WriteToken)`. Le scritture, `commit` e le due operazioni di
-rimozione ricevono il `WriteToken` al posto dell'ID della partizione.
+`release(WriteToken)`. `commit`, che riceve anche il batch delle
+scritture, `rollback` e le due operazioni di rimozione ricevono il
+`WriteToken` al posto dell'ID della partizione.
 Nell'API la partizione ha `ownership()`, `claim(long)` e
 `writer(WriteToken)`, e l'handle `PartitionWriter2`/`PartitionWriter3`
-porta il token in ogni scrittura, commit e rimozione e nella lettura
+porta il token nel commit, nel rollback, nella rimozione e nella lettura
 del tick dell'ultimo commit, con `lastCommitTick(WriteToken)` nel
 contratto del nodo e `lastCommitTick()` sull'handle, e `close()` lo
 rilascia (vedi [proprietà e handle del
@@ -278,7 +283,7 @@ spazio crea le partizioni senza proprietario.
   recupero; su una partizione che lo richiede, `claim` e `release`
   ritentano il ripristino e, se riesce, la partizione torna sana (vedi
   [fallimenti e salute](/current/architecture/partition-failures.md)).
-- **Controllo del token.** Ogni scrittura, commit e richiesta di
+- **Controllo del token.** Ogni commit, rollback e richiesta di
   rimozione dello storage riceve la generazione e la confronta con lo
   stato di proprietà subito dopo aver preso il lock della partizione,
   insieme agli altri controlli dell'input: con una generazione che non

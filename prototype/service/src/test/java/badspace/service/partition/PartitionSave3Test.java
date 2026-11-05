@@ -76,9 +76,9 @@ class PartitionSave3Test {
 
     @Test
     void saveHasTheIdsPositionsAndMetadataOfTheSnapshot() throws IOException {
-        node.insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3), entity(2, 4, 5, 6)));
-        node.updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
-        node.commit(owner(node, P1));
+        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3), entity(2, 4, 5, 6)));
+        Writes3.of(node).updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
+        Writes3.of(node).commit(owner(node, P1));
         node.setTick(1);
         PartitionCopy3 saved = PartitionSave3.read(fileOf(node.saveLatest(P1)), nameOf(P1));
         assertEquals(0, saved.tick());
@@ -98,11 +98,11 @@ class PartitionSave3Test {
     @Test
     void saveAtATickChoosesThatSnapshot() throws IOException {
         node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
-        node.insertAll(owner(node, P2), List.of(entity(1, 1, 1, 1)));
-        node.commit(owner(node, P2));
+        Writes3.of(node).insertAll(owner(node, P2), List.of(entity(1, 1, 1, 1)));
+        Writes3.of(node).commit(owner(node, P2));
         node.setTick(1);
-        node.insertAll(owner(node, P2), List.of(entity(2, 2, 2, 2)));
-        node.commit(owner(node, P2));
+        Writes3.of(node).insertAll(owner(node, P2), List.of(entity(2, 2, 2, 2)));
+        Writes3.of(node).commit(owner(node, P2));
         node.setTick(2);
         assertEquals(1, PartitionSave3.read(fileOf(node.save(P2, 0)), nameOf(P2)).size());
         assertEquals(2, PartitionSave3.read(fileOf(node.save(P2, 1)), nameOf(P2)).size());
@@ -111,10 +111,10 @@ class PartitionSave3Test {
 
     @Test
     void savesOfTheSameTickWriteTheSameBytes() throws IOException {
-        node.insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3), entity(2, 4, 5, 6)));
-        node.updateMetadataAll(owner(node, P1),
+        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3), entity(2, 4, 5, 6)));
+        Writes3.of(node).updateMetadataAll(owner(node, P1),
                 List.of(put(1, "b", 1), put(1, "a", 2), put(2, "c", 3), put(2, "a", 4)));
-        node.commit(owner(node, P1));
+        Writes3.of(node).commit(owner(node, P1));
         node.setTick(1);
         byte[] first = Files.readAllBytes(fileOf(node.save(P1, 0)));
         byte[] second = Files.readAllBytes(fileOf(node.save(P1, 0)));
@@ -125,9 +125,9 @@ class PartitionSave3Test {
     @Test
     void savesOfTheSameTickAtTheSameTimeLeaveOneValidSave() throws Exception {
         for (int i = 0; i < 1000; i++) {
-            node.insertAll(owner(node, P1), List.of(entity(i, i % 4, i / 4 % 4, i / 16 % 4)));
+            Writes3.of(node).insertAll(owner(node, P1), List.of(entity(i, i % 4, i / 4 % 4, i / 16 % 4)));
         }
-        node.commit(owner(node, P1));
+        Writes3.of(node).commit(owner(node, P1));
         node.setTick(1);
         int saves = 8;
         List<Callable<SavedPartition>> tasks = new ArrayList<>();
@@ -276,8 +276,8 @@ class PartitionSave3Test {
 
     @Test
     void readRejectsACorruptedSave() throws IOException {
-        node.insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3)));
-        node.commit(owner(node, P1));
+        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3)));
+        Writes3.of(node).commit(owner(node, P1));
         node.setTick(1);
         Path file = fileOf(node.saveLatest(P1));
         byte[] bytes = Files.readAllBytes(file);

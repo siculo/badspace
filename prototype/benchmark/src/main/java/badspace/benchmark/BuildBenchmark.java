@@ -1,6 +1,7 @@
 package badspace.benchmark;
 
 import badspace.common.partition.PartitionNode2;
+import badspace.service.partition.NodeWrites;
 import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -33,7 +34,7 @@ public class BuildBenchmark {
 
     @Benchmark
     public PartitionNode2 build(BuildState s) {
-        s.node.insertAll(WorkloadState.WRITE_TOKEN, s.workload.entities());
+        NodeWrites.insertAll(s.node, WorkloadState.WRITE_TOKEN, s.workload.entities());
         return s.node;
     }
 }

@@ -4,26 +4,27 @@ title: Fallimenti e salute della partizione
 description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione, rollback e recupero."
 tags: [badspace, architecture, transactions, recovery]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T08:11:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:14:34Z }
 ---
 
 # Primitiva
 
 Un’operazione del writer può non riuscire in due modi.
 
-- **Rifiuto.** La partizione controlla tutto l’input, il token e il
-  proprio stato prima di cambiare qualcosa. Un’operazione rifiutata,
-  per esempio con una posizione fuori dai limiti o un token non
-  corrente, non cambia niente: le scritture non confermate precedenti
-  restano.
+- **Rifiuto.** Le scritture restano nell'handle del writer fino al
+  [commit](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer).
+  L'handle rifiuta subito una posizione fuori dai limiti; al commit la
+  partizione controlla tutto il batch, il token e il proprio stato prima
+  di cambiare qualcosa. Un commit rifiutato, per esempio con un token
+  non corrente, non cambia niente, e l'handle conserva le scritture.
 - **Fallimento.** Un’eccezione arriva dopo i controlli, mentre la
-  partizione sta applicando una scrittura o preparando un
+  partizione sta applicando il batch o preparando un
   [commit](/current/architecture/partition-commit.md#strutture-transazionali).
-  Lo stato del writer potrebbe essere a metà, quindi la partizione
-  **annulla tutte le scritture non confermate**, anche quelle dei tick
-  precedenti, riportando le strutture all’ultimo commit con lo stesso
-  ripristino del [cambio di proprietà](/current/architecture/partition-ownership.md#cambio-di-proprietà).
-  Ultimo commit e snapshot in attesa non cambiano.
+  Lo stato delle strutture potrebbe essere a metà, quindi la partizione
+  **annulla il batch**, riportando le strutture all’ultimo commit con lo
+  stesso ripristino del [cambio di proprietà](/current/architecture/partition-ownership.md#cambio-di-proprietà).
+  Ultimo commit e snapshot in attesa non cambiano; l'handle conserva le
+  scritture.
 
 Un fallimento dipende da un bug o da una situazione limite, come
 l’esaurimento della memoria, non dall’input. Il software non lo
@@ -59,10 +60,10 @@ ammesse in ciascuno stato sono nella tabella.
 
 | Operazione | Partizione sana | Recupero necessario |
 |---|---|---|
-| Scritture e commit | Ammessi | Rifiutati con `IllegalStateException`, dopo il controllo del token |
+| Commit | Ammesso | Rifiutato con `IllegalStateException`, dopo il controllo del token |
 | Letture degli snapshot, avanzamento del tick, salvataggi | Ammessi | Ammessi: leggono e pubblicano solo stati confermati e integri |
-| `rollback` del proprietario | Scarta le scritture non confermate | Ritenta il ripristino: se riesce la partizione torna sana, se fallisce lo segnala con un nuovo resoconto |
-| `claim` e `release` | Scartano le scritture non confermate | Ritentano il ripristino: se riesce la partizione torna sana, se fallisce la proprietà cambia comunque |
+| `rollback` del proprietario | L'handle scarta le sue scritture; sul nodo non c'è niente da scartare | Ritenta il ripristino: se riesce la partizione torna sana, se fallisce lo segnala con un nuovo resoconto |
+| `claim` e `release` | Sul nodo non c'è niente da scartare: le scritture del writer sono nel suo handle | Ritentano il ripristino: se riesce la partizione torna sana, se fallisce la proprietà cambia comunque |
 | Rimozione della partizione | Ammessa | Ammessa: guarda solo l’ultimo commit |
 
 La proprietà cambia anche se il ripristino fallisce: un coordinatore può

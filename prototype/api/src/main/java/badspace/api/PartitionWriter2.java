@@ -2,18 +2,19 @@ package badspace.api;
 
 import badspace.common.geometry.Point2;
 import badspace.common.partition.Entity2;
+import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.WriteBuffer2;
 import badspace.common.partition.WriteToken;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Writer handle of a 2D partition: it carries the token of the owner and sends the writes to
- * the node of the partition with it (see {@link PartitionWriter}). Single-entity operations are
- * batches of one entity: to write many entities, the batch operations make fewer calls to the
- * node. The handle keeps no state of the partition: the node checks the token and the state
- * of the partition at each call.
+ * Writer handle of a 2D partition: it carries the token of the owner, keeps the writes in a
+ * {@link WriteBuffer2} and sends them to the node of the partition with the token at the
+ * commit, in one call (see {@link PartitionWriter}). The writes make no calls to the node: the
+ * handle checks the positions against the limits at once, and the node checks the token and
+ * the state of the partition at the commit. The handle keeps no state of the partition.
  */
 public final class PartitionWriter2 implements PartitionWriter {
 
@@ -21,6 +22,8 @@ public final class PartitionWriter2 implements PartitionWriter {
     private final PartitionNode2 node;
     private final WriteToken token;
     private final PartitionConfig config;
+    // The writes not committed yet. Only the writer that uses the handle reads and changes it.
+    private final WriteBuffer2 buffer = new WriteBuffer2();
 
     PartitionWriter2(Space2 space, PartitionNode2 node, WriteToken token, PartitionConfig config) {
         this.space = space;
@@ -50,13 +53,16 @@ public final class PartitionWriter2 implements PartitionWriter {
      * {@linkplain Partition#limits() limits}; in this case no entity is added.
      */
     public long[] insertAll(List<Point2> positions) {
+        for (Point2 position : positions) {
+            checkLimits(position);
+        }
         long[] entityIds = new long[positions.size()];
-        List<Entity2> entities = new ArrayList<>(positions.size());
         for (int i = 0; i < entityIds.length; i++) {
             entityIds[i] = space.nextEntityId();
-            entities.add(new Entity2(entityIds[i], positions.get(i)));
         }
-        node.insertAll(token, entities);
+        for (int i = 0; i < entityIds.length; i++) {
+            buffer.set(new Entity2(entityIds[i], positions.get(i)));
+        }
         return entityIds;
     }
 
@@ -86,7 +92,12 @@ public final class PartitionWriter2 implements PartitionWriter {
      *     {@linkplain Partition#limits() limits}; in this case nothing changes
      */
     public void setAll(List<Entity2> entities) {
-        node.setAll(token, entities);
+        for (Entity2 entity : entities) {
+            checkLimits(entity.position());
+        }
+        for (Entity2 entity : entities) {
+            buffer.set(entity);
+        }
     }
 
     @Override
@@ -96,7 +107,9 @@ public final class PartitionWriter2 implements PartitionWriter {
 
     @Override
     public void removeAll(long[] entityIds) {
-        node.removeAll(token, entityIds);
+        for (long entityId : entityIds) {
+            buffer.remove(entityId);
+        }
     }
 
     @Override
@@ -111,16 +124,20 @@ public final class PartitionWriter2 implements PartitionWriter {
 
     @Override
     public void updateMetadataAll(List<MetadataWrite> writes) {
-        node.updateMetadataAll(token, writes);
+        for (MetadataWrite write : writes) {
+            buffer.write(write);
+        }
     }
 
     @Override
     public void commit() {
-        node.commit(token);
+        node.commit(token, buffer.changes());
+        buffer.clear();
     }
 
     @Override
     public void rollback() {
+        buffer.clear();
         node.rollback(token);
     }
 
@@ -135,10 +152,20 @@ public final class PartitionWriter2 implements PartitionWriter {
             case REQUIRE_EMPTY -> node.removePartition(token);
             case DISCARD_ENTITIES -> node.dropPartition(token);
         }
+        buffer.clear();
     }
 
     @Override
     public void close() {
+        buffer.clear();
         node.release(token);
+    }
+
+    private void checkLimits(Point2 position) {
+        CoordinateLimits limits = config.index().limits();
+        if (!limits.contains(position)) {
+            throw new IllegalArgumentException("Position outside the limits " + limits.min() + ", " + limits.max()
+                    + ": " + position);
+        }
     }
 }

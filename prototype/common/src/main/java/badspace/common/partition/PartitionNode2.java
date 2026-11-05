@@ -18,8 +18,9 @@ import java.util.Optional;
  * {@link Acquisition} and then {@linkplain #release releases} it. Nobody reads the
  * state of the writer, so the writes not yet published are in no read.
  * <p>
- * The snapshot of tick n is the state confirmed by the last {@linkplain #commit commit}
- * of tick n, or the state of the tick before if tick n has no commit. It is published
+ * The snapshot of tick n is the state confirmed by the last
+ * {@linkplain #commit(WriteToken, List) commit} of tick n, or the state of the tick before if
+ * tick n has no commit. It is published
  * when the tick of the partition moves past n: the snapshot of the current tick is never
  * acquirable. With the tick T of the partition, its creation tick C and k retained ticks,
  * readers can acquire the snapshots of the ticks from max(T - k, C) to T - 1 (the
@@ -245,70 +246,29 @@ public interface PartitionNode2 {
     void release(WriteToken token);
 
     /**
-     * Adds new entities to a partition. The API generates the entity IDs with its ID
-     * generator, so they were never used before.
+     * Applies a batch of writes to a partition and confirms it in the current tick of the
+     * partition, in one step: the snapshot of the tick will have the writes, and becomes
+     * acquirable when the tick of the partition moves forward. The changes apply to the last
+     * commit of the partition, also if it waits for the move of the tick, not to the snapshot
+     * that the writer read; each change says what to do with the entity in that state or not
+     * (see {@link EntityWrite2}), and the changes of different entities are independent. The
+     * IDs come from the entity ID generator of the API: the node trusts them and cannot check
+     * where they come from.
+     * <p>
+     * Each commit confirms the full state, including the effects of earlier commits unless
+     * the batch changes or removes them. Only the last commit of a tick defines its snapshot;
+     * readers cannot acquire the intermediate states. A commit with no changes is valid. The
+     * call does not move the tick, wait for the next tick or stop further commits in the same
+     * tick: the writer decides whether to wait before writing again. A rejected batch changes
+     * nothing.
      *
      * @param token the token of the owner of the partition
-     * @param entities the new entities, with their IDs and positions
-     * @throws IllegalArgumentException if an ID is already in the partition or appears twice in
-     *     the list, or if a position is outside the {@linkplain #limits limits} of the partition
-     * @throws OwnershipChangedException if the token is not the current one
-     */
-    void insertAll(WriteToken token, List<Entity2> entities);
-
-    /**
-     * Sets the position of entities: an entity in the partition moves and keeps its
-     * application metadata, an entity not in the partition is added with the given ID and
-     * no metadata. If an ID appears more than once, the last position wins. The IDs come
-     * from the entity ID generator of the API: the node trusts them and cannot check where
-     * they come from.
-     *
-     * @param token the token of the owner of the partition
-     * @param entities the IDs of the entities with their new positions
+     * @param changes the final changes of the entities, at most one for each entity
      * @throws IllegalArgumentException if a position is outside the {@linkplain #limits limits}
-     *     of the partition
+     *     of the partition, or if an entity has more than one change
      * @throws OwnershipChangedException if the token is not the current one
      */
-    void setAll(WriteToken token, List<Entity2> entities);
-
-    /**
-     * Removes entities from a partition, with their application metadata. An ID not in the
-     * partition is skipped, also if it appears more than once: removing an entity twice has
-     * the same effect as removing it once.
-     *
-     * @param token the token of the owner of the partition
-     * @param entityIds the IDs of the entities to remove
-     * @throws OwnershipChangedException if the token is not the current one
-     */
-    void removeAll(WriteToken token, long[] entityIds);
-
-    /**
-     * Writes the application metadata of entities, in the order of the list: if more writes
-     * change the same key, the last one wins. A write on an entity not in the partition is
-     * skipped and does not add the entity, also if a later write of the list is on an entity
-     * that is there. The metadata are confirmed by the same commit as the positions, and are
-     * in the same snapshot.
-     *
-     * @param token the token of the owner of the partition
-     * @param writes the writes, each of which sets or deletes one key of one entity
-     * @throws OwnershipChangedException if the token is not the current one
-     */
-    void updateMetadataAll(WriteToken token, List<MetadataWrite> writes);
-
-    /**
-     * Confirms the writes of a partition in its current tick: the snapshot of the tick will
-     * have them, and becomes acquirable when the tick of the partition moves forward. Each
-     * commit confirms the full current state, including the effects of earlier commits unless
-     * later writes change or remove them. Only the last commit of a tick defines its snapshot;
-     * readers cannot acquire the intermediate states. Writes after the last commit stay
-     * uncommitted and carry over to the next tick. A commit with no writes is valid. The call
-     * does not move the tick, wait for the next tick or stop further writes in the same tick:
-     * the writer decides whether to wait before writing again.
-     *
-     * @param token the token of the owner of the partition
-     * @throws OwnershipChangedException if the token is not the current one
-     */
-    void commit(WriteToken token);
+    void commit(WriteToken token, List<EntityWrite2> changes);
 
     /**
      * Discards the writes not committed of a partition: the state of the writer goes back to

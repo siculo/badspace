@@ -42,12 +42,12 @@ class PartitionLastCommitTick2Test {
     void commitGivesTheCurrentTickAndTheMoveOfTheTickKeepsIt() {
         WriteToken token = node.claim(P1, 0).orElseThrow();
         node.setTick(6);
-        node.insertAll(token, List.of(entity(1, 1, 1)));
-        node.commit(token);
+        Writes2.of(node).insertAll(token, List.of(entity(1, 1, 1)));
+        Writes2.of(node).commit(token);
         assertEquals(6, node.lastCommitTick(token));
         node.setTick(9);
         assertEquals(6, node.lastCommitTick(token));
-        node.commit(token);
+        Writes2.of(node).commit(token);
         assertEquals(9, node.lastCommitTick(token));
     }
 
@@ -55,11 +55,11 @@ class PartitionLastCommitTick2Test {
     void writesAndRollbackDoNotChangeIt() {
         WriteToken token = node.claim(P1, 0).orElseThrow();
         node.setTick(6);
-        node.commit(token);
+        Writes2.of(node).commit(token);
         node.setTick(7);
-        node.insertAll(token, List.of(entity(1, 1, 1)));
+        Writes2.of(node).insertAll(token, List.of(entity(1, 1, 1)));
         assertEquals(6, node.lastCommitTick(token));
-        node.rollback(token);
+        Writes2.of(node).rollback(token);
         assertEquals(6, node.lastCommitTick(token));
     }
 
@@ -71,13 +71,13 @@ class PartitionLastCommitTick2Test {
     void newOwnerKnowsWhetherTheStoppedWriterCommittedInTheCurrentTick() {
         WriteToken stopped = node.claim(P1, 0).orElseThrow();
         node.setTick(6);
-        node.insertAll(stopped, List.of(entity(1, 1, 1)));
-        node.commit(stopped);
+        Writes2.of(node).insertAll(stopped, List.of(entity(1, 1, 1)));
+        Writes2.of(node).commit(stopped);
         WriteToken next = node.claim(P1, stopped.generation()).orElseThrow();
         assertEquals(node.tick(), node.lastCommitTick(next));
 
         node.setTick(7);
-        node.insertAll(next, List.of(entity(2, 2, 2)));
+        Writes2.of(node).insertAll(next, List.of(entity(2, 2, 2)));
         WriteToken last = node.claim(P1, next.generation()).orElseThrow();
         assertEquals(6, node.lastCommitTick(last));
     }

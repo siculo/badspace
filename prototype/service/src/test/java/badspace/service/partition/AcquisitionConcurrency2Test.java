@@ -199,7 +199,7 @@ class AcquisitionConcurrency2Test {
                 entityIds[i] = i + 1;
                 entities.add(new Entity2(entityIds[i], positionAt(0, entityIds[i])));
             }
-            node.insertAll(owner(node, P1), entities);
+            Writes2.of(node).insertAll(owner(node, P1), entities);
 
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -256,8 +256,8 @@ class AcquisitionConcurrency2Test {
                     for (long id : entityIds) {
                         moved.add(new Entity2(id, positionAt(tick, id)));
                     }
-                    node.setAll(owner(node, P1), moved);
-                    node.commit(owner(node, P1));
+                    Writes2.of(node).setAll(owner(node, P1), moved);
+                    Writes2.of(node).commit(owner(node, P1));
                     if (tick == 2) {
                         await(observed);
                     }
@@ -412,7 +412,7 @@ class AcquisitionConcurrency2Test {
         for (IndexConfig config : CONFIGS) {
             LocalPartitionNode2 node = new LocalPartitionNode2();
             node.createPartition(P1, nameOf(P1), config, 1);
-            node.insertAll(owner(node, P1), List.of(new Entity2(10, A), new Entity2(20, B)));
+            Writes2.of(node).insertAll(owner(node, P1), List.of(new Entity2(10, A), new Entity2(20, B)));
             CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -464,7 +464,7 @@ class AcquisitionConcurrency2Test {
                 start.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                 for (long tick = 1; tick <= TICKS; tick++) {
                     node.setTick(tick);
-                    node.commit(owner(node, P1));
+                    Writes2.of(node).commit(owner(node, P1));
                     if (tick == 2) {
                         await(observed);
                     }
@@ -546,7 +546,7 @@ class AcquisitionConcurrency2Test {
                 entityIds[i] = i + 1;
                 entities.add(new Entity2(entityIds[i], positionAt(0, entityIds[i])));
             }
-            node.insertAll(owner(node, P1), entities);
+            Writes2.of(node).insertAll(owner(node, P1), entities);
 
             CountDownLatch observed = new CountDownLatch(READERS);
             AtomicBoolean done = new AtomicBoolean();
@@ -598,9 +598,9 @@ class AcquisitionConcurrency2Test {
                             moved.add(new Entity2(id, positionAt(version, id)));
                         }
                         // Two calls, so the state of the writer between them is mixed.
-                        node.setAll(owner(node, P1), moved.subList(0, ENTITIES / 2));
-                        node.setAll(owner(node, P1), moved.subList(ENTITIES / 2, ENTITIES));
-                        node.commit(owner(node, P1));
+                        Writes2.of(node).setAll(owner(node, P1), moved.subList(0, ENTITIES / 2));
+                        Writes2.of(node).setAll(owner(node, P1), moved.subList(ENTITIES / 2, ENTITIES));
+                        Writes2.of(node).commit(owner(node, P1));
                         if (version == VERSIONS / 2) {
                             await(observed);
                         }

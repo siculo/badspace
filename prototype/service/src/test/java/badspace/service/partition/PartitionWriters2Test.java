@@ -76,11 +76,11 @@ class PartitionWriters2Test {
             });
             node.createPartition(P1, nameOf(P1), config, 1);
             node.createPartition(P2, nameOf(P2), config, 1);
-            node.insertAll(owner(node, P1), List.of(new Entity2(10, A)));
+            Writes2.of(node).insertAll(owner(node, P1), List.of(new Entity2(10, A)));
             Gate gate = new Gate();
             indexes.getFirst().commitGate = gate;
             AtomicReference<Throwable> failure = new AtomicReference<>();
-            Thread writer = worker(() -> node.commit(owner(node, P1)), failure);
+            Thread writer = worker(() -> Writes2.of(node).commit(owner(node, P1)), failure);
             Thread mover = worker(() -> node.setTick(1), failure);
             writer.start();
             try {
@@ -90,9 +90,9 @@ class PartitionWriters2Test {
                 locks.getFirst().awaitWaiting();
 
                 assertTimeoutPreemptively(TIMEOUT, () -> {
-                    node.insertAll(owner(node, P2), List.of(new Entity2(20, B)));
-                    node.setAll(owner(node, P2), List.of(new Entity2(20, C)));
-                    node.commit(owner(node, P2));
+                    Writes2.of(node).insertAll(owner(node, P2), List.of(new Entity2(20, B)));
+                    Writes2.of(node).setAll(owner(node, P2), List.of(new Entity2(20, C)));
+                    Writes2.of(node).commit(owner(node, P2));
                 }, config + ": the writer of P2 waited for P1");
 
             } finally {
@@ -130,7 +130,7 @@ class PartitionWriters2Test {
         for (int w = 0; w < WRITERS; w++) {
             partitionIds[w] = new PartitionId(w + 1);
             node.createPartition(partitionIds[w], nameOf(partitionIds[w]), CONFIGS.get(w % CONFIGS.size()), 2);
-            node.insertAll(owner(node, partitionIds[w]), entitiesAt(w, 0, entityIds));
+            Writes2.of(node).insertAll(owner(node, partitionIds[w]), entitiesAt(w, 0, entityIds));
         }
 
         CountDownLatch observed = new CountDownLatch(READERS);
@@ -152,15 +152,15 @@ class PartitionWriters2Test {
                         List<Entity2> moved = entitiesAt(partition, version, entityIds);
                         if (version % 2 == 0) {
                             // A removal and an insertion: the IDs change in this commit.
-                            node.removeAll(owner(node, partitionId), new long[] {entityIds[ENTITIES - 1]});
-                            node.insertAll(owner(node, partitionId), moved.subList(ENTITIES - 1, ENTITIES));
-                            node.setAll(owner(node, partitionId), moved.subList(0, ENTITIES - 1));
+                            Writes2.of(node).removeAll(owner(node, partitionId), new long[] {entityIds[ENTITIES - 1]});
+                            Writes2.of(node).insertAll(owner(node, partitionId), moved.subList(ENTITIES - 1, ENTITIES));
+                            Writes2.of(node).setAll(owner(node, partitionId), moved.subList(0, ENTITIES - 1));
                         } else {
                             // Two calls, so the state of the writer between them is mixed.
-                            node.setAll(owner(node, partitionId), moved.subList(0, ENTITIES / 2));
-                            node.setAll(owner(node, partitionId), moved.subList(ENTITIES / 2, ENTITIES));
+                            Writes2.of(node).setAll(owner(node, partitionId), moved.subList(0, ENTITIES / 2));
+                            Writes2.of(node).setAll(owner(node, partitionId), moved.subList(ENTITIES / 2, ENTITIES));
                         }
-                        node.commit(owner(node, partitionId));
+                        Writes2.of(node).commit(owner(node, partitionId));
                         if (version == VERSIONS / 2) {
                             middle.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                             await(observed);

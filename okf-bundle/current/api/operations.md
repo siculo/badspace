@@ -4,7 +4,7 @@ title: "Contratto dell’API corrente"
 description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T09:30:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:14:34Z }
 ---
 
 # Contratto corrente
@@ -230,17 +230,19 @@ senza proprietario, alla generazione 0.
 |---|---|---|
 | Stato | `ownership()` sulla partizione | Il record `Ownership`: generazione e se la partizione ha un proprietario |
 | Presa | `claim(long expectedGeneration)` sulla partizione | Restituisce `Optional<WriteToken>`: vuoto se la generazione non è più quella attesa; serve anche a passare e revocare la proprietà |
-| Handle | `writer(WriteToken)` sulla partizione | Crea l'handle del writer per un token, anche ricevuto da un altro writer o da un coordinatore; non controlla la generazione, lo fa il nodo alla prima operazione |
+| Handle | `writer(WriteToken)` sulla partizione | Crea l'handle del writer per un token, anche ricevuto da un altro writer o da un coordinatore; non controlla la generazione, lo fa il nodo alla prima operazione che lo raggiunge: commit, rollback, tick dell'ultimo commit o rimozione |
 | Token | `token()` sull'handle | Il token dell'handle |
-| Rilascio | `close()` sull'handle; `release` nel contratto del nodo | Scarta le scritture non confermate; idempotente, non fa niente se la proprietà è già passata ad altri o la partizione è distrutta, quindi `close()` non fallisce mai |
+| Rilascio | `close()` sull'handle; `release` nel contratto del nodo | Scarta le scritture dell'handle e rilascia la proprietà; idempotente, non fa niente se la proprietà è già passata ad altri o la partizione è distrutta, quindi `close()` non fallisce mai |
 | Salute | `health()` sulla partizione; `health(PartitionId)` nel contratto del nodo | `PartitionHealth.Healthy`, o `RecoveryRequired` con il resoconto del fallimento (vedi [fallimenti e salute](#fallimenti-e-salute)) |
 
 L'**handle del writer** (`PartitionWriter2`/`PartitionWriter3`, con
 l'interfaccia comune `PartitionWriter`) è `AutoCloseable` e porta il
 token: ha le [scritture sulle entità](#operazioni-sulle-entità),
-`commit()` e `removePartition()`. In un `try`-with-resources, se il
-writer esce per un'eccezione prima del commit, `close()` scarta le sue
-scritture come un rollback. Le letture non sono sull'handle: il writer
+`commit()` e `removePartition()`. Le scritture restano nell'handle,
+composte per entità, e non chiamano il nodo: il [commit](#commit) le
+manda tutte insieme. In un `try`-with-resources, se il writer esce per
+un'eccezione prima del commit, `close()` scarta le sue scritture come
+un rollback. Le letture non sono sull'handle: il writer
 legge come ogni reader, con le [acquisizioni](#acquisizione-degli-snapshot).
 
 `claim` restituisce il token e non l'handle, perché nei passaggi di
@@ -254,13 +256,14 @@ appena passata.
 serializzabile `WriteToken`, con l'ID della partizione e la generazione,
 in `common` come `Acquisition`; lo stato è il record `Ownership`. Le
 operazioni sono `ownership(PartitionId)`, `claim(PartitionId, long)` e
-`release(WriteToken)`, e le scritture, `commit` e le due operazioni di
-rimozione ricevono il token al posto dell'ID della partizione.
+`release(WriteToken)`, e `commit`, `rollback`, `lastCommitTick` e le due
+operazioni di rimozione ricevono il token al posto dell'ID della
+partizione.
 
 | Errore | Eccezione |
 |---|---|
-| Scrittura, commit o rimozione con un token che non è quello corrente | `OwnershipChangedException`, eccezione di dominio dedicata; la partizione non cambia |
-| Scrittura o commit su una partizione che richiede un recupero, con il token corrente | `IllegalStateException`; la partizione non cambia |
+| Commit o rimozione con un token che non è quello corrente | `OwnershipChangedException`, eccezione di dominio dedicata; la partizione non cambia. Le scritture non raggiungono il nodo, quindi il token si controlla al commit |
+| Commit su una partizione che richiede un recupero, con il token corrente | `IllegalStateException`; la partizione non cambia |
 | `claim` dalla rimozione in poi | `IllegalStateException` |
 | Generazione attesa negativa | `IllegalArgumentException` |
 | `writer(token)` con il token di un'altra partizione | `IllegalArgumentException` |
@@ -269,14 +272,16 @@ rimozione ricevono il token al posto dell'ID della partizione.
 ## Commit
 
 Il [commit](/current/architecture/partition-commit.md) si chiude con
-`commit()`, sull'handle del writer, senza numero: conferma
-le scritture fatte fino a quel momento nel tick corrente della
-partizione. Più commit nello stesso tick sono ammessi, e l'ultimo
-definisce lo snapshot del tick; le scritture non confermate passano al
-tick successivo.
+`commit()`, sull'handle del writer, senza numero: manda al nodo, in una
+sola chiamata, le scritture fatte fino a quel momento, e il nodo le
+applica all'ultimo commit della partizione e le conferma nel tick
+corrente, in un solo passo. Le scritture possono venire da più tick;
+quelle fatte dopo il commit restano nell'handle fino al commit
+successivo. Più commit nello stesso tick sono ammessi, e l'ultimo
+definisce lo snapshot del tick.
 
-Ogni commit conferma lo stato cumulativo del writer, compresi gli effetti
-dei commit precedenti che non sono stati modificati o rimossi. Solo lo
+Ogni commit conferma lo stato cumulativo della partizione, compresi gli
+effetti dei commit precedenti che il batch non modifica o rimuove. Solo lo
 stato dell’ultimo commit del tick diventa acquisibile all’avanzamento;
 gli stati intermedi non si acquisiscono. `commit()` non avanza il tick,
 non aspetta il successivo e permette di continuare a scrivere nello
@@ -285,8 +290,8 @@ l’esempio in [Commit e tick](/current/architecture/partition-commit.md#commit-
 
 | Operazione | Forma | Note |
 |---|---|---|
-| Commit | `commit()` sull'handle | Conferma lo stato del writer nel tick corrente; un commit senza scritture è valido |
-| Rollback | `rollback()` sull'handle | Scarta le scritture non confermate, anche dei tick precedenti, e tiene commit, snapshot in attesa e proprietà; è anche il recupero di una partizione che lo richiede (vedi [rollback](/current/architecture/partition-failures.md#rollback)) |
+| Commit | `commit()` sull'handle | Manda le scritture dell'handle al nodo, che le applica all'ultimo commit e le conferma nel tick corrente; dopo il successo l'handle è vuoto, se il commit fallisce le conserva; un commit senza scritture è valido |
+| Rollback | `rollback()` sull'handle | Scarta le scritture dell'handle, anche dei tick precedenti, e chiede al nodo di tornare all'ultimo commit; tiene commit, snapshot in attesa e proprietà; è anche il recupero di una partizione che lo richiede (vedi [rollback](/current/architecture/partition-failures.md#rollback)) |
 | Tick dell'ultimo commit | `lastCommitTick()` sull'handle | Il tick dell'ultimo commit; la creazione e il caricamento contano come commit al tick di creazione. Lo cambiano solo i commit del proprietario: dopo `claim` dice al nuovo writer se il tick corrente ha già un commit (vedi [un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick)) |
 | Tick corrente | `tick()` sulla partizione | Il tick della partizione; sostituisce `lastCommit()` |
 | Tick di creazione | `creationTick()` sulla partizione | Il tick in cui la partizione è stata creata: il primo snapshot è `S(creationTick)` |
@@ -299,14 +304,16 @@ l’esempio in [Commit e tick](/current/architecture/partition-commit.md#commit-
 
 Scelte di dettaglio:
 
-- **Scritture rifiutate**: le scritture sono tutto-o-niente, quindi una
-  scrittura rifiutata non cambia nemmeno lo stato del writer. Un
-  fallimento dopo i controlli, invece, annulla tutte le scritture non
-  confermate (vedi [fallimenti e salute](#fallimenti-e-salute)).
+- **Controlli**: l'handle controlla subito i limiti delle posizioni, e
+  una scrittura rifiutata non entra nell'handle. Token, stato e salute
+  della partizione li controlla il nodo al commit: un commit rifiutato
+  non cambia la partizione e l'handle conserva le scritture. Un
+  fallimento dopo i controlli annulla il batch e conserva l'ultimo
+  commit (vedi [fallimenti e salute](#fallimenti-e-salute)).
 - **Rimozione con scritture non confermate**: è permessa, e le scritture
-  si scartano; la politica di rimozione guarda lo stato confermato del
-  tick corrente.
-- **Contratto del nodo**: `commit(WriteToken)`, `rollback(WriteToken)`,
+  dell'handle si scartano senza arrivare al nodo; la politica di
+  rimozione guarda lo stato confermato del tick corrente.
+- **Contratto del nodo**: `commit(WriteToken, List<EntityWrite>)`, `rollback(WriteToken)`,
   `lastCommitTick(WriteToken)`,
   `tick(PartitionId)` e `creationTick(PartitionId)`.
 
@@ -518,21 +525,26 @@ In tutti i casi di errore la partizione non viene creata.
 ## Contratto del nodo
 
 Il contratto del [nodo](/current/architecture/layers.md#nodi)
-(`PartitionNode2`/`PartitionNode3`) espone solo le operazioni batch,
-per raggruppare il lavoro su più entità in una chiamata. Nell'API le operazioni su una sola entità sono
-batch di un elemento.
+(`PartitionNode2`/`PartitionNode3`) espone solo operazioni batch, per
+raggruppare il lavoro su più entità in una chiamata. Le scritture non
+hanno operazioni proprie: arrivano tutte con
+`commit(WriteToken, List<EntityWrite2>)` (`EntityWrite3` in 3D), con al
+più una modifica finale per entità. Le compone il buffer delle scritture
+`WriteBuffer2`/`WriteBuffer3` in `common`, che l'handle usa, come
+descritto in [composizione per entità](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer).
+È la stessa chiamata per il nodo locale e per un nodo remoto futuro.
 
 ## Scritture tutto-o-niente
 
-Ogni scrittura batch è tutto-o-niente: il nodo prima valida tutto
-l'input, poi lo applica, così una scrittura che fallisce non cambia la
-partizione. È semplice grazie al [writer unico](/current/decisions/concurrency.md)
+Il batch del commit è tutto-o-niente: il nodo prima controlla tutto
+l'input, poi lo applica e lo conferma, così un batch rifiutato non cambia
+la partizione. È semplice grazie al [writer unico](/current/decisions/concurrency.md)
 della partizione.
 
 | Errore | Eccezione |
 |---|---|
-| ID già presente o duplicato nell'`insertAll` del contratto del nodo, che riceve gli ID generati dall'API | `IllegalArgumentException` |
-| Posizione fuori dai limiti della partizione in `insert`/`set` | `IllegalArgumentException` |
+| Posizione fuori dai limiti della partizione in `insert`/`set` | `IllegalArgumentException` alla chiamata, nell'handle; il nodo la controlla di nuovo al commit |
+| Più modifiche della stessa entità nel batch del contratto del nodo | `IllegalArgumentException` |
 
 Le coordinate `NaN` o infinite sono rifiutate già alla costruzione di
 `Point2`/`Point3`, e un raggio infinito alla costruzione di
@@ -541,10 +553,10 @@ Le coordinate `NaN` o infinite sono rifiutate già alla costruzione di
 ## Fallimenti e salute
 
 Gli errori delle tabelle precedenti sono rifiuti: arrivano prima di
-qualsiasi modifica. Un’eccezione dopo i controlli, durante una scrittura
-o un commit, è un [fallimento](/current/architecture/partition-failures.md):
-la partizione annulla tutte le scritture non confermate e conserva
-l’ultimo commit e lo snapshot in attesa. I tipi sono in `common`.
+qualsiasi modifica. Un’eccezione dopo i controlli, mentre il nodo applica
+il batch o prepara il commit, è un [fallimento](/current/architecture/partition-failures.md):
+la partizione annulla il batch e conserva l’ultimo commit e lo snapshot
+in attesa. I tipi sono in `common`.
 
 | Caso | Risultato per il chiamante |
 |---|---|

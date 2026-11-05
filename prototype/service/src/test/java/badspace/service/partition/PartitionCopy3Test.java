@@ -40,9 +40,9 @@ class PartitionCopy3Test {
 
     @Test
     void copyHasTheIdsPositionsAndMetadataOfTheSnapshot() {
-        node.insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3), entity(2, 4, 5, 6)));
-        node.updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
-        node.commit(owner(node, P1));
+        Writes3.of(node).insertAll(owner(node, P1), List.of(entity(1, 1, 2, 3), entity(2, 4, 5, 6)));
+        Writes3.of(node).updateMetadataAll(owner(node, P1), List.of(put(1, "version", 7), put(1, "owner", -3)));
+        Writes3.of(node).commit(owner(node, P1));
         node.setTick(1);
         PartitionCopy3 copy = node.copyLatest(P1);
         assertEquals(0, copy.tick());
@@ -62,11 +62,11 @@ class PartitionCopy3Test {
     @Test
     void copyAtATickChoosesThatSnapshot() {
         node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 5);
-        node.insertAll(owner(node, P2), List.of(entity(1, 1, 1, 1)));
-        node.commit(owner(node, P2));
+        Writes3.of(node).insertAll(owner(node, P2), List.of(entity(1, 1, 1, 1)));
+        Writes3.of(node).commit(owner(node, P2));
         node.setTick(1);
-        node.insertAll(owner(node, P2), List.of(entity(2, 2, 2, 2)));
-        node.commit(owner(node, P2));
+        Writes3.of(node).insertAll(owner(node, P2), List.of(entity(2, 2, 2, 2)));
+        Writes3.of(node).commit(owner(node, P2));
         node.setTick(2);
         assertEquals(1, node.copy(P2, 0).size());
         assertEquals(2, node.copy(P2, 1).size());
@@ -75,8 +75,8 @@ class PartitionCopy3Test {
     @Test
     void copyDoesNotDependOnTheLifeOfTheSnapshot() {
         node.createPartition(P2, nameOf(P2), IndexConfig.linearScan(), 1);
-        node.insertAll(owner(node, P2), List.of(entity(1, 1, 2, 3)));
-        node.commit(owner(node, P2));
+        Writes3.of(node).insertAll(owner(node, P2), List.of(entity(1, 1, 2, 3)));
+        Writes3.of(node).commit(owner(node, P2));
         node.setTick(1);
         PartitionCopy3 copy = node.copyLatest(P2);
         // The copy released its acquisition, so the partition can be dropped and destroyed.

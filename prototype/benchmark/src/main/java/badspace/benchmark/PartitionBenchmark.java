@@ -6,6 +6,7 @@ import badspace.common.partition.Entity2;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
+import badspace.service.partition.NodeWrites;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -58,7 +59,7 @@ public class PartitionBenchmark {
         @Override
         void afterWorkload() {
             node = newNode();
-            node.insertAll(WRITE_TOKEN, workload.entities());
+            NodeWrites.insertAll(node, WRITE_TOKEN, workload.entities());
             random = new SplittableRandom(SEED + 1);
             prepare();
         }
@@ -87,7 +88,7 @@ public class PartitionBenchmark {
         @Override
         void afterWorkload() {
             super.afterWorkload();
-            node.commit(WRITE_TOKEN);
+            NodeWrites.commit(node, WRITE_TOKEN);
             node.setTick(1);
         }
 
@@ -142,7 +143,7 @@ public class PartitionBenchmark {
 
         @TearDown(Level.Invocation)
         public void removeInserted() {
-            node.removeAll(WRITE_TOKEN, current.entityIds());
+            NodeWrites.removeAll(node, WRITE_TOKEN, current.entityIds());
         }
     }
 
@@ -173,7 +174,7 @@ public class PartitionBenchmark {
 
         @TearDown(Level.Invocation)
         public void insertRemoved() {
-            node.insertAll(WRITE_TOKEN, current.entities());
+            NodeWrites.insertAll(node, WRITE_TOKEN, current.entities());
         }
     }
 
@@ -311,17 +312,17 @@ public class PartitionBenchmark {
 
     @Benchmark
     public void insert(InsertState s) {
-        s.node.insertAll(WorkloadState.WRITE_TOKEN, s.nextBatch().entities());
+        NodeWrites.insertAll(s.node, WorkloadState.WRITE_TOKEN, s.nextBatch().entities());
     }
 
     @Benchmark
     public void remove(RemoveState s) {
-        s.node.removeAll(WorkloadState.WRITE_TOKEN, s.nextBatch().entityIds());
+        NodeWrites.removeAll(s.node, WorkloadState.WRITE_TOKEN, s.nextBatch().entityIds());
     }
 
     @Benchmark
     public void update(UpdateState s) {
-        s.node.setAll(WorkloadState.WRITE_TOKEN, s.nextBatch());
+        NodeWrites.setAll(s.node, WorkloadState.WRITE_TOKEN, s.nextBatch());
     }
 
     @Benchmark

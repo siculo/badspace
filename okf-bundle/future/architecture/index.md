@@ -1,6 +1,6 @@
 # Percorso di lettura
 
-* [Scritture accumulate nel writer](./buffered-writes.md) - Refactoring concordato: modifiche finali per ID nel client, set con inserimento se assente e applicazione atomica sul nodo al commit.
+* [Scritture accumulate nel writer](./buffered-writes.md) - Parti ancora da fare del refactoring delle scritture accumulate: fallimenti sul batch, stato del buffer, misure ed esiti remoti.
 
 * [Evoluzioni di nodi, servizi e Space](./nodes-and-spaces.md) - Hosting remoto di più nodi, recupero dei nodi vuoti e possibili operazioni tra Space con tempi indipendenti.
 
