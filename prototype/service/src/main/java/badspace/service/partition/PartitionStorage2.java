@@ -139,7 +139,8 @@ final class PartitionStorage2 {
     static final long NOT_CLAIMED = -1;
 
     // Orders the moves of the tick and the operations that change the partition: each of
-    // them runs while holding it. The readers never take it.
+    // them runs while holding it. The readers never take it. The storages of the nodes have a
+    // fair lock, which the threads take in the order in which they wait for it.
     private final ReentrantLock writerLock;
     // The state of the writer, which the next commit confirms. Changed only while holding
     // writerLock; the index reads it through its view of the slots.
@@ -257,7 +258,10 @@ final class PartitionStorage2 {
      */
     PartitionStorage2(CoordinateLimits limits, Function<SlotView2, SpatialIndex2> indexFactory,
             int retainedTicks, MonotonicClock clock, long creationTick) {
-        this(limits, indexFactory, retainedTicks, clock, creationTick, new ReentrantLock(),
+        // A fair lock: a writer that commits again and again cannot take the lock before a move
+        // of the tick that already waits for it, so the move waits at most the commit that is
+        // running. With an unfair lock the writer took it again first, for many commits.
+        this(limits, indexFactory, retainedTicks, clock, creationTick, new ReentrantLock(true),
                 new CoordinateBufferPool());
     }
 

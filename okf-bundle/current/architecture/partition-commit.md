@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T14:41:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T15:17:58Z }
 ---
 
 # Primitiva
@@ -270,7 +270,9 @@ memoria del buffer (`BufferSizes`).
 
 Risultati del 2026-11-05 sulla macchina dedicata, profilo rapido, codice
 del commit `cd4422a` con i benchmark del buffer non ancora committati
-(`prototype/benchmark/results/2026-11-05-1452-*`), distribuzione
+(`prototype/benchmark/results/2026-11-05-1452-*`, con il lock non equo; le
+misure dei commit con il lock equo, in `2026-11-05-1611-*`, sono uguali
+entro la variabilità), distribuzione
 uniforme, senza reader, in millisecondi per tick:
 
 | Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer |
@@ -303,34 +305,41 @@ uniforme, senza reader, in millisecondi per tick:
 `moveTickDuringCommits` misura la latenza di `setTick` mentre un writer
 su un altro thread, non misurato, fa commit degli stessi batch uno dopo
 l'altro, senza pause: è il caso peggiore, con un commit sempre in corso
-o appena finito quando arriva l'avanzamento. Risultati dello stesso
-giorno e della stessa macchina, profilo rapido, con media (modo
-`AverageTime`) e percentili dei campioni (modo `SampleTime`)
+o appena finito quando arriva l'avanzamento. I valori sono la media
+(modo `AverageTime`) e i percentili dei campioni (modo `SampleTime`),
+con il lock equo della partizione
+(`prototype/benchmark/results/2026-11-05-1611-*`); l'ultima colonna è la
+media con il lock non equo usato prima
 (`prototype/benchmark/results/2026-11-05-tick-during-commits-quick.*`):
 
-| Indice ed entità | In movimento | Media | Mediana | Massimo |
-|---|---|---|---|---|
-| Scansione lineare, 1 000 000 | nessuna | 0,4 µs | 0,1 µs | 91 µs |
-| Scansione lineare, 1 000 000 | 1% | 113 ms | 79 ms | 325 ms |
-| Scansione lineare, 1 000 000 | 10% | 29 ms | 26 ms | 51 ms |
-| Scansione lineare, 1 000 000 | 100% | 277 ms | 249 ms | 323 ms |
-| Griglia di quadtree 128, 1 000 000 | 1% | 304 ms | 5,7 ms | 1,07 s |
-| Griglia di quadtree 128, 1 000 000 | 100% | 666 ms | 696 ms | 722 ms |
-| Scansione lineare, 100 000 | 1% | 91 ms | 153 ms | 383 ms |
-| Scansione lineare, 100 000 | 100% | 9,9 ms | 10,1 ms | 28 ms |
+| Indice ed entità | In movimento | Media | Mediana | Massimo | Media con lock non equo |
+|---|---|---|---|---|---|
+| Scansione lineare, 1 000 000 | nessuna | 10 µs | 10 µs | 4,9 ms | 0,4 µs |
+| Scansione lineare, 1 000 000 | 1% | 1,6 ms | 1,5 ms | 5,9 ms | 113 ms |
+| Scansione lineare, 1 000 000 | 10% | 28 ms | 25 ms | 32 ms | 29 ms |
+| Scansione lineare, 1 000 000 | 100% | 272 ms | 267 ms | 331 ms | 277 ms |
+| Griglia di quadtree 128, 1 000 000 | 1% | 5,1 ms | 5,5 ms | 9,7 ms | 304 ms |
+| Griglia di quadtree 128, 1 000 000 | 100% | 690 ms | 699 ms | 712 ms | 666 ms |
+| Scansione lineare, 100 000 | 1% | 0,08 ms | 0,08 ms | 1,7 ms | 91 ms |
+| Scansione lineare, 100 000 | 100% | 9,0 ms | 10,0 ms | 18 ms | 9,9 ms |
 
-- **Con batch grandi l'avanzamento aspetta circa un commit.** Con il 10%
-  e il 100% delle entità la media è vicina alla durata del tick misurato
-  sopra, per esempio 277 ms contro 282 ms.
-- **Con commit brevi uno dopo l'altro l'avanzamento aspetta molti
-  commit.** Con l'1% delle entità un commit dura da 0,1 a qualche
-  millisecondo, ma l'avanzamento aspetta in media da 90 a 300 ms, fino a
-  circa un secondo. Il lock della partizione è un `ReentrantLock` non
-  equo: il writer che chiede di nuovo il lock appena lo ha lasciato lo
-  riprende prima dell'avanzamento già in attesa. Succedeva lo stesso con
-  le scritture inviate una alla volta, che prendevano il lock a ogni
-  chiamata. Un writer che tra un commit e l'altro fa altro lavoro lascia
-  passare l'avanzamento; il benchmark non lo fa.
+- **L'avanzamento aspetta al più circa il commit in corso.** La media è
+  vicina alla durata di un commit, per esempio 1,6 ms con l'1% di
+  1 000 000 di entità e 272 ms con tutte, contro 282 ms del tick.
+- **Il lock della partizione è equo**, e i thread lo prendono nell'ordine
+  in cui lo aspettano. Con il lock non equo usato prima, il writer che
+  chiedeva di nuovo il lock appena lasciato lo riprendeva prima
+  dell'avanzamento già in attesa, e con commit brevi uno dopo l'altro
+  l'avanzamento aspettava molti commit: in media da 90 a 300 ms, fino a
+  circa un secondo, contro commit da 0,1 a qualche millisecondo.
+  Succedeva lo stesso con le scritture inviate una alla volta, che
+  prendevano il lock a ogni chiamata.
+- **Il lock equo non ha un costo misurabile sui commit.** I tempi di
+  `commitTick` e `commitTickWithTheWriter` cambiano tra lo 0,96 e l'1,15
+  volte, come quelli degli spostamenti senza commit, che non contendono
+  il lock: è la variabilità di misure con un solo fork. Con commit vuoti
+  uno dopo l'altro l'avanzamento passa da 0,4 a 10 µs, il costo del
+  passaggio ordinato del lock tra i due thread.
 - Con le latenze lunghe il profilo rapido raccoglie pochi campioni, e
   mediana e massimo sono indicativi.
 

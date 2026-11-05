@@ -216,8 +216,8 @@ snapshot, quindi un avanzamento del tick che arriva nel frattempo lo aspetta.
 mentre un writer su un altro thread, non misurato, fa il commit degli
 spostamenti uno dopo l'altro, senza pause: è il caso peggiore, con un commit
 sempre in corso o appena finito. Va eseguito con `--percentiles` (il piano lo
-fa) per vedere anche le attese lunghe: il lock non è equo, quindi il writer può
-riprenderlo prima dell'avanzamento. Con `movingFraction` 0 i commit sono vuoti:
+fa) per vedere anche le attese lunghe. Il lock è equo, quindi l'avanzamento
+aspetta al più il commit in corso. Con `movingFraction` 0 i commit sono vuoti:
 il riferimento.
 
 `BufferSizes.bytesPerEntity` misura la memoria del buffer prima del commit,

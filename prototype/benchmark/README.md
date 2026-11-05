@@ -216,8 +216,8 @@ it. `CommitBenchmark.moveTickDuringCommits` measures only the move of the tick,
 while a writer on another thread, not measured, commits the moves again and
 again, without pauses: it is the worst case, with a commit always running or
 just ended. Run it with `--percentiles` (the plan does it) to see the long
-waits too: the lock is not fair, so the writer can take it again before the
-move of the tick. With `movingFraction` 0 the commits are empty: the reference.
+waits too. The lock is fair, so the move of the tick waits at most the commit
+that is running. With `movingFraction` 0 the commits are empty: the reference.
 
 `BufferSizes.bytesPerEntity` measures the memory of the buffer before the
 commit, like `Footprint`: the heap with the buffer minus the heap before it,

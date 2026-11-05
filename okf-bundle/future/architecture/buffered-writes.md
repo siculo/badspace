@@ -4,7 +4,7 @@ title: "Scritture accumulate nel writer"
 description: "Parti ancora da fare del refactoring delle scritture accumulate: fallimenti sul batch, stato del buffer, misure ed esiti remoti."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-05T14:41:10Z
+timestamp: 2026-11-05T15:17:58Z
 ---
 
 # Stato e obiettivo
@@ -36,7 +36,7 @@ precedente proprietario; il refactoring non introduce letture del pending.
 
 # Costi da valutare
 
-Le misure con il profilo rapido mostrano quattro costi da valutare:
+Le misure con il profilo rapido mostrano tre costi da valutare:
 
 - **Memoria del buffer**, circa 230 byte per entità con le sole `set`:
   ogni modifica ha un oggetto e due mappe dei metadati create subito, e
@@ -46,17 +46,12 @@ Le misure con il profilo rapido mostrano quattro costi da valutare:
   batch grandi porta il tick dal writer a 1,2–2 volte il tick con le
   scritture date direttamente allo storage.
 - **Durata del lock**, uguale a tutto il commit del batch: un
-  avanzamento del tick aspetta l'intero batch. Un limite alla dimensione
+  avanzamento del tick aspetta l'intero batch in corso, al più uno con il
+  lock equo della partizione. Un limite alla dimensione
   dei batch, o un'applicazione del batch fuori dal lock seguita da uno
   scambio sotto il lock, la ridurrebbero; la prima scelta toglie
   l'atomicità dei batch divisi, la seconda richiede di progettare la
   preparazione su una copia dello stato.
-- **Attese lunghe dell'avanzamento del tick** con un writer che fa commit
-  brevi senza pause: il lock non equo della partizione lascia passare
-  prima il writer, e l'avanzamento aspetta molti commit, fino a circa un
-  secondo nelle misure. Un lock equo, o una precedenza dell'avanzamento
-  del tick sul writer, la eviterebbero, con un costo da misurare su
-  commit e scritture.
 
 Un primo lancio del piano si è fermato per un crash della JVM: un
 `SIGSEGV` nel codice compilato da C2 (OSR) di `WriteBuffer2.changes()`,
