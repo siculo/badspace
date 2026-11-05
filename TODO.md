@@ -37,7 +37,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
   Documenti: [Commit della partizione](okf-bundle/current/architecture/partition-commit.md#strutture-transazionali), [Fallimenti e salute della partizione](okf-bundle/current/architecture/partition-failures.md), [Proprietà della partizione](okf-bundle/current/architecture/partition-ownership.md#un-writer-per-tick), [Estensioni delle strutture transazionali](okf-bundle/future/architecture/transactional-components.md).
 
-- [ ] **Scritture accumulate nel writer:** modifiche finali per ID nel client, `set` con inserimento se assente, rimozioni idempotenti, eliminazione delle conditional writes e un solo invio atomico al commit; modalità di scrittura diretta per il nodo locale e con buffer per il remoto, con gli stessi risultati. → [cose da fare](#fare-scritture) · [decisioni](#decisioni-scritture)
+- [x] **Scritture accumulate nel writer:** modifiche finali per ID nel client, `set` con inserimento se assente, rimozioni idempotenti, eliminazione delle conditional writes e un solo invio atomico al commit; modalità di scrittura diretta per il nodo locale e con buffer per il remoto, con gli stessi risultati. → [cose da fare](#fare-scritture) · [decisioni](#decisioni-scritture)
 
   Documenti: [Scritture accumulate nel writer](okf-bundle/future/architecture/buffered-writes.md), [Commit della partizione](okf-bundle/current/architecture/partition-commit.md), [Fallimenti e salute della partizione](okf-bundle/current/architecture/partition-failures.md).
 
@@ -198,7 +198,7 @@ Comportamento, proposta del contratto e criteri di verifica nel [bundle](okf-bun
 <a id="fare-scritture"></a>
 ### Scritture accumulate nel writer [↑](#blocchi)
 
-Direzione concordata nel [bundle](okf-bundle/future/architecture/buffered-writes.md), in corso di implementazione. Ogni passo comprende 2D e 3D, test pertinenti, migrazione dei chiamanti e aggiornamento progressivo di `current/` e `future/`. Si usano gli indici esistenti; non si riprende il TODO degli indici e non si anticipa il protocollo gRPC.
+Implementato; nel [bundle](okf-bundle/future/architecture/buffered-writes.md) restano i costi da valutare e gli esiti remoti, che si progettano con il nodo gRPC. Ogni passo comprende 2D e 3D, test pertinenti, migrazione dei chiamanti e aggiornamento progressivo di `current/` e `future/`. Si usano gli indici esistenti; non si riprende il TODO degli indici e non si anticipa il protocollo gRPC.
 
 - [x] Sostituire `update`/`updateAll` con `set`/`setAll`, che inseriscono se l'ID manca; rendere `remove` idempotente; conservare la generazione dell'ID in `insert` e definire il vincolo sulla costruzione di entità con soli ID provenienti dall'`IdGenerator`, inclusi snapshot e caricamento
 - [x] Eliminare `updateIf`, `compareAndSetMetadata` e i tipi dedicati alle conditional writes dall'API e dal contratto del nodo; migrare test ed esempi verso logica su snapshot e scritture incondizionate, rendendo esplicita la visibilità degli snapshot
