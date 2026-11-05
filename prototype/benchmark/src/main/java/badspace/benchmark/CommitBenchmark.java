@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Level;
@@ -130,6 +131,36 @@ public class CommitBenchmark {
     public static class AcquireState extends SnapshotState {
     }
 
+    /**
+     * The moves of {@link TickState}, which a writer on another thread commits again and
+     * again, one batch for each commit, while the benchmark moves the tick: each move of the
+     * tick waits for the commit that holds the lock of the partition when it arrives.
+     */
+    @State(Scope.Thread)
+    public static class ContendedTickState extends TickState {
+
+        CommittingWriter writer;
+
+        @Override
+        void prepare() {
+            super.prepare();
+            writer = new CommittingWriter(commits(), original, moved);
+        }
+
+        /**
+         * Returns how the writer commits a batch: with the commit of the node. The tests
+         * replace it, to stop the writer after a commit that they choose.
+         */
+        Consumer<List<EntityWrite2>> commits() {
+            return changes -> node.commit(WRITE_TOKEN, changes);
+        }
+
+        @TearDown(Level.Trial)
+        public void stopWriter() throws InterruptedException {
+            writer.stop();
+        }
+    }
+
     /** Moves a fraction of the entities, commits and moves the tick: one tick of the writer. */
     @Benchmark
     public void commitTick(TickState s) {
@@ -157,6 +188,18 @@ public class CommitBenchmark {
         move(s);
     }
 
+    /**
+     * Moves the tick while a writer on another thread commits the moves of a fraction of the
+     * entities, without pauses between the commits (see {@link ContendedTickState}). The time
+     * is the latency of the move of the tick, mostly the wait for the commit that holds the
+     * lock of the partition; the commits are not measured. With movingFraction 0 the commits
+     * have no changes: the reference.
+     */
+    @Benchmark
+    public void moveTickDuringCommits(ContendedTickState s) {
+        s.node.setTick(++s.tick);
+    }
+
     /** Acquires the latest snapshot and releases it. */
     @Benchmark
     public Acquisition acquireAndRelease(AcquireState s) {
@@ -169,6 +212,50 @@ public class CommitBenchmark {
         List<EntityWrite2> moves = s.nextMoves();
         if (!moves.isEmpty()) {
             NodeWrites.apply(s.node, WorkloadState.WRITE_TOKEN, moves);
+        }
+    }
+
+    /**
+     * A thread that commits batches on the partition until it is stopped, with no pauses:
+     * the original positions, then the moved ones, and so on. It is not measured.
+     */
+    static final class CommittingWriter {
+
+        private final Thread thread;
+        // Written by the thread that stops the writer, read by the writer.
+        private volatile boolean stopped;
+        private final AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        /** Starts the writer: it commits the moved positions first, with the given commit. */
+        CommittingWriter(Consumer<List<EntityWrite2>> commits, List<EntityWrite2> original, List<EntityWrite2> moved) {
+            thread = new Thread(() -> commit(commits, original, moved), "writer");
+            thread.setDaemon(true);
+            thread.start();
+        }
+
+        private void commit(Consumer<List<EntityWrite2>> commits, List<EntityWrite2> original,
+                List<EntityWrite2> moved) {
+            try {
+                boolean movedBack = true;
+                while (!stopped) {
+                    movedBack = !movedBack;
+                    commits.accept(movedBack ? original : moved);
+                }
+            } catch (Throwable e) {
+                failure.compareAndSet(null, e);
+            }
+        }
+
+        /** Stops the writer and waits for it. Fails if the writer failed or did not stop. */
+        void stop() throws InterruptedException {
+            stopped = true;
+            thread.join(TimeUnit.SECONDS.toMillis(10));
+            if (thread.isAlive()) {
+                throw new IllegalStateException("Writer did not stop");
+            }
+            if (failure.get() != null) {
+                throw new IllegalStateException("Writer failed", failure.get());
+            }
         }
     }
 

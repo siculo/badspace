@@ -137,6 +137,7 @@ class BenchmarkPlanTest {
         assertEquals(List.of(CommitBenchmark.class.getName() + ".acquireAndRelease",
                         CommitBenchmark.class.getName() + ".commitTick",
                         CommitBenchmark.class.getName() + ".commitTickWithTheWriter",
+                        CommitBenchmark.class.getName() + ".moveTickDuringCommits",
                         CommitBenchmark.class.getName() + ".movesWithoutCommit"),
                 plan.groups().get(0).runs().get(1).operationBenchmarks());
         assertEquals(List.of(CommitBenchmark.class.getName() + ".acquireAndRelease"),

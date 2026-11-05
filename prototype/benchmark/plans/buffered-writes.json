@@ -1,13 +1,15 @@
 // Measures the costs of the writes kept in the writer and sent with the commit, in one
-// report. It takes about 15-20 minutes.
+// report. It takes about 25-30 minutes.
 //
 // The first run compares a tick of the writer through its buffer (commitTickWithTheWriter)
 // with the same tick that writes directly into the storage (commitTick) and with the moves
 // alone (movesWithoutCommit), with large batches: up to all the entities of a partition of
-// one million. The commit holds the lock of the partition for the application of the batch
-// and the preparation of the snapshot, so a move of the tick that arrives meanwhile waits up
-// to the time of commitTick. The second run measures the memory of the buffer, with and
-// without the metadata (see MetadataSet).
+// one million. The second run measures the latency of the moves of the tick while a writer
+// on another thread commits the same batches without pauses: the commit holds the lock of
+// the partition for the application of the batch and the preparation of the snapshot, so
+// the move of the tick waits for it; the run gives the average and the percentiles. The
+// third run measures the memory of the buffer, with and without the metadata (see
+// MetadataSet).
 {
   "groups": [
     {
@@ -22,6 +24,18 @@
             "distribution": "UNIFORM",
             "size": [100000, 1000000],
             "movingFraction": [0.01, 0.1, 1],
+            "readers": 0
+          }
+        },
+        {
+          "name": "tick-during-commits",
+          "index": ["LINEAR_SCAN", "UNIFORM_GRID_100", "GRID_QUADTREE_128"],
+          "include": "CommitBenchmark\\.moveTickDuringCommits$",
+          "percentiles": true,
+          "params": {
+            "distribution": "UNIFORM",
+            "size": [100000, 1000000],
+            "movingFraction": [0, 0.01, 0.1, 1],
             "readers": 0
           }
         },

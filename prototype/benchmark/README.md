@@ -148,8 +148,8 @@ the grid of quadtrees, in one report. It takes about 10-15 minutes.
 
 `buffered-writes.json` measures the writes kept in the writer (see [Writes
 kept in the writer](#writes-kept-in-the-writer)): the commit of large batches
-through the buffer, and the memory of the buffer. It takes about 15-20
-minutes.
+through the buffer, the wait of the moves of the tick during the commits, and
+the memory of the buffer. It takes about 25-30 minutes.
 
 `persistence-cost-quick.json` and `persistence-cost-full.json` measure the costs
 of the [persistence](#persistence) in 2D and 3D, in one report. The quick one
@@ -169,6 +169,7 @@ takes about 10 minutes, the full one about 1 hour.
 | `Footprint.bytesPerEntity` | Memory used by the partition, storage and index together. | bytes per entity |
 | `CommitBenchmark.commitTick` | A tick of the writer: move a fraction of the entities, commit and move the tick. | µs per call |
 | `CommitBenchmark.commitTickWithTheWriter` | The same tick through the buffer of the writer (`PendingWrites2`), which sends the moves in one batch. | µs per call |
+| `CommitBenchmark.moveTickDuringCommits` | Move the tick while a writer on another thread commits the moves without pauses. | µs per call |
 | `CommitBenchmark.movesWithoutCommit` | The same moves without a commit, the reference for `commitTick`. | µs per call |
 | `CommitBenchmark.acquireAndRelease` | Acquire the latest snapshot and release it. | µs per call |
 | `PersistenceBenchmark2.copy`, `PersistenceBenchmark3.copy` | Copy the published snapshot for a save. | ms per call |
@@ -206,10 +207,17 @@ the pool, and they compete with the writer.
 The writer keeps its writes in a buffer and sends them to the node in one batch
 at the commit. `CommitBenchmark.commitTickWithTheWriter` makes the tick of
 `commitTick` through the buffer: the difference is the cost of the buffer and of
-the batch. The commit holds the lock of the partition while it applies the batch
-and prepares the snapshot, so a move of the tick that arrives meanwhile waits up
-to the time of `commitTick`, which also measures the move of the tick. With
-`movingFraction` 1 and `size` 1000000 the batch has a million entities.
+the batch. With `movingFraction` 1 and `size` 1000000 the batch has a million
+entities.
+
+The commit holds the lock of the partition while it applies the batch and
+prepares the snapshot, so a move of the tick that arrives meanwhile waits for
+it. `CommitBenchmark.moveTickDuringCommits` measures only the move of the tick,
+while a writer on another thread, not measured, commits the moves again and
+again, without pauses: it is the worst case, with a commit always running or
+just ended. Run it with `--percentiles` (the plan does it) to see the long
+waits too: the lock is not fair, so the writer can take it again before the
+move of the tick. With `movingFraction` 0 the commits are empty: the reference.
 
 `BufferSizes.bytesPerEntity` measures the memory of the buffer before the
 commit, like `Footprint`: the heap with the buffer minus the heap before it,
@@ -321,8 +329,8 @@ mvn -f .. install -DskipTests
 | `shape` | findInRegion | `BOX` | `BOX`, `CIRCLE` |
 | `queryCenter` | findInRegion, findNearest | `UNIFORM`, `DATA` | the same |
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
-| `movingFraction` | commitTick, commitTickWithTheWriter, movesWithoutCommit | 0, 0.01, 0.1, 1 | the same |
-| `readers` | commitTick, commitTickWithTheWriter, movesWithoutCommit, acquireAndRelease | 0, 2 | the same |
+| `movingFraction` | commitTick, commitTickWithTheWriter, moveTickDuringCommits, movesWithoutCommit | 0, 0.01, 0.1, 1 | the same |
+| `readers` | commitTick, commitTickWithTheWriter, moveTickDuringCommits, movesWithoutCommit, acquireAndRelease | 0, 2 | the same |
 | `metadata` | persistence, BufferSizes | `NONE`, `FIXED` | the same |
 
 An index name gives the index and its parameters:
