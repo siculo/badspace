@@ -1,24 +1,26 @@
 package badspace.service.partition;
 
 import badspace.common.partition.Entity2;
-import badspace.common.partition.MetadataWrite;
+import badspace.common.partition.EntityWrite2;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.snapshot.MonotonicClock;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
 /**
- * Gives the benchmarks the writes of the storage of a 2D local node, one call for each batch,
- * without the commit: the node gets the writes only with its commit, but the benchmarks of
- * the writes measure the slots and the index alone, like before the writes went to the
- * commit. The node comes from {@link #newNode()}, which makes it with the factory of the
- * storages that the tests use too, and keeps the storage of its only partition. The writes
- * stay in the state of the writer of the storage until {@link #commit}, which confirms them
- * with an empty batch. This class is in the package of the service, but in the benchmark
- * module, so the code of the service does not change its visibility.
+ * Gives the benchmarks the first step of the commit of a 2D local node, the application of a
+ * batch to the storage, without the second step, the preparation of the snapshot: the node
+ * gets the writes only with its commit, but the benchmarks of the writes measure the slots and
+ * the index alone, like before the writes went to the commit. The node comes from {@link
+ * #newNode()}, which makes it with the factory of the storages that the tests use too, and
+ * keeps the storage of its only partition. The writes stay in the state of the writer of the
+ * storage until {@link #commit}, which confirms them with an empty batch. The benchmarks
+ * prepare the batches before the measure. This class is in the package of the service, but in
+ * the benchmark module, so the code of the service does not change its visibility.
  */
 public final class NodeWrites {
 
@@ -48,19 +50,30 @@ public final class NodeWrites {
         return node;
     }
 
-    /** Adds entities to the partition of the node; the IDs must not be in the partition. */
-    public static void insertAll(PartitionNode2 node, WriteToken token, List<Entity2> entities) {
-        storage(node).insertAll(token.generation(), entities);
+    /**
+     * Applies a batch of changes to the state of the writer of the partition of the node,
+     * without the commit: the first step of the commit of the node.
+     */
+    public static void apply(PartitionNode2 node, WriteToken token, List<EntityWrite2> changes) {
+        storage(node).apply(token.generation(), changes);
     }
 
-    /** Sets the positions of entities of the partition of the node. */
-    public static void setAll(PartitionNode2 node, WriteToken token, List<Entity2> entities) {
-        storage(node).setAll(token.generation(), entities);
+    /** Returns the changes that set each entity at its position, to prepare before the measure. */
+    public static List<EntityWrite2> sets(List<Entity2> entities) {
+        List<EntityWrite2> changes = new ArrayList<>(entities.size());
+        for (Entity2 entity : entities) {
+            changes.add(EntityWrite2.set(entity));
+        }
+        return List.copyOf(changes);
     }
 
-    /** Removes entities of the partition of the node. */
-    public static void removeAll(PartitionNode2 node, WriteToken token, long[] entityIds) {
-        storage(node).removeAll(token.generation(), entityIds);
+    /** Returns the changes that remove each entity, to prepare before the measure. */
+    public static List<EntityWrite2> removals(long[] entityIds) {
+        List<EntityWrite2> changes = new ArrayList<>(entityIds.length);
+        for (long entityId : entityIds) {
+            changes.add(EntityWrite2.removal(entityId));
+        }
+        return List.copyOf(changes);
     }
 
     /** Confirms the writes made through this class. */

@@ -42,8 +42,8 @@ class IndexNotifications2Test {
 
     @Test
     void insertionAndMovementNotifyTheAffectedSlots() {
-        storage.insertAll(owner(storage), List.of(new Entity2(10, A), new Entity2(20, B)));
-        storage.setAll(owner(storage), List.of(new Entity2(20, C)));
+        storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(10, A), new Entity2(20, B))));
+        storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(20, C))));
         var order = inOrder(index);
         order.verify(index).inserted(0, A);
         order.verify(index).inserted(1, B);
@@ -54,9 +54,9 @@ class IndexNotifications2Test {
 
     @Test
     void removalNotifiesBeforeRelocationAndHandlesTheNextRemovedId() {
-        storage.insertAll(owner(storage), List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C)));
+        storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(10, A), new Entity2(20, B), new Entity2(30, C))));
         clearInvocations(index);
-        storage.removeAll(owner(storage), new long[] {10, 30});
+        storage.apply(owner(storage), Changes2.removals(new long[] {10, 30}));
         var order = inOrder(index);
         order.verify(index).removed(0, A);
         order.verify(index).relocated(2, 0, C);
@@ -68,29 +68,29 @@ class IndexNotifications2Test {
 
     @Test
     void removalOfTheLastSlotDoesNotRelocate() {
-        storage.insertAll(owner(storage), List.of(new Entity2(10, A), new Entity2(20, B)));
+        storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(10, A), new Entity2(20, B))));
         clearInvocations(index);
-        storage.removeAll(owner(storage), new long[] {20});
+        storage.apply(owner(storage), Changes2.removals(new long[] {20}));
         verify(index).removed(1, B);
         verifyNoMoreInteractions(index);
     }
 
     @Test
     void failedBatchesLeaveBothSlotsAndIndexUnchanged() {
-        storage.insertAll(owner(storage), List.of(new Entity2(10, A)));
+        storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(10, A))));
         clearInvocations(index);
         assertThrows(IllegalArgumentException.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity2(20, B), new Entity2(10, C))));
+                () -> storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(20, B), new Entity2(20, C)))));
         verifyNoInteractions(index);
         Point2 outside = new Point2(11, 0);
         assertThrows(IllegalArgumentException.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity2(20, B), new Entity2(30, outside))));
+                () -> storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(20, B), new Entity2(30, outside)))));
         verifyNoInteractions(index);
         assertThrows(IllegalArgumentException.class,
-                () -> storage.setAll(owner(storage), List.of(new Entity2(10, B), new Entity2(10, outside))));
+                () -> storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(10, B), new Entity2(10, outside)))));
         verifyNoInteractions(index);
         assertThrows(IllegalArgumentException.class,
-                () -> storage.setAll(owner(storage), List.of(new Entity2(20, B), new Entity2(30, outside))));
+                () -> storage.apply(owner(storage), Changes2.sets(List.of(new Entity2(20, B), new Entity2(30, outside)))));
         verifyNoInteractions(index);
         List<Entity2> expected = List.of(new Entity2(10, A));
         StorageSnapshot2 snapshot = storage.commit(owner(storage));

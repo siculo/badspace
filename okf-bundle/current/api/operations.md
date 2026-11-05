@@ -4,7 +4,7 @@ title: "Contratto dell’API corrente"
 description: "Firme, risultati ed errori delle operazioni implementate: entità, metadati, query, nodi, partizioni, proprietà, tick, snapshot, query su più partizioni e salvataggi."
 tags: [badspace, design, api, partitioning]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:57:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T11:57:00Z }
 ---
 
 # Contratto corrente
@@ -564,7 +564,7 @@ in attesa. I tipi sono in `common`.
 | Fallimento con un `Error`, per esempio `OutOfMemoryError` | L’`Error` così com’è, con l’eventuale fallimento del ripristino tra le eccezioni soppresse |
 | Ripristino fallito | Esito `RECOVERY_REQUIRED` nel resoconto; `health()` diventa `RecoveryRequired` e scritture e commit sono rifiutati finché `rollback()`, `claim` o `release` non ripristinano la partizione |
 
-Il resoconto ha operazione (`WRITE`, `COMMIT`, `CLAIM`, `RELEASE`, `ROLLBACK`),
+Il resoconto ha operazione (`COMMIT`, anche per l’applicazione del batch, `CLAIM`, `RELEASE`, `ROLLBACK`),
 struttura (`SLOTS`, `INDEX`, `METADATA`, `UNKNOWN`), esito
 (`WRITES_DISCARDED` o `RECOVERY_REQUIRED`), tick dell’ultimo commit,
 causa ed eventuale fallimento del ripristino. `health()` si legge da

@@ -13,6 +13,7 @@ import badspace.common.geometry.Point3;
 import badspace.common.partition.ApplicationMetadata;
 import badspace.common.partition.CoordinateLimits;
 import badspace.common.partition.Entity3;
+import badspace.common.partition.EntityWrite3;
 import badspace.common.partition.FailureOutcome;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataWrite;
@@ -38,9 +39,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Checks the failures of the writer of a 3D partition. A failure after the checks of the
- * input, in a write or in a commit, discards all the writes not committed and keeps the last
- * commit and the snapshot that waits for the move of the tick; a refusal changes nothing. If
+ * Checks the failures of the commits of a 3D partition. A failure after the checks of the
+ * input, while the batch is applied or the snapshot is prepared, discards the batch and keeps
+ * the last commit and the snapshot that waits for the move of the tick; a refusal changes
+ * nothing. If
  * the restore fails too, the partition needs a recovery until a rollback or a change of the
  * ownership restores it. The index and the pool of the buffers of the tests throw the failures.
  */
@@ -51,6 +53,7 @@ class PartitionFailures3Test {
     private static final Point3 A = new Point3(1, 1, 1);
     private static final Point3 B = new Point3(2, 2, 2);
     private static final Point3 C = new Point3(3, 3, 3);
+    private static final Point3 OUTSIDE = new Point3(101, 0, 0);
     private static final long[] IDS = {10, 20, 30};
     /** More than two pages of slots. */
     private static final int MANY = 2 * MutableSlots3.PAGE_SLOTS + 2;
@@ -78,45 +81,48 @@ class PartitionFailures3Test {
     }
 
     @Test
-    void refusedWriteKeepsTheWritesBefore() {
+    void rejectedBatchChangesNothing() {
         commitFirstState();
-        storage.insertAll(owner(storage), List.of(new Entity3(30, B)));
-        assertThrows(IllegalArgumentException.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity3(30, C))));
-        assertEquals(List.of(new Entity3(10, A), new Entity3(20, B), new Entity3(30, B)),
-                storage.commit(owner(storage)).getAll(IDS));
-        assertSame(PartitionHealth.HEALTHY, storage.health());
+        assertThrows(IllegalArgumentException.class, () -> storage.commit(owner(storage),
+                List.of(EntityWrite3.set(new Entity3(30, B)), EntityWrite3.set(new Entity3(30, C)))));
+        assertThrows(IllegalArgumentException.class, () -> storage.commit(owner(storage),
+                List.of(EntityWrite3.removal(10), EntityWrite3.set(new Entity3(30, OUTSIDE)))));
+        checkFirstStateAfterTheFailure();
     }
 
     @Test
-    void failureOfAWriteDiscardsAlsoTheWritesOfTheTicksBefore() {
+    void failureOfTheIndexInTheBatchDiscardsItAndKeepsTheCommitOfTheTick() {
         commitFirstState();
-        storage.insertAll(owner(storage), List.of(new Entity3(30, C)));
-        storage.setTick(1);
         RuntimeException cause = new IllegalStateException("Index failure for the test");
         index.notificationFailure = cause;
         PartitionFailure failure = assertThrows(PartitionFailureException.class,
-                () -> storage.setAll(owner(storage), List.of(new Entity3(10, C)))).failure();
+                () -> storage.commit(owner(storage), secondState())).failure();
         index.notificationFailure = null;
-        assertEquals(new PartitionFailure(PartitionOperation.WRITE, PartitionComponent.INDEX,
+        assertEquals(new PartitionFailure(PartitionOperation.COMMIT, PartitionComponent.INDEX,
                 FailureOutcome.WRITES_DISCARDED, 0, cause, null), failure);
-        assertSame(PartitionHealth.HEALTHY, storage.health());
         assertEquals(2, storage.size());
+        checkFirstStateAfterTheFailure();
+    }
 
-        storage.insertAll(owner(storage), List.of(new Entity3(30, B)));
-        StorageSnapshot3 next = storage.commit(owner(storage));
-        assertEquals(List.of(new Entity3(10, A), new Entity3(20, B), new Entity3(30, B)), next.getAll(IDS));
-        assertEquals(List.of(new ApplicationMetadata(10, Map.of("hp", 1L))), next.getMetadataAll(new long[] {10}));
+    /** The writer keeps the batch of a failed commit: sent again, it is applied whole. */
+    @Test
+    void batchOfAFailedCommitSentAgainIsAppliedWhole() {
+        commitFirstState();
+        index.notificationFailure = new IllegalStateException("Index failure for the test");
+        assertThrows(PartitionFailureException.class, () -> storage.commit(owner(storage), secondState()));
+        index.notificationFailure = null;
+        StorageSnapshot3 next = storage.commit(owner(storage), secondState());
+        assertEquals(List.of(new Entity3(10, C), new Entity3(20, B), new Entity3(30, C)), next.getAll(IDS));
+        assertEquals(List.of(new ApplicationMetadata(10, Map.of("hp", 2L))), next.getMetadataAll(new long[] {10}));
     }
 
     @Test
     void failureOfTheIndexInACommitDiscardsTheWritesAndKeepsTheCommitOfTheTick() {
         commitFirstState();
-        writeSecondState();
         RuntimeException cause = new IllegalStateException("Index failure for the test");
         index.prepareFailure = cause;
         PartitionFailure failure = assertThrows(PartitionFailureException.class,
-                () -> storage.commit(owner(storage))).failure();
+                () -> storage.commit(owner(storage), secondState())).failure();
         index.prepareFailure = null;
         assertEquals(new PartitionFailure(PartitionOperation.COMMIT, PartitionComponent.INDEX,
                 FailureOutcome.WRITES_DISCARDED, 0, cause, null), failure);
@@ -126,11 +132,10 @@ class PartitionFailures3Test {
     @Test
     void failureOfTheSlotsInACommitDiscardsTheWritesAndKeepsTheCommitOfTheTick() {
         commitFirstState();
-        writeSecondState();
         RuntimeException cause = new IllegalStateException("Buffer failure for the test");
         pool.takeFailure = cause;
         PartitionFailure failure = assertThrows(PartitionFailureException.class,
-                () -> storage.commit(owner(storage))).failure();
+                () -> storage.commit(owner(storage), secondState())).failure();
         pool.takeFailure = null;
         assertEquals(new PartitionFailure(PartitionOperation.COMMIT, PartitionComponent.SLOTS,
                 FailureOutcome.WRITES_DISCARDED, 0, cause, null), failure);
@@ -149,23 +154,20 @@ class PartitionFailures3Test {
         for (int i = 0; i < MANY; i++) {
             committed.add(new Entity3(i, new Point3(i % 50, i / 50, 1)));
         }
-        storage.insertAll(owner(storage), committed);
-        storage.commit(owner(storage));
+        storage.commit(owner(storage), Changes3.sets(committed));
         storage.setTick(1);
         List<Entity3> moved = new ArrayList<>();
         for (Entity3 entity : committed) {
             Point3 position = entity.position();
             moved.add(new Entity3(entity.id(), new Point3(-position.x(), -position.y(), -position.z())));
         }
-        storage.setAll(owner(storage), moved);
         index.prepareFailure = new IllegalStateException("Index failure for the test");
-        assertThrows(PartitionFailureException.class, () -> storage.commit(owner(storage)));
+        assertThrows(PartitionFailureException.class, () -> storage.commit(owner(storage), Changes3.sets(moved)));
         index.prepareFailure = null;
         assertEquals(1, storage.pooledBufferCount());
 
         Entity3 changed = new Entity3(0, C);
-        storage.setAll(owner(storage), List.of(changed));
-        StorageSnapshot3 snapshot = storage.commit(owner(storage));
+        StorageSnapshot3 snapshot = storage.commit(owner(storage), Changes3.sets(List.of(changed)));
         assertEquals(0, storage.pooledBufferCount());
         List<Entity3> expected = new ArrayList<>(committed);
         expected.set(0, changed);
@@ -176,23 +178,22 @@ class PartitionFailures3Test {
     @Test
     void failedRestoreRequiresARecoveryAndRefusesWritesAndCommits() {
         commitFirstState();
-        writeSecondState();
         RuntimeException cause = new IllegalStateException("Index failure for the test");
         RuntimeException restoreCause = new IllegalStateException("Restore failure for the test");
         index.notificationFailure = cause;
         index.restoreFailure = restoreCause;
         PartitionFailure failure = assertThrows(PartitionFailureException.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity3(30, C)))).failure();
+                () -> storage.commit(owner(storage), Changes3.sets(List.of(new Entity3(30, C))))).failure();
         index.notificationFailure = null;
-        assertEquals(new PartitionFailure(PartitionOperation.WRITE, PartitionComponent.INDEX,
+        assertEquals(new PartitionFailure(PartitionOperation.COMMIT, PartitionComponent.INDEX,
                 FailureOutcome.RECOVERY_REQUIRED, 0, cause, restoreCause), failure);
         assertEquals(new PartitionHealth.RecoveryRequired(failure), storage.health());
 
         assertThrows(IllegalStateException.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity3(30, C))));
-        assertThrows(IllegalStateException.class, () -> storage.commit(owner(storage)));
+                () -> storage.commit(owner(storage), Changes3.sets(List.of(new Entity3(30, C)))));
+        assertThrows(IllegalStateException.class, () -> storage.commit(owner(storage), secondState()));
         // A token that is not current is refused for the ownership first.
-        assertThrows(OwnershipChangedException.class, () -> storage.commit(owner(storage) + 1));
+        assertThrows(OwnershipChangedException.class, () -> storage.commit(owner(storage) + 1, List.of()));
         // The move of the tick publishes the last commit, which is whole.
         storage.setTick(1);
         checkFirstState(storage.catalog().latest());
@@ -205,12 +206,11 @@ class PartitionFailures3Test {
     @Test
     void changeOfTheOwnershipTriesTheRestoreAgain() {
         commitFirstState();
-        writeSecondState();
         RuntimeException restoreCause = new IllegalStateException("Restore failure for the test");
         index.notificationFailure = new IllegalStateException("Index failure for the test");
         index.restoreFailure = restoreCause;
         assertThrows(PartitionFailureException.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity3(30, C))));
+                () -> storage.commit(owner(storage), Changes3.sets(List.of(new Entity3(30, C)))));
         index.notificationFailure = null;
 
         long first = owner(storage);
@@ -222,8 +222,7 @@ class PartitionFailures3Test {
         index.restoreFailure = null;
         storage.releaseOwnership(second);
         assertSame(PartitionHealth.HEALTHY, storage.health());
-        storage.insertAll(owner(storage), List.of(new Entity3(30, C)));
-        StorageSnapshot3 next = storage.commit(owner(storage));
+        StorageSnapshot3 next = storage.commit(owner(storage), Changes3.sets(List.of(new Entity3(30, C))));
         assertEquals(List.of(new Entity3(10, A), new Entity3(20, B), new Entity3(30, C)), next.getAll(IDS));
         assertEquals(List.of(new ApplicationMetadata(10, Map.of("hp", 1L))), next.getMetadataAll(new long[] {10}));
     }
@@ -232,12 +231,11 @@ class PartitionFailures3Test {
     @Test
     void rollbackRecoversAPartitionThatNeedsIt() {
         commitFirstState();
-        writeSecondState();
         RuntimeException restoreCause = new IllegalStateException("Restore failure for the test");
         index.notificationFailure = new IllegalStateException("Index failure for the test");
         index.restoreFailure = restoreCause;
         assertThrows(PartitionFailureException.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity3(30, C))));
+                () -> storage.commit(owner(storage), Changes3.sets(List.of(new Entity3(30, C)))));
         index.notificationFailure = null;
 
         PartitionFailure failure = assertThrows(PartitionFailureException.class,
@@ -252,13 +250,12 @@ class PartitionFailures3Test {
         storage.rollback(generation);
         assertSame(PartitionHealth.HEALTHY, storage.health());
         assertEquals(generation, owner(storage));
-        checkFirstState(storage.commit(owner(storage)));
+        checkFirstState(storage.commit(owner(storage), List.of()));
     }
 
     @Test
     void errorInTheRestoreOfARollbackGoesToTheCallerAsItIs() {
         commitFirstState();
-        writeSecondState();
         OutOfMemoryError restoreCause = new OutOfMemoryError("Memory failure for the test");
         index.restoreFailure = restoreCause;
         assertSame(restoreCause, assertThrows(OutOfMemoryError.class, () -> storage.rollback(owner(storage))));
@@ -273,7 +270,7 @@ class PartitionFailures3Test {
         index.notificationFailure = new IllegalStateException("Index failure for the test");
         index.restoreFailure = new IllegalStateException("Restore failure for the test");
         assertThrows(PartitionFailureException.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity3(30, C))));
+                () -> storage.commit(owner(storage), Changes3.sets(List.of(new Entity3(30, C)))));
         storage.requestRemoval(owner(storage), false);
         storage.setTick(1);
         assertEquals(PartitionState.RETIRED, storage.state());
@@ -283,11 +280,10 @@ class PartitionFailures3Test {
     @Test
     void failureOfTheMetadataInACommitDiscardsTheWritesAndKeepsTheCommitOfTheTick() {
         commitFirstState();
-        writeSecondState();
         RuntimeException cause = new IllegalStateException("Metadata failure for the test");
         metadataCommits.prepareFailure = cause;
         PartitionFailure failure = assertThrows(PartitionFailureException.class,
-                () -> storage.commit(owner(storage))).failure();
+                () -> storage.commit(owner(storage), secondState())).failure();
         metadataCommits.prepareFailure = null;
         assertEquals(new PartitionFailure(PartitionOperation.COMMIT, PartitionComponent.METADATA,
                 FailureOutcome.WRITES_DISCARDED, 0, cause, null), failure);
@@ -298,13 +294,12 @@ class PartitionFailures3Test {
     @Test
     void failureOfAnAbandonIsSuppressedInTheFailureOfTheCommit() {
         commitFirstState();
-        writeSecondState();
         RuntimeException cause = new IllegalStateException("Metadata failure for the test");
         RuntimeException abandonCause = new IllegalStateException("Abandon failure for the test");
         metadataCommits.prepareFailure = cause;
         slotCommits.abandonFailure = abandonCause;
         PartitionFailureException thrown = assertThrows(PartitionFailureException.class,
-                () -> storage.commit(owner(storage)));
+                () -> storage.commit(owner(storage), secondState()));
         metadataCommits.prepareFailure = null;
         slotCommits.abandonFailure = null;
         assertSame(cause, thrown.getCause());
@@ -324,11 +319,10 @@ class PartitionFailures3Test {
     @Test
     void sameErrorInTheAbandonKeepsTheFailureOfTheCommit() {
         commitFirstState();
-        writeSecondState();
         OutOfMemoryError cause = new OutOfMemoryError("Memory failure for the test");
         metadataCommits.prepareFailure = cause;
         slotCommits.abandonFailure = cause;
-        assertSame(cause, assertThrows(OutOfMemoryError.class, () -> storage.commit(owner(storage))));
+        assertSame(cause, assertThrows(OutOfMemoryError.class, () -> storage.commit(owner(storage), secondState())));
         metadataCommits.prepareFailure = null;
         slotCommits.abandonFailure = null;
         assertEquals(0, cause.getSuppressed().length);
@@ -338,15 +332,14 @@ class PartitionFailures3Test {
     @Test
     void failedRestoreOfTheMetadataRequiresARecovery() {
         commitFirstState();
-        writeSecondState();
         RuntimeException cause = new IllegalStateException("Index failure for the test");
         RuntimeException restoreCause = new IllegalStateException("Metadata restore failure for the test");
         index.notificationFailure = cause;
         metadataCommits.restoreFailure = restoreCause;
         PartitionFailure failure = assertThrows(PartitionFailureException.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity3(30, C)))).failure();
+                () -> storage.commit(owner(storage), Changes3.sets(List.of(new Entity3(30, C))))).failure();
         index.notificationFailure = null;
-        assertEquals(new PartitionFailure(PartitionOperation.WRITE, PartitionComponent.INDEX,
+        assertEquals(new PartitionFailure(PartitionOperation.COMMIT, PartitionComponent.INDEX,
                 FailureOutcome.RECOVERY_REQUIRED, 0, cause, restoreCause), failure);
         assertEquals(new PartitionHealth.RecoveryRequired(failure), storage.health());
 
@@ -358,7 +351,7 @@ class PartitionFailures3Test {
         metadataCommits.restoreFailure = null;
         storage.rollback(owner(storage));
         assertSame(PartitionHealth.HEALTHY, storage.health());
-        checkFirstState(storage.commit(owner(storage)));
+        checkFirstState(storage.commit(owner(storage), List.of()));
     }
 
     /**
@@ -368,29 +361,27 @@ class PartitionFailures3Test {
     @Test
     void failedRestoreOfTheSlotsRequiresARecovery() {
         commitFirstState();
-        writeSecondState();
         RuntimeException restoreCause = new IllegalStateException("Slot restore failure for the test");
         slotCommits.restoreFailure = restoreCause;
         long first = owner(storage);
         long second = storage.claimOwnership(first);
         assertEquals(new PartitionHealth.RecoveryRequired(new PartitionFailure(PartitionOperation.CLAIM,
                 PartitionComponent.SLOTS, FailureOutcome.RECOVERY_REQUIRED, 0, restoreCause, null)), storage.health());
-        assertThrows(IllegalStateException.class, () -> storage.commit(second));
+        assertThrows(IllegalStateException.class, () -> storage.commit(second, List.of()));
 
         slotCommits.restoreFailure = null;
         long third = storage.claimOwnership(second);
         assertSame(PartitionHealth.HEALTHY, storage.health());
-        checkFirstState(storage.commit(third));
+        checkFirstState(storage.commit(third, List.of()));
     }
 
     @Test
     void failedCommitKeepsTheTickOfTheLastCommitAndTheOwnerReadsItInARecovery() {
         commitFirstState();
         storage.setTick(2);
-        writeSecondState();
         index.prepareFailure = new IllegalStateException("Index failure for the test");
         index.restoreFailure = new IllegalStateException("Restore failure for the test");
-        assertThrows(PartitionFailureException.class, () -> storage.commit(owner(storage)));
+        assertThrows(PartitionFailureException.class, () -> storage.commit(owner(storage), secondState()));
         index.prepareFailure = null;
         assertInstanceOf(PartitionHealth.RecoveryRequired.class, storage.health());
         assertEquals(0, storage.lastCommitTick(owner(storage)));
@@ -400,14 +391,13 @@ class PartitionFailures3Test {
     @Test
     void errorGoesToTheCallerAsItIs() {
         commitFirstState();
-        writeSecondState();
         OutOfMemoryError cause = new OutOfMemoryError("Memory failure for the test");
         index.notificationFailure = cause;
         assertSame(cause, assertThrows(OutOfMemoryError.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity3(30, C)))));
+                () -> storage.commit(owner(storage), Changes3.sets(List.of(new Entity3(30, C))))));
         index.notificationFailure = null;
         assertSame(PartitionHealth.HEALTHY, storage.health());
-        checkFirstState(storage.commit(owner(storage)));
+        checkFirstState(storage.commit(owner(storage), List.of()));
     }
 
     @Test
@@ -418,7 +408,7 @@ class PartitionFailures3Test {
         index.notificationFailure = cause;
         index.restoreFailure = restoreCause;
         OutOfMemoryError thrown = assertThrows(OutOfMemoryError.class,
-                () -> storage.insertAll(owner(storage), List.of(new Entity3(30, C))));
+                () -> storage.commit(owner(storage), Changes3.sets(List.of(new Entity3(30, C)))));
         assertSame(cause, thrown);
         assertArrayEquals(new Throwable[] {restoreCause}, thrown.getSuppressed());
         PartitionHealth.RecoveryRequired health = assertInstanceOf(PartitionHealth.RecoveryRequired.class,
@@ -432,34 +422,34 @@ class PartitionFailures3Test {
         commitFirstState();
         index.notificationFailure = new IllegalStateException("Index failure for the test");
         PartitionFailureException thrown = assertThrows(PartitionFailureException.class,
-                () -> storage.removeAll(owner(storage), new long[] {10}));
+                () -> storage.commit(owner(storage), Changes3.removals(new long[] {10})));
         assertNull(thrown.failure().restoreFailure());
         assertSame(thrown.failure().cause(), thrown.getCause());
     }
 
     /** Commits 10 in A and 20 in B, with metadata on 10, in tick 0. */
     private void commitFirstState() {
-        storage.insertAll(owner(storage), List.of(new Entity3(10, A), new Entity3(20, B)));
-        storage.updateMetadataAll(owner(storage), List.of(MetadataWrite.put(10, "hp", 1)));
-        storage.commit(owner(storage));
+        storage.commit(owner(storage), List.of(
+                new EntityWrite3(10, false, A, List.of(), List.of(MetadataWrite.put(10, "hp", 1))),
+                EntityWrite3.set(new Entity3(20, B))));
     }
 
-    /** Moves 10 to C and changes its metadata, without a commit. */
-    private void writeSecondState() {
-        storage.setAll(owner(storage), List.of(new Entity3(10, C)));
-        storage.updateMetadataAll(owner(storage), List.of(MetadataWrite.put(10, "hp", 2)));
+    /** Returns the batch that moves 10 to C, changes its metadata and adds 30 in C. */
+    private static List<EntityWrite3> secondState() {
+        return List.of(new EntityWrite3(10, false, C, List.of(), List.of(MetadataWrite.put(10, "hp", 2))),
+                EntityWrite3.set(new Entity3(30, C)));
     }
 
     /**
-     * After a failed commit the partition is healthy with the first state: the move of the tick
-     * publishes it, whole, and a new commit without writes confirms it again.
+     * After a rejected or failed commit the partition is healthy with the first state: the move
+     * of the tick publishes it, whole, and a new commit without changes confirms it again.
      */
     private void checkFirstStateAfterTheFailure() {
         assertSame(PartitionHealth.HEALTHY, storage.health());
         storage.setTick(1);
         StorageSnapshot3 published = storage.catalog().latest();
         checkFirstState(published);
-        checkFirstState(storage.commit(owner(storage)));
+        checkFirstState(storage.commit(owner(storage), List.of()));
         checkFirstState(published);
     }
 

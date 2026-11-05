@@ -157,7 +157,7 @@ class PartitionWriters3Test {
                             writes(node, partitionId).setAll(moved.subList(ENTITIES - 1, ENTITIES));
                             writes(node, partitionId).setAll(moved.subList(0, ENTITIES - 1));
                         } else {
-                            // Two calls, so the state of the writer between them is mixed.
+                            // Two calls make one batch: the commit sends it to the node whole.
                             writes(node, partitionId).setAll(moved.subList(0, ENTITIES / 2));
                             writes(node, partitionId).setAll(moved.subList(ENTITIES / 2, ENTITIES));
                         }

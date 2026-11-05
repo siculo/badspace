@@ -1,7 +1,9 @@
 package badspace.benchmark;
 
+import badspace.common.partition.EntityWrite2;
 import badspace.common.partition.PartitionNode2;
 import badspace.service.partition.NodeWrites;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -25,6 +27,13 @@ public class BuildBenchmark {
     public static class BuildState extends WorkloadState {
 
         PartitionNode2 node;
+        // Prepared once, so the benchmark measures only the call.
+        List<EntityWrite2> changes;
+
+        @Override
+        void afterWorkload() {
+            changes = NodeWrites.sets(workload.entities());
+        }
 
         @Setup(Level.Iteration)
         public void createEmptyPartition() {
@@ -34,7 +43,7 @@ public class BuildBenchmark {
 
     @Benchmark
     public PartitionNode2 build(BuildState s) {
-        NodeWrites.insertAll(s.node, WorkloadState.WRITE_TOKEN, s.workload.entities());
+        NodeWrites.apply(s.node, WorkloadState.WRITE_TOKEN, s.changes);
         return s.node;
     }
 }

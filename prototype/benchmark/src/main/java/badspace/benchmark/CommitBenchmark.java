@@ -4,6 +4,7 @@ import badspace.common.geometry.Point2;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
+import badspace.common.partition.EntityWrite2;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.service.partition.NodeWrites;
@@ -88,8 +89,8 @@ public class CommitBenchmark {
         @Param({"0", "0.01", "0.1", "1"})
         public double movingFraction;
 
-        List<Entity2> moved;
-        List<Entity2> original;
+        List<EntityWrite2> moved;
+        List<EntityWrite2> original;
         boolean movedBack = true;
 
         @Override
@@ -98,14 +99,15 @@ public class CommitBenchmark {
                 throw new IllegalArgumentException("Moving fraction is not between 0 and 1: " + movingFraction);
             }
             int count = (int) Math.round(size * movingFraction);
-            original = List.copyOf(shuffledEntities().subList(0, count));
-            moved = original.stream()
+            List<Entity2> entities = List.copyOf(shuffledEntities().subList(0, count));
+            original = NodeWrites.sets(entities);
+            moved = NodeWrites.sets(entities.stream()
                     .map(e -> new Entity2(e.id(), Movement.LOCAL.move(e.position(), STEP, workload, random)))
-                    .toList();
+                    .toList());
         }
 
         /** Returns the moves of the next tick: the moved positions, then the original ones, and so on. */
-        List<Entity2> nextMoves() {
+        List<EntityWrite2> nextMoves() {
             movedBack = !movedBack;
             return movedBack ? original : moved;
         }
@@ -138,9 +140,9 @@ public class CommitBenchmark {
     }
 
     private static void move(TickState s) {
-        List<Entity2> moves = s.nextMoves();
+        List<EntityWrite2> moves = s.nextMoves();
         if (!moves.isEmpty()) {
-            NodeWrites.setAll(s.node, WorkloadState.WRITE_TOKEN, moves);
+            NodeWrites.apply(s.node, WorkloadState.WRITE_TOKEN, moves);
         }
     }
 

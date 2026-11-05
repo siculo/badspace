@@ -304,115 +304,6 @@ final class PartitionStorage2 {
 
     // Writes of the owner.
 
-    void insertAll(long generation, List<Entity2> entities) {
-        writerLock.lock();
-        try {
-            checkWritable(generation);
-            Set<Long> seen = new HashSet<>();
-            for (Entity2 e : entities) {
-                if (slots.slotOf(e.id()) != SlotSnapshot2.NONE || !seen.add(e.id())) {
-                    throw new IllegalArgumentException("Duplicate entity ID: " + e.id());
-                }
-                checkLimits(e.id(), e.position());
-            }
-            try {
-                step = PartitionComponent.SLOTS;
-                slots.ensureCapacity(slots.size() + entities.size());
-                for (Entity2 e : entities) {
-                    insert(e.id(), e.position());
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.WRITE, failure);
-            }
-        } finally {
-            writerLock.unlock();
-        }
-    }
-
-    /**
-     * Sets the positions of entities, in the order of the list: an entity not in the partition
-     * is added with the same ID, an entity in the partition moves and keeps its metadata. If an
-     * ID appears more than once, the last position wins. Fails with IllegalArgumentException
-     * if a position is outside the limits; in this case nothing changes.
-     */
-    void setAll(long generation, List<Entity2> entities) {
-        writerLock.lock();
-        try {
-            checkWritable(generation);
-            int added = 0;
-            for (Entity2 e : entities) {
-                checkLimits(e.id(), e.position());
-                if (slots.slotOf(e.id()) == SlotSnapshot2.NONE) {
-                    added++;
-                }
-            }
-            try {
-                step = PartitionComponent.SLOTS;
-                // An ID that appears twice and is not in the partition is counted twice: the
-                // capacity can be a bit larger than needed, but it is never too small.
-                slots.ensureCapacity(slots.size() + added);
-                for (Entity2 e : entities) {
-                    int slot = slots.slotOf(e.id());
-                    if (slot == SlotSnapshot2.NONE) {
-                        insert(e.id(), e.position());
-                    } else {
-                        move(slot, e.position());
-                    }
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.WRITE, failure);
-            }
-        } finally {
-            writerLock.unlock();
-        }
-    }
-
-    /**
-     * Applies the writes of the application metadata, in their order: if more writes set
-     * the same key, the last one wins. A write on an entity not in the partition is skipped:
-     * it does not add the entity.
-     */
-    void updateMetadataAll(long generation, List<MetadataWrite> writes) {
-        writerLock.lock();
-        try {
-            checkWritable(generation);
-            try {
-                step = PartitionComponent.METADATA;
-                for (MetadataWrite write : writes) {
-                    if (slots.slotOf(write.entityId()) != SlotSnapshot2.NONE) {
-                        metadata.write(write);
-                    }
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.WRITE, failure);
-            }
-        } finally {
-            writerLock.unlock();
-        }
-    }
-
-    /**
-     * Removes entities with their metadata. An ID not in the partition, also because it
-     * appears earlier in the array, is skipped.
-     */
-    void removeAll(long generation, long[] entityIds) {
-        writerLock.lock();
-        try {
-            checkWritable(generation);
-            try {
-                for (long id : entityIds) {
-                    if (slots.slotOf(id) != SlotSnapshot2.NONE) {
-                        remove(id);
-                    }
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.WRITE, failure);
-            }
-        } finally {
-            writerLock.unlock();
-        }
-    }
-
     // Load.
 
     /**
@@ -479,15 +370,31 @@ final class PartitionStorage2 {
 
     /**
      * Applies a batch of changes to the last commit and confirms it, in the same step and
-     * under the lock, like {@link #commit(long)}. Each change applies in the order that
-     * {@link EntityWrite2} describes. Fails with IllegalArgumentException if a position is
-     * outside the limits or an entity has more than one change, with OwnershipChangedException
-     * if generation is not the one of the owner, and with IllegalStateException if the
-     * partition needs a recovery or its removal was requested: in these cases nothing changes.
-     * Fails with PartitionFailureException if a change or the commit fails: then the changes are
-     * discarded and the last commit stays.
+     * under the lock: {@link #apply}, then {@link #commit(long)}. Fails like them, so a
+     * rejected batch changes nothing, and a failure discards the batch and keeps the last
+     * commit.
      */
     StorageSnapshot2 commit(long generation, List<EntityWrite2> changes) {
+        writerLock.lock();
+        try {
+            apply(generation, changes);
+            return commit(generation);
+        } finally {
+            writerLock.unlock();
+        }
+    }
+
+    /**
+     * Applies a batch of changes to the state of the writer, the first step of a commit. Each
+     * change applies in the order that {@link EntityWrite2} describes. Only the writer can call
+     * it. Fails with IllegalArgumentException if a position is outside the limits or an entity
+     * has more than one change, with OwnershipChangedException if generation is not the one of
+     * the owner, and with IllegalStateException if the partition needs a recovery or its
+     * removal was requested: in these cases nothing changes. Fails with
+     * PartitionFailureException if a change fails, as a failure of the commit: then the state
+     * of the writer goes back to the last commit.
+     */
+    void apply(long generation, List<EntityWrite2> changes) {
         writerLock.lock();
         try {
             checkWritable(generation);
@@ -515,23 +422,22 @@ final class PartitionStorage2 {
             } catch (Throwable failure) {
                 throw failed(PartitionOperation.COMMIT, failure);
             }
-            return commitWrites();
         } finally {
             writerLock.unlock();
         }
     }
 
     /**
-     * Confirms the writes in the current tick and returns the snapshot of the commit. The next
-     * move of the tick publishes it, unless a later commit in the same tick replaces it: then
-     * the returned snapshot must not be read any more, because its buffer can go to a later
-     * commit. It does not remove the expired acquisitions: the caller calls
-     * {@link #removeExpired} after it and takes its result, because after the release of the
-     * lock the partition can be removed and its last snapshot can end. Only the writer can call
-     * it. Fails with OwnershipChangedException if generation is not the one of the owner, with
-     * IllegalStateException if the partition needs a recovery, and with
-     * PartitionFailureException if the commit fails: then the writes not committed are
-     * discarded.
+     * Confirms the state of the writer in the current tick, the second step of a commit, and
+     * returns the snapshot of the commit. The next move of the tick publishes it, unless a
+     * later commit in the same tick replaces it: then the returned snapshot must not be read
+     * any more, because its buffer can go to a later commit. It does not remove the expired
+     * acquisitions: the caller calls {@link #removeExpired} after it and takes its result,
+     * because after the release of the lock the partition can be removed and its last snapshot
+     * can end. Only the writer can call it. Fails with OwnershipChangedException if generation
+     * is not the one of the owner, with IllegalStateException if the partition needs a
+     * recovery, and with PartitionFailureException if the commit fails: then the state of the
+     * writer goes back to the last commit.
      */
     StorageSnapshot2 commit(long generation) {
         writerLock.lock();

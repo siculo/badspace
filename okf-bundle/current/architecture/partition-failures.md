@@ -4,7 +4,7 @@ title: Fallimenti e salute della partizione
 description: "Rifiuti e fallimenti del writer: annullamento delle scritture non confermate, segnalazione strutturata, salute della partizione, rollback e recupero."
 tags: [badspace, architecture, transactions, recovery]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:14:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T11:57:00Z }
 ---
 
 # Primitiva
@@ -97,7 +97,7 @@ Un fallimento produce un resoconto, il record `PartitionFailure`:
 
 | Campo | Significato |
 |---|---|
-| `operation` | `WRITE`, `COMMIT`, `CLAIM`, `RELEASE` o `ROLLBACK` |
+| `operation` | `COMMIT`, sia nell’applicazione del batch sia nella preparazione dello snapshot, `CLAIM`, `RELEASE` o `ROLLBACK` |
 | `component` | `SLOTS`, `INDEX`, `METADATA` o `UNKNOWN`: la struttura in cui è avvenuto |
 | `outcome` | `WRITES_DISCARDED` se il ripristino è riuscito, `RECOVERY_REQUIRED` altrimenti |
 | `baseTick` | Il tick dell’ultimo commit, lo stato che la partizione conserva; la creazione e il caricamento contano come commit al tick di creazione |
@@ -132,9 +132,12 @@ chiamante riceve comunque il fallimento originale.
 
 # Nel prototipo
 
-Lo storage (`PartitionStorage2`/`PartitionStorage3`) separa in ogni
-scrittura i controlli dall’applicazione e avvolge l’applicazione e la
-preparazione del commit in un solo punto di gestione dei fallimenti.
+Lo storage (`PartitionStorage2`/`PartitionStorage3`) fa il commit di un
+batch in due passi, sotto lo stesso lock: `apply`, che controlla tutto il
+batch prima di applicarlo allo stato del writer, e `commit`, che prepara
+e accetta lo snapshot. I due passi hanno un solo punto di gestione dei
+fallimenti, e un fallimento in uno qualsiasi dei due è un fallimento del
+commit.
 Durante il lavoro tiene la struttura in corso, per il campo `component`,
 e il tick dell’ultimo commit, per `baseTick`. La salute è un campo
 `volatile` scritto sotto il lock della partizione, come la proprietà.
@@ -164,12 +167,13 @@ sostituiscono per far fallire un'allocazione.
 I test dello storage, in 2D e 3D, provocano i fallimenti con l’indice e
 il pool dei buffer dei test, e con un costruttore dello storage per i
 test che mette slot e metadati dentro componenti dei commit che possono
-fallire nella preparazione, nell’abbandono e nel ripristino: un fallimento nelle notifiche all’indice
-annulla anche le scritture di un tick precedente, mentre un rifiuto le
-lascia; un fallimento nella preparazione degli slot o dell’indice
-annulla le scritture e lascia intatto lo snapshot in attesa; un
-fallimento con ripristino fallito porta al recupero necessario, con
-scritture e commit rifiutati, il token non corrente rifiutato per primo,
+fallire nella preparazione, nell’abbandono e nel ripristino: un batch
+rifiutato, con due modifiche della stessa entità o una posizione fuori
+dai limiti, non cambia niente; un fallimento nelle notifiche all’indice
+durante l’applicazione del batch, o nella preparazione degli slot o
+dell’indice, annulla il batch e lascia intatto lo snapshot in attesa, e
+lo stesso batch inviato di nuovo si applica intero; un fallimento con
+ripristino fallito porta al recupero necessario, con i commit rifiutati, il token non corrente rifiutato per primo,
 la pubblicazione dell’ultimo commit e la rimozione ammessa; `claim`
 ritenta il ripristino e, mentre fallisce, cambia comunque la proprietà;
 `release` lo completa e la partizione torna sana; il rollback fa lo
@@ -197,6 +201,17 @@ pool senza commit, e il commit dopo il ripristino lo riusa copiando
 anche la pagina che non ha più la scrittura scartata; il fallimento
 della restituzione va tra le soppresse, tranne quando è la stessa
 istanza.
+
+I test del commit a batch sul nodo, in 2D e 3D (`BatchCommit2Test`/
+`BatchCommit3Test`), scrivono con `PendingWrites2`/`PendingWrites3` e
+fermano il batch alla prima notifica all’indice: un avanzamento del tick
+o un `claim` che arriva durante l’applicazione aspetta il lock, e dopo
+lo snapshot o il nuovo proprietario trovano il batch intero. Verificano
+anche che un batch rifiutato lasci lo snapshot in attesa e il tick
+dell’ultimo commit, che un batch fallito lasci lo snapshot in attesa e
+le scritture del writer, confermate dal commit successivo, e che dopo un
+ripristino fallito i commit siano rifiutati fino al rollback del nodo,
+dopo il quale il writer conferma le scritture che ha tenuto.
 
 # Correlati
 

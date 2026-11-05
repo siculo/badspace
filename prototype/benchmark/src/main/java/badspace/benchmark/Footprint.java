@@ -141,7 +141,7 @@ final class Footprint {
             PartitionNode2 node = NodeWrites.newNode();
             node.createPartition(WorkloadState.PARTITION_ID, WorkloadState.PARTITION_NAME, IndexNames.parse(index));
             node.claim(WorkloadState.PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
-            NodeWrites.insertAll(node, WorkloadState.WRITE_TOKEN, workload.entities());
+            NodeWrites.apply(node, WorkloadState.WRITE_TOKEN, NodeWrites.sets(workload.entities()));
             long after = usedHeap();
             Reference.reachabilityFence(node);
             samples[r] = (double) (after - before) / workload.entities().size();

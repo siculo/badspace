@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T10:57:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T11:57:00Z }
 ---
 
 # Primitiva
@@ -312,8 +312,11 @@ package-private in `common`, che produce un `EntityWrite2`/
 chiamate una alla volta, anche su 5000 sequenze casuali di `set`,
 `remove` e scritture dei metadati su basi casuali. Il contratto del
 nodo ha `commit(WriteToken, List<EntityWrite2>)` al posto delle singole
-scritture; lo storage applica le modifiche e prepara il commit sotto lo
-stesso lock. I test del nodo scrivono con lo stesso `PendingWrites2`/
+scritture; lo storage fa il commit in due passi sotto lo stesso lock,
+`apply`, che applica il batch allo stato del writer, e `commit`, che
+prepara lo snapshot. Test e benchmark dello storage usano gli stessi due
+passi, senza scritture proprie. `EntityWrite2`/`EntityWrite3` ha i
+metodi di comodo `set`, `removal` e `metadataOf` per i test e i client. I test del nodo scrivono con lo stesso `PendingWrites2`/
 `PendingWrites3`, uno per token; i benchmark delle scritture misurano slot e indice senza il commit,
 scrivendo direttamente nello storage di un nodo locale creato con la
 factory degli storage che usano anche i test, perché restino
@@ -378,7 +381,8 @@ ripristinano prima dell’indice come nello storage.
 I test dello storage, in 2D e 3D, fanno fallire la preparazione degli
 slot, con un pool dei buffer che fallisce, e quella dell’indice, con un
 indice dei test che fallisce: lo snapshot in attesa resta intatto e
-viene pubblicato, le scritture restano, il commit ripetuto le conferma.
+viene pubblicato, il batch è annullato, e lo stesso batch inviato di
+nuovo si applica intero.
 Un altro test abbandona un commit con più pagine di slot cambiate, poi
 il cambio di proprietà riporta indietro gli slot e il commit successivo
 riprende dal pool il buffer abbandonato: le coordinate sono quelle

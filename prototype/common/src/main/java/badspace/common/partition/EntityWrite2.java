@@ -31,6 +31,24 @@ import java.util.List;
 public record EntityWrite2(long entityId, boolean removed, Point2 position,
         List<MetadataWrite> metadataIfInBase, List<MetadataWrite> metadata) {
 
+    /** Returns the change that sets the entity at its position, for example in tests and clients. */
+    public static EntityWrite2 set(Entity2 entity) {
+        return new EntityWrite2(entity.id(), false, entity.position(), List.of(), List.of());
+    }
+
+    /** Returns the change that removes the entity, for example in tests and clients. */
+    public static EntityWrite2 removal(long entityId) {
+        return new EntityWrite2(entityId, true, null, List.of(), List.of());
+    }
+
+    /**
+     * Returns the change that writes the metadata of an entity of the base, in their order, for
+     * example in tests and clients. Fails like the constructor.
+     */
+    public static EntityWrite2 metadataOf(long entityId, List<MetadataWrite> writes) {
+        return new EntityWrite2(entityId, false, null, writes, List.of());
+    }
+
     /**
      * Copies the lists.
      *

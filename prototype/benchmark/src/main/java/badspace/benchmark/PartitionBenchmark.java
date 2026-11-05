@@ -3,6 +3,7 @@ package badspace.benchmark;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
+import badspace.common.partition.EntityWrite2;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.geometry.Point2;
 import badspace.common.geometry.Region2;
@@ -59,7 +60,7 @@ public class PartitionBenchmark {
         @Override
         void afterWorkload() {
             node = newNode();
-            NodeWrites.insertAll(node, WRITE_TOKEN, workload.entities());
+            NodeWrites.apply(node, WRITE_TOKEN, NodeWrites.sets(workload.entities()));
             random = new SplittableRandom(SEED + 1);
             prepare();
         }
@@ -104,11 +105,12 @@ public class PartitionBenchmark {
         }
     }
 
-    /** A batch of entities with their IDs. */
-    record Batch(List<Entity2> entities, long[] entityIds) {
+    /** A batch of entities, with the changes that set them and the changes that remove them. */
+    record Batch(List<EntityWrite2> sets, List<EntityWrite2> removals) {
 
         static Batch of(List<Entity2> entities) {
-            return new Batch(List.copyOf(entities), entities.stream().mapToLong(Entity2::id).toArray());
+            return new Batch(NodeWrites.sets(entities),
+                    NodeWrites.removals(entities.stream().mapToLong(Entity2::id).toArray()));
         }
     }
 
@@ -143,7 +145,7 @@ public class PartitionBenchmark {
 
         @TearDown(Level.Invocation)
         public void removeInserted() {
-            NodeWrites.removeAll(node, WRITE_TOKEN, current.entityIds());
+            NodeWrites.apply(node, WRITE_TOKEN, current.removals());
         }
     }
 
@@ -174,7 +176,7 @@ public class PartitionBenchmark {
 
         @TearDown(Level.Invocation)
         public void insertRemoved() {
-            NodeWrites.insertAll(node, WRITE_TOKEN, current.entities());
+            NodeWrites.apply(node, WRITE_TOKEN, current.sets());
         }
     }
 
@@ -195,8 +197,8 @@ public class PartitionBenchmark {
         @Param("10")
         public double step;
 
-        List<List<Entity2>> moved;
-        List<List<Entity2>> original;
+        List<List<EntityWrite2>> moved;
+        List<List<EntityWrite2>> original;
         int next;
 
         @Override
@@ -207,15 +209,15 @@ public class PartitionBenchmark {
             original = new ArrayList<>(count);
             for (int b = 0; b < count; b++) {
                 List<Entity2> batch = List.copyOf(shuffled.subList(b * batchSize, (b + 1) * batchSize));
-                original.add(batch);
-                moved.add(batch.stream()
+                original.add(NodeWrites.sets(batch));
+                moved.add(NodeWrites.sets(batch.stream()
                         .map(e -> new Entity2(e.id(), movement.move(e.position(), step, workload, random)))
-                        .toList());
+                        .toList()));
             }
         }
 
         /** Goes through all the moved batches, then through all the original ones, and so on. */
-        List<Entity2> nextBatch() {
+        List<EntityWrite2> nextBatch() {
             int count = moved.size();
             int i = next;
             next = (next + 1) % (2 * count);
@@ -312,17 +314,17 @@ public class PartitionBenchmark {
 
     @Benchmark
     public void insert(InsertState s) {
-        NodeWrites.insertAll(s.node, WorkloadState.WRITE_TOKEN, s.nextBatch().entities());
+        NodeWrites.apply(s.node, WorkloadState.WRITE_TOKEN, s.nextBatch().sets());
     }
 
     @Benchmark
     public void remove(RemoveState s) {
-        NodeWrites.removeAll(s.node, WorkloadState.WRITE_TOKEN, s.nextBatch().entityIds());
+        NodeWrites.apply(s.node, WorkloadState.WRITE_TOKEN, s.nextBatch().removals());
     }
 
     @Benchmark
     public void update(UpdateState s) {
-        NodeWrites.setAll(s.node, WorkloadState.WRITE_TOKEN, s.nextBatch());
+        NodeWrites.apply(s.node, WorkloadState.WRITE_TOKEN, s.nextBatch());
     }
 
     @Benchmark
