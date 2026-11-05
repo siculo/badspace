@@ -24,7 +24,7 @@ import java.util.WeakHashMap;
  */
 public final class NodeWrites {
 
-    // The storage of the only partition of each node of newNode(). The nodes are weak keys,
+    // The storage of the first partition of each node of newNode(). The nodes are weak keys,
     // so the storages go away with the node of the benchmark.
     private static final Map<PartitionNode2, PartitionStorage2[]> STORAGES =
             Collections.synchronizedMap(new WeakHashMap<>());
@@ -33,18 +33,21 @@ public final class NodeWrites {
     }
 
     /**
-     * Returns a new local node, like {@code new LocalPartitionNode2()}, whose storage this class
-     * can write. The node can have only one partition.
+     * Returns a new local node, like {@code new LocalPartitionNode2()}, whose first partition
+     * this class can write. The other partitions take writes only through the commit of the
+     * node.
      */
     public static PartitionNode2 newNode() {
         PartitionStorage2[] created = new PartitionStorage2[1];
         LocalPartitionNode2 node = new LocalPartitionNode2(MonotonicClock.SYSTEM,
                 (index, retainedTicks, clock, creationTick) -> {
-                    if (created[0] != null) {
-                        throw new IllegalStateException("The node of the benchmarks has only one partition");
+                    PartitionStorage2 storage = new PartitionStorage2(index, retainedTicks, clock, creationTick);
+                    // The writes of this class go to the first partition; the other ones
+                    // take writes only through the commit of the node.
+                    if (created[0] == null) {
+                        created[0] = storage;
                     }
-                    created[0] = new PartitionStorage2(index, retainedTicks, clock, creationTick);
-                    return created[0];
+                    return storage;
                 });
         STORAGES.put(node, created);
         return node;

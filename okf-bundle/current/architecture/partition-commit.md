@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T15:17:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T16:30:07Z }
 ---
 
 # Primitiva
@@ -342,6 +342,36 @@ media con il lock non equo usato prima
   passaggio ordinato del lock tra i due thread.
 - Con le latenze lunghe il profilo rapido raccoglie pochi campioni, e
   mediana e massimo sono indicativi.
+
+Con più partizioni sullo stesso nodo l'avanzamento fa avanzare per prime
+quelle con il lock libero (vedi [tick logico](/current/architecture/logical-time.md#ordine-con-le-altre-operazioni)).
+Il parametro `busyPartitions` di `moveTickDuringCommits` dà a più
+partizioni un writer senza pause; i risultati confrontano l'avanzamento
+sequenziale di prima con quello di adesso, a parità di lock equo
+(`prototype/benchmark/results/2026-11-05-tick-busy-partitions-*`),
+100 000 entità, in millisecondi:
+
+| Indice, in movimento | Partizioni occupate | Sequenziale: media, mediana | Libere per prime: media, mediana |
+|---|---|---|---|
+| Griglia di quadtree 128, 10% | 2 | 3,7, 2,8 | 3,5, 2,7 |
+| Griglia di quadtree 128, 10% | 4 | 9,6, 9,9 | 8,4, 8,8 |
+| Scansione lineare, 10% | 4 | 2,2, 1,9 | 1,7, 2,0 |
+
+- **Con tutte le partizioni sempre occupate le due versioni costano
+  circa lo stesso.** Quando l'avanzamento riprova le altre partizioni
+  dopo un'attesa le trova di nuovo occupate, quindi le aspetta comunque
+  una alla volta, al più un commit ciascuna: il totale cresce con il
+  numero di partizioni occupate. Per aspettarle tutte nello stesso
+  momento servirebbe un avanzamento in parallelo o rimandato al writer.
+- **Il guadagno è per le partizioni libere**, che non aspettano più i
+  commit delle altre: è il caso comune, con poche partizioni che hanno un
+  commit in corso. La misura dà solo la durata dell'intero `setTick`;
+  la garanzia la verifica un test con il commit di una partizione fermo
+  nell'indice (vedi [tick logico](/current/architecture/logical-time.md#nel-prototipo)).
+- Con una sola partizione occupata le due versioni fanno la stessa cosa,
+  e le differenze tra le medie sono variabilità: l'avanzamento passa
+  subito se arriva tra due commit, o aspetta un commit intero, e la
+  proporzione cambia da una misura all'altra; le mediane sono uguali.
 
 Il profilo completo è da fare con lo stesso piano. Batch così grandi su una sola partizione sono
 un caso limite: di solito le entità si dividono su più partizioni, e il

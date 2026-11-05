@@ -5,9 +5,13 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.EntityWrite2;
+import badspace.common.partition.Ownership;
+import badspace.common.partition.PartitionId;
+import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.PendingWrites2;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.WriteToken;
 import badspace.service.partition.NodeWrites;
 import java.util.ArrayList;
 import java.util.List;
@@ -134,30 +138,56 @@ public class CommitBenchmark {
     /**
      * The moves of {@link TickState}, which a writer on another thread commits again and
      * again, one batch for each commit, while the benchmark moves the tick: each move of the
-     * tick waits for the commit that holds the lock of the partition when it arrives.
+     * tick waits for the commit that holds the lock of the partition when it arrives. With
+     * {@code busyPartitions} greater than 1, the node has more partitions with the same
+     * entities, each with its own writer, so the move of the tick finds commits running on
+     * more partitions.
      */
     @State(Scope.Thread)
     public static class ContendedTickState extends TickState {
 
-        CommittingWriter writer;
+        /** Number of partitions of the node with a writer that commits without pauses. */
+        @Param({"1"})
+        public int busyPartitions;
+
+        List<CommittingWriter> writers;
 
         @Override
         void prepare() {
             super.prepare();
-            writer = new CommittingWriter(commits(), original, moved);
+            if (busyPartitions < 1) {
+                throw new IllegalArgumentException("Number of busy partitions is less than 1: " + busyPartitions);
+            }
+            List<WriteToken> tokens = new ArrayList<>(List.of(WRITE_TOKEN));
+            List<EntityWrite2> entities = NodeWrites.sets(workload.entities());
+            for (int i = 1; i < busyPartitions; i++) {
+                PartitionId partitionId = new PartitionId(PARTITION_ID.value() + i);
+                node.createPartition(partitionId, new PartitionName(PARTITION_NAME.value() + "-" + i),
+                        IndexNames.parse(index));
+                WriteToken token = node.claim(partitionId, Ownership.INITIAL.generation()).orElseThrow();
+                node.commit(token, entities);
+                tokens.add(token);
+            }
+            node.setTick(++tick);
+            writers = new ArrayList<>(tokens.size());
+            for (WriteToken token : tokens) {
+                writers.add(new CommittingWriter(commits(token), original, moved));
+            }
         }
 
         /**
-         * Returns how the writer commits a batch: with the commit of the node. The tests
-         * replace it, to stop the writer after a commit that they choose.
+         * Returns how the writer of a partition commits a batch: with the commit of the node.
+         * The tests replace it, to stop the writer after a commit that they choose.
          */
-        Consumer<List<EntityWrite2>> commits() {
-            return changes -> node.commit(WRITE_TOKEN, changes);
+        Consumer<List<EntityWrite2>> commits(WriteToken token) {
+            return changes -> node.commit(token, changes);
         }
 
         @TearDown(Level.Trial)
-        public void stopWriter() throws InterruptedException {
-            writer.stop();
+        public void stopWriters() throws InterruptedException {
+            for (CommittingWriter writer : writers) {
+                writer.stop();
+            }
         }
     }
 
@@ -190,7 +220,8 @@ public class CommitBenchmark {
 
     /**
      * Moves the tick while a writer on another thread commits the moves of a fraction of the
-     * entities, without pauses between the commits (see {@link ContendedTickState}). The time
+     * entities, without pauses between the commits, on each of {@code busyPartitions}
+     * partitions (see {@link ContendedTickState}). The time
      * is the latency of the move of the tick, mostly the wait for the commit that holds the
      * lock of the partition; the commits are not measured. With movingFraction 0 the commits
      * have no changes: the reference.

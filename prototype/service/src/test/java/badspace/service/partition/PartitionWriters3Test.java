@@ -114,6 +114,55 @@ class PartitionWriters3Test {
     }
 
     /**
+     * The commit of P1 is stopped in the index, while it holds the lock of P1. A move of the
+     * tick moves at once the other partitions, whose lock is free, and then waits only for P1,
+     * which moves when its commit ends.
+     */
+    @Test
+    void moveOfTheTickMovesTheFreePartitionsWhileItWaitsForABusyOne() throws Exception {
+        List<GatedIndex3> indexes = new ArrayList<>();
+        List<ObservedLock> locks = new ArrayList<>();
+        LocalPartitionNode3 node = new LocalPartitionNode3(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
+            ObservedLock lock = new ObservedLock();
+            locks.add(lock);
+            return new PartitionStorage3(index.limits(), slots -> {
+                GatedIndex3 gated = new GatedIndex3(SpatialIndexes.create(index, slots));
+                indexes.add(gated);
+                return gated;
+            }, retainedTicks, clock, tick, lock, new CoordinateBufferPool());
+        });
+        PartitionId p3 = new PartitionId(3);
+        node.createPartition(P1, nameOf(P1));
+        node.createPartition(P2, nameOf(P2));
+        node.createPartition(p3, nameOf(p3));
+        writes(node, P1).setAll(List.of(new Entity3(10, A)));
+        Gate gate = new Gate();
+        indexes.getFirst().commitGate = gate;
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread writer = worker(() -> writes(node, P1).commit(), failure);
+        Thread mover = worker(() -> node.setTick(1), failure);
+        writer.start();
+        try {
+            gate.awaitEntered();
+            mover.start();
+            // The move of the tick waits for P1 only after it moved the free partitions.
+            locks.getFirst().awaitWaiting();
+            assertEquals(1, node.tick(P2));
+            assertEquals(1, node.tick(p3));
+            assertEquals(0, node.tick(P1));
+        } finally {
+            gate.open();
+            join(writer);
+            join(mover);
+        }
+        if (failure.get() != null) {
+            throw new AssertionError("commit or tick worker failed", failure.get());
+        }
+        assertEquals(1, node.tick(P1));
+        assertEquals(List.of(new Entity3(10, A)), read(node, P1, 0, 10));
+    }
+
+    /**
      * Each writer moves the entities of its partition at each commit, and removes and inserts
      * one again at each even commit; the tick moves on another thread. The entities of all
      * the partitions have the same IDs but a different row in y, so a snapshot with an entity

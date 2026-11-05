@@ -4,7 +4,7 @@ title: "Scritture accumulate nel writer"
 description: "Parti ancora da fare del refactoring delle scritture accumulate: fallimenti sul batch, stato del buffer, misure ed esiti remoti."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-05T15:17:58Z
+timestamp: 2026-11-05T16:30:07Z
 ---
 
 # Stato e obiettivo
@@ -47,7 +47,10 @@ Le misure con il profilo rapido mostrano tre costi da valutare:
   scritture date direttamente allo storage.
 - **Durata del lock**, uguale a tutto il commit del batch: un
   avanzamento del tick aspetta l'intero batch in corso, al più uno con il
-  lock equo della partizione. Un limite alla dimensione
+  lock equo della partizione. Con più partizioni sempre occupate sullo
+  stesso nodo l'avanzamento le aspetta una alla volta; un avanzamento in
+  parallelo, o rimandato al writer che lo applica alla fine del commit,
+  le aspetterebbe insieme, con più coordinamento da progettare. Un limite alla dimensione
   dei batch, o un'applicazione del batch fuori dal lock seguita da uno
   scambio sotto il lock, la ridurrebbero; la prima scelta toglie
   l'atomicità dei batch divisi, la seconda richiede di progettare la

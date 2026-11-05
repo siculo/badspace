@@ -29,6 +29,8 @@ import badspace.service.persistence.PartitionCopy2;
 import badspace.service.persistence.PartitionSave2;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -204,10 +206,30 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
                 throw new IllegalArgumentException("Tick " + tick + " is less than the tick of the node " + this.tick);
             }
             this.tick = tick;
-            // The removed partitions are in the map too.
-            for (Map.Entry<PartitionId, PartitionStorage2> e : partitions.entrySet()) {
-                if (e.getValue().setTick(tick)) {
-                    finish(e.getKey(), e.getValue());
+            // The removed partitions are in the map too. No partition is added meanwhile:
+            // the creation and the load hold tickLock.
+            List<Map.Entry<PartitionId, PartitionStorage2>> waiting = new ArrayList<>(partitions.entrySet());
+            while (!waiting.isEmpty()) {
+                // First all the partitions whose lock is free, so they do not wait for a
+                // commit of another partition.
+                Iterator<Map.Entry<PartitionId, PartitionStorage2>> free = waiting.iterator();
+                while (free.hasNext()) {
+                    Map.Entry<PartitionId, PartitionStorage2> e = free.next();
+                    TickMove move = e.getValue().trySetTick(tick);
+                    if (move != TickMove.BUSY) {
+                        free.remove();
+                        if (move == TickMove.DESTROYED) {
+                            finish(e.getKey(), e.getValue());
+                        }
+                    }
+                }
+                // Then it waits for one busy partition, at most for the commit that is running
+                // because the lock is fair, and tries the others again.
+                if (!waiting.isEmpty()) {
+                    Map.Entry<PartitionId, PartitionStorage2> e = waiting.removeFirst();
+                    if (e.getValue().setTick(tick)) {
+                        finish(e.getKey(), e.getValue());
+                    }
                 }
             }
         } finally {

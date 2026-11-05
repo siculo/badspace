@@ -218,6 +218,8 @@ again, without pauses: it is the worst case, with a commit always running or
 just ended. Run it with `--percentiles` (the plan does it) to see the long
 waits too. The lock is fair, so the move of the tick waits at most the commit
 that is running. With `movingFraction` 0 the commits are empty: the reference.
+With `busyPartitions` greater than 1 the node has more partitions with the same
+entities, each with its own writer that commits without pauses.
 
 `BufferSizes.bytesPerEntity` measures the memory of the buffer before the
 commit, like `Footprint`: the heap with the buffer minus the heap before it,
@@ -331,6 +333,7 @@ mvn -f .. install -DskipTests
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
 | `movingFraction` | commitTick, commitTickWithTheWriter, moveTickDuringCommits, movesWithoutCommit | 0, 0.01, 0.1, 1 | the same |
 | `readers` | commitTick, commitTickWithTheWriter, moveTickDuringCommits, movesWithoutCommit, acquireAndRelease | 0, 2 | the same |
+| `busyPartitions` | moveTickDuringCommits | 1 | the same |
 | `metadata` | persistence, BufferSizes | `NONE`, `FIXED` | the same |
 
 An index name gives the index and its parameters:

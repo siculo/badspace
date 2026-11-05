@@ -11,7 +11,9 @@ import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.EntityWrite2;
+import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.WriteToken;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
@@ -145,8 +147,8 @@ class CommitBenchmarkTest {
         CountDownLatch checked = new CountDownLatch(1);
         CommitBenchmark.ContendedTickState s = new CommitBenchmark.ContendedTickState() {
             @Override
-            Consumer<List<EntityWrite2>> commits() {
-                Consumer<List<EntityWrite2>> commit = super.commits();
+            Consumer<List<EntityWrite2>> commits(WriteToken token) {
+                Consumer<List<EntityWrite2>> commit = super.commits(token);
                 return changes -> {
                     commit.accept(changes);
                     if (changes == moved && committed.getCount() > 0) {
@@ -157,6 +159,7 @@ class CommitBenchmarkTest {
             }
         };
         s.movingFraction = 1;
+        s.busyPartitions = 1;
         setUp(s, 0);
         try {
             List<Entity2> original = published(s);
@@ -166,9 +169,38 @@ class CommitBenchmarkTest {
             assertNotEquals(original, published(s));
         } finally {
             checked.countDown();
-            s.stopWriter();
+            s.stopWriters();
             s.stopReaders();
         }
+    }
+
+    /** With more busy partitions each has its writer, and a move of the tick moves all of them. */
+    @Test
+    void movesOfTheTickMoveAllTheBusyPartitions() throws Exception {
+        CommitBenchmark.ContendedTickState s = new CommitBenchmark.ContendedTickState();
+        s.movingFraction = 0.1;
+        s.busyPartitions = 3;
+        setUp(s, 0);
+        try {
+            assertEquals(3, s.writers.size());
+            for (int i = 0; i < 10; i++) {
+                benchmark.moveTickDuringCommits(s);
+                long tick = s.node.tick(WorkloadState.PARTITION_ID);
+                assertEquals(tick, s.node.tick(new PartitionId(2)));
+                assertEquals(tick, s.node.tick(new PartitionId(3)));
+            }
+        } finally {
+            s.stopWriters();
+            s.stopReaders();
+        }
+    }
+
+    @Test
+    void busyPartitionsLessThanOneAreRejected() {
+        CommitBenchmark.ContendedTickState s = new CommitBenchmark.ContendedTickState();
+        s.movingFraction = 0.1;
+        s.busyPartitions = 0;
+        assertThrows(IllegalArgumentException.class, () -> setUp(s, 0));
     }
 
     private static void await(CountDownLatch latch) {

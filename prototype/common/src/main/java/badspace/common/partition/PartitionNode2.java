@@ -136,7 +136,10 @@ public interface PartitionNode2 {
     /**
      * Moves the tick of the node forward, and then the tick of each of its partitions, also of
      * the ones marked as removed. The partitions move one after the other, not all at the same
-     * moment. The same tick again does nothing, and ticks can be skipped.
+     * moment, in an order that is not defined: the ones with a commit that is running move
+     * after the others, so a partition waits only for its own commit. When the call returns,
+     * all the partitions are at the new tick. The same tick again does nothing, and ticks can
+     * be skipped.
      *
      * @param tick the new tick of the node
      * @throws IllegalArgumentException if the tick is less than the tick of the node; in this

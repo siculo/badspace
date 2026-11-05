@@ -4,7 +4,7 @@ title: Tick logico
 description: "Tempo logico di spazio, nodi e partizioni: avanzamento monotono, salti, pubblicazione degli snapshot e propagazione non atomica."
 tags: [badspace, architecture, partitioning, consistency]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T15:17:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T15:37:27Z }
 ---
 
 # Primitiva
@@ -95,6 +95,12 @@ partizione devono avere un ordine definito:
 - **Creazione e avanzamento del nodo** hanno un ordine tra loro: una
   partizione creata mentre il nodo propaga un tick non deve restare
   indietro di un tick.
+- **Le partizioni libere avanzano per prime.** Il nodo fa avanzare
+  subito le partizioni che non hanno un commit in corso, poi aspetta una
+  partizione occupata alla volta e, dopo ogni attesa, riprova subito le
+  altre. Una partizione aspetta così solo il proprio commit, e non quelli
+  delle partizioni avanzate prima di lei; quando l'avanzamento del nodo
+  termina, tutte le partizioni sono al tick nuovo.
 
 # Perché il tick sta nel livello base
 
@@ -133,11 +139,19 @@ proprietà, richiesta di rimozione e `setTick`, mai dai reader.
   `createPartition`: una partizione creata durante un avanzamento nasce
   prima, e allora avanza anche lei, o dopo, al tick nuovo. `setTick`
   avanza anche le partizioni rimosse, e in ogni partizione cerca le
-  acquisizioni scadute.
+  acquisizioni scadute. Le partizioni avanzano in più giri: in ogni giro
+  `setTick` prova il lock di tutte le partizioni rimaste con `tryLock`,
+  che lo prende se è libero anche quando altri thread lo aspettano, e fa
+  avanzare quelle che lo ottengono; poi aspetta il lock della prima
+  partizione rimasta, che è equo, quindi al più il commit in corso, e
+  ricomincia con le altre.
 - **Storage**: tick e tick di creazione stanno nel catalogo degli
   snapshot, pubblicato a ogni avanzamento; `setTick` dello storage
   pubblica lo snapshot in attesa e restituisce vero se finisce una
-  partizione rimossa, e il nodo allora la toglie.
+  partizione rimossa, e il nodo allora la toglie. `trySetTick` fa lo
+  stesso senza aspettare il lock e restituisce un `TickMove`: `BUSY` se
+  il lock è di un altro thread, `MOVED` o `DESTROYED` se la partizione è
+  avanzata.
 - **API**: `Space.setTick(long)` e `tick()`; lo spazio tiene in un
   insieme per identità i nodi creati con `createNode`, e chiama `setTick`
   su un nodo nuovo prima di registrarlo. Un `ReentrantLock` ordina
@@ -154,7 +168,10 @@ lock quest'ultimo test fallisce. Altri test, con latch e senza sleep,
 verificano che un avanzamento durante la factory raggiunga il nodo nuovo,
 che un avanzamento aspetti la registrazione, che un caricamento non
 blocchi gli avanzamenti, e che due spazi con nodi distinti e gli stessi
-generatori avanzino in modo indipendente.
+generatori avanzino in modo indipendente. Un test con il commit di una
+partizione fermo nell'indice verifica che l'avanzamento faccia avanzare
+subito le altre partizioni del nodo e aspetti solo quella occupata; con
+l'avanzamento sequenziale di prima il test fallisce.
 
 # Correlati
 

@@ -500,21 +500,37 @@ final class PartitionStorage3 {
      * new tick. The same tick again does nothing, and does not make the removal effective.
      * Returns true if this destroys a removed partition. Fails with IllegalArgumentException if
      * the tick is less than the tick of the partition. The thread that moves the tick of the
-     * node calls it, also while the writer works: it waits for a write or a commit that is
-     * running.
+     * node calls it, also while the writer works: it waits for the commit that is running.
      */
     boolean setTick(long tick) {
+        writerLock.lock();
+        return moveTickAndUnlock(tick) == TickMove.DESTROYED;
+    }
+
+    /**
+     * Moves the tick like {@link #setTick} if the lock of the partition is free now, without
+     * waiting for it: also if other threads wait for it. Returns BUSY if another thread holds
+     * the lock, and then nothing changes. Fails like setTick.
+     */
+    TickMove trySetTick(long tick) {
+        if (!writerLock.tryLock()) {
+            return TickMove.BUSY;
+        }
+        return moveTickAndUnlock(tick);
+    }
+
+    /** Moves the tick for setTick and trySetTick, which hold writerLock: it releases it. */
+    private TickMove moveTickAndUnlock(long tick) {
         SnapshotCatalog3 current;
         SnapshotCatalog3 next;
         StorageSnapshot3 published;
-        writerLock.lock();
         try {
             current = catalog;
             if (tick < current.tick()) {
                 throw new IllegalArgumentException("Tick " + tick + " is less than the tick " + current.tick());
             }
             if (tick == current.tick()) {
-                return false;
+                return TickMove.MOVED;
             }
             published = pending;
             pending = null;
@@ -538,7 +554,7 @@ final class PartitionStorage3 {
         for (int i = 0; i < current.size() - kept; i++) {
             lastEnded |= lifetime.leaveWindow(current.snapshotAt(i));
         }
-        return destroyedIf(acquisitions.removeExpired() | lastEnded);
+        return destroyedIf(acquisitions.removeExpired() | lastEnded) ? TickMove.DESTROYED : TickMove.MOVED;
     }
 
     // Removal.

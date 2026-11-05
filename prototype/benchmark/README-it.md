@@ -219,6 +219,8 @@ sempre in corso o appena finito. Va eseguito con `--percentiles` (il piano lo
 fa) per vedere anche le attese lunghe. Il lock è equo, quindi l'avanzamento
 aspetta al più il commit in corso. Con `movingFraction` 0 i commit sono vuoti:
 il riferimento.
+Con `busyPartitions` maggiore di 1 il nodo ha più partizioni con le stesse
+entità, ciascuna con il suo writer che fa commit senza pause.
 
 `BufferSizes.bytesPerEntity` misura la memoria del buffer prima del commit,
 come `Footprint`: l'heap con il buffer meno l'heap di prima, dopo una garbage
@@ -333,6 +335,7 @@ mvn -f .. install -DskipTests
 | `k` | findNearest | 1, 10 | 1, 10, 100 |
 | `movingFraction` | commitTick, commitTickWithTheWriter, moveTickDuringCommits, movesWithoutCommit | 0, 0.01, 0.1, 1 | gli stessi |
 | `readers` | commitTick, commitTickWithTheWriter, moveTickDuringCommits, movesWithoutCommit, acquireAndRelease | 0, 2 | gli stessi |
+| `busyPartitions` | moveTickDuringCommits | 1 | gli stessi |
 | `metadata` | persistenza, BufferSizes | `NONE`, `FIXED` | gli stessi |
 
 Il nome di un indice dà l'indice e i suoi parametri:
