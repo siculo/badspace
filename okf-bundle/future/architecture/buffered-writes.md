@@ -4,7 +4,7 @@ title: "Scritture accumulate nel writer"
 description: "Parti ancora da fare del refactoring delle scritture accumulate: fallimenti sul batch, stato del buffer, misure ed esiti remoti."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-05T17:53:16Z
+timestamp: 2026-11-05T18:54:02Z
 ---
 
 # Stato e obiettivo
@@ -44,9 +44,10 @@ Le misure con il profilo rapido mostrano tre costi da valutare:
   per entità. Una tabella con chiavi `long` e i campi della modifica in
   array paralleli la ridurrebbe ancora, con una misura JMH che la
   giustifichi.
-- **Tempo del buffer**, circa 45–150 ns per entità scritta, che con
+- **Tempo del buffer**, circa 25–140 ns per entità scritta, che con
   batch grandi porta il tick dal writer fino a circa 2 volte il tick con
-  le scritture date direttamente allo storage.
+  le scritture date direttamente allo storage, e fino a 3 volte il tick
+  di `main` con le scritture inviate una alla volta.
 - **Durata del lock**, uguale a tutto il commit del batch: un
   avanzamento del tick aspetta l'intero batch in corso, al più uno con il
   lock equo della partizione. Con più partizioni sempre occupate sullo
@@ -58,12 +59,15 @@ Le misure con il profilo rapido mostrano tre costi da valutare:
   l'atomicità dei batch divisi, la seconda richiede di progettare la
   preparazione su una copia dello stato.
 
-Un primo lancio del piano si è fermato per un crash della JVM: un
-`SIGSEGV` nel codice compilato da C2 (OSR) di `WriteBuffer2.changes()`,
-con OpenJDK 25.0.2, con 1 000 000 di entità tutte in movimento nella
-grid uniforme. Il prototipo non usa codice nativo né `Unsafe`, e il
-secondo lancio, con lo stesso codice, è arrivato in fondo: va verificato
-se si ripete, per esempio con un'altra versione del JDK.
+Con OpenJDK 25.0.2 due run lunghi su cinque si sono fermati per un crash
+della JVM: un `SIGSEGV` nel codice compilato da C2 (OSR) di
+`WriteBuffer2.changes()`, e un altro in un thread della garbage
+collection G1, tutti e due leggendo l'heap. Il prototipo non usa codice
+nativo né `Unsafe`, e il kernel non ha registrato errori di memoria. Con
+Temurin 25.0.5 tutto il piano, con gli stessi compiler blackholes di JMH,
+è arrivato in fondo senza crash e con gli stessi tempi: la causa
+probabile è la build OpenJDK 25.0.2. Va confermato con altri run, e i
+benchmark si fanno con Temurin 25.0.5.
 
 # Rifiuti ed esiti
 

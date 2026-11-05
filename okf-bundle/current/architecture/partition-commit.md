@@ -4,7 +4,7 @@ title: Commit della partizione
 description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:53:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T18:54:02Z }
 ---
 
 # Primitiva
@@ -270,51 +270,64 @@ tick con spostamenti, commit e avanzamento del tick in tre modi: gli
 spostamenti scritti direttamente nello storage (`commitTick`), lo
 stesso tick attraverso il buffer del writer (`commitTickWithTheWriter`)
 e gli spostamenti da soli (`movesWithoutCommit`); misura anche la
-memoria del buffer (`BufferSizes`).
+memoria del buffer (`BufferSizes`) e l'attesa dell'avanzamento del tick
+durante i commit (`moveTickDuringCommits`).
 
-Risultati del 2026-11-05 sulla macchina dedicata, profilo rapido, con il
-lock equo, senza il controllo dei duplicati nel nodo e con le mappe dei
-metadati del buffer create alla prima scrittura
-(`prototype/benchmark/results/2026-11-05-commit-lazy-maps-quick.*`),
-distribuzione uniforme, senza reader, in millisecondi per tick; l'ultima
-colonna è il tick dal writer prima di queste due ottimizzazioni
-(`2026-11-05-1611-commit-batch-quick.*`):
+Risultati del 2026-11-05 sulla macchina dedicata, profilo rapido,
+Temurin 25.0.5, tutto il piano in un solo run sul codice di adesso
+(`prototype/benchmark/results/2026-11-05-1943-*`), distribuzione
+uniforme, senza reader, in millisecondi per tick. L'ultima colonna è il
+tick di `main`, prima del refactoring, con le scritture inviate al nodo
+una alla volta, misurato lo stesso giorno con OpenJDK 25.0.2
+(`2026-11-05-commit-tick-main-quick.*`): le due JVM danno gli stessi
+tempi, entro la variabilità, sullo stesso codice.
 
-| Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer | Tick dal writer, prima |
+| Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer | Tick di `main` |
 |---|---|---|---|---|---|
-| Scansione lineare, 100 000 | 100% | 3,7 | 4,2 | 8,7 | 20,7 |
-| Scansione lineare, 1 000 000 | 1% | 0,4 | 1,1 | 1,7 | 2,5 |
-| Scansione lineare, 1 000 000 | 10% | 9,5 | 14 | 24 | 44 |
-| Scansione lineare, 1 000 000 | 100% | 120 | 117 | 238 | 500 |
-| Grid uniforme 100, 1 000 000 | 100% | 214 | 213 | 323 | 660 |
-| Griglia di quadtree 128, 1 000 000 | 1% | 2,1 | 5,1 | 5,8 | 6,7 |
-| Griglia di quadtree 128, 1 000 000 | 100% | 495 | 524 | 672 | 1007 |
+| Scansione lineare, 100 000 | 10% | 0,30 | 0,36 | 0,66 | 0,29 |
+| Scansione lineare, 100 000 | 100% | 3,5 | 3,8 | 8,1 | 2,7 |
+| Scansione lineare, 1 000 000 | 1% | 0,42 | 1,1 | 1,5 | 0,98 |
+| Scansione lineare, 1 000 000 | 10% | 9,3 | 9,9 | 24 | 8,1 |
+| Scansione lineare, 1 000 000 | 100% | 123 | 119 | 242 | 98 |
+| Grid uniforme 100, 1 000 000 | 10% | 15 | 23 | 32 | 24 |
+| Grid uniforme 100, 1 000 000 | 100% | 200 | 201 | 317 | 220 |
+| Griglia di quadtree 128, 1 000 000 | 1% | 2,0 | 5,2 | 5,1 | 4,8 |
+| Griglia di quadtree 128, 1 000 000 | 10% | 38 | 54 | 62 | 58 |
+| Griglia di quadtree 128, 1 000 000 | 100% | 459 | 550 | 634 | 558 |
 
-- **Il buffer costa circa 45–150 ns per entità scritta**, la differenza
-  tra il tick dal writer e il tick: con la scansione lineare il tick dal
-  writer dura circa 2 volte il tick, con la grid uniforme 1,5 volte, con
-  la griglia di quadtree circa 1,3 volte. Il costo viene dalla mappa per
-  ID, dall'oggetto di ogni modifica e dalla lista del batch.
-- **Le mappe dei metadati create alla prima scrittura** tolgono due
-  mappe vuote per ogni entità scritta senza metadati: il tick dal writer
-  costa da 0,65 a 0,95 volte quello di prima, e la memoria del buffer
-  scende di più della metà (sotto).
-- **Il controllo dei duplicati costava quasi quanto l'indice.** Il nodo
-  costruiva un insieme di tutti gli ID del batch per rifiutare due
-  modifiche della stessa entità; senza, gli spostamenti con la scansione
-  lineare costano da 0,36 a 0,5 volte, e `PartitionBenchmark.update` con
-  batch da 100 da 0,43 a 0,78 volte, secondo l'indice
-  (`2026-11-05-update-with-check-quick.*` e
-  `2026-11-05-update-without-check-quick.*`). Con la scansione lineare
-  e 100 000 entità l'aggiornamento costa di nuovo circa 27 ns per
-  entità, come nella [capacità degli aggiornamenti per
-  tick](/current/indices/update-capacity.md).
+- **Il percorso del writer costa da 1,1 a 3 volte quello di `main`.**
+  Il tick dal writer, con buffer, batch e commit, dura da 1,5 a 3 volte
+  il tick di `main` con la scansione lineare, da 1,25 a 1,8 volte con la
+  grid uniforme e da 1,05 a 1,35 volte con la griglia di quadtree: la
+  differenza pesa di più con gli indici economici e con i batch grandi.
+  È il prezzo di un writer che non chiama il nodo a ogni scrittura, che
+  conta soprattutto con un nodo remoto, dove ogni chiamata è un andata e
+  ritorno in rete.
+- **Il buffer costa circa 25–140 ns per entità scritta**, la differenza
+  tra il tick dal writer e il tick: di più con molte entità, che non
+  stanno nella cache. Il costo viene dalla mappa per ID, dall'oggetto di
+  ogni modifica e dalla lista del batch. La parte restante della
+  differenza con `main` è l'applicazione del batch nello storage: gli
+  spostamenti costano da 1,0 a 1,6 volte quelli di `main`, di più con la
+  scansione lineare, dove lo spostamento in sé costa pochi nanosecondi.
 - **Il buffer occupa circa 100–110 byte per entità** con le sole `set`,
   e circa 405–415 con 4 metadati per entità, in aggiunta alle entità e
-  alle scritture che il writer ha già costruito
-  (`2026-11-05-buffer-sizes-lazy-maps-quick.*`). Prima delle mappe create
-  alla prima scrittura erano circa 230–240 e 470–480 byte. Il valore non
-  cambia tra 1000 e 1 000 000 di entità.
+  alle scritture che il writer ha già costruito. Il valore non cambia
+  tra 1000 e 1 000 000 di entità.
+- **Tre ottimizzazioni misurate.** Il nodo non controlla più che il
+  batch abbia una sola modifica per entità: il controllo costruiva un
+  insieme di tutti gli ID del batch e costava quasi quanto l'indice
+  (`PartitionBenchmark.update` con batch da 100 costa senza da 0,43 a
+  0,78 volte, `2026-11-05-update-with-check-quick.*` e
+  `2026-11-05-update-without-check-quick.*`). Il buffer crea le mappe dei
+  metadati di una modifica alla prima scrittura: la memoria con le sole
+  `set` scende da circa 237 a circa 107 byte per entità, e il tick dal
+  writer costa da 0,65 a 0,95 volte (`2026-11-05-*-lazy-maps-quick.*`).
+  Lo storage cerca lo slot di ogni modifica una volta sola: il guadagno è
+  dentro la variabilità (`2026-11-05-*-single-lookup-*`). Con la
+  scansione lineare e 100 000 entità l'aggiornamento costa di nuovo
+  circa 26 ns per entità, come nella [capacità degli aggiornamenti per
+  tick](/current/indices/update-capacity.md).
 - **Il commit tiene il lock per tutto il batch.** Applicazione del batch
   e preparazione dello snapshot avvengono sotto il lock della
   partizione, e un avanzamento del tick che arriva durante un commit lo
@@ -326,43 +339,34 @@ colonna è il tick dal writer prima di queste due ottimizzazioni
 `moveTickDuringCommits` misura la latenza di `setTick` mentre un writer
 su un altro thread, non misurato, fa commit degli stessi batch uno dopo
 l'altro, senza pause: è il caso peggiore, con un commit sempre in corso
-o appena finito quando arriva l'avanzamento, misurato quando il nodo
-faceva ancora il controllo dei duplicati, quindi con commit un po' più
-lunghi di quelli di adesso. I valori sono la media
+o appena finito quando arriva l'avanzamento. I valori sono la media
 (modo `AverageTime`) e i percentili dei campioni (modo `SampleTime`),
-con il lock equo della partizione
-(`prototype/benchmark/results/2026-11-05-1611-*`); l'ultima colonna è la
-media con il lock non equo usato prima
-(`prototype/benchmark/results/2026-11-05-tick-during-commits-quick.*`):
+dallo stesso run:
 
-| Indice ed entità | In movimento | Media | Mediana | Massimo | Media con lock non equo |
-|---|---|---|---|---|---|
-| Scansione lineare, 1 000 000 | nessuna | 10 µs | 10 µs | 4,9 ms | 0,4 µs |
-| Scansione lineare, 1 000 000 | 1% | 1,6 ms | 1,5 ms | 5,9 ms | 113 ms |
-| Scansione lineare, 1 000 000 | 10% | 28 ms | 25 ms | 32 ms | 29 ms |
-| Scansione lineare, 1 000 000 | 100% | 272 ms | 267 ms | 331 ms | 277 ms |
-| Griglia di quadtree 128, 1 000 000 | 1% | 5,1 ms | 5,5 ms | 9,7 ms | 304 ms |
-| Griglia di quadtree 128, 1 000 000 | 100% | 690 ms | 699 ms | 712 ms | 666 ms |
-| Scansione lineare, 100 000 | 1% | 0,08 ms | 0,08 ms | 1,7 ms | 91 ms |
-| Scansione lineare, 100 000 | 100% | 9,0 ms | 10,0 ms | 18 ms | 9,9 ms |
+| Indice ed entità | In movimento | Media | Mediana | Massimo |
+|---|---|---|---|---|
+| Scansione lineare, 1 000 000 | 1% | 0,19 ms | 1 µs | 1,8 ms |
+| Scansione lineare, 1 000 000 | 10% | 11 ms | 11 ms | 15 ms |
+| Scansione lineare, 1 000 000 | 100% | 123 ms | 126 ms | 136 ms |
+| Grid uniforme 100, 1 000 000 | 100% | 218 ms | 208 ms | 222 ms |
+| Griglia di quadtree 128, 1 000 000 | 1% | 3,9 ms | 4,9 ms | 8,3 ms |
+| Griglia di quadtree 128, 1 000 000 | 100% | 540 ms | 558 ms | 575 ms |
+| Scansione lineare, 100 000 | 100% | 1,6 ms | 3,6 ms | 4,6 ms |
 
-- **L'avanzamento aspetta al più circa il commit in corso.** La media è
-  vicina alla durata di un commit, per esempio 1,6 ms con l'1% di
-  1 000 000 di entità e 272 ms con tutte, contro 282 ms del tick.
+- **L'avanzamento aspetta al più circa il commit in corso.** Con batch
+  grandi la media è vicina alla durata del tick misurato sopra, per
+  esempio 123 ms contro 119 ms; con commit brevi l'avanzamento spesso
+  passa tra due commit, e la mediana è di pochi microsecondi.
 - **Il lock della partizione è equo**, e i thread lo prendono nell'ordine
   in cui lo aspettano. Con il lock non equo usato prima, il writer che
   chiedeva di nuovo il lock appena lasciato lo riprendeva prima
   dell'avanzamento già in attesa, e con commit brevi uno dopo l'altro
   l'avanzamento aspettava molti commit: in media da 90 a 300 ms, fino a
-  circa un secondo, contro commit da 0,1 a qualche millisecondo.
-  Succedeva lo stesso con le scritture inviate una alla volta, che
-  prendevano il lock a ogni chiamata.
-- **Il lock equo non ha un costo misurabile sui commit.** I tempi di
-  `commitTick` e `commitTickWithTheWriter` cambiano tra lo 0,96 e l'1,15
-  volte, come quelli degli spostamenti senza commit, che non contendono
-  il lock: è la variabilità di misure con un solo fork. Con commit vuoti
-  uno dopo l'altro l'avanzamento passa da 0,4 a 10 µs, il costo del
-  passaggio ordinato del lock tra i due thread.
+  circa un secondo, contro commit da 0,1 a qualche millisecondo
+  (`2026-11-05-tick-during-commits-quick.*`, misurato con il controllo
+  dei duplicati). Succedeva lo stesso con le scritture inviate una alla
+  volta, che prendevano il lock a ogni chiamata. Il lock equo non ha un
+  costo misurabile sui commit (`2026-11-05-1611-*`).
 - Con le latenze lunghe il profilo rapido raccoglie pochi campioni, e
   mediana e massimo sono indicativi.
 
@@ -370,7 +374,8 @@ Con più partizioni sullo stesso nodo l'avanzamento fa avanzare per prime
 quelle con il lock libero (vedi [tick logico](/current/architecture/logical-time.md#ordine-con-le-altre-operazioni)).
 Il parametro `busyPartitions` di `moveTickDuringCommits` dà a più
 partizioni un writer senza pause; i risultati confrontano l'avanzamento
-sequenziale di prima con quello di adesso, a parità di lock equo
+sequenziale di prima con quello di adesso, a parità di lock equo, con il
+codice che faceva ancora il controllo dei duplicati
 (`prototype/benchmark/results/2026-11-05-tick-busy-partitions-*`),
 100 000 entità, in millisecondi:
 
@@ -389,16 +394,17 @@ sequenziale di prima con quello di adesso, a parità di lock equo
 - **Il guadagno è per le partizioni libere al momento della scansione**,
   che non aspettano più i commit delle altre: è il caso comune, con poche
   partizioni che hanno un commit in corso. Una partizione occupata alla
-  scansione può invece aspettare anche il commit di un'altra. La misura dà solo la durata dell'intero `setTick`;
-  la garanzia la verifica un test con il commit di una partizione fermo
-  nell'indice (vedi [tick logico](/current/architecture/logical-time.md#nel-prototipo)).
+  scansione può invece aspettare anche il commit di un'altra. La misura
+  dà solo la durata dell'intero `setTick`; la garanzia la verificano due
+  test con i commit fermi nell'indice (vedi [tick
+  logico](/current/architecture/logical-time.md#nel-prototipo)).
 - Con una sola partizione occupata le due versioni fanno la stessa cosa,
   e le differenze tra le medie sono variabilità: l'avanzamento passa
   subito se arriva tra due commit, o aspetta un commit intero, e la
   proporzione cambia da una misura all'altra; le mediane sono uguali.
 
-Il profilo completo è da fare con lo stesso piano. Batch così grandi su una sola partizione sono
-un caso limite: di solito le entità si dividono su più partizioni, e il
+Il profilo completo è da fare con lo stesso piano. Batch così grandi su
+una sola partizione sono un caso limite: di solito le entità si dividono su più partizioni, e il
 costo per partizione scende di conseguenza.
 
 ## Sequenza dei commit
