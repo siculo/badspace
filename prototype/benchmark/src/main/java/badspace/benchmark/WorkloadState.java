@@ -5,7 +5,7 @@ import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.WriteToken;
-import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.NodeWrites;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
@@ -50,7 +50,7 @@ public abstract class WorkloadState {
 
     /** Returns a new node with an empty partition that uses the index of the benchmark, owned with {@link #WRITE_TOKEN}. */
     PartitionNode2 newNode() {
-        PartitionNode2 node = new LocalPartitionNode2();
+        PartitionNode2 node = NodeWrites.newNode();
         node.createPartition(PARTITION_ID, PARTITION_NAME, IndexNames.parse(index));
         node.claim(PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
         return node;

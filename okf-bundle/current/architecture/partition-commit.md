@@ -315,7 +315,8 @@ nodo ha `commit(WriteToken, List<EntityWrite2>)` al posto delle singole
 scritture; lo storage applica le modifiche e prepara il commit sotto lo
 stesso lock. I test del nodo scrivono con lo stesso `PendingWrites2`/
 `PendingWrites3`, uno per token; i benchmark delle scritture misurano slot e indice senza il commit,
-scrivendo direttamente nello storage del nodo locale, perché restino
+scrivendo direttamente nello storage di un nodo locale creato con la
+factory degli storage che usano anche i test, perché restino
 confrontabili con le misure precedenti.
 
 Lo storage prepara uno snapshot di slot, indice e metadati al commit;

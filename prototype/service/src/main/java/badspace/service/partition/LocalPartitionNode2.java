@@ -523,14 +523,6 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     /**
-     * Returns the storage of a partition for its writer, for the benchmarks of the writes
-     * that measure the slots and the index without the commit. Fails like {@link #find}.
-     */
-    PartitionStorage2 writerStorage(PartitionId partitionId) {
-        return find(partitionId);
-    }
-
-    /**
      * Returns the storage of a partition for its writer. Fails with IllegalArgumentException
      * if the partition is unknown, and with IllegalStateException if its removal was requested.
      */
