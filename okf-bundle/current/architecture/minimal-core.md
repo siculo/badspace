@@ -38,7 +38,8 @@ coordinamento usando l’[API](/current/api/components.md).
 | Rimozione | Letture storiche conservate fino alla fine della finestra e degli utilizzi | [Rimozione](/current/architecture/partition-removal.md) |
 | Persistenza | Copia autonoma e salvataggio di uno snapshot; caricamento in una nuova partizione | [Persistenza](/current/decisions/persistence.md) |
 
-Le scritture restano nel writer fino al commit; i commit, i cambi di
-proprietà e l’avanzamento del tick della stessa partizione sono ordinati
-da un lock per partizione. I reader non prendono quel lock
+Le scritture restano non confermate fino al commit, nel nodo o nel
+writer secondo la [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura) del nodo; le scritture, i
+commit, i cambi di proprietà e l’avanzamento del tick della stessa
+partizione sono ordinati da un lock per partizione. I reader non prendono quel lock
 e non bloccano il writer. Writer di partizioni diverse lavorano indipendentemente.

@@ -1,7 +1,7 @@
 ---
 type: Architecture Primitive
 title: "Scritture accumulate nel writer"
-description: "Parti ancora da fare del refactoring delle scritture accumulate: fallimenti sul batch, stato del buffer, misure ed esiti remoti."
+description: "Parti ancora da fare del refactoring delle scritture accumulate: misure della modalità diretta, flush esplicito, costi del buffer ed esiti remoti."
 tags: [badspace, architecture, transactions, api]
 status: draft
 timestamp: 2026-11-05T18:54:02Z
@@ -24,8 +24,13 @@ rapporto con il recupero sul nodo (vedi
 [stato del buffer](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)).
 Le prime [misure](/current/architecture/partition-commit.md#costi-del-buffer-e-del-commit)
 di memoria del buffer e di durata del commit sono fatte con il profilo
-rapido. Restano da fare il profilo completo, le decisioni su limiti e
-ottimizzazioni che ne seguono, e il protocollo remoto degli esiti.
+rapido. Sul nodo locale il buffer costa più di quanto risparmia, quindi
+il nodo sceglie la [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura): il nodo locale è nella
+modalità diretta, con ogni scrittura subito sul nodo, e il buffer resta
+per il nodo remoto, con gli stessi risultati. Restano da fare le misure
+della modalità diretta, il flush esplicito, il profilo completo, le
+decisioni su limiti e ottimizzazioni che ne seguono, e il protocollo
+remoto degli esiti.
 
 Il software legge uno snapshot, esegue la propria logica e costruisce le
 scritture, come descritto nelle
@@ -34,9 +39,44 @@ non legge lo stato mutabile attraverso l'esito di una scrittura.
 Lo snapshot letto può non comprendere commit ancora pending, anche di un
 precedente proprietario; il refactoring non introduce letture del pending.
 
+# Misure della modalità diretta
+
+Le misure dei costi sono della modalità con buffer, prima delle due
+modalità. Il tick dal writer nella modalità diretta
+(`commitTickWithTheWriter` con `writeMode` `DIRECT`) è da misurare sulla
+macchina dedicata, e da confrontare con `commitTick` e con il tick di
+`main`. Ci si aspetta un costo vicino a `commitTick`: le scritture
+arrivano al nodo come batch, senza la composizione del buffer, ma
+ciascuna crea ancora le sue modifiche.
+
+# Flush esplicito
+
+Il prossimo passo è un'operazione `flush()` del writer: nella modalità
+con buffer manda subito al nodo le scritture accumulate, con la
+scrittura senza commit che la modalità diretta usa già, e il commit
+diventa un flush seguito dal commit; nella modalità diretta non fa
+niente. Il software sceglie quando mandare le scritture a pezzi:
+
+- **la memoria del buffer** resta quella delle scritture dall'ultimo
+  flush;
+- **il lock** si prende per ogni pezzo, e l'avanzamento del tick può
+  passare tra due flush senza rompere l'atomicità del commit, perché
+  pubblica solo l'ultimo commit; il commit finale tiene il lock per
+  l'ultimo pezzo e per la preparazione dello snapshot;
+- **le chiamate in rete** sono una per flush, non una per scrittura.
+
+In cambio tornano nel nodo, tra un commit e l'altro, scritture non
+confermate anche nella modalità con buffer, come nella modalità diretta.
+Ripetere un flush dopo un esito incerto non è sempre sicuro: le scritture
+dei metadati che valgono solo se l'entità era nella base dipendono dallo
+stato su cui si applicano, e il protocollo degli [esiti
+remoti](#rifiuti-ed-esiti) dovrà tenerne conto. Il flush non toglie il
+costo del buffer, che resta per le scritture tra due flush.
+
 # Costi da valutare
 
-Le misure con il profilo rapido mostrano tre costi da valutare:
+Le misure con il profilo rapido, nella modalità con buffer, mostrano tre
+costi da valutare:
 
 - **Memoria del buffer**, circa 105 byte per entità con le sole `set`,
   dopo le mappe dei metadati create alla prima scrittura: ogni modifica
@@ -47,17 +87,19 @@ Le misure con il profilo rapido mostrano tre costi da valutare:
 - **Tempo del buffer**, circa 25–140 ns per entità scritta, che con
   batch grandi porta il tick dal writer fino a circa 2 volte il tick con
   le scritture date direttamente allo storage, e fino a 3 volte il tick
-  di `main` con le scritture inviate una alla volta.
+  di `main` con le scritture inviate una alla volta. Per questo il nodo
+  locale usa la modalità diretta.
 - **Durata del lock**, uguale a tutto il commit del batch: un
   avanzamento del tick aspetta l'intero batch in corso, al più uno con il
   lock equo della partizione. Con più partizioni sempre occupate sullo
   stesso nodo l'avanzamento le aspetta una alla volta; un avanzamento in
   parallelo, o rimandato al writer che lo applica alla fine del commit,
-  le aspetterebbe insieme, con più coordinamento da progettare. Un limite alla dimensione
-  dei batch, o un'applicazione del batch fuori dal lock seguita da uno
-  scambio sotto il lock, la ridurrebbero; la prima scelta toglie
-  l'atomicità dei batch divisi, la seconda richiede di progettare la
-  preparazione su una copia dello stato.
+  le aspetterebbe insieme, con più coordinamento da progettare. Il
+  [flush esplicito](#flush-esplicito) la ridurrebbe senza toccare
+  l'atomicità del commit; un limite alla dimensione dei commit la toglie
+  ai commit divisi, e un'applicazione del batch fuori dal lock seguita da
+  uno scambio sotto il lock richiede di progettare la preparazione su una
+  copia dello stato.
 
 Con OpenJDK 25.0.2 due run lunghi su cinque si sono fermati per un crash
 della JVM: un `SIGSEGV` nel codice compilato da C2 (OSR) di
@@ -71,9 +113,9 @@ benchmark si fanno con Temurin 25.0.5.
 
 # Rifiuti ed esiti
 
-Rifiuti e fallimenti certi del nodo locale, con lo stato del buffer
-dopo ciascuno, sono descritti nelle
-[scritture accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer).
+Rifiuti e fallimenti certi del nodo locale, con lo stato delle scritture
+non confermate dopo ciascuno nelle due modalità, sono descritti nelle
+[modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura).
 Per il remoto serve distinguere rifiuto, fallimento certo ed esito
 incerto. Un batch a esito incerto resta congelato, senza commit successivi
 che possano superarlo, finché si recupera l'esito. Servono riconoscimento
@@ -93,8 +135,10 @@ e dimensione, e la durata del lock durante commit grandi vanno valutati
 senza introdurre ora il trasporto remoto o nuove attività sugli indici.
 
 La composizione è verificata contro l'esecuzione sequenziale; i test
-dell'API verificano zero chiamate al nodo durante l'accumulazione e un
-solo invio al commit e lo stato del buffer dopo rifiuti e fallimenti;
+dell'API verificano, con il buffer, zero chiamate al nodo durante
+l'accumulazione, un solo invio al commit e lo stato del buffer dopo
+rifiuti e fallimenti, e nella modalità diretta una chiamata per
+scrittura; i test end-to-end girano nelle due modalità;
 i test del nodo verificano rifiuti, fallimenti, recupero, token superati
 e concorrenza con tick e cambio di proprietà sul batch.
 

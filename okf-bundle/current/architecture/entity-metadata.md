@@ -62,14 +62,15 @@ una scrittura fatta prima della `set` che l'ha aggiunta è persa.
   insieme a slot e indice. Le scritture non confermate si scartano
   riportando la mappa alla versione dell'ultimo commit, senza ripetere
   le scritture al contrario.
-- **Contratto del nodo.** Le scritture dei metadati arrivano con il
-  batch del commit, nella modifica finale di ogni entità
-  (`EntityWrite2`/`EntityWrite3`): liste di `MetadataWrite`, ciascuna su
+- **Contratto del nodo.** Le scritture dei metadati arrivano in un batch
+  di modifiche (`EntityWrite2`/`EntityWrite3`), con la scrittura della
+  modalità diretta o con il commit della modalità con buffer: liste di `MetadataWrite`, ciascuna su
   una chiave di un'entità, dove `Put` imposta il valore e `Delete` toglie
-  la chiave. Il buffer dell'handle le compone con la regola sequenziale,
-  quindi per la stessa chiave vince l'ultima e una scrittura su
-  un'entità che in quel momento non c'è non fa niente (vedi
-  [scritture accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)). `getMetadataAll(acquisition, entityIds)`
+  la chiave. Valgono con la regola sequenziale, nelle due [modalità di
+  scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura): il nodo le applica nel loro ordine, o il buffer
+  dell'handle le compone con lo stesso risultato, quindi per la stessa
+  chiave vince l'ultima e una scrittura su un'entità che in quel momento
+  non c'è non fa niente (vedi [scritture accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)). `getMetadataAll(acquisition, entityIds)`
   restituisce un `ApplicationMetadata` (ID e mappa chiave → valore) per
   ogni ID presente nello snapshot, nello stesso ordine, con la mappa
   vuota per un'entità senza metadati; gli ID assenti si saltano, come

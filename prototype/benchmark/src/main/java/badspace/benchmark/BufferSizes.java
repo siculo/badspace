@@ -4,8 +4,8 @@ import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.PartitionNode2;
-import badspace.common.partition.PendingWrites2;
-import badspace.service.partition.NodeWrites;
+import badspace.common.partition.WriteMode;
+import badspace.common.partition.WriteSession2;
 import java.lang.ref.Reference;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -15,8 +15,8 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Measures the memory of the buffer of the writes of a 2D writer, a {@link PendingWrites2}
- * with a set of each entity of a partition and, with {@link MetadataSet#FIXED}, the writes of
+ * Measures the memory of the buffer of the writes of a 2D writer, a {@link WriteSession2} of a
+ * node in the buffered mode, with a set of each entity of a partition and, with {@link MetadataSet#FIXED}, the writes of
  * its metadata, all before the commit. JMH does not measure memory, so this class does it in
  * the process of the runner, like {@link Footprint}: the heap in use with the buffer minus the
  * heap in use before it, both after a garbage collection. The entities, their positions and
@@ -56,16 +56,16 @@ final class BufferSizes {
     private static double[] samples(int size, MetadataSet metadata) {
         List<Entity2> entities = PersistenceWorkload.entities2(size);
         List<MetadataWrite> writes = PersistenceWorkload.metadata(metadata, size);
-        PartitionNode2 node = NodeWrites.newNode();
+        PartitionNode2 node = NodeWrites.newNode(WriteMode.BUFFERED);
         double[] samples = new double[REPEAT];
         for (int r = 0; r < REPEAT; r++) {
             long before = Footprint.usedHeap();
-            PendingWrites2 pending = new PendingWrites2(node, WorkloadState.WRITE_TOKEN,
+            WriteSession2 session = WriteSession2.of(node, WorkloadState.WRITE_TOKEN,
                     IndexConfig.linearScan().limits());
-            pending.setAll(entities);
-            pending.updateMetadataAll(writes);
+            session.setAll(entities);
+            session.updateMetadataAll(writes);
             long after = Footprint.usedHeap();
-            Reference.reachabilityFence(pending);
+            Reference.reachabilityFence(session);
             samples[r] = (double) (after - before) / size;
         }
         Reference.reachabilityFence(entities);

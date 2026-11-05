@@ -33,11 +33,13 @@ Gli scenari specifici dei giochi sono indicati con "Gioco".
 
 # Scritture locali e remote
 
-Un caso d'uso comune ai nodi locali e remoti è costruire molte modifiche
-nel client e trasferirne soltanto l'effetto finale per ID al commit. Con
-il nodo locale è già [disponibile](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer):
-lettura di uno snapshot, logica applicativa e accumulazione nell'handle,
-senza chiamate al nodo per ogni singola modifica. Con un nodo remoto
+Un caso d'uso del nodo remoto è costruire molte modifiche nel client e
+trasferirne soltanto l'effetto finale per ID al commit. La modalità con
+buffer è già [disponibile](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer),
+anche sul nodo locale creato in quella modalità: lettura di uno
+snapshot, logica applicativa e accumulazione nell'handle, senza chiamate
+al nodo per ogni singola modifica; il nodo locale usa invece la
+[modalità diretta](/current/architecture/partition-commit.md#modalità-di-scrittura), con gli stessi risultati. Con un nodo remoto
 restano da progettare gli esiti incerti del commit (vedi
 [scritture accumulate](/future/architecture/buffered-writes.md#rifiuti-ed-esiti)).
 

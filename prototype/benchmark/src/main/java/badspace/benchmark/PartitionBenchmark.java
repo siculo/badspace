@@ -1,13 +1,12 @@
 package badspace.benchmark;
 
+import badspace.common.geometry.Point2;
+import badspace.common.geometry.Region2;
 import badspace.common.partition.AcquireOptions;
 import badspace.common.partition.Acquisition;
 import badspace.common.partition.Entity2;
 import badspace.common.partition.EntityWrite2;
 import badspace.common.partition.PartitionNode2;
-import badspace.common.geometry.Point2;
-import badspace.common.geometry.Region2;
-import badspace.service.partition.NodeWrites;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;

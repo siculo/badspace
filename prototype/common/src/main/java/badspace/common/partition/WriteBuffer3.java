@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The batch of writes of a 3D writer, composed by entity: {@link PendingWrites3} keeps the
+ * The batch of writes of a 3D writer, composed by entity: {@link BufferedWriteSession3} keeps the
  * writes here until the commit, which sends {@link #changes()} to the node in one call. For
  * each entity it keeps only the final change against the base, not the list of the calls (see
  * {@link EntityWrite3}). The result is the same as making the writes one by one, in their

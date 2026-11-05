@@ -5,10 +5,10 @@
 Questo modulo misura la velocità e la memoria degli indici spaziali di una
 partizione. Usa [JMH](https://github.com/openjdk/jmh) e lavora su un nodo
 locale (`LocalPartitionNode2`), quindi misura anche il costo dello storage, non
-solo quello dell'indice. Il nodo riceve le scritture solo con il commit, in un
-batch: i benchmark delle scritture danno il batch allo storage con
-`NodeWrites`, senza commit, così misurano solo slot e indice, come prima che le
-scritture passassero dal commit. Per ora solo 2D, tranne i benchmark
+solo quello dell'indice. Il nodo è nella modalità di scrittura diretta, come
+ogni nodo locale: i benchmark delle scritture danno ogni batch al nodo con la sua
+scrittura senza commit, attraverso `NodeWrites`, così misurano solo slot e
+indice. Per ora solo 2D, tranne i benchmark
 della [persistenza](#persistenza), che misurano anche il 3D.
 
 La scansione lineare è il riferimento: ogni nuovo indice si confronta con lei.
@@ -169,7 +169,7 @@ dura circa 10 minuti, quello completo circa 1 ora.
 | `PartitionBenchmark.findNearest` | Query k-nearest. | µs per chiamata |
 | `Footprint.bytesPerEntity` | Memoria usata dalla partizione, storage e indice insieme. | byte per entità |
 | `CommitBenchmark.commitTick` | Un tick del writer: spostare una frazione delle entità, fare il commit e avanzare il tick. | µs per chiamata |
-| `CommitBenchmark.commitTickWithTheWriter` | Lo stesso tick attraverso il buffer del writer (`PendingWrites2`), che manda gli spostamenti in un batch. | µs per chiamata |
+| `CommitBenchmark.commitTickWithTheWriter` | Lo stesso tick attraverso la sessione di scrittura del writer (`WriteSession2`), nella modalità diretta o con il buffer, che manda gli spostamenti in un batch. | µs per chiamata |
 | `CommitBenchmark.moveTickDuringCommits` | Avanzare il tick mentre un writer su un altro thread fa il commit degli spostamenti senza pause. | µs per chiamata |
 | `CommitBenchmark.movesWithoutCommit` | Gli stessi spostamenti senza commit, riferimento per `commitTick`. | µs per chiamata |
 | `CommitBenchmark.acquireAndRelease` | Acquisire l'ultimo snapshot e rilasciarlo. | µs per chiamata |
@@ -205,13 +205,17 @@ trovano meno buffer nel pool, e competono con il writer.
 
 ### Scritture tenute nel writer
 
-Il writer tiene le scritture in un buffer e le manda al nodo in un batch al
-commit. `CommitBenchmark.commitTickWithTheWriter` fa il tick di `commitTick`
-attraverso il buffer: la differenza è il costo del buffer e del batch. Con
+La modalità di scrittura del nodo decide quando le scritture del writer gli
+arrivano: nella modalità diretta ogni scrittura va subito al nodo, nella
+modalità con buffer il writer tiene le scritture in un buffer e le manda al nodo
+in un batch al commit. `CommitBenchmark.commitTickWithTheWriter` fa il tick di
+`commitTick` attraverso le scritture del writer, in ogni modalità
+(`writeMode`): nella modalità diretta la differenza è il costo della
+costruzione delle modifiche, con il buffer anche quello del buffer e del batch. Con
 `movingFraction` 1 e `size` 1000000 il batch ha un milione di entità.
 
-Il commit tiene il lock della partizione mentre applica il batch e prepara lo
-snapshot, quindi un avanzamento del tick che arriva nel frattempo lo aspetta.
+Con il buffer il commit tiene il lock della partizione mentre applica il batch e
+prepara lo snapshot, quindi un avanzamento del tick che arriva nel frattempo lo aspetta.
 `CommitBenchmark.moveTickDuringCommits` misura solo l'avanzamento del tick,
 mentre un writer su un altro thread, non misurato, fa il commit degli
 spostamenti uno dopo l'altro, senza pause: è il caso peggiore, con un commit
@@ -336,6 +340,7 @@ mvn -f .. install -DskipTests
 | `movingFraction` | commitTick, commitTickWithTheWriter, moveTickDuringCommits, movesWithoutCommit | 0, 0.01, 0.1, 1 | gli stessi |
 | `readers` | commitTick, commitTickWithTheWriter, moveTickDuringCommits, movesWithoutCommit, acquireAndRelease | 0, 2 | gli stessi |
 | `busyPartitions` | moveTickDuringCommits | 1 | gli stessi |
+| `writeMode` | commitTickWithTheWriter | `DIRECT`, `BUFFERED` | gli stessi |
 | `metadata` | persistenza, BufferSizes | `NONE`, `FIXED` | gli stessi |
 
 Il nome di un indice dà l'indice e i suoi parametri:

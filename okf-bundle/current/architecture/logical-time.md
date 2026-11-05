@@ -131,8 +131,9 @@ Il tick regola commit, pubblicazione e acquisizioni (vedi [conservazione
 degli snapshot](/current/architecture/snapshot-retention.md#nel-prototipo)). La
 rimozione segue la [semantica con gli
 stati](/current/architecture/partition-removal.md#nel-prototipo). Il lock per partizione
-è un `ReentrantLock` equo nello storage, preso da `commit()`, che applica il
-batch delle scritture e prepara lo snapshot, rollback, cambi di
+è un `ReentrantLock` equo nello storage, preso dalle scritture della
+modalità diretta, da `commit()`, che con il buffer applica anche il
+batch delle scritture, e prepara lo snapshot, da rollback, cambi di
 proprietà, richiesta di rimozione e `setTick`, mai dai reader.
 
 - **Contratto del nodo** (`PartitionNode2`/`PartitionNode3`):

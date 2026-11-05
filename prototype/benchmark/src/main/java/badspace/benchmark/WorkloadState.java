@@ -4,8 +4,8 @@ import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
-import badspace.service.partition.NodeWrites;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
@@ -44,13 +44,18 @@ public abstract class WorkloadState {
         afterWorkload();
     }
 
+    /** Returns the write mode of the nodes of {@link #newNode()}: direct, unless a state changes it. */
+    WriteMode writeMode() {
+        return WriteMode.DIRECT;
+    }
+
     /** Called once for each trial, after the workload is ready. */
     void afterWorkload() {
     }
 
     /** Returns a new node with an empty partition that uses the index of the benchmark, owned with {@link #WRITE_TOKEN}. */
     PartitionNode2 newNode() {
-        PartitionNode2 node = NodeWrites.newNode();
+        PartitionNode2 node = NodeWrites.newNode(writeMode());
         node.createPartition(PARTITION_ID, PARTITION_NAME, IndexNames.parse(index));
         node.claim(PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
         return node;

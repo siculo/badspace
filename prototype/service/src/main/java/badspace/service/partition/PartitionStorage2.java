@@ -374,60 +374,69 @@ final class PartitionStorage2 {
 
     /**
      * Applies a batch of changes to the last commit and confirms it, in the same step and
-     * under the lock: {@link #apply}, then {@link #commit(long)}. Fails like them, so a
-     * rejected batch changes nothing, and a failure discards the batch and keeps the last
-     * commit.
+     * under the lock, like {@link #apply} and then {@link #commit(long)}. Fails like them, so a
+     * rejected batch changes nothing, and a failure discards the batch with all the writes not
+     * committed, and keeps the last commit.
      */
     StorageSnapshot2 commit(long generation, List<EntityWrite2> changes) {
         writerLock.lock();
         try {
-            apply(generation, changes);
-            return commit(generation);
+            checkWritable(generation);
+            applyChecked(changes, PartitionOperation.COMMIT);
+            return commitWrites();
         } finally {
             writerLock.unlock();
         }
     }
 
     /**
-     * Applies a batch of changes to the state of the writer, the first step of a commit. Each
-     * change applies in the order that {@link EntityWrite2} describes, and the changes apply in
-     * the order of the list: more changes of the same entity apply one after the other. Only the
-     * writer can call it. Fails with IllegalArgumentException if a position is outside the
-     * limits, with OwnershipChangedException if generation is not the one of
-     * the owner, and with IllegalStateException if the partition needs a recovery or its
-     * removal was requested: in these cases nothing changes. Fails with
-     * PartitionFailureException if a change fails, as a failure of the commit: then the state
-     * of the writer goes back to the last commit.
+     * Applies a batch of changes to the state of the writer, without confirming it: the write
+     * of the node in the direct mode. Each change applies in
+     * the order that {@link EntityWrite2} describes, and the changes apply in the order of the
+     * list, each on the state of that moment. Only the writer can call it. Fails with
+     * IllegalArgumentException if a position is outside the limits, with
+     * OwnershipChangedException if generation is not the one of the owner, and with
+     * IllegalStateException if the partition needs a recovery or its removal was requested:
+     * in these cases nothing changes. Fails with PartitionFailureException if a change fails,
+     * as a failure of a write: then the state of the writer goes back to the last commit.
      */
     void apply(long generation, List<EntityWrite2> changes) {
         writerLock.lock();
         try {
             checkWritable(generation);
-            // The writer sends at most one change for each entity, and the node trusts it: more
-            // changes of the same entity apply in order. The limits are checked, because a
-            // position outside them would break the cells of the index.
-            int added = 0;
-            for (EntityWrite2 change : changes) {
-                if (change.position() != null) {
-                    checkLimits(change.entityId(), change.position());
-                    if (change.removed() || slots.slotOf(change.entityId()) == SlotSnapshot2.NONE) {
-                        added++;
-                    }
-                }
-            }
-            try {
-                step = PartitionComponent.SLOTS;
-                // A change that removes the entity and adds it again is counted as an addition:
-                // the capacity can be a bit larger than needed, but it is never too small.
-                slots.ensureCapacity(slots.size() + added);
-                for (EntityWrite2 change : changes) {
-                    apply(change);
-                }
-            } catch (Throwable failure) {
-                throw failed(PartitionOperation.COMMIT, failure);
-            }
+            applyChecked(changes, PartitionOperation.WRITE);
         } finally {
             writerLock.unlock();
+        }
+    }
+
+    /**
+     * Checks the limits of the changes and applies them, after the check of the generation.
+     * A failure after the checks is a failure of the operation. The caller holds writerLock.
+     */
+    private void applyChecked(List<EntityWrite2> changes, PartitionOperation operation) {
+        // With the buffer the writer sends at most one change for each entity, and the node
+        // trusts it: more changes of the same entity apply in order. The limits are checked,
+        // because a position outside them would break the cells of the index.
+        int added = 0;
+        for (EntityWrite2 change : changes) {
+            if (change.position() != null) {
+                checkLimits(change.entityId(), change.position());
+                if (change.removed() || slots.slotOf(change.entityId()) == SlotSnapshot2.NONE) {
+                    added++;
+                }
+            }
+        }
+        try {
+            step = PartitionComponent.SLOTS;
+            // A change that removes the entity and adds it again is counted as an addition:
+            // the capacity can be a bit larger than needed, but it is never too small.
+            slots.ensureCapacity(slots.size() + added);
+            for (EntityWrite2 change : changes) {
+                apply(change);
+            }
+        } catch (Throwable failure) {
+            throw failed(operation, failure);
         }
     }
 

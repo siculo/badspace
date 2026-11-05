@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import static badspace.service.partition.Owners.assertRejected;
 import static badspace.service.partition.Owners.writes;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.Entity2.entity;
@@ -19,6 +20,7 @@ import badspace.common.partition.Ownership;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -27,13 +29,21 @@ import java.util.Map;
 import java.util.Random;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.Parameter;
+import org.junit.jupiter.params.ParameterizedClass;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Checks the rollback of the writer of a 2D partition on the node: it discards the writes not
  * committed, also of the ticks before, keeps the commits and the ownership, and gives the same
  * state as a release and a new claim.
  */
+@ParameterizedClass
+@EnumSource(WriteMode.class)
 class PartitionRollback2Test {
+
+    @Parameter
+    WriteMode mode;
 
     private static final PartitionId P1 = new PartitionId(1);
     private static final List<IndexConfig> CONFIGS = List.of(
@@ -48,7 +58,7 @@ class PartitionRollback2Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode2();
+        node = new LocalPartitionNode2(mode);
         node.createPartition(P1, nameOf(P1));
         token = node.claim(P1, 0).orElseThrow();
     }
@@ -124,8 +134,8 @@ class PartitionRollback2Test {
     @Test
     void rollbackGivesTheSameStateAsAReleaseAndAClaim() {
         for (IndexConfig config : CONFIGS) {
-            LocalPartitionNode2 rolledBack = new LocalPartitionNode2();
-            LocalPartitionNode2 released = new LocalPartitionNode2();
+            LocalPartitionNode2 rolledBack = new LocalPartitionNode2(mode);
+            LocalPartitionNode2 released = new LocalPartitionNode2(mode);
             rolledBack.createPartition(P1, nameOf(P1), config);
             released.createPartition(P1, nameOf(P1), config);
             WriteToken rollbackToken = rolledBack.claim(P1, 0).orElseThrow();

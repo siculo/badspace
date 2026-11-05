@@ -14,7 +14,8 @@ import badspace.common.partition.EntityWrite3;
 import badspace.common.partition.PartitionFailureException;
 import badspace.common.partition.PartitionHealth;
 import badspace.common.partition.PartitionId;
-import badspace.common.partition.PendingWrites3;
+import badspace.common.partition.WriteMode;
+import badspace.common.partition.WriteSession3;
 import badspace.common.partition.WriteToken;
 import badspace.service.index.SpatialIndexes;
 import badspace.service.partition.slots.CoordinateBufferPool;
@@ -26,8 +27,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Checks the commit of a batch on a 3D node, with the writes of the owner in its
- * {@link PendingWrites3}: the node applies the batch and prepares the snapshot in one step
+ * Checks the commit of a batch on a 3D node in the buffered mode, with the writes of the owner
+ * in its {@link WriteSession3}: the node applies the batch and prepares the snapshot in one step
  * under the lock of the partition, so the moves of the tick and the claims wait for it and see
  * the batch whole or not at all. A rejected batch changes nothing, and the writer keeps its
  * writes; a failed one keeps the last commit and the snapshot that waits for the move of the
@@ -55,7 +56,7 @@ class BatchCommit3Test {
         node = new LocalPartitionNode3(MonotonicClock.SYSTEM,
                 (indexConfig, retainedTicks, clock, tick) -> new PartitionStorage3(indexConfig.limits(),
                         slots -> index[0] = new GatedIndex3(SpatialIndexes.create(indexConfig, slots)),
-                        retainedTicks, clock, tick, lock, new CoordinateBufferPool()));
+                        retainedTicks, clock, tick, lock, new CoordinateBufferPool()), WriteMode.BUFFERED);
         node.createPartition(P1, nameOf(P1));
         token = node.claim(P1, 0).orElseThrow();
         // The first commit, at tick 0: the snapshot of tick 0 waits for the move of the tick.
@@ -130,7 +131,7 @@ class BatchCommit3Test {
 
     @Test
     void failedBatchKeepsTheSnapshotThatWaitsAndTheWriterDiscardsItsWrites() {
-        PendingWrites3 writes = writes(node, token);
+        WriteSession3 writes = writes(node, token);
         writes.setAll(List.of(new Entity3(1, C), new Entity3(2, C)));
         index[0].notificationFailure = new IllegalStateException("Index failure for the test");
         assertThrows(PartitionFailureException.class, writes::commit);
@@ -147,7 +148,7 @@ class BatchCommit3Test {
 
     @Test
     void failedRestoreRejectsTheCommitsUntilTheRecoveryAndARejectedCommitKeepsTheWrites() {
-        PendingWrites3 writes = writes(node, token);
+        WriteSession3 writes = writes(node, token);
         writes.setAll(List.of(new Entity3(2, C)));
         index[0].notificationFailure = new IllegalStateException("Index failure for the test");
         index[0].restoreFailure = new IllegalStateException("Restore failure for the test");

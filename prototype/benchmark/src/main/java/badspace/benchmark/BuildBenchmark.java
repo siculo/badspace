@@ -2,7 +2,6 @@ package badspace.benchmark;
 
 import badspace.common.partition.EntityWrite2;
 import badspace.common.partition.PartitionNode2;
-import badspace.service.partition.NodeWrites;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;

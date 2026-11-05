@@ -2,7 +2,6 @@ package badspace.benchmark;
 
 import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionNode2;
-import badspace.service.partition.NodeWrites;
 import java.lang.management.ManagementFactory;
 import java.lang.ref.Reference;
 import java.nio.file.Path;

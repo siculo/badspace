@@ -1,8 +1,10 @@
 // Measures the costs of the writes kept in the writer and sent with the commit, in one
-// report. It takes about 35-40 minutes.
+// report. It took about 35-40 minutes before the two write modes, which add the tick of the
+// writer in the direct mode.
 //
-// The first run compares a tick of the writer through its buffer (commitTickWithTheWriter)
-// with the same tick that writes directly into the storage (commitTick) and with the moves
+// The first run compares a tick of the writer (commitTickWithTheWriter), in the direct mode
+// and through its buffer (writeMode), with the same tick that writes the batch into the
+// node without the buffer (commitTick) and with the moves
 // alone (movesWithoutCommit), with large batches: up to all the entities of a partition of
 // one million. The second run measures the latency of the moves of the tick while a writer
 // on another thread commits the same batches without pauses: the commit holds the lock of

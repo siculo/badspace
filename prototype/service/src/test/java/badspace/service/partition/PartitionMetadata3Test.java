@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import static badspace.service.partition.Owners.assertRejected;
 import static badspace.service.partition.Owners.writes;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.Entity3.entity;
@@ -17,6 +18,7 @@ import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionId;
+import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -28,12 +30,20 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.Parameter;
+import org.junit.jupiter.params.ParameterizedClass;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Checks the application metadata of the entities on the node: the writes, the reads through
  * the snapshots of the commits, the removal of the entities and the discarded writes.
  */
+@ParameterizedClass
+@EnumSource(WriteMode.class)
 class PartitionMetadata3Test {
+
+    @Parameter
+    WriteMode mode;
 
     private static final PartitionId P1 = new PartitionId(1);
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -44,7 +54,7 @@ class PartitionMetadata3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3();
+        node = new LocalPartitionNode3(mode);
         node.createPartition(P1, nameOf(P1), IndexConfig.uniformGrid(4));
         token = node.claim(P1, 0).orElseThrow();
         writes(node, token).setAll(List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2), entity(3, 3, 3, 3)));
@@ -177,20 +187,22 @@ class PartitionMetadata3Test {
     }
 
     @Test
-    void commitOfMetadataWithAnOldTokenIsRejected() {
+    void metadataWritesWithAnOldTokenAreRejected() {
         writes(node, token).commit();
         WriteToken old = token;
         token = node.claim(P1, old.generation()).orElseThrow();
-        writes(node, old).updateMetadataAll(List.of(put(1, "version", 1)));
-        assertThrows(OwnershipChangedException.class, () -> writes(node, old).commit());
+        assertRejected(mode, OwnershipChangedException.class,
+                () -> writes(node, old).updateMetadataAll(List.of(put(1, "version", 1))),
+                () -> writes(node, old).commit());
         assertEquals(List.of(metadata(1, Map.of())), node.getMetadataAll(publish(), new long[] {1}));
     }
 
     @Test
-    void commitOfMetadataAfterTheRemovalIsRejected() {
+    void metadataWritesAfterTheRemovalAreRejected() {
         node.dropPartition(token);
-        writes(node, token).updateMetadataAll(List.of(put(1, "version", 1)));
-        assertThrows(IllegalStateException.class, () -> writes(node, token).commit());
+        assertRejected(mode, IllegalStateException.class,
+                () -> writes(node, token).updateMetadataAll(List.of(put(1, "version", 1))),
+                () -> writes(node, token).commit());
     }
 
     private static ApplicationMetadata metadata(long entityId, Map<String, Long> values) {

@@ -1,5 +1,6 @@
 package badspace.service.partition;
 
+import static badspace.service.partition.Owners.assertRejected;
 import static badspace.service.partition.Owners.writes;
 import static badspace.common.partition.AcquireOptions.defaultTimeout;
 import static badspace.common.partition.Entity3.entity;
@@ -21,6 +22,7 @@ import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.UnknownPartitionException;
+import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import badspace.service.index.SpatialIndexes;
 import badspace.service.partition.slots.CoordinateBufferPool;
@@ -42,12 +44,20 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.Parameter;
+import org.junit.jupiter.params.ParameterizedClass;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Checks the ownership of a partition on the node: generation, claim, release, the discarded
  * writes and the writes with a token that is not current, also from other threads.
  */
+@ParameterizedClass
+@EnumSource(WriteMode.class)
 class PartitionOwnership3Test {
+
+    @Parameter
+    WriteMode mode;
 
     private static final PartitionId P1 = new PartitionId(1);
     private static final PartitionId P2 = new PartitionId(2);
@@ -70,7 +80,7 @@ class PartitionOwnership3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3();
+        node = new LocalPartitionNode3(mode);
         node.createPartition(P1, nameOf(P1));
     }
 
@@ -274,10 +284,11 @@ class PartitionOwnership3Test {
         writes(node, old).setAll(List.of(entity(1, 1, 1, 1)));
         writes(node, old).commit();
         WriteToken current = node.claim(P1, old.generation()).orElseThrow();
-        writes(node, old).setAll(List.of(entity(2, 2, 2, 2)));
-        writes(node, old).setAll(List.of(entity(1, 5, 5, 5)));
-        writes(node, old).removeAll(new long[] {1});
-        assertOwnershipChanged(() -> writes(node, old).commit());
+        assertRejected(mode, OwnershipChangedException.class, () -> {
+            writes(node, old).setAll(List.of(entity(2, 2, 2, 2)));
+            writes(node, old).setAll(List.of(entity(1, 5, 5, 5)));
+            writes(node, old).removeAll(new long[] {1});
+        }, () -> writes(node, old).commit());
         assertOwnershipChanged(() -> node.removePartition(old));
         assertOwnershipChanged(() -> node.dropPartition(old));
         assertEquals(new Ownership(2, true), node.ownership(P1));
@@ -286,12 +297,12 @@ class PartitionOwnership3Test {
 
     @Test
     void commitsWithoutAnOwnerAreRejected() {
-        writes(node, new WriteToken(P1, 1)).setAll(List.of(entity(1, 1, 1, 1)));
-        assertOwnershipChanged(() -> writes(node, new WriteToken(P1, 1)).commit());
+        assertRejected(mode, OwnershipChangedException.class,
+                () -> writes(node, new WriteToken(P1, 1)).setAll(List.of(entity(1, 1, 1, 1))), () -> writes(node, new WriteToken(P1, 1)).commit());
         WriteToken token = node.claim(P1, 0).orElseThrow();
         node.release(token);
-        writes(node, token).setAll(List.of(entity(1, 1, 1, 1)));
-        assertOwnershipChanged(() -> writes(node, token).commit());
+        assertRejected(mode, OwnershipChangedException.class,
+                () -> writes(node, token).setAll(List.of(entity(1, 1, 1, 1))), () -> writes(node, token).commit());
         // A token that names the free state is not a token of an owner either.
         assertOwnershipChanged(() -> writes(node, new WriteToken(P1, 2)).commit());
     }

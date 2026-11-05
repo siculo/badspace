@@ -11,24 +11,23 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T17:31:55Z }
 
 Un’operazione del writer può non riuscire in due modi.
 
-- **Rifiuto.** Le scritture restano nell'handle del writer fino al
-  [commit](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer).
-  L'handle rifiuta subito una posizione fuori dai limiti; al commit la
-  partizione controlla tutto il batch, il token e il proprio stato prima
-  di cambiare qualcosa. Un commit rifiutato, per esempio con un token
-  non corrente, non cambia niente, e l'handle conserva le scritture.
-  Rispetto alle scritture inviate al nodo una alla volta, questi
-  rifiuti arrivano al commit e non alla scrittura (vedi [scritture
-  accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)).
+- **Rifiuto.** La partizione controlla le modifiche, il token e il
+  proprio stato prima di cambiare qualcosa: a ogni scrittura nella
+  [modalità diretta](/current/architecture/partition-commit.md#modalità-di-scrittura), e al commit, su tutto il batch, nella modalità
+  con buffer, dove l'handle rifiuta subito solo una posizione fuori dai
+  limiti. Una scrittura o un commit rifiutato, per esempio con un token
+  non corrente, non cambia niente, e le scritture non confermate di
+  prima restano, nel nodo o nell'handle.
 - **Fallimento.** Un’eccezione arriva dopo i controlli, mentre la
-  partizione sta applicando il batch o preparando un
+  partizione sta applicando una scrittura o un batch, o preparando un
   [commit](/current/architecture/partition-commit.md#strutture-transazionali).
   Lo stato delle strutture potrebbe essere a metà, quindi la partizione
-  **annulla il batch**, riportando le strutture all’ultimo commit con lo
-  stesso ripristino del [cambio di proprietà](/current/architecture/partition-ownership.md#cambio-di-proprietà).
-  Ultimo commit e snapshot in attesa non cambiano, e l'handle scarta le
-  sue scritture: il risultato è lo stesso di quando le scritture
-  arrivavano al nodo una alla volta e il fallimento le annullava tutte.
+  **annulla tutte le scritture non confermate**, riportando le strutture
+  all’ultimo commit con lo stesso ripristino del [cambio di proprietà](/current/architecture/partition-ownership.md#cambio-di-proprietà).
+  Ultimo commit e snapshot in attesa non cambiano, e con il buffer
+  l'handle scarta le sue scritture: il risultato è lo stesso nelle due
+  modalità. Il rapporto dice l'operazione: `WRITE` per una scrittura
+  della modalità diretta, `COMMIT` per il commit.
 
 Un fallimento dipende da un bug o da una situazione limite, come
 l’esaurimento della memoria, non dall’input. Il software non lo
@@ -207,7 +206,8 @@ della restituzione va tra le soppresse, tranne quando è la stessa
 istanza.
 
 I test del commit a batch sul nodo, in 2D e 3D (`BatchCommit2Test`/
-`BatchCommit3Test`), scrivono con `PendingWrites2`/`PendingWrites3` e
+`BatchCommit3Test`), usano un nodo con buffer, scrivono con
+`WriteSession2`/`WriteSession3` e
 fermano il batch alla prima notifica all’indice: un avanzamento del tick
 o un `claim` che arriva durante l’applicazione aspetta il lock, e dopo
 lo snapshot o il nuovo proprietario trovano il batch intero. Verificano

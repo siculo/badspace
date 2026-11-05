@@ -16,7 +16,9 @@ Prima di gRPC è in corso il
 [refactoring delle scritture](/future/architecture/buffered-writes.md):
 l'accumulazione delle modifiche finali per ID nel client, senza conditional
 writes, e un solo invio al nodo al commit sono già
-[disponibili](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer). Le osservazioni sotto sulle
+[disponibili](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer),
+nella modalità con buffer che il nodo gRPC dichiarerà (vedi [modalità di
+scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura)). Le osservazioni sotto sulle
 singole scritture remote descrivono il contratto precedente al refactoring,
 non la direzione scelta. Non serve trasferire l'ordine delle operazioni
 interne al batch; restano da gestire ordine dei commit, richieste in ritardo,

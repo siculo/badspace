@@ -72,9 +72,10 @@ partizione non controlla chi chiama `claim` (vedi
 
 # Scritture con il token
 
-Le scritture restano nell'handle del writer e arrivano alla partizione
-solo con il commit (vedi [scritture accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)):
-`commit()`, `rollback()` e `remove()` portano il token. La partizione
+Le scritture arrivano al nodo subito o con il commit, secondo la
+[modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura), e tutte le operazioni che vanno al nodo
+portano il token: le scritture nella modalità diretta, `commit()`,
+`rollback()` e `remove()`. La partizione
 lo confronta con la generazione corrente **sotto il lock della
 partizione**, lo stesso che ordina commit e avanzamento del
 tick (vedi [concorrenza](/current/decisions/concurrency.md)): se il token non è
@@ -94,8 +95,9 @@ Restano fuori dal fencing:
 # Cambio di proprietà
 
 - **Il confine è il commit.** A ogni cambio di generazione (`claim` o
-  `release`) le scritture non confermate si scartano: quelle del
-  vecchio writer sono nel suo handle, e il commit che le porterebbe è
+  `release`) le scritture non confermate si scartano: nella modalità
+  diretta il nodo le riporta all'ultimo commit, con il buffer sono
+  nell'handle del vecchio writer, e il commit che le porterebbe è
   rifiutato. Un commit fatto
   prima del cambio resta confermato, anche se lo snapshot del suo tick
   non è ancora pubblicato: il nuovo proprietario parte da quello stato,
@@ -110,11 +112,13 @@ Restano fuori dal fencing:
 - **Nessuna via di mezzo.** Grazie al lock, ogni operazione del vecchio
   writer avviene tutta prima del cambio oppure è rifiutata: il writer sa
   con esattezza quali dei suoi commit sono entrati.
-- **Il vecchio writer lo scopre al prossimo commit**, o alla prossima
-  operazione che va al nodo, che viene rifiutata: le scritture restano
-  nel suo handle e non lo raggiungono (vedi [scritture
-  accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer));
-  può anche controllare `ownership(p)`.
+- **Il vecchio writer lo scopre alla prossima operazione che va al
+  nodo**, che viene rifiutata: la prossima scrittura nella modalità
+  diretta, il prossimo commit con il buffer. Le sue scritture non
+  confermate non raggiungono la partizione: il cambio di proprietà
+  scarta quelle già nel nodo, e quelle nel buffer restano nell'handle
+  (vedi [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura)); può anche controllare
+  `ownership(p)`.
 - **Rimozione.** `remove()` richiede il token corrente: chi vuole
   rimuovere una partizione di cui non è proprietario fa prima `claim`.
   Dalla [rimozione](/current/architecture/partition-removal.md) in poi `claim`
@@ -153,8 +157,9 @@ Il caso previsto è il blocco del **codice applicativo del writer**, fuori
 da una chiamata a BADSPACE. Il coordinatore può chiamare `claim` senza
 attendere una risposta o un rilascio del vecchio proprietario. Il cambio
 conserva i commit completati; le scritture non confermate del vecchio
-writer restano nel suo handle e, se riparte, il commit che le
-porterebbe e le altre operazioni con il token precedente sono
+writer si scartano, nel nodo o restano nel suo handle secondo la
+[modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura), e, se riparte, le sue scritture, il commit
+e le altre operazioni con il token precedente sono
 rifiutati. Un blocco applicativo non rende da solo inconsistenti
 i commit già completati.
 
@@ -185,7 +190,7 @@ un commit del vecchio writer potrebbe arrivare tra la lettura e la presa.
 | **Cooperativo** | Il proprietario A chiama `claim` con la generazione del suo token e manda a B il token nuovo: in nessun momento ci sono due token validi. |
 | **Coordinatore** | I writer non chiamano mai `claim`: il coordinatore legge `ownership(p)`, chiama `claim` e consegna il token al writer scelto. Con due coordinatori in corsa, per esempio durante un failover, vince al massimo uno per generazione. |
 | **Coordinatore che aspetta il writer** | Il coordinatore chiede ad A di finire, con un canale del software; A fa l'ultimo commit e chiama `release`; il coordinatore vede con `ownership(p)` la partizione libera, oppure riceve la generazione da A, e chiama `claim`. In alternativa A restituisce il token al coordinatore, che chiama `claim` con la sua generazione: la partizione non resta mai senza proprietario. |
-| **Presa forzata** | Se A non risponde, il coordinatore chiama `claim` con la generazione di A, senza il suo token: le scritture non confermate di A restano nel suo handle, e il suo commit e le altre operazioni successive sono rifiutati. Con l'attesa dello schema precedente dà un passaggio ordinato con una scadenza. |
+| **Presa forzata** | Se A non risponde, il coordinatore chiama `claim` con la generazione di A, senza il suo token: le scritture non confermate di A si scartano, nel nodo o nel suo handle, e le sue scritture successive, il suo commit e le altre operazioni sono rifiutati. Con l'attesa dello schema precedente dà un passaggio ordinato con una scadenza. |
 | **Worker in competizione** | Un worker legge lo stato e, se la partizione è libera, chiama `claim` con quella generazione; se un altro l'ha presa prima, la generazione è cambiata e `claim` fallisce. |
 | **Lease** | Heartbeat e scadenza stanno nel coordinatore, che revoca con `claim`: la partizione non ha bisogno di orologi, e la sicurezza viene dal fencing. |
 
@@ -281,16 +286,17 @@ spazio crea le partizioni senza proprietario.
   nell'ordine slot, indice, metadati: gli slot tornano con la
   numerazione del commit e l'indice al proprio snapshot dello stesso
   commit, senza notifiche per le scritture scartate. Il commit
-  successivo copia quello che è cambiato. Le scritture arrivano allo
-  storage solo con il commit, quindi tra un commit e l'altro slot e
-  indice sono già all'ultimo commit e non fanno niente: il ripristino
-  conta per il recupero di una partizione che lo richiede. Se il ripristino
+  successivo copia quello che è cambiato. Nella modalità diretta il
+  ripristino scarta le scritture non confermate del vecchio writer; con
+  il buffer le scritture arrivano allo storage solo con il commit, quindi
+  tra un commit e l'altro slot e indice sono già all'ultimo commit e il
+  ripristino conta per il recupero di una partizione che lo richiede. Se il ripristino
   fallisce la proprietà cambia comunque e la partizione richiede un
   recupero; su una partizione che lo richiede, `claim` e `release`
   ritentano il ripristino e, se riesce, la partizione torna sana (vedi
   [fallimenti e salute](/current/architecture/partition-failures.md)).
-- **Controllo del token.** Ogni commit, rollback e richiesta di
-  rimozione dello storage riceve la generazione e la confronta con lo
+- **Controllo del token.** Ogni scrittura, commit, rollback e richiesta
+  di rimozione dello storage riceve la generazione e la confronta con lo
   stato di proprietà subito dopo aver preso il lock della partizione,
   insieme agli altri controlli dell'input: con una generazione che non
   è del proprietario attuale, o senza proprietario, fallisce con

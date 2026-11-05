@@ -4,37 +4,35 @@ import badspace.common.geometry.Point3;
 import badspace.common.partition.Entity3;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.PartitionNode3;
-import badspace.common.partition.PendingWrites3;
+import badspace.common.partition.WriteSession3;
 import badspace.common.partition.WriteToken;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Writer handle of a 3D partition: it carries the token of the owner and keeps the writes in
- * {@link PendingWrites3}, which sends them to the node of the partition with the token at the
- * commit, in one call (see {@link PartitionWriter}). The writes make no calls to the node: the
- * positions are checked against the limits at once, and the node checks the token and the
- * state of the partition at the commit. The handle generates the IDs of the new entities and
- * applies the removal policy of the partition. It keeps no state of the partition.
+ * Writer handle of a 3D partition: it carries the token of the owner and sends the writes
+ * through {@link WriteSession3}, in the write mode of the node (see {@link PartitionWriter}).
+ * The handle generates the IDs of the new entities and applies the removal policy of the
+ * partition. It keeps no state of the partition: at most, with the buffer, the writes not sent.
  */
 public final class PartitionWriter3 implements PartitionWriter {
 
     private final Space3 space;
     private final PartitionNode3 node;
     private final PartitionConfig config;
-    // The writes not committed yet. Only the writer that uses the handle reads and changes them.
-    private final PendingWrites3 pending;
+    // The write session of the token. Only the writer that uses the handle calls it.
+    private final WriteSession3 session;
 
     PartitionWriter3(Space3 space, PartitionNode3 node, WriteToken token, PartitionConfig config) {
         this.space = space;
         this.node = node;
         this.config = config;
-        this.pending = new PendingWrites3(node, token, config.index().limits());
+        this.session = WriteSession3.of(node, token, config.index().limits());
     }
 
     @Override
     public WriteToken token() {
-        return pending.token();
+        return session.token();
     }
 
     /** Adds a new entity and returns its ID. */
@@ -59,7 +57,7 @@ public final class PartitionWriter3 implements PartitionWriter {
             entityIds[i] = space.nextEntityId();
             entities.add(new Entity3(entityIds[i], positions.get(i)));
         }
-        pending.setAll(entities);
+        session.setAll(entities);
         return entityIds;
     }
 
@@ -89,7 +87,7 @@ public final class PartitionWriter3 implements PartitionWriter {
      *     {@linkplain Partition#limits() limits}; in this case nothing changes
      */
     public void setAll(List<Entity3> entities) {
-        pending.setAll(entities);
+        session.setAll(entities);
     }
 
     @Override
@@ -99,7 +97,7 @@ public final class PartitionWriter3 implements PartitionWriter {
 
     @Override
     public void removeAll(long[] entityIds) {
-        pending.removeAll(entityIds);
+        session.removeAll(entityIds);
     }
 
     @Override
@@ -114,35 +112,35 @@ public final class PartitionWriter3 implements PartitionWriter {
 
     @Override
     public void updateMetadataAll(List<MetadataWrite> writes) {
-        pending.updateMetadataAll(writes);
+        session.updateMetadataAll(writes);
     }
 
     @Override
     public void commit() {
-        pending.commit();
+        session.commit();
     }
 
     @Override
     public void rollback() {
-        pending.rollback();
+        session.rollback();
     }
 
     @Override
     public long lastCommitTick() {
-        return node.lastCommitTick(pending.token());
+        return node.lastCommitTick(session.token());
     }
 
     @Override
     public void removePartition() {
         switch (config.removalPolicy()) {
-            case REQUIRE_EMPTY -> node.removePartition(pending.token());
-            case DISCARD_ENTITIES -> node.dropPartition(pending.token());
+            case REQUIRE_EMPTY -> node.removePartition(session.token());
+            case DISCARD_ENTITIES -> node.dropPartition(session.token());
         }
-        pending.discard();
+        session.discard();
     }
 
     @Override
     public void close() {
-        pending.release();
+        session.release();
     }
 }

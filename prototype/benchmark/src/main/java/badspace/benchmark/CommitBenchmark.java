@@ -9,10 +9,10 @@ import badspace.common.partition.Ownership;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.PartitionNode2;
-import badspace.common.partition.PendingWrites2;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.WriteMode;
+import badspace.common.partition.WriteSession2;
 import badspace.common.partition.WriteToken;
-import badspace.service.partition.NodeWrites;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -100,7 +100,7 @@ public class CommitBenchmark {
         // The same moves as entities, for the writes through the buffer of the writer.
         List<Entity2> movedEntities;
         List<Entity2> originalEntities;
-        PendingWrites2 pending;
+        WriteSession2 session;
         boolean movedBack = true;
 
         @Override
@@ -115,7 +115,7 @@ public class CommitBenchmark {
                     .toList();
             original = NodeWrites.sets(originalEntities);
             moved = NodeWrites.sets(movedEntities);
-            pending = new PendingWrites2(node, WRITE_TOKEN, node.limits(PARTITION_ID));
+            session = WriteSession2.of(node, WRITE_TOKEN, node.limits(PARTITION_ID));
         }
 
         /** Returns the moves of the next tick as entities, like {@link #nextMoves()}. */
@@ -128,6 +128,24 @@ public class CommitBenchmark {
         List<EntityWrite2> nextMoves() {
             movedBack = !movedBack;
             return movedBack ? original : moved;
+        }
+    }
+
+    /**
+     * The moves of {@link TickState} through the writes of the writer, on a node in each write
+     * mode: in the direct mode each call goes to the node, with the buffer the commit sends
+     * them in one batch.
+     */
+    @State(Scope.Thread)
+    public static class WriterTickState extends TickState {
+
+        /** The write mode of the node. */
+        @Param({"DIRECT", "BUFFERED"})
+        public WriteMode writeMode;
+
+        @Override
+        WriteMode writeMode() {
+            return writeMode;
         }
     }
 
@@ -200,15 +218,16 @@ public class CommitBenchmark {
     }
 
     /**
-     * The same tick as {@link #commitTick}, through the buffer of the writer: the moves go to
-     * a {@link PendingWrites2} and the commit sends them to the node in one batch, as the
-     * writer handle of the API does. The difference from commitTick is the cost of the buffer
-     * and of the batch.
+     * The same tick as {@link #commitTick}, through the writes of the writer, a
+     * {@link WriteSession2}, as the writer handle of the API does, in the write mode of the
+     * node. In the direct mode the moves go to the node at once, like in commitTick, and the
+     * difference is the cost of building the changes; with the buffer the commit sends them in
+     * one batch, and the difference is also the cost of the buffer.
      */
     @Benchmark
-    public void commitTickWithTheWriter(TickState s) {
-        s.pending.setAll(s.nextMovedEntities());
-        s.pending.commit();
+    public void commitTickWithTheWriter(WriterTickState s) {
+        s.session.setAll(s.nextMovedEntities());
+        s.session.commit();
         s.node.setTick(++s.tick);
     }
 

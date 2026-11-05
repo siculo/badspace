@@ -66,9 +66,9 @@ partizione](/current/architecture/partition-ownership.md)):
 - dopo `remove()` non si possono più fare commit, e un
   secondo `remove()` fallisce con `IllegalStateException`; anche
   `claim` è rifiutato, quindi nessuno può più prendere la proprietà;
-- `remove()` **scarta le scritture non confermate**, che sono
-  nell'handle del writer e non arrivano al nodo: l'ultimo snapshot
-  contiene solo l'ultimo stato confermato da `commit()`;
+- `remove()` **scarta le scritture non confermate**, nel nodo o
+  nell'handle del writer secondo la [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura): l'ultimo
+  snapshot contiene solo l'ultimo stato confermato da `commit()`;
 - con la [politica di
   rimozione](/current/api/operations.md#creazione-e-rimozione-delle-partizioni)
   `REQUIRE_EMPTY`, `remove()` controlla che sia vuoto lo **stato
@@ -163,9 +163,10 @@ stato in un campo `volatile`.
   nodo chiamano `requestRemoval` dello storage, che sotto il lock della
   partizione rifiuta una seconda richiesta e, per `REQUIRE_EMPTY`,
   controlla che l'ultimo commit non abbia entità; poi lo stato diventa
-  `REMOVAL_PENDING`. Le scritture non confermate sono nell'handle del
-  writer, che dopo la richiesta riuscita le scarta: l'ultimo snapshot è
-  quello dell'ultimo commit. Il nodo rifiuta le operazioni del writer su
+  `REMOVAL_PENDING`. Le scritture non confermate della modalità diretta
+  restano nello stato del writer senza più commit; quelle del buffer le
+  scarta l'handle dopo la richiesta riuscita: l'ultimo snapshot è quello
+  dell'ultimo commit. Il nodo rifiuta le operazioni del writer su
   una partizione non attiva, con `IllegalStateException`.
 - **Ritiro.** Il primo `setTick` che fa avanzare il tick, con lo stato
   `REMOVAL_PENDING`, pubblica come sempre lo snapshot in attesa e passa

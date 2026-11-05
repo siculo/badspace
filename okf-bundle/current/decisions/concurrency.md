@@ -27,12 +27,12 @@ con un numero di generazione che blocca i writer non più proprietari
 (vedi [proprietà della partizione](/current/architecture/partition-ownership.md)).
 Le scritture sono raggruppate in [commit](/current/architecture/partition-commit.md)
 che non richiedono gestione dei conflitti tra writer validi.
-Il lock della partizione ordina comunque commit, cambi di proprietà e
-avanzamenti del tick, ed è equo: un writer che fa commit uno dopo l'altro
-non passa davanti a un avanzamento del tick già in attesa, che aspetta al
-più il commit in corso; le scritture restano nel writer e arrivano alla
-partizione con il commit (vedi [scritture
-accumulate](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)).
+Il lock della partizione ordina comunque scritture, commit, cambi di
+proprietà e avanzamenti del tick, ed è equo: un writer che fa commit uno
+dopo l'altro non passa davanti a un avanzamento del tick già in attesa,
+che aspetta al più la scrittura o il commit in corso. Le scritture
+arrivano alla partizione subito o con il commit, secondo la [modalità di
+scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura) del nodo.
 
 I reader non bloccano mai il writer: il writer non aspetta query,
 acquisizioni o persistenza. L'avanzamento del

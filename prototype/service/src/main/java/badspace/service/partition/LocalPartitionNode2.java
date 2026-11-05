@@ -20,6 +20,7 @@ import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.UnknownPartitionException;
+import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.snapshot.MonotonicClock;
 import badspace.service.partition.snapshot.SnapshotCatalog2;
@@ -60,7 +61,9 @@ import java.util.function.Function;
  * The writers of different partitions can work on different threads. Each partition has its
  * own lock and its own sequence of commits, and the writes and the commits do not take the
  * lock of the node: a writer waits only for a move of the tick of its own partition, never
- * for the writers of the other partitions.
+ * for the writers of the other partitions. By default the writers send each write at once
+ * ({@link WriteMode#DIRECT}): in the same process a buffer in the writer would only add its
+ * cost. The node can also be created with {@link WriteMode#BUFFERED}, like a remote node.
  * <p>
  * A node created with a save directory saves the snapshots of its partitions there, each in
  * its own file (see {@link NodeSaves}), and loads them into new partitions. Saves of different partitions, and of the same
@@ -84,6 +87,8 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     private final NodeSaves saves;
     // Orders setTick and the additions of partitions: they run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
+    // How the writers send their writes to the node.
+    private final WriteMode writeMode;
     // The tick of the node. Written by setTick while holding tickLock, read by any thread.
     private volatile long tick;
 
@@ -96,6 +101,16 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     /**
+     * Creates a node like {@link #LocalPartitionNode2()}, whose writers send their writes in the
+     * given mode. The default mode of a node in the same process is
+     * {@link WriteMode#DIRECT}; with {@link WriteMode#BUFFERED} it behaves like a remote node,
+     * for example to compare the two modes.
+     */
+    public LocalPartitionNode2(WriteMode writeMode) {
+        this(MonotonicClock.SYSTEM, PartitionStorage2::new, null, writeMode);
+    }
+
+    /**
      * Creates a node that measures the timeouts of the acquisitions with the clock of the system
      * and saves the snapshots in the given directory, which must exist.
      *
@@ -103,7 +118,18 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
      * @throws UncheckedIOException if the node cannot prepare the directory for the saves
      */
     public LocalPartitionNode2(Path saveDirectory) {
-        this(MonotonicClock.SYSTEM, PartitionStorage2::new, new NodeSaves(saveDirectory));
+        this(saveDirectory, WriteMode.DIRECT);
+    }
+
+    /**
+     * Creates a node like {@link #LocalPartitionNode2(Path)}, whose writers send their writes in
+     * the given mode, like {@link #LocalPartitionNode2(WriteMode)}.
+     *
+     * @throws IllegalArgumentException if the directory does not exist
+     * @throws UncheckedIOException if the node cannot prepare the directory for the saves
+     */
+    public LocalPartitionNode2(Path saveDirectory, WriteMode writeMode) {
+        this(MonotonicClock.SYSTEM, PartitionStorage2::new, new NodeSaves(saveDirectory), writeMode);
     }
 
     /** Creates a node that measures the timeouts of the acquisitions with the given clock. */
@@ -117,7 +143,15 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
      * partition, and to know when a move of the tick waits for the lock of a partition.
      */
     LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory) {
-        this(clock, storageFactory, null);
+        this(clock, storageFactory, WriteMode.DIRECT);
+    }
+
+    /**
+     * Creates a node like {@link #LocalPartitionNode2(MonotonicClock, StorageFactory)}, whose
+     * writers send their writes in the given mode.
+     */
+    LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory, WriteMode writeMode) {
+        this(clock, storageFactory, null, writeMode);
     }
 
     /**
@@ -126,9 +160,18 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
      * index of the loaded partition.
      */
     LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory, NodeSaves saves) {
+        this(clock, storageFactory, saves, WriteMode.DIRECT);
+    }
+
+    /**
+     * Creates a node like {@link #LocalPartitionNode2(MonotonicClock, StorageFactory, NodeSaves)},
+     * whose writers send their writes in the given mode.
+     */
+    LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory, NodeSaves saves, WriteMode writeMode) {
         this.clock = clock;
         this.storageFactory = storageFactory;
         this.saves = saves;
+        this.writeMode = Objects.requireNonNull(writeMode);
     }
 
     @Override
@@ -292,6 +335,16 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         if (storage != null) {
             storage.releaseOwnership(token.generation());
         }
+    }
+
+    @Override
+    public WriteMode writeMode() {
+        return writeMode;
+    }
+
+    @Override
+    public void write(WriteToken token, List<EntityWrite2> changes) {
+        find(token.partitionId()).apply(token.generation(), changes);
     }
 
     @Override

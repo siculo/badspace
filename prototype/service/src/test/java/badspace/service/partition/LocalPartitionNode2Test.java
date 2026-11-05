@@ -6,6 +6,7 @@ import static badspace.common.partition.Entity2.entity;
 import static badspace.common.partition.PartitionName.partitionName;
 import static badspace.service.partition.Names.nameOf;
 import static badspace.service.partition.Owners.owner;
+import static badspace.service.partition.Owners.assertRejected;
 import static badspace.service.partition.Owners.writes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -28,6 +29,7 @@ import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.UnknownPartitionException;
+import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.snapshot.MonotonicClock;
 import java.time.Duration;
@@ -40,8 +42,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.Parameter;
+import org.junit.jupiter.params.ParameterizedClass;
+import org.junit.jupiter.params.provider.EnumSource;
 
+@ParameterizedClass
+@EnumSource(WriteMode.class)
 class LocalPartitionNode2Test {
+
+    @Parameter
+    WriteMode mode;
 
     private static final PartitionId P1 = new PartitionId(1);
     private static final PartitionId P2 = new PartitionId(2);
@@ -51,7 +61,7 @@ class LocalPartitionNode2Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode2();
+        node = new LocalPartitionNode2(mode);
         node.createPartition(P1, nameOf(P1));
     }
 
@@ -886,9 +896,9 @@ class LocalPartitionNode2Test {
     }
 
     @Test
-    void commitOnAnUnknownPartitionIsRejected() {
-        writes(node, P2).setAll(List.of(entity(1, 0, 0)));
-        assertThrows(UnknownPartitionException.class, () -> writes(node, P2).commit());
+    void writesOnAnUnknownPartitionAreRejected() {
+        assertRejected(mode, UnknownPartitionException.class,
+                () -> writes(node, P2).setAll(List.of(entity(1, 0, 0))), () -> writes(node, P2).commit());
     }
 
     /**

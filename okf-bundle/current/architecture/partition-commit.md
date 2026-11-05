@@ -1,7 +1,7 @@
 ---
 type: Architecture Primitive
 title: Commit della partizione
-description: "Commit cumulativi nel tick corrente: scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
+description: "Commit cumulativi nel tick corrente: modalità di scrittura diretta e con buffer, scritture accumulate nel writer e inviate in un batch, conferma dello stato, pubblicazione al tick successivo, sequenza interna per il copy-on-write e strutture transazionali con il loro ripristino."
 tags: [badspace, architecture, partitioning, transactions]
 status: stable
 generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T18:54:02Z }
@@ -9,9 +9,10 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-05T18:54:02Z }
 
 # Primitiva
 
-`commit()` manda al nodo le scritture del writer di una partizione e le
-conferma: lo stato confermato è completo, con le posizioni e i metadati
-delle entità. È una transazione limitata alla
+`commit()` conferma le scritture del writer di una partizione, già
+arrivate al nodo o mandate insieme al commit, secondo la [modalità di
+scrittura](#modalità-di-scrittura) del nodo: lo stato confermato è
+completo, con le posizioni e i metadati delle entità. È una transazione limitata alla
 partizione; il [salvataggio su disco](/current/decisions/persistence.md)
 è un’operazione separata.
 
@@ -76,12 +77,14 @@ tempo -----+---------*---------*-----------+-------------------*-----------+----
 
 Il writer completa il batch A nel tick 12. Nei tick 10 e 11 non fa
 commit: i loro snapshot ripetono il contenuto precedente. Le scritture
-restano nell'handle del writer e diventano visibili insieme in `S(12)`,
-dal tick 13.
+restano non confermate, nel nodo o nell'handle secondo la [modalità di
+scrittura](#modalità-di-scrittura), e diventano visibili insieme in
+`S(12)`, dal tick 13.
 
-La barra lunga rappresenta una serie di scritture nell'handle, che non
-chiamano il nodo e non trattengono il lock della partizione durante gli
-avanzamenti del tick: il lock lo prende solo il commit.
+La barra lunga rappresenta una serie di scritture, che non trattengono
+il lock della partizione durante gli avanzamenti del tick: nella
+modalità diretta ogni scrittura lo prende solo per il proprio lavoro,
+con il buffer lo prende solo il commit.
 
 ```text
      Tick 10               Tick 11               Tick 12     Commit    Tick 13
@@ -113,8 +116,8 @@ intermedio. Gli snapshot precedenti restano acquisibili finché sono nella
 finestra di conservazione. Snapshot logici con lo stesso contenuto
 possono condividerlo, senza una copia per ogni tick.
 
-Il lock della partizione ordina commit, avanzamento del tick e cambi
-di proprietà. Un commit concorrente all’avanzamento appartiene al tick
+Il lock della partizione ordina scritture, commit, avanzamento del tick
+e cambi di proprietà. Un commit concorrente all’avanzamento appartiene al tick
 che si chiude oppure a quello nuovo; non modifica uno snapshot già
 pubblicato. Non ci sono transazioni tra partizioni né conflitti tra
 writer validi della stessa partizione: la
@@ -124,17 +127,95 @@ Se cambia il proprietario nello stesso tick, il successore conserva i
 commit precedenti senza poterli ancora leggere. Il limite è descritto
 nella [visibilità nel tick del passaggio](/current/architecture/partition-ownership.md#visibilità-nel-tick-del-passaggio).
 
+## Modalità di scrittura
+
+Il nodo decide quando gli arrivano le scritture del writer, con la sua
+**modalità di scrittura** (`WriteMode`), che non cambia per tutta la vita
+del nodo. L'handle del writer la segue:
+
+- **diretta** (`DIRECT`): ogni scrittura dell'handle va subito al nodo,
+  che la applica allo stato del writer senza confermarla; `commit()`
+  conferma le scritture già arrivate. È la modalità del nodo nello
+  stesso processo del software, e quella predefinita del nodo locale:
+  l'handle non tiene un buffer, e ogni scrittura costa solo il lavoro
+  del nodo;
+- **con buffer** (`BUFFERED`): le scritture restano nell'handle,
+  composte per entità, e `commit()` le manda al nodo in una sola
+  chiamata, che le applica e le conferma nello stesso passo (vedi
+  [scritture accumulate](#scritture-accumulate-nel-writer)). È la
+  modalità pensata per il nodo remoto futuro: una chiamata per commit,
+  qualunque sia il numero di scritture. Il nodo locale si può creare in
+  questa modalità, per i test e per i confronti.
+
+```text
+  diretta                                 con buffer
+  writer              nodo                writer              nodo
+  "set(A, p)"  -----> applica             "set(A, p)"         |
+  "remove(B)"  -----> applica             "remove(B)"         |
+  "commit()"   -----> conferma            "commit()"   -----> applica e conferma
+```
+
+Il diagramma mostra le chiamate al nodo di un commit con due scritture;
+nella modalità con buffer le scritture restano nell'handle fino al
+commit.
+
+**Le due modalità danno lo stesso risultato.** In entrambe le scritture
+si applicano nel loro ordine all'**ultimo commit** della partizione,
+anche se aspetta ancora l'avanzamento del tick, non allo snapshot che il
+writer ha letto: nella modalità diretta il nodo applica ogni scrittura
+allo stato di quel momento, con il buffer la composizione per entità dà
+lo stesso effetto delle scritture eseguite una alla volta. Le stesse
+scritture fanno gli stessi commit, e i reader vedono gli stessi
+snapshot. Anche i rifiuti e i fallimenti seguono le stesse regole:
+
+| Dopo | Partizione | Scritture non confermate |
+|---|---|---|
+| Scrittura rifiutata (solo diretta: token non corrente, partizione rimossa o in recupero, input non valido) | Non cambia | Restano quelle di prima |
+| Scrittura fallita dopo i controlli (solo diretta) | Torna all'ultimo commit, o resta in recupero necessario | Scartate tutte |
+| Commit riuscito | Ha le scritture nel commit del tick corrente | Nessuna |
+| Commit rifiutato (token non corrente, partizione rimossa o in recupero, input non valido) | Non cambia | Restano, nel nodo o nel buffer |
+| Commit fallito dopo i controlli (`PartitionFailureException` o `Error`) | Torna all'ultimo commit, o resta in recupero necessario | Scartate tutte |
+| `rollback()` | Torna all'ultimo commit; è anche il recupero | Scartate tutte |
+| `close()` | Rilasciata, all'ultimo commit | Scartate tutte |
+| `removePartition()` riuscita | In rimozione, all'ultimo commit | Scartate tutte |
+
+Nella modalità diretta le scritture non confermate sono nel nodo, e il
+ripristino all'ultimo commit le scarta: al rollback, a un fallimento e
+al cambio di proprietà. Con il buffer sono nell'handle: `rollback()` e
+`close()` svuotano il buffer, poi vanno al nodo per il ripristino e per
+il rilascio, e tra un commit e l'altro il nodo non ha scritture del
+writer da scartare. In entrambi i casi le scritture di un writer che ha
+perso la proprietà non arrivano alla partizione: il nodo le rifiuta,
+alla scrittura o al commit che le porterebbe.
+
+**Le differenze tra le due modalità sono due.**
+
+- **Il momento di alcuni rifiuti.** Nella modalità diretta il nodo
+  controlla token, stato e salute della partizione a ogni scrittura, e
+  i fallimenti delle strutture arrivano con la scrittura che li causa.
+  Con il buffer le scritture non chiamano il nodo, quindi alla chiamata
+  l'handle controlla solo i limiti delle posizioni, e il resto arriva al
+  writer con il `commit()`. Un controllo sul nodo a ogni scrittura
+  riporterebbe una chiamata per scrittura, e non basterebbe comunque:
+  proprietà e salute possono cambiare tra la scrittura e il commit, che
+  deve controllarle di nuovo. Il writer che vuole saperlo prima può
+  leggere `ownership()` e `health()` della partizione.
+- **La durata del lock della partizione.** Nella modalità diretta ogni
+  scrittura e il commit prendono il lock per il proprio lavoro, e un
+  avanzamento del tick può passare tra due scritture: pubblica l'ultimo
+  commit, quindi le scritture non confermate restano fuori dallo
+  snapshot in entrambe le modalità. Con il buffer il commit tiene il
+  lock per tutto il batch, e l'avanzamento del tick può aspettare fino
+  alla sua durata (vedi [costi](#costi-del-buffer-e-del-commit)).
+
 ## Scritture accumulate nel writer
 
-Le scritture del writer restano nel suo
+Nella modalità con buffer le scritture del writer restano nel suo
 [handle](/current/api/operations.md#proprietà-e-handle-del-writer),
 nel processo del software, e non chiamano il nodo: `commit()` le manda
 tutte insieme, in una sola chiamata, con il token. Il nodo applica il
-batch all'**ultimo commit** della partizione, anche se aspetta ancora
-l'avanzamento del tick, non allo snapshot che il writer ha letto, e lo
-conferma nello stesso passo, sotto il lock della partizione. Il
-comportamento è lo stesso per un nodo locale e per un nodo remoto
-futuro.
+batch all'ultimo commit della partizione e lo conferma nello stesso
+passo, sotto il lock della partizione.
 
 ```text
   writer (handle)                                      nodo
@@ -218,71 +299,47 @@ vincoli tra entità o transazioni tra partizioni.
 
 Ridurre le modifiche prima dell'applicazione evita aggiornamenti ripetuti
 dell'indice per la stessa entità. Il costo si sposta verso il buffer del
-client e il commit; il beneficio sui nodi locali non è ancora misurato.
+client e il commit, e sui nodi locali supera il beneficio (vedi
+[costi](#costi-del-buffer-e-del-commit)): per questo il nodo locale usa la
+modalità diretta.
 
 L'handle controlla subito i limiti delle posizioni: una scrittura fuori
 dai limiti non entra nel buffer. Token, stato e salute della partizione
 li controlla il nodo al commit, insieme di nuovo ai limiti, che
 proteggono le celle degli indici; un batch rifiutato non cambia la
-partizione. Il buffer manda al più una modifica per entità, e il nodo non
-lo controlla: il contratto del nodo è interno al sistema (vedi [fiducia
-negli sviluppatori](/process/development-approach.md#fiducia-negli-sviluppatori)),
-e più modifiche della stessa entità si applicano in ordine, come commit
-successivi sotto lo stesso lock.
-
-Lo stato del buffer dopo ogni operazione è lo stesso che avevano le
-scritture quando arrivavano al nodo una alla volta:
-
-| Dopo | Partizione | Buffer |
-|---|---|---|
-| Commit riuscito | Ha il batch nel commit del tick corrente | Vuoto |
-| Commit rifiutato (token non corrente, partizione rimossa o in recupero, input non valido) | Non cambia | Conserva le scritture |
-| Commit fallito dopo i controlli (`PartitionFailureException` o `Error`) | Torna all'ultimo commit, o resta in recupero necessario | Vuoto: le scritture sono scartate, come annullava il fallimento di una scrittura |
-| `rollback()` | Torna all'ultimo commit; è anche il recupero | Vuoto |
-| `close()` | Rilasciata, all'ultimo commit | Vuoto |
-| `removePartition()` riuscita | In rimozione, all'ultimo commit | Vuoto |
-
-`rollback()` e `close()` svuotano il buffer, poi vanno al nodo per il
-ripristino e per il rilascio. Tra un commit e l'altro il nodo non ha
-scritture del writer da scartare: il ripristino al rollback e al cambio
-di proprietà riporta le strutture a uno stato in cui sono già, e serve
-al recupero di una partizione che lo richiede. Le scritture di un writer
-che ha perso la proprietà restano nel suo handle e non arrivano alla
-partizione, perché il commit che le porterebbe è rifiutato.
-
-**Unica differenza rispetto alle scritture inviate una alla volta: il
-momento di alcuni rifiuti.** Lo stato della partizione, quello che
-leggono i reader e le scritture che si perdono sono gli stessi. Però le
-scritture non chiamano il nodo, quindi alla chiamata si controllano solo
-i limiti delle posizioni. Token non corrente, partizione rimossa, in
-recupero necessario o sconosciuta, e i fallimenti delle strutture,
-arrivano al writer con il `commit()` e non con la scrittura. Un
-controllo sul nodo a ogni scrittura riporterebbe una chiamata per
-scrittura, e non basterebbe comunque: proprietà e salute possono
-cambiare tra la scrittura e il commit, che deve controllarle di nuovo.
-Il writer che vuole saperlo prima può leggere `ownership()` e
-`health()` della partizione.
+partizione e le scritture restano nel buffer. Il buffer manda al più
+una modifica per entità, e il nodo non lo controlla: il contratto del
+nodo è interno al sistema (vedi [fiducia negli
+sviluppatori](/process/development-approach.md#fiducia-negli-sviluppatori)),
+e più modifiche della stessa entità si applicano in ordine, come le
+scritture della modalità diretta.
 
 ### Costi del buffer e del commit
 
 Il piano `plans/buffered-writes.json` del modulo di benchmark misura un
 tick con spostamenti, commit e avanzamento del tick in tre modi: gli
-spostamenti scritti direttamente nello storage (`commitTick`), lo
-stesso tick attraverso il buffer del writer (`commitTickWithTheWriter`)
-e gli spostamenti da soli (`movesWithoutCommit`); misura anche la
-memoria del buffer (`BufferSizes`) e l'attesa dell'avanzamento del tick
-durante i commit (`moveTickDuringCommits`).
+spostamenti preparati come batch e scritti nel nodo senza commit, con
+la scrittura della modalità diretta, poi il commit (`commitTick`); lo
+stesso tick attraverso le scritture del writer
+(`commitTickWithTheWriter`, nelle due modalità con il parametro
+`writeMode`); e gli spostamenti da soli (`movesWithoutCommit`). Misura
+anche la memoria del buffer (`BufferSizes`) e l'attesa dell'avanzamento
+del tick durante i commit (`moveTickDuringCommits`).
 
 Risultati del 2026-11-05 sulla macchina dedicata, profilo rapido,
-Temurin 25.0.5, tutto il piano in un solo run sul codice di adesso
-(`prototype/benchmark/results/2026-11-05-1943-*`), distribuzione
-uniforme, senza reader, in millisecondi per tick. L'ultima colonna è il
+Temurin 25.0.5, tutto il piano in un solo run sul codice prima delle due
+modalità, quando il writer aveva solo il buffer
+(`prototype/benchmark/results/2026-11-05-1943-*`): la colonna «Tick dal
+writer» è quindi la modalità con buffer, e il tick dal writer nella
+modalità diretta è ancora da misurare. Allora `commitTick` scriveva
+nello storage con lo stesso passo che ora fa la scrittura del nodo.
+Distribuzione uniforme, senza reader, in millisecondi per tick. L'ultima colonna è il
 tick di `main`, prima del refactoring, con le scritture inviate al nodo
 una alla volta, misurato lo stesso giorno con OpenJDK 25.0.2
 (`2026-11-05-commit-tick-main-quick.*`): le due JVM danno gli stessi
 tempi, entro la variabilità, sullo stesso codice.
 
-| Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer | Tick di `main` |
+| Indice ed entità | In movimento | Spostamenti | Tick | Tick dal writer, con buffer | Tick di `main` |
 |---|---|---|---|---|---|
 | Scansione lineare, 100 000 | 10% | 0,30 | 0,36 | 0,66 | 0,29 |
 | Scansione lineare, 100 000 | 100% | 3,5 | 3,8 | 8,1 | 2,7 |
@@ -302,7 +359,7 @@ tempi, entro la variabilità, sullo stesso codice.
   differenza pesa di più con gli indici economici e con i batch grandi.
   È il prezzo di un writer che non chiama il nodo a ogni scrittura, che
   conta soprattutto con un nodo remoto, dove ogni chiamata è un andata e
-  ritorno in rete.
+  ritorno in rete; per questo il nodo locale usa la modalità diretta.
 - **Il buffer costa circa 25–140 ns per entità scritta**, la differenza
   tra il tick dal writer e il tick: di più con molte entità, che non
   stanno nella cache. Il costo viene dalla mappa per ID, dall'oggetto di
@@ -328,17 +385,18 @@ tempi, entro la variabilità, sullo stesso codice.
   scansione lineare e 100 000 entità l'aggiornamento costa di nuovo
   circa 26 ns per entità, come nella [capacità degli aggiornamenti per
   tick](/current/indices/update-capacity.md).
-- **Il commit tiene il lock per tutto il batch.** Applicazione del batch
-  e preparazione dello snapshot avvengono sotto il lock della
-  partizione, e un avanzamento del tick che arriva durante un commit lo
-  aspetta. Con le scritture inviate una alla volta il lock si prendeva a
-  ogni chiamata, e l'avanzamento poteva passare tra una scrittura e
-  l'altra; ora aspetta il batch intero, in cambio di un batch atomico
-  rispetto al tick.
+- **Con il buffer il commit tiene il lock per tutto il batch.**
+  Applicazione del batch e preparazione dello snapshot avvengono sotto il
+  lock della partizione, e un avanzamento del tick che arriva durante un
+  commit lo aspetta. Nella modalità diretta, come con le scritture di
+  `main`, il lock si prende a ogni scrittura, e l'avanzamento può passare
+  tra una scrittura e l'altra; il commit lo tiene solo per preparare lo
+  snapshot. In entrambi i casi l'avanzamento pubblica solo l'ultimo
+  commit, quindi lo snapshot ha un commit intero o niente.
 
 `moveTickDuringCommits` misura la latenza di `setTick` mentre un writer
 su un altro thread, non misurato, fa commit degli stessi batch uno dopo
-l'altro, senza pause: è il caso peggiore, con un commit sempre in corso
+l'altro, senza pause, come nella modalità con buffer: è il caso peggiore, con un commit sempre in corso
 o appena finito quando arriva l'avanzamento. I valori sono la media
 (modo `AverageTime`) e i percentili dei campioni (modo `SampleTime`),
 dallo stesso run:
@@ -476,28 +534,56 @@ metadati riprendono la mappa di C1.
 
 # Nel prototipo
 
-Il buffer delle scritture è `PendingWrites2`/`PendingWrites3` in
-`common`: tiene nodo, token e limiti della partizione, controlla i
-limiti alla chiamata, manda il batch al commit e lo svuota dopo il
-successo; `rollback()` e `release()` lo svuotano prima di andare al
-nodo. Dipende solo dal contratto del nodo, quindi vale per ogni nodo.
-L'handle del writer ne ha uno e aggiunge quello che è dell'API: la
-generazione degli ID, le scorciatoie su una sola entità e la politica
-di rimozione. La composizione è in `WriteBuffer2`/`WriteBuffer3`,
-package-private in `common`, che produce un `EntityWrite2`/
-`EntityWrite3` per entità; i test la confrontano con l'esecuzione delle
-chiamate una alla volta, anche su 5000 sequenze casuali di `set`,
-`remove` e scritture dei metadati su basi casuali. Il contratto del
-nodo ha `commit(WriteToken, List<EntityWrite2>)` al posto delle singole
-scritture; lo storage fa il commit in due passi sotto lo stesso lock,
-`apply`, che applica il batch allo stato del writer, e `commit`, che
-prepara lo snapshot. Test e benchmark dello storage usano gli stessi due
-passi, senza scritture proprie. `EntityWrite2`/`EntityWrite3` ha i
-metodi di comodo `set`, `removal` e `metadataOf` per i test e i client. I test del nodo scrivono con lo stesso `PendingWrites2`/
-`PendingWrites3`, uno per token; i benchmark delle scritture misurano slot e indice senza il commit,
-scrivendo direttamente nello storage di un nodo locale creato con la
-factory degli storage che usano anche i test, perché restino
-confrontabili con le misure precedenti.
+La modalità di scrittura è l'enum `WriteMode` in `common`, e il nodo la
+dichiara con `writeMode()` nel suo contratto. `LocalPartitionNode2`/
+`LocalPartitionNode3` è nella modalità diretta, salvo i costruttori che
+ricevono la modalità. Il writer manda scritture, commit, rollback e
+rilascio attraverso la sua **sessione di scrittura**, l'interfaccia
+`WriteSession2`/`WriteSession3` in `common`: nasce con il token, e
+`of(node, token, limits)` la crea nella modalità del nodo, con due
+implementazioni package-private:
+
+- `DirectWriteSession2`/`DirectWriteSession3` trasforma ogni chiamata in
+  un batch, con un `EntityWrite2`/`EntityWrite3` per ogni `set`, per ogni
+  rimozione e per ogni gruppo di scritture consecutive dei metadati di
+  un'entità, e lo manda con `write(WriteToken, List<EntityWrite2>)` del
+  nodo, che lo applica senza commit; senza modifiche non chiama il nodo.
+  Il commit è `commit(token, List.of())`, e non tiene niente nel client;
+- `BufferedWriteSession2`/`BufferedWriteSession3` tiene nodo, token e
+  limiti della partizione, controlla i limiti alla chiamata, manda il batch al commit
+  con `commit(WriteToken, List<EntityWrite2>)` e lo svuota dopo il
+  successo; `rollback()` e `release()` lo svuotano prima di andare al
+  nodo. La composizione è in `WriteBuffer2`/`WriteBuffer3`,
+  package-private in `common`, che produce un `EntityWrite2`/
+  `EntityWrite3` per entità; i test la confrontano con l'esecuzione delle
+  chiamate una alla volta, anche su 5000 sequenze casuali di `set`,
+  `remove` e scritture dei metadati su basi casuali.
+
+Le due implementazioni dipendono solo dal contratto del nodo, quindi
+valgono per ogni nodo. L'handle del writer ne ha una e aggiunge quello
+che è dell'API: la generazione degli ID, le scorciatoie su una sola
+entità e la politica di rimozione. Lo storage applica un batch allo
+stato del writer con `apply`, che è la scrittura del nodo, e prepara lo
+snapshot con `commit`; il commit con un batch fa i due passi sotto lo
+stesso lock. Un fallimento di `apply` ha l'operazione `WRITE` nel
+rapporto, uno del commit con il batch l'operazione `COMMIT`.
+`EntityWrite2`/`EntityWrite3` ha i metodi di comodo `set`, `removal` e
+`metadataOf` per i test e i client.
+
+I test end-to-end dell'API e le classi di test del nodo su proprietà,
+metadati, rollback e operazioni del nodo girano nelle due modalità
+(`@ParameterizedClass` su `WriteMode`): l'equivalenza è verificata dagli
+stessi test, e solo i rifiuti per token e stato si controllano alla
+scrittura nella modalità diretta e al commit con il buffer. I test
+unitari dell'API, con un nodo finto, controllano i batch della modalità
+con buffer e le chiamate della modalità diretta. I test del
+commit di un batch (`BatchCommit2Test`/`BatchCommit3Test`) usano un nodo
+con buffer; gli altri test del nodo la modalità diretta. Tutti scrivono
+con lo stesso `WriteSession2`/`WriteSession3`, uno per token. I
+benchmark delle scritture misurano slot e indice senza il commit, con la
+scrittura del nodo; il tick attraverso il writer si misura nelle due
+modalità. L'esempio `write-modes` fa le stesse scritture su un nodo
+diretto e su uno con buffer.
 
 Lo storage prepara uno snapshot di slot, indice e metadati al commit;
 un commit successivo nello stesso tick lo sostituisce. L’avanzamento

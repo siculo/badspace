@@ -22,6 +22,7 @@ import badspace.common.partition.Entity2;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.UnknownPartitionException;
+import badspace.common.partition.WriteMode;
 import badspace.service.partition.LocalPartitionNode2;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -30,13 +31,21 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.Parameter;
+import org.junit.jupiter.params.ParameterizedClass;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Snapshot sets on the local nodes of the service: queries on partitions with different indexes
  * and the failures of the partitions without a snapshot of the tick. SnapshotSet2Test in the api
  * module checks the calls and the aggregation with framework mocks.
  */
+@ParameterizedClass
+@EnumSource(WriteMode.class)
 class SnapshotSet2EndToEndTest {
+
+    @Parameter
+    WriteMode mode;
 
     private static final int ENTITIES = 300;
     private static final double SIDE = 50;
@@ -51,12 +60,12 @@ class SnapshotSet2EndToEndTest {
     void partitionsWithDifferentIndexesGiveTheResultsOfASinglePartition() {
         // The same entities in one partition and split by x among three partitions, each with
         // a different index and on its own node.
-        Partition2 single = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName());
-        Partition2 left = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName(),
+        Partition2 single = space.createPartition(space.createNode(this::newNode), nextName());
+        Partition2 left = space.createPartition(space.createNode(this::newNode), nextName(),
                 PartitionConfig.defaults().withIndex(IndexConfig.linearScan()));
-        Partition2 middle = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName(),
+        Partition2 middle = space.createPartition(space.createNode(this::newNode), nextName(),
                 PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(4)));
-        Partition2 right = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName(),
+        Partition2 right = space.createPartition(space.createNode(this::newNode), nextName(),
                 PartitionConfig.defaults().withIndex(IndexConfig.gridQuadtree(8, 4)));
         PartitionWriter2 singleWriter = writer(single);
         PartitionWriter2 leftWriter = writer(left);
@@ -94,7 +103,7 @@ class SnapshotSet2EndToEndTest {
 
     @Test
     void failuresTellWhichPartitionsHaveNoSnapshotOfTheTick() {
-        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Node2 node = space.createNode(this::newNode);
         Partition2 kept = space.createPartition(node, nextName(), PartitionConfig.defaults().withRetainedTicks(3));
         Partition2 shortWindow = space.createPartition(node, nextName());
         Partition2 removed = space.createPartition(node, nextName(),
@@ -122,7 +131,7 @@ class SnapshotSet2EndToEndTest {
 
     @Test
     void retiredPartitionHasNoSnapshotFromTheRemovalOn() {
-        Partition2 retired = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName(),
+        Partition2 retired = space.createPartition(space.createNode(this::newNode), nextName(),
                 PartitionConfig.defaults().withRetainedTicks(3).withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES));
         writer(retired).removePartition();
         space.setTick(1);
@@ -140,7 +149,7 @@ class SnapshotSet2EndToEndTest {
 
     @Test
     void tickNotYetPublishedIsAFailure() {
-        Partition2 partition = space.createPartition(space.createNode(LocalPartitionNode2::new), nextName());
+        Partition2 partition = space.createPartition(space.createNode(this::newNode), nextName());
         space.setTick(1);
         try (SnapshotSet2 set = space.acquire(List.of(partition), 1)) {
             assertEquals(FailureReason.NOT_YET_PUBLISHED, set.failures().getFirst().reason());
@@ -173,5 +182,10 @@ class SnapshotSet2EndToEndTest {
     /** Returns a new partition name: "p" and a number, unique in the test. */
     private PartitionName nextName() {
         return new PartitionName("p" + names.incrementAndGet());
+    }
+
+    /** Returns a node in the same process, in the write mode of the test. */
+    private LocalPartitionNode2 newNode() {
+        return new LocalPartitionNode2(mode);
     }
 }

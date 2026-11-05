@@ -32,6 +32,7 @@ import badspace.common.partition.FailureOutcome;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
+import badspace.common.partition.OwnershipChangedException;
 import badspace.common.partition.PartitionComponent;
 import badspace.common.partition.PartitionFailure;
 import badspace.common.partition.PartitionFailureException;
@@ -41,6 +42,7 @@ import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.PartitionOperation;
 import badspace.common.partition.SavedPartition;
 import badspace.common.partition.SnapshotNotAvailableException;
+import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import java.time.Duration;
 import java.util.List;
@@ -65,7 +67,8 @@ class Space2Test {
     private final AtomicLong partitionIds = new AtomicLong(100);
     private final SpaceConfig config = SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet);
     private final Space2 space = new Space2(config);
-    private final PartitionNode2 node = mock(PartitionNode2.class);
+    // The writes of the tests go to the node in one batch at the commit, like with a remote node.
+    private final PartitionNode2 node = buffered(mock(PartitionNode2.class));
     private final Node2 handle = space.createNode(() -> node);
 
     private static final Point2 A = new Point2(1, 2);
@@ -149,6 +152,47 @@ class Space2Test {
     }
 
     @Test
+    void directWritesGoToTheNodeAtOnceAndTheCommitConfirmsThem() {
+        PartitionNode2 direct = mock(PartitionNode2.class);
+        when(direct.writeMode()).thenReturn(WriteMode.DIRECT);
+        PartitionWriter2 writer = space.createPartition(space.createNode(() -> direct), NAME).writer(TOKEN);
+        long entityId = writer.insert(A);
+        writer.set(entityId, B);
+        writer.putMetadata(entityId, "a", 1);
+        writer.updateMetadataAll(List.of(MetadataWrite.put(entityId, "b", 2), MetadataWrite.delete(entityId, "a"),
+                MetadataWrite.put(entityId + 1, "c", 3)));
+        writer.remove(entityId);
+        writer.removeAll(new long[0]);
+        writer.commit();
+        writer.rollback();
+        writer.close();
+        var order = inOrder(direct);
+        order.verify(direct).write(TOKEN, List.of(EntityWrite2.set(new Entity2(entityId, A))));
+        order.verify(direct).write(TOKEN, List.of(EntityWrite2.set(new Entity2(entityId, B))));
+        order.verify(direct).write(TOKEN, List.of(EntityWrite2.metadataOf(entityId, List.of(MetadataWrite.put(entityId, "a", 1)))));
+        order.verify(direct).write(TOKEN, List.of(
+                EntityWrite2.metadataOf(entityId, List.of(MetadataWrite.put(entityId, "b", 2), MetadataWrite.delete(entityId, "a"))),
+                EntityWrite2.metadataOf(entityId + 1, List.of(MetadataWrite.put(entityId + 1, "c", 3)))));
+        order.verify(direct).write(TOKEN, List.of(EntityWrite2.removal(entityId)));
+        // An empty write makes no call, like with the buffer.
+        order.verify(direct).commit(TOKEN, List.of());
+        order.verify(direct).rollback(TOKEN);
+        order.verify(direct).release(TOKEN);
+        verify(direct, times(5)).write(any(), any());
+    }
+
+    @Test
+    void directWriteThatTheNodeRejectsFailsAtOnce() {
+        PartitionNode2 direct = mock(PartitionNode2.class);
+        when(direct.writeMode()).thenReturn(WriteMode.DIRECT);
+        PartitionWriter2 writer = space.createPartition(space.createNode(() -> direct), NAME).writer(TOKEN);
+        doThrow(new OwnershipChangedException("Token is not current")).when(direct).write(any(), any());
+        assertThrows(OwnershipChangedException.class, () -> writer.insert(A));
+        writer.commit();
+        verify(direct).commit(TOKEN, List.of());
+    }
+
+    @Test
     void successfulCommitEmptiesTheWriterAndARejectedOneKeepsItsWrites() {
         PartitionWriter2 writer = space.createPartition(handle, NAME).writer(TOKEN);
         long entityId = writer.insert(A);
@@ -211,8 +255,9 @@ class Space2Test {
         for (RemovalPolicy policy : RemovalPolicy.values()) {
             Partition2 partition = space.createPartition(handle, NAME, PartitionConfig.defaults().withRemovalPolicy(policy));
             PartitionId id = new PartitionId(partitionIds.get());
+            PartitionWriter2 writer = partition.writer(new WriteToken(id, 1));
             clearInvocations(node);
-            partition.writer(new WriteToken(id, 1)).removePartition();
+            writer.removePartition();
             if (policy == RemovalPolicy.REQUIRE_EMPTY) {
                 verify(node).removePartition(new WriteToken(id, 1));
             } else {
@@ -581,5 +626,11 @@ class Space2Test {
             Thread.currentThread().interrupt();
             throw new AssertionError(e);
         }
+    }
+
+    /** Returns the node, in the buffered mode. */
+    private static PartitionNode2 buffered(PartitionNode2 node) {
+        when(node.writeMode()).thenReturn(WriteMode.BUFFERED);
+        return node;
     }
 }

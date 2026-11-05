@@ -13,6 +13,7 @@ import badspace.common.partition.Entity2;
 import badspace.common.partition.EntityWrite2;
 import badspace.common.partition.PartitionId;
 import badspace.common.partition.PartitionNode2;
+import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import java.time.Duration;
 import java.util.Comparator;
@@ -21,6 +22,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Checks that the tick benchmarks move the entities and then move them back, that the
@@ -119,9 +122,11 @@ class CommitBenchmarkTest {
         }
     }
 
-    @Test
-    void ticksThroughTheWriterPublishTheMovesAndThenMoveTheEntitiesBack() throws Exception {
-        CommitBenchmark.TickState s = new CommitBenchmark.TickState();
+    @ParameterizedTest
+    @EnumSource(WriteMode.class)
+    void ticksThroughTheWriterPublishTheMovesAndThenMoveTheEntitiesBack(WriteMode writeMode) throws Exception {
+        CommitBenchmark.WriterTickState s = new CommitBenchmark.WriterTickState();
+        s.writeMode = writeMode;
         s.movingFraction = 0.1;
         setUp(s, 0);
         try {

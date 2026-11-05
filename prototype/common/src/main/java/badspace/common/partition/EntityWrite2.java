@@ -4,10 +4,11 @@ import badspace.common.geometry.Point2;
 import java.util.List;
 
 /**
- * The final change of one entity of a 2D partition after many writes, against the last
- * committed state of the partition (the base). The writer does not know the base, so the
- * change says what to do in both cases, with the entity in the base or not. It is applied in
- * this order:
+ * The change of one entity of a 2D partition, against the state of the partition where the
+ * node applies it (the base): the last commit, with the writes sent after it. The writer does
+ * not know the base, so the change says what to do in both cases, with the entity in the base
+ * or not. With the buffer it is the final change of the entity after many writes; in the
+ * direct mode it is a single write. It is applied in this order:
  * <ol>
  * <li>if {@code removed}, the entity leaves the partition with its application metadata, if
  *     it is there;</li>
@@ -18,8 +19,8 @@ import java.util.List;
  * <li>the writes of {@code metadata} are applied: they came after a set, so the entity is
  *     there.</li>
  * </ol>
- * The result is the same as making the writes one by one, in their order, on the base. Each
- * list has at most one write for each key.
+ * The result is the same as making the writes one by one, in their order, on the base. The
+ * writes of each list apply in their order; the buffer leaves at most one for each key.
  *
  * @param entityId the ID of the entity
  * @param removed whether the entity leaves the partition before the other steps

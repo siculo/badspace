@@ -7,8 +7,8 @@ import badspace.common.partition.Entity3;
 import badspace.common.partition.IndexConfig;
 import badspace.common.partition.MetadataWrite;
 import badspace.common.partition.Ownership;
-import badspace.common.partition.PendingWrites2;
-import badspace.common.partition.PendingWrites3;
+import badspace.common.partition.WriteSession2;
+import badspace.common.partition.WriteSession3;
 import badspace.service.partition.LocalPartitionNode2;
 import badspace.service.partition.LocalPartitionNode3;
 import java.nio.file.Path;
@@ -74,7 +74,7 @@ final class PersistenceWorkload {
         LocalPartitionNode2 node = new LocalPartitionNode2(saveDirectory);
         node.createPartition(WorkloadState.PARTITION_ID, WorkloadState.PARTITION_NAME, IndexConfig.linearScan());
         node.claim(WorkloadState.PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
-        PendingWrites2 writes = new PendingWrites2(node, WorkloadState.WRITE_TOKEN, IndexConfig.linearScan().limits());
+        WriteSession2 writes = WriteSession2.of(node, WorkloadState.WRITE_TOKEN, IndexConfig.linearScan().limits());
         writes.setAll(entities2(size));
         writes.updateMetadataAll(metadata(metadata, size));
         // The commit makes the snapshot of the tick; the move of the tick publishes it.
@@ -88,7 +88,7 @@ final class PersistenceWorkload {
         LocalPartitionNode3 node = new LocalPartitionNode3(saveDirectory);
         node.createPartition(WorkloadState.PARTITION_ID, WorkloadState.PARTITION_NAME, IndexConfig.linearScan());
         node.claim(WorkloadState.PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
-        PendingWrites3 writes = new PendingWrites3(node, WorkloadState.WRITE_TOKEN, IndexConfig.linearScan().limits());
+        WriteSession3 writes = WriteSession3.of(node, WorkloadState.WRITE_TOKEN, IndexConfig.linearScan().limits());
         writes.setAll(entities3(size));
         writes.updateMetadataAll(metadata(metadata, size));
         writes.commit();

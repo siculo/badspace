@@ -6,11 +6,17 @@ import java.util.List;
 
 /**
  * Operations shared by the writer handles of 2D and 3D partitions. A writer handle carries the
- * {@link WriteToken} of the owner of a partition. The writes stay in the handle, composed by
- * entity, and make no calls to the node; the commit sends them to the node in one call, with
- * the token, and the node applies them to the last commit of the partition. The commit and the
- * removal go to the node with the token: if the ownership changed after the token was given,
- * they fail with {@code OwnershipChangedException} and the partition does not change. The operations that
+ * {@link WriteToken} of the owner of a partition. The {@linkplain
+ * badspace.common.partition.WriteMode write mode} of the node of the partition decides when the
+ * writes reach the node: in the direct mode, the mode of a node in the same process, each write
+ * goes to the node at once and the commit confirms them; in the buffered mode, the mode of a
+ * remote node, the writes stay in the handle, composed by entity, and the commit sends them to
+ * the node in one call. The two modes give the same results: the writes apply in their order to
+ * the last commit of the partition, and the same writes make the same commits. The writes, the
+ * commit and the removal go to the node with the token: if the ownership changed after the token
+ * was given, they fail with {@code OwnershipChangedException} and the partition does not change.
+ * The only difference between the modes is when this check, and the one of the state of the
+ * partition, happen: in the direct mode at each write, with the buffer at the commit. The operations that
  * depend on the number of dimensions, like insert and set, are only in PartitionWriter2 and
  * PartitionWriter3. The application metadata of the entities do not depend on them, so their
  * writes are here. The handle has no reads: the writer reads the snapshots, like any reader.
@@ -60,8 +66,9 @@ public interface PartitionWriter extends AutoCloseable {
     void updateMetadataAll(List<MetadataWrite> writes);
 
     /**
-     * Sends the writes of the handle to the node, which applies them to the last commit of the
-     * partition and confirms them in its current tick, in one step: the snapshot of the tick
+     * Confirms the writes of the handle in the current tick of the partition: in the direct mode
+     * the node has them already, with the buffer the commit sends them to the node, which
+     * applies them to the last commit and confirms them in one step. The snapshot of the tick
      * will have them. Each commit confirms the full state, including the effects of earlier
      * commits unless the writes change or remove them. Only the last commit of a tick defines
      * its snapshot; readers cannot acquire the intermediate states. The writes made before the
@@ -70,18 +77,18 @@ public interface PartitionWriter extends AutoCloseable {
      * stop further writes in the same tick. The writer decides whether to wait before writing
      * again. The snapshot becomes acquirable when the tick moves forward, with
      * {@code acquire(tick)} and {@code acquireLatest()} of Partition2 and Partition3. After the
-     * commit the handle has no writes. As with writes sent to the node one by one, a rejected
-     * commit changes nothing and the handle keeps its writes, for example with
-     * OwnershipChangedException or IllegalStateException; a commit that fails after the checks,
-     * with PartitionFailureException or an Error, leaves the partition at the last commit and
-     * the handle discards its writes.
+     * commit there are no writes to confirm. A rejected commit changes nothing and the writes
+     * stay, for example with OwnershipChangedException or IllegalStateException; a commit that
+     * fails after the checks, with PartitionFailureException or an Error, leaves the partition
+     * at the last commit and discards the writes. In the direct mode also a write that fails
+     * after the checks does so.
      */
     void commit();
 
     /**
-     * Discards the writes of the handle that are not committed, also the ones of the ticks
-     * before; the commits stay confirmed and the writer keeps the ownership. Then it asks the
-     * node to go back to the last commit. It is also the
+     * Discards the writes that are not committed, also the ones of the ticks before: the
+     * handle discards the ones in its buffer, and the node goes back to the last commit. The
+     * commits stay confirmed and the writer keeps the ownership. It is also the
      * recovery of a partition whose {@code health()} says that it needs one: when the restore
      * works, the partition is healthy again. A rollback without writes after the last commit
      * does nothing. Fails with OwnershipChangedException if the ownership changed, with
@@ -103,8 +110,8 @@ public interface PartitionWriter extends AutoCloseable {
 
     /**
      * Removes the partition from its node, following its removal policy: the last operation of
-     * the writer. The writes of the handle are not sent: they are discarded, and after this call
-     * the commits fail with IllegalStateException. The removal becomes effective at the next move
+     * the writer. The writes not committed are discarded, and after this call the writes and the
+     * commits fail with IllegalStateException. The removal becomes effective at the next move
      * of the tick; readers can still acquire the snapshots of the ticks before it while they are
      * in the retention window. Fails with IllegalStateException if the policy is REQUIRE_EMPTY
      * and the last commit has entities (in this case the partition does not change), or if the
