@@ -111,7 +111,7 @@ class SpaceNodes2EndToEndTest {
     @Test
     void handleOfAnotherSpaceChangesNoPartitionOrFile(@TempDir Path directory) {
         Space2 other = new Space2(config);
-        Node2 foreign = other.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory).withWriteMode(mode)));
+        Node2 foreign = other.createNode(() -> newNode(directory));
         Partition2 partition = other.createPartition(foreign, WORLD);
         other.setTick(1);
         SavedPartition saved = partition.saveLatest();
@@ -152,8 +152,8 @@ class SpaceNodes2EndToEndTest {
     @Test
     void nodesWithTheirOwnDirectoriesKeepTheSavesOfTheSameNameApart(@TempDir Path eastDirectory,
             @TempDir Path westDirectory) {
-        Node2 east = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(eastDirectory).withWriteMode(mode)));
-        Node2 west = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(westDirectory).withWriteMode(mode)));
+        Node2 east = space.createNode(() -> newNode(eastDirectory));
+        Node2 west = space.createNode(() -> newNode(westDirectory));
         // A new node gives its saves also before its first partition.
         assertEquals(List.of(), space.saves(east));
 
@@ -191,5 +191,10 @@ class SpaceNodes2EndToEndTest {
     /** Returns a node in the same process, in the write mode of the test. */
     private LocalPartitionNode2 newNode() {
         return new LocalPartitionNode2(PartitionNodeConfig.of().withWriteMode(mode));
+    }
+
+    /** Returns a node in the same process that saves in the directory, in the write mode of the test. */
+    private LocalPartitionNode2 newNode(Path directory) {
+        return new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory).withWriteMode(mode));
     }
 }

@@ -78,10 +78,14 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     // partition is on the node. Written when a partition is added, while holding tickLock, and by the
     // thread that destroys a partition; read by any thread.
     private final Map<PartitionId, PartitionName> names = new ConcurrentHashMap<>();
-    // The configuration of the node: the clock, the saves and the write mode.
+    // The configuration of the node: the save directory and the write mode.
     private final PartitionNodeConfig config;
+    // Measures the timeouts of the acquisitions in all the partitions.
+    private final MonotonicClock clock;
     // Makes the storage of each new partition.
     private final StorageFactory storageFactory;
+    // The saves of the node in its save directory, or null if the node cannot save.
+    private final NodeSaves saves;
     // Orders setTick and the additions of partitions: they run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
     // The tick of the node. Written by setTick while holding tickLock, read by any thread.
@@ -89,21 +93,35 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
 
     /**
      * Creates a node with the given configuration. The default configuration (see
-     * {@link PartitionNodeConfig#of()}) measures the timeouts with the clock of the system, has
-     * no save directory and uses the direct mode, like the default writers in the same process.
+     * {@link PartitionNodeConfig#of()}) has no save directory and uses the direct mode, like the
+     * default writers in the same process.
+     *
+     * @param config the configuration of the node
+     * @throws NullPointerException if config is null
+     * @throws IllegalArgumentException if the save directory does not exist
+     * @throws UncheckedIOException if the node cannot prepare the directory for the saves
      */
     public LocalPartitionNode3(PartitionNodeConfig config) {
-        this(config, PartitionStorage3::new);
+        this(config, MonotonicClock.SYSTEM, PartitionStorage3::new);
     }
 
     /**
-     * Creates a node with the given configuration and the given factory of storages. The tests
-     * use it to stop a commit inside the index of a partition, and to know when a move of the
-     * tick waits for the lock of a partition.
+     * Creates a node with the given configuration, clock and factory of storages. The tests use
+     * the clock to measure the timeouts of the acquisitions and the factory to stop a commit
+     * inside the index of a partition.
+     *
+     * @param config the configuration of the node
+     * @param clock the clock that measures the timeouts of the acquisitions
+     * @param storageFactory the factory of the storages of the partitions
+     * @throws NullPointerException if config is null
+     * @throws IllegalArgumentException if the save directory does not exist
+     * @throws UncheckedIOException if the node cannot prepare the directory for the saves
      */
-    LocalPartitionNode3(PartitionNodeConfig config, StorageFactory storageFactory) {
+    LocalPartitionNode3(PartitionNodeConfig config, MonotonicClock clock, StorageFactory storageFactory) {
         this.config = Objects.requireNonNull(config);
+        this.clock = clock;
         this.storageFactory = storageFactory;
+        this.saves = config.saveDirectory() == null ? null : new NodeSaves(config.saveDirectory());
     }
 
     @Override
@@ -113,7 +131,7 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
         tickLock.lock();
         try {
             checkFree(partitionId, name);
-            add(partitionId, name, storageFactory.create(index, retainedTicks, config.clock(), tick));
+            add(partitionId, name, storageFactory.create(index, retainedTicks, clock, tick));
         } finally {
             tickLock.unlock();
         }
@@ -134,7 +152,7 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
         // Fails before the slow phase if the ID or the name is in use; the second phase checks again.
         checkFree(partitionId, saved.name());
         PartitionCopy3 content = saves.read(saved, file -> PartitionSave3.read(file, saved.name()));
-        PartitionStorage3 storage = storageFactory.create(index, retainedTicks, config.clock(), tick);
+        PartitionStorage3 storage = storageFactory.create(index, retainedTicks, clock, tick);
         storage.load(content);
         tickLock.lock();
         try {
@@ -414,10 +432,10 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     }
 
     private NodeSaves requireSaves() {
-        if (config.saves() == null) {
+        if (saves == null) {
             throw new IllegalStateException("Node without a save directory: it cannot save");
         }
-        return config.saves();
+        return saves;
     }
 
     /**

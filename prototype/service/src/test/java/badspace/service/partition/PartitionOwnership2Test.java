@@ -26,6 +26,7 @@ import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import badspace.service.index.SpatialIndexes;
 import badspace.service.partition.slots.CoordinateBufferPool;
+import badspace.service.partition.snapshot.MonotonicClock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -529,7 +530,7 @@ class PartitionOwnership2Test {
      * given lock, which tells the test when a thread waits for it.
      */
     private static LocalPartitionNode2 gatedNode(GatedIndex2[] index, ObservedLock lock) {
-        return new LocalPartitionNode2(PartitionNodeConfig.of(),
+        return new LocalPartitionNode2(PartitionNodeConfig.of(), MonotonicClock.SYSTEM,
                 (indexConfig, retainedTicks, clock, tick) -> new PartitionStorage2(indexConfig.limits(),
                         slots -> index[0] = new GatedIndex2(SpatialIndexes.create(indexConfig, slots)),
                         retainedTicks, clock, tick, lock, new CoordinateBufferPool()));

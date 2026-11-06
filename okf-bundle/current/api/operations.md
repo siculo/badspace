@@ -133,8 +133,8 @@ costruisce il nodo locale con la sua **configurazione del nodo**
 (`PartitionNodeConfig`): `() -> new LocalPartitionNode2(PartitionNodeConfig.of())`,
 oppure `() -> new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory))`
 per un nodo con i salvataggi. A differenza di `SpaceConfig`, ogni
-componente della configurazione del nodo ha un default: il clock di
-sistema, nessuna directory dei salvataggi e la modalità diretta.
+componente della configurazione del nodo ha un default: nessuna
+directory dei salvataggi e la modalità diretta.
 Ogni chiamata della factory deve restituire un nodo nuovo, vuoto e al
 tick 0, che nessun altro spazio usa; nodi usati insieme hanno directory
 diverse. Lo spazio restituisce l'**handle del nodo** (`Node2`/`Node3`),

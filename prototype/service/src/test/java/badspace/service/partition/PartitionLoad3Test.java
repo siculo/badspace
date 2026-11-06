@@ -24,7 +24,7 @@ import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.WriteToken;
 import badspace.service.index.SpatialIndexes;
-import badspace.service.persistence.NodeSaves;
+import badspace.service.partition.snapshot.MonotonicClock;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -325,7 +325,7 @@ class PartitionLoad3Test {
      * stops after the read of the save and the rebuild of the index, before it adds the partition.
      */
     private LocalPartitionNode3 nodeWithGatedCommit(Gate gate) {
-        return new LocalPartitionNode3(PartitionNodeConfig.of().withSaves(new NodeSaves(directory)), (index, retainedTicks, clock, tick) ->
+        return new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(directory), MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) ->
                 new PartitionStorage3(index.limits(), slots -> {
                     GatedIndex3 gatedIndex = new GatedIndex3(SpatialIndexes.create(index, slots));
                     gatedIndex.commitGate = gate;

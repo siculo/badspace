@@ -22,8 +22,10 @@ final class NodeWrites {
     private NodeWrites() {
     }
 
-    /** Returns a new local node in the direct mode, like
-     * {@code new LocalPartitionNode2(PartitionNodeConfig.of())}. */
+    /**
+     * Returns a new local node in the direct mode, like
+     * {@code new LocalPartitionNode2(PartitionNodeConfig.of())}.
+     */
     static PartitionNode2 newNode() {
         return newNode(WriteMode.DIRECT);
     }

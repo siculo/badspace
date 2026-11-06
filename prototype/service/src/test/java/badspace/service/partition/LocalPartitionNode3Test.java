@@ -906,7 +906,7 @@ class LocalPartitionNode3Test {
      * published by the move to tick 1.
      */
     private static LocalPartitionNode3 timedNode(FakeClock clock) {
-        LocalPartitionNode3 timedNode = new LocalPartitionNode3(PartitionNodeConfig.of().withClock(clock));
+        LocalPartitionNode3 timedNode = new LocalPartitionNode3(PartitionNodeConfig.of(), clock, PartitionStorage3::new);
         timedNode.createPartition(P1, nameOf(P1));
         writes(timedNode, P1).setAll(List.of(entity(1, 1, 1, 1)));
         writes(timedNode, P1).commit();
@@ -979,7 +979,7 @@ class LocalPartitionNode3Test {
 
     /** Returns a node with the given clock, which puts the storage of its partition in storage[0]. */
     private static LocalPartitionNode3 nodeWithClock(MonotonicClock clock, PartitionStorage3[] storage) {
-        return new LocalPartitionNode3(PartitionNodeConfig.of().withClock(clock), (index, retainedTicks, partitionClock, creationTick) ->
+        return new LocalPartitionNode3(PartitionNodeConfig.of(), clock, (index, retainedTicks, partitionClock, creationTick) ->
                 storage[0] = new PartitionStorage3(index, retainedTicks, partitionClock, creationTick));
     }
 
