@@ -29,7 +29,6 @@ import badspace.service.persistence.NodeSaves;
 import badspace.service.persistence.PartitionCopy3;
 import badspace.service.persistence.PartitionSave3;
 import java.io.UncheckedIOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -63,9 +62,9 @@ import java.util.function.Function;
  * lock of the node: a writer waits only for a move of the tick of its own partition, never
  * for the writers of the other partitions. By default the writers send each write at once
  * ({@link WriteMode#DIRECT}): in the same process a buffer in the writer would only add its
- * cost. The node can also be created with {@link WriteMode#BUFFERED}, like a remote node.
+ * cost. The node can also be configured with {@link WriteMode#BUFFERED}, like a remote node.
  * <p>
- * A node created with a save directory saves the snapshots of its partitions there, each in
+ * A node whose configuration has a save directory saves the snapshots of its partitions there, each in
  * its own file (see {@link NodeSaves}), and loads them into new partitions. Saves of different partitions, and of the same
  * partition, can run at the same time on different threads, while the writers work.
  */
@@ -79,6 +78,8 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     // partition is on the node. Written when a partition is added, while holding tickLock, and by the
     // thread that destroys a partition; read by any thread.
     private final Map<PartitionId, PartitionName> names = new ConcurrentHashMap<>();
+    // The configuration of the node: the save directory and the write mode.
+    private final PartitionNodeConfig config;
     // Measures the timeouts of the acquisitions in all the partitions.
     private final MonotonicClock clock;
     // Makes the storage of each new partition.
@@ -87,91 +88,40 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
     private final NodeSaves saves;
     // Orders setTick and the additions of partitions: they run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
-    // How the writers send their writes to the node.
-    private final WriteMode writeMode;
     // The tick of the node. Written by setTick while holding tickLock, read by any thread.
     private volatile long tick;
 
     /**
-     * Creates a node that measures the timeouts of the acquisitions with the clock of the system,
-     * without a save directory: it cannot save.
-     */
-    public LocalPartitionNode3() {
-        this(MonotonicClock.SYSTEM);
-    }
-
-    /**
-     * Creates a node like {@link #LocalPartitionNode3()}, whose writers send their writes in the
-     * given mode. The default mode of a node in the same process is
-     * {@link WriteMode#DIRECT}; with {@link WriteMode#BUFFERED} it behaves like a remote node,
-     * for example to compare the two modes.
-     */
-    public LocalPartitionNode3(WriteMode writeMode) {
-        this(MonotonicClock.SYSTEM, PartitionStorage3::new, null, writeMode);
-    }
-
-    /**
-     * Creates a node that measures the timeouts of the acquisitions with the clock of the system
-     * and saves the snapshots in the given directory, which must exist.
+     * Creates a node with the given configuration. The default configuration (see
+     * {@link PartitionNodeConfig#of()}) has no save directory and uses the direct mode, like the
+     * default writers in the same process.
      *
-     * @throws IllegalArgumentException if the directory does not exist
+     * @param config the configuration of the node
+     * @throws NullPointerException if config is null
+     * @throws IllegalArgumentException if the save directory does not exist
      * @throws UncheckedIOException if the node cannot prepare the directory for the saves
      */
-    public LocalPartitionNode3(Path saveDirectory) {
-        this(saveDirectory, WriteMode.DIRECT);
+    public LocalPartitionNode3(PartitionNodeConfig config) {
+        this(config, MonotonicClock.SYSTEM, PartitionStorage3::new);
     }
 
     /**
-     * Creates a node like {@link #LocalPartitionNode3(Path)}, whose writers send their writes in
-     * the given mode, like {@link #LocalPartitionNode3(WriteMode)}.
+     * Creates a node with the given configuration, clock and factory of storages. The tests use
+     * the clock to measure the timeouts of the acquisitions and the factory to stop a commit
+     * inside the index of a partition.
      *
-     * @throws IllegalArgumentException if the directory does not exist
+     * @param config the configuration of the node
+     * @param clock the clock that measures the timeouts of the acquisitions
+     * @param storageFactory the factory of the storages of the partitions
+     * @throws NullPointerException if config is null
+     * @throws IllegalArgumentException if the save directory does not exist
      * @throws UncheckedIOException if the node cannot prepare the directory for the saves
      */
-    public LocalPartitionNode3(Path saveDirectory, WriteMode writeMode) {
-        this(MonotonicClock.SYSTEM, PartitionStorage3::new, new NodeSaves(saveDirectory), writeMode);
-    }
-
-    /** Creates a node that measures the timeouts of the acquisitions with the given clock. */
-    LocalPartitionNode3(MonotonicClock clock) {
-        this(clock, PartitionStorage3::new);
-    }
-
-    /**
-     * Creates a node that measures the timeouts with the given clock and makes the storages of
-     * the partitions with the factory. The tests use it to stop a commit inside the index of a
-     * partition, and to know when a move of the tick waits for the lock of a partition.
-     */
-    LocalPartitionNode3(MonotonicClock clock, StorageFactory storageFactory) {
-        this(clock, storageFactory, WriteMode.DIRECT);
-    }
-
-    /**
-     * Creates a node like {@link #LocalPartitionNode3(MonotonicClock, StorageFactory)}, whose
-     * writers send their writes in the given mode.
-     */
-    LocalPartitionNode3(MonotonicClock clock, StorageFactory storageFactory, WriteMode writeMode) {
-        this(clock, storageFactory, null, writeMode);
-    }
-
-    /**
-     * Creates a node like {@link #LocalPartitionNode3(MonotonicClock, StorageFactory)}, with the
-     * given saves, or null if the node cannot save. The tests use it to stop a load inside the
-     * index of the loaded partition.
-     */
-    LocalPartitionNode3(MonotonicClock clock, StorageFactory storageFactory, NodeSaves saves) {
-        this(clock, storageFactory, saves, WriteMode.DIRECT);
-    }
-
-    /**
-     * Creates a node like {@link #LocalPartitionNode3(MonotonicClock, StorageFactory, NodeSaves)},
-     * whose writers send their writes in the given mode.
-     */
-    LocalPartitionNode3(MonotonicClock clock, StorageFactory storageFactory, NodeSaves saves, WriteMode writeMode) {
+    LocalPartitionNode3(PartitionNodeConfig config, MonotonicClock clock, StorageFactory storageFactory) {
+        this.config = Objects.requireNonNull(config);
         this.clock = clock;
         this.storageFactory = storageFactory;
-        this.saves = saves;
-        this.writeMode = Objects.requireNonNull(writeMode);
+        this.saves = config.saveDirectory() == null ? null : new NodeSaves(config.saveDirectory());
     }
 
     @Override
@@ -339,7 +289,7 @@ public final class LocalPartitionNode3 implements PartitionNode3 {
 
     @Override
     public WriteMode writeMode() {
-        return writeMode;
+        return config.writeMode();
     }
 
     @Override

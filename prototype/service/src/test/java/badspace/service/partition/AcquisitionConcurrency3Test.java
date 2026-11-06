@@ -192,7 +192,7 @@ class AcquisitionConcurrency3Test {
     @Test
     void acquisitionsDuringTheMoveOfTheWindowReadWholeCommits() throws Exception {
         for (IndexConfig config : CONFIGS) {
-            LocalPartitionNode3 node = new LocalPartitionNode3();
+            LocalPartitionNode3 node = new LocalPartitionNode3(PartitionNodeConfig.of());
             node.createPartition(P1, nameOf(P1), config, 2);
             long[] entityIds = new long[ENTITIES];
             List<Entity3> entities = new ArrayList<>();
@@ -411,7 +411,7 @@ class AcquisitionConcurrency3Test {
     @Test
     void removalDuringAcquisitionsEndsWithTheLastRelease() throws Exception {
         for (IndexConfig config : CONFIGS) {
-            LocalPartitionNode3 node = new LocalPartitionNode3();
+            LocalPartitionNode3 node = new LocalPartitionNode3(PartitionNodeConfig.of());
             node.createPartition(P1, nameOf(P1), config, 1);
             writes(node, P1).setAll(List.of(new Entity3(10, A), new Entity3(20, B)));
             CountDownLatch observed = new CountDownLatch(READERS);
@@ -539,7 +539,7 @@ class AcquisitionConcurrency3Test {
     @Test
     void writerAndTickOnDifferentThreadsPublishWholeCommits() throws Exception {
         for (IndexConfig config : CONFIGS) {
-            LocalPartitionNode3 node = new LocalPartitionNode3();
+            LocalPartitionNode3 node = new LocalPartitionNode3(PartitionNodeConfig.of());
             node.createPartition(P1, nameOf(P1), config, 2);
             long[] entityIds = new long[ENTITIES];
             List<Entity3> entities = new ArrayList<>();

@@ -5,6 +5,7 @@ import badspace.common.partition.RetentionWindow;
 import badspace.common.partition.SavedPartition;
 import badspace.service.partition.LocalPartitionNode3;
 import badspace.service.partition.NodeCopies;
+import badspace.service.partition.PartitionNodeConfig;
 import badspace.service.persistence.PartitionCopy3;
 import badspace.service.persistence.PartitionSave3;
 import badspace.service.persistence.SaveDirectory;
@@ -140,7 +141,7 @@ public class PersistenceBenchmark3 {
 
         @Setup(Level.Invocation)
         public void createNode() {
-            loadNode = new LocalPartitionNode3(directory);
+            loadNode = new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(directory));
         }
 
         /** Drops the node with the loaded partition, so the next load uses the same ID and name. */

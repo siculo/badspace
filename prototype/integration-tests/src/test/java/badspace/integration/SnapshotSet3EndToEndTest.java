@@ -24,6 +24,7 @@ import badspace.common.partition.PartitionName;
 import badspace.common.partition.UnknownPartitionException;
 import badspace.common.partition.WriteMode;
 import badspace.service.partition.LocalPartitionNode3;
+import badspace.service.partition.PartitionNodeConfig;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -186,6 +187,6 @@ class SnapshotSet3EndToEndTest {
 
     /** Returns a node in the same process, in the write mode of the test. */
     private LocalPartitionNode3 newNode() {
-        return new LocalPartitionNode3(mode);
+        return new LocalPartitionNode3(PartitionNodeConfig.of().withWriteMode(mode));
     }
 }

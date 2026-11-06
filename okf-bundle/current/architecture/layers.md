@@ -50,12 +50,13 @@ di partizioni diverse possono lavorare su thread diversi.
 
 Il software non passa allo spazio un nodo già costruito: gli passa una
 **factory dei nodi** (`PartitionNodeFactory2`/`PartitionNodeFactory3`),
-di solito un riferimento al costruttore del nodo locale, e lo spazio
-la chiama con `createNode(factory)`. La factory configura le risorse del
-nodo, per esempio la directory dei salvataggi, e a ogni chiamata deve
-costruire un nodo nuovo, vuoto e al tick 0, che nessun altro spazio usa.
-Lo spazio porta il nodo al proprio tick, lo registra e restituisce
-l’**handle del nodo** (`Node2`/`Node3`).
+di solito una lambda che costruisce il nodo locale dalla sua
+**configurazione del nodo** (`PartitionNodeConfig`), e lo spazio la
+chiama con `createNode(factory)`. La factory costruisce il nodo con le
+risorse scelte, per esempio la directory dei salvataggi, e a ogni
+chiamata deve costruire un nodo nuovo, vuoto e al tick 0, che nessun
+altro spazio usa. Lo spazio porta il nodo al proprio tick, lo registra
+e restituisce l’**handle del nodo** (`Node2`/`Node3`).
 
 L’handle appartiene allo spazio che l’ha creato. Non ha ID né nome
 pubblico, non si costruisce fuori dall’API e non cambia il tick del nodo.

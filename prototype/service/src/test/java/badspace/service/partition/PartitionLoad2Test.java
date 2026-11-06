@@ -25,7 +25,6 @@ import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.WriteToken;
 import badspace.service.index.SpatialIndexes;
 import badspace.service.partition.snapshot.MonotonicClock;
-import badspace.service.persistence.NodeSaves;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -66,9 +65,9 @@ class PartitionLoad2Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode2(directory);
+        node = new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory));
         node.createPartition(P1, nameOf(P1), IndexConfig.linearScan());
-        restarted = new LocalPartitionNode2(directory);
+        restarted = new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory));
     }
 
     @Test
@@ -205,7 +204,7 @@ class PartitionLoad2Test {
 
     @Test
     void loadOfA3DSaveFailsOnA2DNode() {
-        LocalPartitionNode3 node3 = new LocalPartitionNode3(directory);
+        LocalPartitionNode3 node3 = new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(directory));
         node3.createPartition(P2, nameOf(P2), IndexConfig.linearScan());
         node3.setTick(1);
         SavedPartition saved = node3.saveLatest(P2);
@@ -233,7 +232,7 @@ class PartitionLoad2Test {
     @Test
     void nodeWithoutASaveDirectoryCannotLoad() {
         SavedPartition saved = saveOf(List.of(entity(1, 1, 2)));
-        LocalPartitionNode2 other = new LocalPartitionNode2();
+        LocalPartitionNode2 other = new LocalPartitionNode2(PartitionNodeConfig.of());
         assertThrows(IllegalStateException.class, () -> other.loadPartition(LOADED, saved, IndexConfig.linearScan(), 5));
     }
 
@@ -325,12 +324,12 @@ class PartitionLoad2Test {
      * stops after the read of the save and the rebuild of the index, before it adds the partition.
      */
     private LocalPartitionNode2 nodeWithGatedCommit(Gate gate) {
-        return new LocalPartitionNode2(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) ->
+        return new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory), MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) ->
                 new PartitionStorage2(index.limits(), slots -> {
                     GatedIndex2 gatedIndex = new GatedIndex2(SpatialIndexes.create(index, slots));
                     gatedIndex.commitGate = gate;
                     return gatedIndex;
-                }, retainedTicks, clock, tick), new NodeSaves(directory));
+                }, retainedTicks, clock, tick));
     }
 
     private static void assertReason(Reason reason, Executable executable) {

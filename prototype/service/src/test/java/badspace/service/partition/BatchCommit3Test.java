@@ -54,10 +54,10 @@ class BatchCommit3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3(MonotonicClock.SYSTEM,
+        node = new LocalPartitionNode3(PartitionNodeConfig.of().withWriteMode(WriteMode.BUFFERED), MonotonicClock.SYSTEM,
                 (indexConfig, retainedTicks, clock, tick) -> new PartitionStorage3(indexConfig.limits(),
                         slots -> index[0] = new GatedIndex3(SpatialIndexes.create(indexConfig, slots)),
-                        retainedTicks, clock, tick, lock, new CoordinateBufferPool()), WriteMode.BUFFERED);
+                        retainedTicks, clock, tick, lock, new CoordinateBufferPool()));
         node.createPartition(P1, nameOf(P1));
         token = node.claim(P1, 0).orElseThrow();
         // The first commit, at tick 0: the snapshot of tick 0 waits for the move of the tick.

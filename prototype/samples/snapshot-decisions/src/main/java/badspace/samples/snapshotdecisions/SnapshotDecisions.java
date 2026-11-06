@@ -11,6 +11,7 @@ import badspace.api.Space2;
 import badspace.api.SpaceConfig;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -27,7 +28,7 @@ public final class SnapshotDecisions {
 
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of()));
         Partition2 partition = space.createPartition(node, partitionName("world"));
 
         try (PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow())) {

@@ -55,7 +55,7 @@ class PartitionSave3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3(directory);
+        node = new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(directory));
         node.createPartition(P1, nameOf(P1), IndexConfig.uniformGrid(4));
     }
 
@@ -192,7 +192,7 @@ class PartitionSave3Test {
     void savesStayForANewNodeOnTheSameDirectory() {
         node.setTick(1);
         SavedPartition saved = node.saveLatest(P1);
-        LocalPartitionNode3 restarted = new LocalPartitionNode3(directory);
+        LocalPartitionNode3 restarted = new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(directory));
         assertEquals(List.of(saved), restarted.saves());
         assertEquals(List.of(saved), restarted.saves(nameOf(P1)));
     }
@@ -243,7 +243,7 @@ class PartitionSave3Test {
 
     @Test
     void nodeWithoutASaveDirectoryCannotSave() {
-        LocalPartitionNode3 other = new LocalPartitionNode3();
+        LocalPartitionNode3 other = new LocalPartitionNode3(PartitionNodeConfig.of());
         other.createPartition(P1, nameOf(P1), IndexConfig.linearScan());
         other.setTick(1);
         assertThrows(IllegalStateException.class, () -> other.saveLatest(P1));
@@ -255,7 +255,7 @@ class PartitionSave3Test {
 
     @Test
     void nodeRejectsASaveDirectoryThatDoesNotExist() {
-        assertThrows(IllegalArgumentException.class, () -> new LocalPartitionNode3(directory.resolve("missing")));
+        assertThrows(IllegalArgumentException.class, () -> new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(directory.resolve("missing"))));
     }
 
     @Test

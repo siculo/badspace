@@ -11,6 +11,7 @@ import badspace.common.partition.WriteSession2;
 import badspace.common.partition.WriteSession3;
 import badspace.service.partition.LocalPartitionNode2;
 import badspace.service.partition.LocalPartitionNode3;
+import badspace.service.partition.PartitionNodeConfig;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -71,7 +72,7 @@ final class PersistenceWorkload {
      * the metadata, and that published their snapshot at {@link #SNAPSHOT_TICK}.
      */
     static LocalPartitionNode2 publishedNode2(Path saveDirectory, int size, MetadataSet metadata) {
-        LocalPartitionNode2 node = new LocalPartitionNode2(saveDirectory);
+        LocalPartitionNode2 node = new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(saveDirectory));
         node.createPartition(WorkloadState.PARTITION_ID, WorkloadState.PARTITION_NAME, IndexConfig.linearScan());
         node.claim(WorkloadState.PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
         WriteSession2 writes = WriteSession2.of(node, WorkloadState.WRITE_TOKEN, IndexConfig.linearScan().limits());
@@ -85,7 +86,7 @@ final class PersistenceWorkload {
 
     /** Returns a 3D node like {@link #publishedNode2}. */
     static LocalPartitionNode3 publishedNode3(Path saveDirectory, int size, MetadataSet metadata) {
-        LocalPartitionNode3 node = new LocalPartitionNode3(saveDirectory);
+        LocalPartitionNode3 node = new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(saveDirectory));
         node.createPartition(WorkloadState.PARTITION_ID, WorkloadState.PARTITION_NAME, IndexConfig.linearScan());
         node.claim(WorkloadState.PARTITION_ID, Ownership.INITIAL.generation()).orElseThrow();
         WriteSession3 writes = WriteSession3.of(node, WorkloadState.WRITE_TOKEN, IndexConfig.linearScan().limits());

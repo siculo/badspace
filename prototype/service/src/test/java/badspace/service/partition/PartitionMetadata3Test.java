@@ -54,7 +54,7 @@ class PartitionMetadata3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3(mode);
+        node = new LocalPartitionNode3(PartitionNodeConfig.of().withWriteMode(mode));
         node.createPartition(P1, nameOf(P1), IndexConfig.uniformGrid(4));
         token = node.claim(P1, 0).orElseThrow();
         writes(node, token).setAll(List.of(entity(1, 1, 1, 1), entity(2, 2, 2, 2), entity(3, 3, 3, 3)));

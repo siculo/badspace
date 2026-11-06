@@ -35,7 +35,7 @@ class PartitionCopy3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3();
+        node = new LocalPartitionNode3(PartitionNodeConfig.of());
         node.createPartition(P1, nameOf(P1), IndexConfig.uniformGrid(4));
     }
 

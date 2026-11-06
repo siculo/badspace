@@ -61,7 +61,7 @@ class LocalPartitionNode2Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode2(mode);
+        node = new LocalPartitionNode2(PartitionNodeConfig.of().withWriteMode(mode));
         node.createPartition(P1, nameOf(P1));
     }
 
@@ -906,7 +906,7 @@ class LocalPartitionNode2Test {
      * published by the move to tick 1.
      */
     private static LocalPartitionNode2 timedNode(FakeClock clock) {
-        LocalPartitionNode2 timedNode = new LocalPartitionNode2(clock);
+        LocalPartitionNode2 timedNode = new LocalPartitionNode2(PartitionNodeConfig.of(), clock, PartitionStorage2::new);
         timedNode.createPartition(P1, nameOf(P1));
         writes(timedNode, P1).setAll(List.of(entity(1, 1, 1)));
         writes(timedNode, P1).commit();
@@ -979,7 +979,7 @@ class LocalPartitionNode2Test {
 
     /** Returns a node with the given clock, which puts the storage of its partition in storage[0]. */
     private static LocalPartitionNode2 nodeWithClock(MonotonicClock clock, PartitionStorage2[] storage) {
-        return new LocalPartitionNode2(clock, (index, retainedTicks, partitionClock, creationTick) ->
+        return new LocalPartitionNode2(PartitionNodeConfig.of(), clock, (index, retainedTicks, partitionClock, creationTick) ->
                 storage[0] = new PartitionStorage2(index, retainedTicks, partitionClock, creationTick));
     }
 

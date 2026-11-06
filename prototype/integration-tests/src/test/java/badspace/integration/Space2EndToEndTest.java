@@ -32,6 +32,7 @@ import badspace.common.partition.UnknownPartitionException;
 import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 import badspace.service.persistence.PartitionCopy2;
 import badspace.service.persistence.PartitionSave2;
 import java.io.IOException;
@@ -195,7 +196,7 @@ class Space2EndToEndTest {
 
     @Test
     void saveWritesTheSnapshotOfTheTickAndReturnsItsReference(@TempDir Path directory) throws IOException {
-        Partition2 partition = space.createPartition(space.createNode(() -> new LocalPartitionNode2(directory, mode)), nextName(),
+        Partition2 partition = space.createPartition(space.createNode(() -> newNode(directory)), nextName(),
                 PartitionConfig.defaults().withRetainedTicks(3));
         long a = writer(partition).insert(1, 2);
         writer(partition).commit();
@@ -220,7 +221,7 @@ class Space2EndToEndTest {
 
     @Test
     void removedPartitionIsSavedWhileItsTicksAreInTheWindow(@TempDir Path directory) {
-        Partition2 partition = space.createPartition(space.createNode(() -> new LocalPartitionNode2(directory, mode)), nextName(),
+        Partition2 partition = space.createPartition(space.createNode(() -> newNode(directory)), nextName(),
                 PartitionConfig.defaults().withRetainedTicks(2));
         writer(partition).commit();
         space.setTick(1);
@@ -232,7 +233,7 @@ class Space2EndToEndTest {
 
     @Test
     void loadedPartitionHasTheContentOfTheSaveAfterARestart(@TempDir Path directory) {
-        Partition2 partition = space.createPartition(space.createNode(() -> new LocalPartitionNode2(directory, mode)), new PartitionName("north"));
+        Partition2 partition = space.createPartition(space.createNode(() -> newNode(directory)), new PartitionName("north"));
         long a = writer(partition).insert(1, 2);
         long b = writer(partition).insert(3, 4);
         writer(partition).putMetadata(a, "version", 7);
@@ -243,7 +244,7 @@ class Space2EndToEndTest {
         // A new run, at another tick: the loaded partition is created at the tick of the space.
         Space2 restarted = new Space2(SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet));
         restarted.setTick(100);
-        Partition2 loaded = restarted.loadPartition(restarted.createNode(() -> new LocalPartitionNode2(directory, mode)),
+        Partition2 loaded = restarted.loadPartition(restarted.createNode(() -> newNode(directory)),
                 PartitionConfig.defaults().withIndex(IndexConfig.uniformGrid(2)), saved);
         assertEquals(partition.name(), loaded.name());
         assertEquals(100, loaded.creationTick());
@@ -270,7 +271,7 @@ class Space2EndToEndTest {
 
     @Test
     void savesAreListedAndDeletedAlsoByANewSpaceAfterARestart(@TempDir Path directory) {
-        Node2 node = space.createNode(() -> new LocalPartitionNode2(directory, mode));
+        Node2 node = space.createNode(() -> newNode(directory));
         Partition2 north = space.createPartition(node, new PartitionName("north"),
                 PartitionConfig.defaults().withRetainedTicks(3));
         Partition2 south = space.createPartition(node, new PartitionName("south"),
@@ -287,7 +288,7 @@ class Space2EndToEndTest {
 
         // A new run: the space and the node are new, and the space has no partition on the node.
         Space2 restarted = new Space2(SpaceConfig.of(entityIds::incrementAndGet, partitionIds::incrementAndGet));
-        Node2 restartedNode = restarted.createNode(() -> new LocalPartitionNode2(directory, mode));
+        Node2 restartedNode = restarted.createNode(() -> newNode(directory));
         assertEquals(List.of(north1, south0, south1), restarted.saves(restartedNode));
         // The partition north was removed: the software deletes its saves, and the older saves of south.
         restarted.deleteSaves(restartedNode, List.of(north1, south0));
@@ -742,6 +743,11 @@ class Space2EndToEndTest {
 
     /** Returns a node in the same process, in the write mode of the test. */
     private LocalPartitionNode2 newNode() {
-        return new LocalPartitionNode2(mode);
+        return new LocalPartitionNode2(PartitionNodeConfig.of().withWriteMode(mode));
+    }
+
+    /** Returns a node in the same process that saves in the directory, in the write mode of the test. */
+    private LocalPartitionNode2 newNode(Path directory) {
+        return new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory).withWriteMode(mode));
     }
 }

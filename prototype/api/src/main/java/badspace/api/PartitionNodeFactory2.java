@@ -4,9 +4,9 @@ import badspace.common.partition.PartitionNode2;
 
 /**
  * Builds the nodes of a 2D space: {@link Space2#createNode(PartitionNodeFactory2)} calls it
- * once for each node. The software gives it as a lambda or a method reference to the
- * constructor of a node, for example {@code LocalPartitionNode2::new}, and configures there the
- * resources of the node, for example its save directory.
+ * once for each node. The software gives it as a lambda that builds a node from its
+ * configuration, for example {@code () -> new LocalPartitionNode2(PartitionNodeConfig.of())},
+ * and configures there the resources of the node, for example its save directory.
  * <p>
  * Each call must return a new node, empty and at tick 0, that no other space uses. Two handles
  * on the same node do not keep two spaces apart: the moves of the tick of one space would move

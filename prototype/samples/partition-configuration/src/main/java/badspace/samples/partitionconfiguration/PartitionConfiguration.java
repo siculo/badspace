@@ -12,6 +12,7 @@ import badspace.api.SpaceConfig;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.partition.IndexConfig;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 
 /**
  * Sample client: partitions with the default configuration and with an explicit one. The
@@ -24,7 +25,7 @@ public final class PartitionConfiguration {
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
         // A node can host many partitions of the same space, each with a name unique on the node.
-        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of()));
 
         // Without a configuration: linear scan, REQUIRE_EMPTY and one retained tick.
         Partition2 plain = space.createPartition(node, partitionName("plain"));

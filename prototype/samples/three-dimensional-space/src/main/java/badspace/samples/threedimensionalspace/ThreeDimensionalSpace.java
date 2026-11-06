@@ -12,6 +12,7 @@ import badspace.api.SpaceConfig;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Box3;
 import badspace.service.partition.LocalPartitionNode3;
+import badspace.service.partition.PartitionNodeConfig;
 
 /**
  * Sample client: a 3D space works like a 2D one, with the types ending in 3 and a third
@@ -21,7 +22,7 @@ public final class ThreeDimensionalSpace {
 
     public static void main(String[] args) {
         Space3 space = new Space3(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Node3 node = space.createNode(LocalPartitionNode3::new);
+        Node3 node = space.createNode(() -> new LocalPartitionNode3(PartitionNodeConfig.of()));
         Partition3 partition = space.createPartition(node, partitionName("sky"));
 
         try (PartitionWriter3 writer = partition.writer(partition.claim(0).orElseThrow())) {

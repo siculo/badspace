@@ -43,7 +43,7 @@ class PartitionRecoveryConcurrency3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3(MonotonicClock.SYSTEM,
+        node = new LocalPartitionNode3(PartitionNodeConfig.of(), MonotonicClock.SYSTEM,
                 (indexConfig, retainedTicks, clock, tick) -> new PartitionStorage3(indexConfig.limits(),
                         slots -> index[0] = new GatedIndex3(SpatialIndexes.create(indexConfig, slots)),
                         retainedTicks, clock, tick, lock, new CoordinateBufferPool()));

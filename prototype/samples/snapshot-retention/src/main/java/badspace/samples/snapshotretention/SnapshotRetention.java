@@ -13,6 +13,7 @@ import badspace.api.SpaceConfig;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 
 /**
  * Sample client: a partition that keeps the snapshots of its last 3 ticks. At tick T readers can
@@ -23,7 +24,7 @@ public final class SnapshotRetention {
 
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of()));
         Partition2 partition = space.createPartition(node, partitionName("world"),
                 PartitionConfig.defaults().withRetainedTicks(3));
 

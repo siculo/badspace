@@ -11,6 +11,7 @@ import badspace.api.Space2;
 import badspace.api.SpaceConfig;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutionException;
@@ -33,7 +34,7 @@ public final class MultiWriter {
 
     public static void main(String[] args) throws InterruptedException, ExecutionException {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of()));
         Partition2 west = space.createPartition(node, partitionName("west"));
         Partition2 east = space.createPartition(node, partitionName("east"));
 

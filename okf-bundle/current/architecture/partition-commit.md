@@ -571,8 +571,9 @@ metadati riprendono la mappa di C1.
 
 La modalità di scrittura è l'enum `WriteMode` in `common`, e il nodo la
 dichiara con `writeMode()` nel suo contratto. `LocalPartitionNode2`/
-`LocalPartitionNode3` è nella modalità diretta, salvo i costruttori che
-ricevono la modalità. Il writer manda scritture, commit, rollback e
+`LocalPartitionNode3` è nella modalità diretta, salvo quando la
+configurazione del nodo (`PartitionNodeConfig`) la sceglie con buffer.
+Il writer manda scritture, commit, rollback e
 rilascio attraverso la sua **sessione di scrittura**, l'interfaccia
 `WriteSession2`/`WriteSession3` in `common`: nasce con il token, e
 `of(node, token, limits)` la crea nella modalità del nodo, con due

@@ -66,7 +66,7 @@ class PartitionWriters2Test {
             // The index and the lock of each partition, in the order of creation.
             List<GatedIndex2> indexes = new ArrayList<>();
             List<ObservedLock> locks = new ArrayList<>();
-            LocalPartitionNode2 node = new LocalPartitionNode2(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
+            LocalPartitionNode2 node = new LocalPartitionNode2(PartitionNodeConfig.of(), MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
                 ObservedLock lock = new ObservedLock();
                 locks.add(lock);
                 return new PartitionStorage2(index.limits(), slots -> {
@@ -122,7 +122,7 @@ class PartitionWriters2Test {
     void moveOfTheTickMovesTheFreePartitionsWhileItWaitsForABusyOne() throws Exception {
         List<GatedIndex2> indexes = new ArrayList<>();
         List<ObservedLock> locks = new ArrayList<>();
-        LocalPartitionNode2 node = new LocalPartitionNode2(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
+        LocalPartitionNode2 node = new LocalPartitionNode2(PartitionNodeConfig.of(), MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
             ObservedLock lock = new ObservedLock();
             locks.add(lock);
             return new PartitionStorage2(index.limits(), slots -> {
@@ -173,7 +173,7 @@ class PartitionWriters2Test {
     void busyPartitionThatEndsItsCommitWaitsForTheOneThatTheMoveWaitsFor() throws Exception {
         List<GatedIndex2> indexes = new ArrayList<>();
         List<ObservedLock> locks = new ArrayList<>();
-        LocalPartitionNode2 node = new LocalPartitionNode2(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
+        LocalPartitionNode2 node = new LocalPartitionNode2(PartitionNodeConfig.of(), MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
             ObservedLock lock = new ObservedLock();
             locks.add(lock);
             return new PartitionStorage2(index.limits(), slots -> {
@@ -245,7 +245,7 @@ class PartitionWriters2Test {
      */
     @Test
     void writersOnTheirOwnThreadsPublishOnlyTheWholeCommitsOfTheirPartition() throws Exception {
-        LocalPartitionNode2 node = new LocalPartitionNode2();
+        LocalPartitionNode2 node = new LocalPartitionNode2(PartitionNodeConfig.of());
         PartitionId[] partitionIds = new PartitionId[WRITERS];
         long[] entityIds = new long[ENTITIES];
         for (int i = 0; i < ENTITIES; i++) {

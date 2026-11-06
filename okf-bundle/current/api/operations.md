@@ -128,9 +128,13 @@ generatore cambiato.
 
 Lo spazio crea i propri nodi con una **factory dei nodi**
 (`PartitionNodeFactory2`/`PartitionNodeFactory3`, interfaccia funzionale
-con `create()`), che il software scrive di solito come riferimento al
-costruttore del nodo locale: `LocalPartitionNode2::new`, oppure
-`() -> new LocalPartitionNode2(directory)` per un nodo con i salvataggi.
+con `create()`), che il software scrive di solito come una lambda che
+costruisce il nodo locale con la sua **configurazione del nodo**
+(`PartitionNodeConfig`): `() -> new LocalPartitionNode2(PartitionNodeConfig.of())`,
+oppure `() -> new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory))`
+per un nodo con i salvataggi. A differenza di `SpaceConfig`, ogni
+componente della configurazione del nodo ha un default: nessuna
+directory dei salvataggi e la modalità diretta.
 Ogni chiamata della factory deve restituire un nodo nuovo, vuoto e al
 tick 0, che nessun altro spazio usa; nodi usati insieme hanno directory
 diverse. Lo spazio restituisce l'**handle del nodo** (`Node2`/`Node3`),
