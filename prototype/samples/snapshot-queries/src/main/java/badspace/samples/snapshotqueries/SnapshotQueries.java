@@ -13,6 +13,7 @@ import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Box2;
 import badspace.common.geometry.Circle2;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 import java.util.List;
 
 /**
@@ -24,7 +25,7 @@ public final class SnapshotQueries {
 
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of()));
         Partition2 partition = space.createPartition(node, partitionName("world"));
 
         long[] ids;

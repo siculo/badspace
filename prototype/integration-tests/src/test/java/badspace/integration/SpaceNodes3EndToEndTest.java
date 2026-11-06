@@ -21,6 +21,7 @@ import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.UnknownPartitionException;
 import badspace.common.partition.WriteMode;
 import badspace.service.partition.LocalPartitionNode3;
+import badspace.service.partition.PartitionNodeConfig;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -110,7 +111,7 @@ class SpaceNodes3EndToEndTest {
     @Test
     void handleOfAnotherSpaceChangesNoPartitionOrFile(@TempDir Path directory) {
         Space3 other = new Space3(config);
-        Node3 foreign = other.createNode(() -> new LocalPartitionNode3(directory, mode));
+        Node3 foreign = other.createNode(() -> new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(directory).withWriteMode(mode)));
         Partition3 partition = other.createPartition(foreign, WORLD);
         other.setTick(1);
         SavedPartition saved = partition.saveLatest();
@@ -151,8 +152,8 @@ class SpaceNodes3EndToEndTest {
     @Test
     void nodesWithTheirOwnDirectoriesKeepTheSavesOfTheSameNameApart(@TempDir Path eastDirectory,
             @TempDir Path westDirectory) {
-        Node3 east = space.createNode(() -> new LocalPartitionNode3(eastDirectory, mode));
-        Node3 west = space.createNode(() -> new LocalPartitionNode3(westDirectory, mode));
+        Node3 east = space.createNode(() -> new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(eastDirectory).withWriteMode(mode)));
+        Node3 west = space.createNode(() -> new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(westDirectory).withWriteMode(mode)));
         // A new node gives its saves also before its first partition.
         assertEquals(List.of(), space.saves(east));
 
@@ -189,6 +190,6 @@ class SpaceNodes3EndToEndTest {
 
     /** Returns a node in the same process, in the write mode of the test. */
     private LocalPartitionNode3 newNode() {
-        return new LocalPartitionNode3(mode);
+        return new LocalPartitionNode3(PartitionNodeConfig.of().withWriteMode(mode));
     }
 }

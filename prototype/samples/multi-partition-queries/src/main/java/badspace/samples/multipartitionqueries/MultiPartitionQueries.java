@@ -14,6 +14,7 @@ import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Box2;
 import badspace.common.partition.IndexConfig;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 import java.util.List;
 
 /**
@@ -27,7 +28,7 @@ public final class MultiPartitionQueries {
 
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of()));
         // Two retained ticks, so the snapshot of tick 0 is still there at tick 2.
         PartitionConfig config = PartitionConfig.defaults().withRetainedTicks(2);
         Partition2 buildings = space.createPartition(node, partitionName("buildings"),

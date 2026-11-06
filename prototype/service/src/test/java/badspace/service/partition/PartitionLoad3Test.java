@@ -24,7 +24,6 @@ import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.common.partition.SnapshotNotAvailableException.Reason;
 import badspace.common.partition.WriteToken;
 import badspace.service.index.SpatialIndexes;
-import badspace.service.partition.snapshot.MonotonicClock;
 import badspace.service.persistence.NodeSaves;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -66,9 +65,9 @@ class PartitionLoad3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3(directory);
+        node = new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(directory));
         node.createPartition(P1, nameOf(P1), IndexConfig.linearScan());
-        restarted = new LocalPartitionNode3(directory);
+        restarted = new LocalPartitionNode3(PartitionNodeConfig.of().withSaveDirectory(directory));
     }
 
     @Test
@@ -206,7 +205,7 @@ class PartitionLoad3Test {
 
     @Test
     void loadOfA2DSaveFailsOnA3DNode() {
-        LocalPartitionNode2 node2 = new LocalPartitionNode2(directory);
+        LocalPartitionNode2 node2 = new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory));
         node2.createPartition(P2, nameOf(P2), IndexConfig.linearScan());
         node2.setTick(1);
         SavedPartition saved = node2.saveLatest(P2);
@@ -234,7 +233,7 @@ class PartitionLoad3Test {
     @Test
     void nodeWithoutASaveDirectoryCannotLoad() {
         SavedPartition saved = saveOf(List.of(entity(1, 1, 2, 3)));
-        LocalPartitionNode3 other = new LocalPartitionNode3();
+        LocalPartitionNode3 other = new LocalPartitionNode3(PartitionNodeConfig.of());
         assertThrows(IllegalStateException.class, () -> other.loadPartition(LOADED, saved, IndexConfig.linearScan(), 5));
     }
 
@@ -326,12 +325,12 @@ class PartitionLoad3Test {
      * stops after the read of the save and the rebuild of the index, before it adds the partition.
      */
     private LocalPartitionNode3 nodeWithGatedCommit(Gate gate) {
-        return new LocalPartitionNode3(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) ->
+        return new LocalPartitionNode3(PartitionNodeConfig.of().withSaves(new NodeSaves(directory)), (index, retainedTicks, clock, tick) ->
                 new PartitionStorage3(index.limits(), slots -> {
                     GatedIndex3 gatedIndex = new GatedIndex3(SpatialIndexes.create(index, slots));
                     gatedIndex.commitGate = gate;
                     return gatedIndex;
-                }, retainedTicks, clock, tick), new NodeSaves(directory));
+                }, retainedTicks, clock, tick));
     }
 
     private static void assertReason(Reason reason, Executable executable) {

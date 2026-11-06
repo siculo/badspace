@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-06
+* **Edit**: Il nodo locale riceve la sua configurazione in un solo parametro `PartitionNodeConfig`, al posto dei costruttori con clock, factory degli storage, salvataggi e modalità di scrittura; ogni componente ha un default (clock di sistema, nessuna directory dei salvataggi, modalità diretta) e `of()` dà la configurazione di default, con `withClock`, `withSaves`/`withSaveDirectory` e `withWriteMode` per cambiarla. La factory degli storage, specifica per dimensione, resta un parametro package-private per i test. Aggiornati [nodi dello spazio](/current/api/operations.md#nodi-dello-spazio), [componenti](/current/api/components.md), [livelli](/current/architecture/layers.md#nodi), [modalità di scrittura](/current/architecture/partition-commit.md#nel-prototipo) e glossario.
 * **Edit**: Correzione della review: [fallimenti](/current/architecture/partition-failures.md), [proprietà](/current/architecture/partition-ownership.md) e contratto dell'API citano il flush nella modalità con buffer: operazione `WRITE`, rollback che scarta le scritture già ricevute dal nodo, rifiuti al flush o al commit. Registrata nel TODO la decisione su limiti e costi: nessun limite imposto, costi documentati, e il writer divide le scritture con il flush.
 
 ## 2026-11-05

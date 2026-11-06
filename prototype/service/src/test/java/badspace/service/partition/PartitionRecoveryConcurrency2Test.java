@@ -15,7 +15,6 @@ import badspace.common.partition.PartitionId;
 import badspace.common.partition.WriteToken;
 import badspace.service.index.SpatialIndexes;
 import badspace.service.partition.slots.CoordinateBufferPool;
-import badspace.service.partition.snapshot.MonotonicClock;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
@@ -43,7 +42,7 @@ class PartitionRecoveryConcurrency2Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode2(MonotonicClock.SYSTEM,
+        node = new LocalPartitionNode2(PartitionNodeConfig.of(),
                 (indexConfig, retainedTicks, clock, tick) -> new PartitionStorage2(indexConfig.limits(),
                         slots -> index[0] = new GatedIndex2(SpatialIndexes.create(indexConfig, slots)),
                         retainedTicks, clock, tick, lock, new CoordinateBufferPool()));

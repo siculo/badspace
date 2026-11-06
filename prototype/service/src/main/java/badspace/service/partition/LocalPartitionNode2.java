@@ -29,7 +29,6 @@ import badspace.service.persistence.NodeSaves;
 import badspace.service.persistence.PartitionCopy2;
 import badspace.service.persistence.PartitionSave2;
 import java.io.UncheckedIOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -63,9 +62,9 @@ import java.util.function.Function;
  * lock of the node: a writer waits only for a move of the tick of its own partition, never
  * for the writers of the other partitions. By default the writers send each write at once
  * ({@link WriteMode#DIRECT}): in the same process a buffer in the writer would only add its
- * cost. The node can also be created with {@link WriteMode#BUFFERED}, like a remote node.
+ * cost. The node can also be configured with {@link WriteMode#BUFFERED}, like a remote node.
  * <p>
- * A node created with a save directory saves the snapshots of its partitions there, each in
+ * A node whose configuration has a save directory saves the snapshots of its partitions there, each in
  * its own file (see {@link NodeSaves}), and loads them into new partitions. Saves of different partitions, and of the same
  * partition, can run at the same time on different threads, while the writers work.
  */
@@ -79,99 +78,32 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     // partition is on the node. Written when a partition is added, while holding tickLock, and by the
     // thread that destroys a partition; read by any thread.
     private final Map<PartitionId, PartitionName> names = new ConcurrentHashMap<>();
-    // Measures the timeouts of the acquisitions in all the partitions.
-    private final MonotonicClock clock;
+    // The configuration of the node: the clock, the saves and the write mode.
+    private final PartitionNodeConfig config;
     // Makes the storage of each new partition.
     private final StorageFactory storageFactory;
-    // The saves of the node in its save directory, or null if the node cannot save.
-    private final NodeSaves saves;
     // Orders setTick and the additions of partitions: they run while holding it.
     private final ReentrantLock tickLock = new ReentrantLock();
-    // How the writers send their writes to the node.
-    private final WriteMode writeMode;
     // The tick of the node. Written by setTick while holding tickLock, read by any thread.
     private volatile long tick;
 
     /**
-     * Creates a node that measures the timeouts of the acquisitions with the clock of the system,
-     * without a save directory: it cannot save.
+     * Creates a node with the given configuration. The default configuration (see
+     * {@link PartitionNodeConfig#of()}) measures the timeouts with the clock of the system, has
+     * no save directory and uses the direct mode, like the default writers in the same process.
      */
-    public LocalPartitionNode2() {
-        this(MonotonicClock.SYSTEM);
+    public LocalPartitionNode2(PartitionNodeConfig config) {
+        this(config, PartitionStorage2::new);
     }
 
     /**
-     * Creates a node like {@link #LocalPartitionNode2()}, whose writers send their writes in the
-     * given mode. The default mode of a node in the same process is
-     * {@link WriteMode#DIRECT}; with {@link WriteMode#BUFFERED} it behaves like a remote node,
-     * for example to compare the two modes.
+     * Creates a node with the given configuration and the given factory of storages. The tests
+     * use it to stop a commit inside the index of a partition, and to know when a move of the
+     * tick waits for the lock of a partition.
      */
-    public LocalPartitionNode2(WriteMode writeMode) {
-        this(MonotonicClock.SYSTEM, PartitionStorage2::new, null, writeMode);
-    }
-
-    /**
-     * Creates a node that measures the timeouts of the acquisitions with the clock of the system
-     * and saves the snapshots in the given directory, which must exist.
-     *
-     * @throws IllegalArgumentException if the directory does not exist
-     * @throws UncheckedIOException if the node cannot prepare the directory for the saves
-     */
-    public LocalPartitionNode2(Path saveDirectory) {
-        this(saveDirectory, WriteMode.DIRECT);
-    }
-
-    /**
-     * Creates a node like {@link #LocalPartitionNode2(Path)}, whose writers send their writes in
-     * the given mode, like {@link #LocalPartitionNode2(WriteMode)}.
-     *
-     * @throws IllegalArgumentException if the directory does not exist
-     * @throws UncheckedIOException if the node cannot prepare the directory for the saves
-     */
-    public LocalPartitionNode2(Path saveDirectory, WriteMode writeMode) {
-        this(MonotonicClock.SYSTEM, PartitionStorage2::new, new NodeSaves(saveDirectory), writeMode);
-    }
-
-    /** Creates a node that measures the timeouts of the acquisitions with the given clock. */
-    LocalPartitionNode2(MonotonicClock clock) {
-        this(clock, PartitionStorage2::new);
-    }
-
-    /**
-     * Creates a node that measures the timeouts with the given clock and makes the storages of
-     * the partitions with the factory. The tests use it to stop a commit inside the index of a
-     * partition, and to know when a move of the tick waits for the lock of a partition.
-     */
-    LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory) {
-        this(clock, storageFactory, WriteMode.DIRECT);
-    }
-
-    /**
-     * Creates a node like {@link #LocalPartitionNode2(MonotonicClock, StorageFactory)}, whose
-     * writers send their writes in the given mode.
-     */
-    LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory, WriteMode writeMode) {
-        this(clock, storageFactory, null, writeMode);
-    }
-
-    /**
-     * Creates a node like {@link #LocalPartitionNode2(MonotonicClock, StorageFactory)}, with the
-     * given saves, or null if the node cannot save. The tests use it to stop a load inside the
-     * index of the loaded partition.
-     */
-    LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory, NodeSaves saves) {
-        this(clock, storageFactory, saves, WriteMode.DIRECT);
-    }
-
-    /**
-     * Creates a node like {@link #LocalPartitionNode2(MonotonicClock, StorageFactory, NodeSaves)},
-     * whose writers send their writes in the given mode.
-     */
-    LocalPartitionNode2(MonotonicClock clock, StorageFactory storageFactory, NodeSaves saves, WriteMode writeMode) {
-        this.clock = clock;
+    LocalPartitionNode2(PartitionNodeConfig config, StorageFactory storageFactory) {
+        this.config = Objects.requireNonNull(config);
         this.storageFactory = storageFactory;
-        this.saves = saves;
-        this.writeMode = Objects.requireNonNull(writeMode);
     }
 
     @Override
@@ -181,7 +113,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         tickLock.lock();
         try {
             checkFree(partitionId, name);
-            add(partitionId, name, storageFactory.create(index, retainedTicks, clock, tick));
+            add(partitionId, name, storageFactory.create(index, retainedTicks, config.clock(), tick));
         } finally {
             tickLock.unlock();
         }
@@ -202,7 +134,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
         // Fails before the slow phase if the ID or the name is in use; the second phase checks again.
         checkFree(partitionId, saved.name());
         PartitionCopy2 content = saves.read(saved, file -> PartitionSave2.read(file, saved.name()));
-        PartitionStorage2 storage = storageFactory.create(index, retainedTicks, clock, tick);
+        PartitionStorage2 storage = storageFactory.create(index, retainedTicks, config.clock(), tick);
         storage.load(content);
         tickLock.lock();
         try {
@@ -339,7 +271,7 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
 
     @Override
     public WriteMode writeMode() {
-        return writeMode;
+        return config.writeMode();
     }
 
     @Override
@@ -482,10 +414,10 @@ public final class LocalPartitionNode2 implements PartitionNode2 {
     }
 
     private NodeSaves requireSaves() {
-        if (saves == null) {
+        if (config.saves() == null) {
             throw new IllegalStateException("Node without a save directory: it cannot save");
         }
-        return saves;
+        return config.saves();
     }
 
     /**

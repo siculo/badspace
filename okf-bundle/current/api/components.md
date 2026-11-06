@@ -22,12 +22,12 @@ ai nodi. `SpaceConfig` riceve i generatori degli ID di entità e partizioni;
 ogni generatore va condiviso tra gli spazi del processo.
 
 Lo spazio crea anche i propri nodi: il software gli passa una factory,
-per esempio `LocalPartitionNode2::new`, e riceve dalla chiamata
-`createNode(factory)` l’**handle del nodo** (`Node2`/`Node3`). Il nodo
-appartiene solo a quello spazio e ne segue il tick, anche prima di
-ospitare partizioni; per questo spazi diversi nello stesso processo
-avanzano in modo indipendente. Lo spazio rifiuta l’handle di un altro
-spazio.
+per esempio `() -> new LocalPartitionNode2(PartitionNodeConfig.of())`,
+e riceve dalla chiamata `createNode(factory)` l’**handle del nodo**
+(`Node2`/`Node3`). Il nodo appartiene solo a quello spazio e ne segue
+il tick, anche prima di ospitare partizioni; per questo spazi diversi
+nello stesso processo avanzano in modo indipendente. Lo spazio rifiuta
+l’handle di un altro spazio.
 
 Il software crea una partizione indicando l’handle del nodo, il nome e
 la `PartitionConfig`.

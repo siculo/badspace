@@ -6,6 +6,7 @@ import badspace.common.partition.PartitionNode2;
 import badspace.common.partition.WriteMode;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,14 +22,15 @@ final class NodeWrites {
     private NodeWrites() {
     }
 
-    /** Returns a new local node in the direct mode, like {@code new LocalPartitionNode2()}. */
+    /** Returns a new local node in the direct mode, like
+     * {@code new LocalPartitionNode2(PartitionNodeConfig.of())}. */
     static PartitionNode2 newNode() {
         return newNode(WriteMode.DIRECT);
     }
 
     /** Returns a new local node whose writers send their writes in the given mode. */
     static PartitionNode2 newNode(WriteMode writeMode) {
-        return new LocalPartitionNode2(writeMode);
+        return new LocalPartitionNode2(PartitionNodeConfig.of().withWriteMode(writeMode));
     }
 
     /** Applies a batch of changes to the state of the writer of the partition, without the commit. */

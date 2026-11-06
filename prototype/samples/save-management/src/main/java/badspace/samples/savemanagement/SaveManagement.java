@@ -12,6 +12,7 @@ import badspace.api.SpaceConfig;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.partition.SavedPartition;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -38,7 +39,7 @@ public final class SaveManagement {
         System.out.printf("Save directory: %s%n", directory);
 
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Node2 node = space.createNode(() -> new LocalPartitionNode2(directory));
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory)));
         Partition2 partition = space.createPartition(node, partitionName("archive"),
                 PartitionConfig.defaults().withRetainedTicks(3));
 

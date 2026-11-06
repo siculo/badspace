@@ -12,6 +12,7 @@ import badspace.api.Space2;
 import badspace.api.SpaceConfig;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 
 /**
  * Sample client: the writer removes its partition as its last operation, with the policy chosen
@@ -25,7 +26,7 @@ public final class PartitionRemoval {
 
     public static void main(String[] args) {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of()));
         Partition2 empty = space.createPartition(node, partitionName("empty"));
         Partition2 discarded = space.createPartition(node, partitionName("discarded"),
                 PartitionConfig.defaults().withRemovalPolicy(RemovalPolicy.DISCARD_ENTITIES));

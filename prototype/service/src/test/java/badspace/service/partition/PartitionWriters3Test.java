@@ -18,7 +18,6 @@ import badspace.common.partition.PartitionId;
 import badspace.common.partition.SnapshotNotAvailableException;
 import badspace.service.index.SpatialIndexes;
 import badspace.service.partition.slots.CoordinateBufferPool;
-import badspace.service.partition.snapshot.MonotonicClock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,7 +65,7 @@ class PartitionWriters3Test {
             // The index and the lock of each partition, in the order of creation.
             List<GatedIndex3> indexes = new ArrayList<>();
             List<ObservedLock> locks = new ArrayList<>();
-            LocalPartitionNode3 node = new LocalPartitionNode3(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
+            LocalPartitionNode3 node = new LocalPartitionNode3(PartitionNodeConfig.of(), (index, retainedTicks, clock, tick) -> {
                 ObservedLock lock = new ObservedLock();
                 locks.add(lock);
                 return new PartitionStorage3(index.limits(), slots -> {
@@ -122,7 +121,7 @@ class PartitionWriters3Test {
     void moveOfTheTickMovesTheFreePartitionsWhileItWaitsForABusyOne() throws Exception {
         List<GatedIndex3> indexes = new ArrayList<>();
         List<ObservedLock> locks = new ArrayList<>();
-        LocalPartitionNode3 node = new LocalPartitionNode3(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
+        LocalPartitionNode3 node = new LocalPartitionNode3(PartitionNodeConfig.of(), (index, retainedTicks, clock, tick) -> {
             ObservedLock lock = new ObservedLock();
             locks.add(lock);
             return new PartitionStorage3(index.limits(), slots -> {
@@ -173,7 +172,7 @@ class PartitionWriters3Test {
     void busyPartitionThatEndsItsCommitWaitsForTheOneThatTheMoveWaitsFor() throws Exception {
         List<GatedIndex3> indexes = new ArrayList<>();
         List<ObservedLock> locks = new ArrayList<>();
-        LocalPartitionNode3 node = new LocalPartitionNode3(MonotonicClock.SYSTEM, (index, retainedTicks, clock, tick) -> {
+        LocalPartitionNode3 node = new LocalPartitionNode3(PartitionNodeConfig.of(), (index, retainedTicks, clock, tick) -> {
             ObservedLock lock = new ObservedLock();
             locks.add(lock);
             return new PartitionStorage3(index.limits(), slots -> {
@@ -245,7 +244,7 @@ class PartitionWriters3Test {
      */
     @Test
     void writersOnTheirOwnThreadsPublishOnlyTheWholeCommitsOfTheirPartition() throws Exception {
-        LocalPartitionNode3 node = new LocalPartitionNode3();
+        LocalPartitionNode3 node = new LocalPartitionNode3(PartitionNodeConfig.of());
         PartitionId[] partitionIds = new PartitionId[WRITERS];
         long[] entityIds = new long[ENTITIES];
         for (int i = 0; i < ENTITIES; i++) {

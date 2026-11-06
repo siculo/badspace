@@ -26,7 +26,7 @@ class PartitionLastCommitTick3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3();
+        node = new LocalPartitionNode3(PartitionNodeConfig.of());
         node.setTick(5);
         node.createPartition(P1, nameOf(P1));
     }

@@ -58,7 +58,7 @@ class PartitionRollback3Test {
 
     @BeforeEach
     void setUp() {
-        node = new LocalPartitionNode3(mode);
+        node = new LocalPartitionNode3(PartitionNodeConfig.of().withWriteMode(mode));
         node.createPartition(P1, nameOf(P1));
         token = node.claim(P1, 0).orElseThrow();
     }
@@ -134,8 +134,8 @@ class PartitionRollback3Test {
     @Test
     void rollbackGivesTheSameStateAsAReleaseAndAClaim() {
         for (IndexConfig config : CONFIGS) {
-            LocalPartitionNode3 rolledBack = new LocalPartitionNode3(mode);
-            LocalPartitionNode3 released = new LocalPartitionNode3(mode);
+            LocalPartitionNode3 rolledBack = new LocalPartitionNode3(PartitionNodeConfig.of().withWriteMode(mode));
+            LocalPartitionNode3 released = new LocalPartitionNode3(PartitionNodeConfig.of().withWriteMode(mode));
             rolledBack.createPartition(P1, nameOf(P1), config);
             released.createPartition(P1, nameOf(P1), config);
             WriteToken rollbackToken = rolledBack.claim(P1, 0).orElseThrow();

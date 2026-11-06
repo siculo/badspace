@@ -13,6 +13,7 @@ import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.partition.PartitionName;
 import badspace.common.partition.SavedPartition;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,7 +41,7 @@ public final class SaveAndLoad {
 
         // First run: a writer inserts a ship with its health, and the software saves the snapshot.
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Node2 node = space.createNode(() -> new LocalPartitionNode2(directory));
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory)));
         Partition2 partition = space.createPartition(node, WORLD);
         long ship;
         try (PartitionWriter2 writer = partition.writer(partition.claim(0).orElseThrow())) {
@@ -57,7 +58,7 @@ public final class SaveAndLoad {
         // same directory. The node has no partitions; the software finds the save among the saves
         // of the name. The directory can have other saves of the name, for example of earlier runs.
         Space2 restarted = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(1), new SnowflakeIdGenerator(1)));
-        Node2 restartedNode = restarted.createNode(() -> new LocalPartitionNode2(directory));
+        Node2 restartedNode = restarted.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of().withSaveDirectory(directory)));
         SavedPartition found = restarted.saves(restartedNode, WORLD).stream()
                 .filter(saved::equals)
                 .findFirst()

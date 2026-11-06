@@ -12,6 +12,7 @@ import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Point2;
 import badspace.common.partition.WriteToken;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -35,7 +36,7 @@ public final class WriterPerTick {
 
     public static void main(String[] args) throws InterruptedException, ExecutionException, TimeoutException {
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
-        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of()));
         Partition2 partition = space.createPartition(node, partitionName("world"));
 
         // Tick 0: the ship starts at (0,0).

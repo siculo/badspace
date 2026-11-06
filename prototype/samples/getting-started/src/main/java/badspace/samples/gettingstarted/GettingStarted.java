@@ -12,6 +12,7 @@ import badspace.api.SpaceConfig;
 import badspace.api.id.SnowflakeIdGenerator;
 import badspace.common.geometry.Box2;
 import badspace.service.partition.LocalPartitionNode2;
+import badspace.service.partition.PartitionNodeConfig;
 
 /**
  * Sample client: the shortest complete path through the API. It creates a 2D space and a
@@ -25,7 +26,7 @@ public final class GettingStarted {
         // kind of ID, shared by all the spaces of the process.
         Space2 space = new Space2(SpaceConfig.of(new SnowflakeIdGenerator(0), new SnowflakeIdGenerator(0)));
         // A local node runs in this process. The software chooses the name of the partition.
-        Node2 node = space.createNode(LocalPartitionNode2::new);
+        Node2 node = space.createNode(() -> new LocalPartitionNode2(PartitionNodeConfig.of()));
         Partition2 partition = space.createPartition(node, partitionName("world"));
 
         // A new partition has no owner, at generation 0: the claim returns the write token, and
