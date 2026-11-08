@@ -5,7 +5,7 @@
 
 # Architettura ed estensioni dell’API
 
-* [Scritture accumulate nel writer](./architecture/buffered-writes.md) - Parti ancora da fare del refactoring delle scritture accumulate: costi del buffer ed esiti remoti.
+* [Costi del buffer ed esiti remoti](./architecture/buffer-costs-and-remote-outcomes.md) - Punti aperti dopo il refactoring delle scritture: costi del buffer, esiti incerti con il nodo remoto e controlli da riesaminare per la migrazione.
 
 * [Evoluzioni di nodi, servizi e Space](./architecture/nodes-and-spaces.md) - Hosting remoto di più nodi, recupero dei nodi vuoti e possibili operazioni tra Space con tempi indipendenti.
 

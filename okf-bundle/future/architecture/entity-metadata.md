@@ -4,7 +4,7 @@ title: "Metadati di sistema ed estensioni"
 description: "Epoca, stato, destinazione, tombstone e condizioni richieste dai protocolli futuri; estensioni ancora aperte dei metadati."
 tags: [badspace, documentation]
 status: draft
-timestamp: 2026-11-05T08:21:18Z
+timestamp: 2026-11-08T12:44:42Z
 generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
 ---
 
@@ -12,7 +12,7 @@ generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
 
 I metadati di sistema e le tombstone non sono implementati. Il prototipo offre i [metadati applicativi](/current/architecture/entity-metadata.md).
 
-Il [refactoring concordato delle scritture](/future/architecture/buffered-writes.md)
+Il [refactoring delle scritture](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)
 ha eliminato le conditional writes dall'API e dal contratto del nodo. Le ipotesi
 su condizioni atomiche e loro collocazione descritte sotto appartengono al
 progetto precedente della migrazione: vanno riesaminate quando si introdurrà

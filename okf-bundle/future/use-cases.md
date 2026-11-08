@@ -4,7 +4,7 @@ title: Casi d'uso
 description: I casi d'uso che BADSPACE vuole supportare, ciascuno con la sua configurazione delle partizioni e i soli meccanismi che gli servono.
 tags: [badspace, use-cases, partitioning]
 status: stable
-timestamp: 2026-11-05T10:14:34Z
+timestamp: 2026-11-08T12:44:42Z
 generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
 ---
 
@@ -41,7 +41,7 @@ snapshot, logica applicativa e accumulazione nell'handle, senza chiamate
 al nodo per ogni singola modifica; il nodo locale usa invece la
 [modalità diretta](/current/architecture/partition-commit.md#modalità-di-scrittura), con gli stessi risultati. Con un nodo remoto
 restano da progettare gli esiti incerti del commit (vedi
-[scritture accumulate](/future/architecture/buffered-writes.md#rifiuti-ed-esiti)).
+[esiti remoti](/future/architecture/buffer-costs-and-remote-outcomes.md#rifiuti-ed-esiti)).
 
 # Space indipendenti e risorse condivise
 

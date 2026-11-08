@@ -4,7 +4,7 @@ title: "Estensioni dell’API"
 description: "Ritorno a snapshot più vecchi, letture del pending, attesa del tick, operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
 tags: [badspace, documentation]
 status: draft
-timestamp: 2026-11-05T10:14:34Z
+timestamp: 2026-11-08T12:44:42Z
 generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
 ---
 
@@ -21,12 +21,12 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 
 | Ambito | Estensione | Stato |
 |---|---|---|
-| Writer | Esiti incerti del commit e del flush con un nodo remoto | Refactoring in corso: modifiche finali per ID nel client, un solo invio al commit, le due [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura) con il flush, `set` che inserisce se assente, rimozione idempotente e rimozione delle conditional writes sono già [disponibili](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer); vedi [rifiuti ed esiti](/future/architecture/buffered-writes.md#rifiuti-ed-esiti) |
+| Writer | Esiti incerti del commit e del flush con un nodo remoto | Da progettare con il nodo gRPC. Il refactoring locale è concluso: modifiche finali per ID nel client, un solo invio al commit, le due [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura) con il flush, `set` che inserisce se assente, rimozione idempotente e rimozione delle conditional writes sono [disponibili](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer); vedi [rifiuti ed esiti](/future/architecture/buffer-costs-and-remote-outcomes.md#rifiuti-ed-esiti) |
 | Transazioni | Ritorno a uno snapshot pubblicato più vecchio | Da progettare: annullerebbe anche commit riusciti (vedi [strutture transazionali](/future/architecture/transactional-components.md#ritorno-a-uno-snapshot-più-vecchio)); rollback, segnalazione dei fallimenti e salute della partizione sono già [disponibili](/current/architecture/partition-failures.md) |
 | Writer | Letture del pending tramite il writer | Non necessarie nell'[uso con un writer per tick](/current/architecture/partition-ownership.md#un-writer-per-tick); tre forme valutate nelle [strutture transazionali](/future/architecture/transactional-components.md#letture-del-pending-tramite-il-writer) |
 | Tick | Attesa dell'inizio di un tick da parte del writer | Da valutare: oggi l'avvisa il software che chiama `setTick` |
 | Query | Raycast: primo hit e tutti gli hit, anche aggregati su più partizioni | Da progettare per entità puntiformi; richiede di riprendere il lavoro sugli indici |
-| Metadati | Metadati di sistema, tombstone e loro eliminazione | Da introdurre con la migrazione; i controlli prima affidati alle conditional writes vanno riesaminati dopo il refactoring del writer |
+| Metadati | Metadati di sistema, tombstone e loro eliminazione | Da introdurre con la migrazione; i controlli prima affidati alle conditional writes, rimosse con il refactoring del writer, vanno riesaminati |
 | Persistenza | Esposizione dell’ultimo tick persistito e salvataggio asincrono | Rimandati a durabilità osservabile e nodi remoti |
 | Coordinamento | Scelta del tick N comune, nuovo tentativo quando N esce dalla finestra di una partizione, eventuale barriera; verifica e acquisizione con esito senza eccezione sulla singola partizione | Da valutare con le letture coerenti |
 | Migrazione | Operazione di supporto per spostare entità tra partizioni | Protocollo progettato, API di dettaglio aperta |
