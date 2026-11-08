@@ -39,7 +39,7 @@ I blocchi sono in ordine: ognuno usa solo quanto fatto nei blocchi precedenti.
 
 - [x] **Scritture accumulate nel writer:** modifiche finali per ID nel client, `set` con inserimento se assente, rimozioni idempotenti, eliminazione delle conditional writes e un solo invio atomico al commit; modalità di scrittura diretta per il nodo locale e con buffer per il remoto, con gli stessi risultati. → [cose da fare](#fare-scritture) · [decisioni](#decisioni-scritture)
 
-  Documenti: [Scritture accumulate nel writer](okf-bundle/future/architecture/buffered-writes.md), [Commit della partizione](okf-bundle/current/architecture/partition-commit.md), [Fallimenti e salute della partizione](okf-bundle/current/architecture/partition-failures.md).
+  Documenti: [Costi del buffer ed esiti remoti](okf-bundle/future/architecture/buffer-costs-and-remote-outcomes.md), [Commit della partizione](okf-bundle/current/architecture/partition-commit.md), [Fallimenti e salute della partizione](okf-bundle/current/architecture/partition-failures.md).
 
 - [ ] **Nodo gRPC:** nodo remoto dietro il contratto dei nodi, dopo il refactoring delle scritture. → [cose da fare](#fare-grpc) · [decisioni](#decisioni-grpc)
 
@@ -198,7 +198,7 @@ Comportamento, proposta del contratto e criteri di verifica nel [bundle](okf-bun
 <a id="fare-scritture"></a>
 ### Scritture accumulate nel writer [↑](#blocchi)
 
-Implementato; nel [bundle](okf-bundle/future/architecture/buffered-writes.md) restano i costi da valutare e gli esiti remoti, che si progettano con il nodo gRPC. Ogni passo comprende 2D e 3D, test pertinenti, migrazione dei chiamanti e aggiornamento progressivo di `current/` e `future/`. Si usano gli indici esistenti; non si riprende il TODO degli indici e non si anticipa il protocollo gRPC.
+Implementato; nel [bundle](okf-bundle/future/architecture/buffer-costs-and-remote-outcomes.md) restano i costi da valutare e gli esiti remoti, che si progettano con il nodo gRPC. Ogni passo comprende 2D e 3D, test pertinenti, migrazione dei chiamanti e aggiornamento progressivo di `current/` e `future/`. Si usano gli indici esistenti; non si riprende il TODO degli indici e non si anticipa il protocollo gRPC.
 
 - [x] Sostituire `update`/`updateAll` con `set`/`setAll`, che inseriscono se l'ID manca; rendere `remove` idempotente; conservare la generazione dell'ID in `insert` e definire il vincolo sulla costruzione di entità con soli ID provenienti dall'`IdGenerator`, inclusi snapshot e caricamento
 - [x] Eliminare `updateIf`, `compareAndSetMetadata` e i tipi dedicati alle conditional writes dall'API e dal contratto del nodo; migrare test ed esempi verso logica su snapshot e scritture incondizionate, rendendo esplicita la visibilità degli snapshot
@@ -229,7 +229,7 @@ Implementato; nel [bundle](okf-bundle/future/architecture/buffered-writes.md) re
 ### Tombstone e migrazione [↑](#blocchi)
 
 - [ ] Metadati di sistema delle entità nello strato service (epoca, stato, destinazione), in sola lettura per il software, nello snapshot di ogni commit
-- [ ] Lettura dei metadati di sistema nell'API dei metadati; riesaminare i controlli su epoca, stato e destinazione del protocollo dopo la rimozione delle conditional writes, senza reintrodurle implicitamente (vedi [refactoring delle scritture](okf-bundle/future/architecture/buffered-writes.md#attuazione-e-verifiche))
+- [ ] Lettura dei metadati di sistema nell'API dei metadati; riesaminare i controlli su epoca, stato e destinazione del protocollo dopo la rimozione delle conditional writes, senza reintrodurle implicitamente (vedi [controlli della migrazione](okf-bundle/future/architecture/buffer-costs-and-remote-outcomes.md#controlli-della-migrazione))
 - [ ] Tombstone alla rimozione
 - [ ] Regola di inserimento con confronto dell'epoca
 - [ ] Lettura ed eliminazione delle tombstone
@@ -311,7 +311,7 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [x] k configurabile per partizione: numero di tick consultabili, ≥ 1, default 1 (sostituisce gli snapshot passati oltre al corrente, default 0)
 - [x] Acquisizione e rilascio degli snapshot: acquisizione al tick e ultimo (`S(T − 1)`), atomica rispetto all'avanzamento del tick, pin fuori dalla finestra, scadenza obbligatoria con clock monotono (durata zero rifiutata, senza rinnovo), acquisizioni leggibili dopo la rimozione della partizione
 - [x] Rimozione della partizione: `remove()` ultima operazione del writer, ritiro al primo avanzamento del tick, snapshot dei tick precedenti acquisibili nella finestra, distruzione quando sono usciti tutti e nessuno li usa
-- [x] Scritture condizionate al posto delle transazioni: scelta implementata nel contratto corrente, da superare con il [refactoring delle scritture](#fare-scritture)
+- [x] Scritture condizionate al posto delle transazioni: scelta poi superata con il [refactoring delle scritture](#fare-scritture), che le ha rimosse
 - [x] Regole delle tombstone ed epoca
 - [x] Protocollo di migrazione (outbox con consumer idempotente)
 - [x] GC delle tombstone su conferma, non a TTL
@@ -347,12 +347,12 @@ Non fanno parte dei blocchi: quando farle è da stabilire. Quelle degli indici s
 - [x] Forma del batch nel contratto del nodo e controlli locali: `commit(WriteToken, List<EntityWrite>)` con al più una modifica per entità, preparata da `WriteSession2`/`WriteSession3` in `common`, usato dall'handle e dai test del nodo; l'handle controlla subito i limiti delle posizioni, il nodo controlla al commit token, stato, salute e limiti, e applica in ordine più modifiche della stessa entità senza rifiutarle; il buffer resta dopo un commit rifiutato e si svuota dopo uno fallito → [scritture accumulate](okf-bundle/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)
 - [x] Stato del buffer dopo un fallimento certo e rapporto tra rollback locale e recupero della partizione sul nodo: lo stesso comportamento delle scritture inviate una alla volta; un rifiuto lascia le scritture nel buffer, un fallimento certo le scarta; `rollback()` svuota il buffer e chiede al nodo il ripristino, che è anche il recupero → [stato del buffer](okf-bundle/current/architecture/partition-commit.md#scritture-accumulate-nel-writer)
 - [x] Modalità di scrittura: le sceglie il nodo, con un valore fisso (`WriteMode`) finché non ci sono nodi remoti: diretta per il nodo locale, con buffer per il remoto. Un solo handle del writer e un solo contratto del nodo, con due implementazioni di `WriteSession`; le due modalità sono equivalenti nei risultati, e cambiano solo il momento dei rifiuti per token e stato e la durata del lock → [modalità di scrittura](okf-bundle/current/architecture/partition-commit.md#modalità-di-scrittura)
-- [x] Limiti e costi di memoria, dimensione dei batch e durata del commit, in base alle misure: nessun limite imposto da BADSPACE; i costi sono documentati e il writer, se serve, divide le scritture con il flush. Una tabella con chiavi `long` e campi in array paralleli nel buffer resta una possibile ottimizzazione futura → [costi del buffer e del commit](okf-bundle/current/architecture/partition-commit.md#costi-del-buffer-e-del-commit), [costi da valutare](okf-bundle/future/architecture/buffered-writes.md#costi-da-valutare)
+- [x] Limiti e costi di memoria, dimensione dei batch e durata del commit, in base alle misure: nessun limite imposto da BADSPACE; i costi sono documentati e il writer, se serve, divide le scritture con il flush. Una tabella con chiavi `long` e campi in array paralleli nel buffer resta una possibile ottimizzazione futura → [costi del buffer e del commit](okf-bundle/current/architecture/partition-commit.md#costi-del-buffer-e-del-commit), [costi da valutare](okf-bundle/future/architecture/buffer-costs-and-remote-outcomes.md#costi-da-valutare)
 
 <a id="decisioni-grpc"></a>
 ### Nodo gRPC [↑](#blocchi)
 
-- [ ] Errori remoti e protocollo del commit a batch: riconoscimento dei tentativi ripetuti, recupero e conservazione dell'esito, buffer congelato dopo un esito incerto e un solo commit in corso per writer; il tick non identifica da solo una richiesta (vedi [scritture accumulate](okf-bundle/future/architecture/buffered-writes.md#rifiuti-ed-esiti))
+- [ ] Errori remoti e protocollo del commit a batch: riconoscimento dei tentativi ripetuti, recupero e conservazione dell'esito, buffer congelato dopo un esito incerto e un solo commit in corso per writer; il tick non identifica da solo una richiesta (vedi [esiti remoti](okf-bundle/future/architecture/buffer-costs-and-remote-outcomes.md#rifiuti-ed-esiti))
 - [ ] Eventuale hosting di più nodi, ciascuno riservato a uno Space, nello stesso servizio remoto; identità e ciclo di vita da valutare → [Nodi, servizi e Space](okf-bundle/future/architecture/nodes-and-spaces.md)
 
 <a id="decisioni-migrazione"></a>
