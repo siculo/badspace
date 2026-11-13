@@ -214,6 +214,14 @@ Implementato; nel [bundle](okf-bundle/future/architecture/buffer-costs.md) resta
 <a id="fare-grpc"></a>
 ### Nodo gRPC [↑](#blocchi)
 
+Il progetto sperimentale [prototest](prototype/prototest/) è importato così
+com'è, con servizio semplificato e rete fittizia, per esplorare i problemi
+delle invocazioni remote prima di introdurli nei nodi BADSPACE. Non implementa
+gRPC. Sorgenti, test e POM restano quelli originali; miglioramenti e nuovi
+esperimenti saranno affrontati nei passi successivi. I test si eseguono con
+`mvn -f prototype/pom.xml -pl prototest test`, oppure direttamente con
+`mvn -f prototype/prototest/pom.xml test`.
+
 - [ ] Invocazione di nodi remoti via gRPC
 - [ ] Salvataggio asincrono nel contratto del nodo (avvio e poi interrogazione dello stato), se una chiamata sincrona lunga pesa sulla chiamata remota e sul suo timeout (vedi [persistenza](okf-bundle/current/decisions/persistence.md#chiamate))
 - [ ] Durata della scadenza nel record `Acquisition` e controllo anticipato della scadenza nella view dell'API, se serve a risparmiare chiamate remote destinate a fallire (oggi controlla solo il nodo)
