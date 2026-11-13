@@ -1,10 +1,10 @@
 ---
 type: Architecture Primitive
-title: "Costi del buffer ed esiti remoti"
-description: "Punti aperti dopo il refactoring delle scritture: costi del buffer, esiti incerti con il nodo remoto e controlli da riesaminare per la migrazione."
+title: "Costi del buffer"
+description: "Punti aperti dopo il refactoring delle scritture: costi del buffer e controlli da riesaminare per la migrazione."
 tags: [badspace, architecture, transactions, api]
 status: draft
-timestamp: 2026-11-08T12:44:42Z
+timestamp: 2026-11-13T12:00:00Z
 ---
 
 # Stato
@@ -13,8 +13,8 @@ Le [scritture accumulate nel writer](/current/architecture/partition-commit.md#s
 le [modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura)
 e il flush sono implementati e descritti nella parte corrente. Questa
 pagina raccoglie solo ciò che resta aperto: il profilo completo delle
-misure e le ottimizzazioni che ne possono seguire, il protocollo remoto
-degli esiti e i controlli da riesaminare per la migrazione.
+misure e le ottimizzazioni che ne possono seguire e i controlli da
+riesaminare per la migrazione.
 
 Le [misure](/current/architecture/partition-commit.md#costi-del-buffer-e-del-commit)
 disponibili usano il profilo rapido; il profilo completo resta da fare.
@@ -58,25 +58,6 @@ Temurin 25.0.5 tutto il piano, con gli stessi compiler blackholes di JMH,
 è arrivato in fondo senza crash e con gli stessi tempi: la causa
 probabile è la build OpenJDK 25.0.2. Va confermato con altri run, e i
 benchmark si fanno con Temurin 25.0.5.
-
-# Rifiuti ed esiti
-
-Rifiuti e fallimenti certi del nodo locale, con lo stato delle scritture
-non confermate dopo ciascuno nelle due modalità, sono descritti nelle
-[modalità di scrittura](/current/architecture/partition-commit.md#modalità-di-scrittura).
-Per il remoto serve distinguere rifiuto, fallimento certo ed esito
-incerto. Un batch a esito incerto resta congelato, senza commit successivi
-che possano superarlo, finché si recupera l'esito. Servono riconoscimento
-dei tentativi ripetuti e un esito stabile: il tick non identifica da solo
-un commit, perché ne sono ammessi più di uno nello stesso tick.
-Il protocollo e la conservazione degli esiti si progettano con il
-[nodo gRPC](/future/analyses/grpc-node.md).
-La ripetizione di `set` non rende automaticamente sicura la ripetizione
-dell'intero commit, che potrebbe altrimenti ricadere in un tick diverso.
-Lo stesso vale per il flush: ripeterlo dopo un esito incerto non è
-sempre sicuro, perché le scritture dei metadati che valgono solo se
-l'entità era nella base dipendono dallo stato su cui si applicano, e un
-primo flush riuscito cambia quello stato.
 
 # Controlli della migrazione
 

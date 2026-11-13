@@ -1,10 +1,10 @@
 ---
 type: Design Decision
 title: "Nodi remoti e distribuzione"
-description: "Direzione scelta per i nodi gRPC, alternative considerate e questioni aperte del futuro confine di rete."
+description: "Direzione scelta per i nodi remoti invocabili via gRPC, alternative considerate e questioni aperte."
 tags: [badspace, documentation]
 status: draft
-timestamp: 2026-11-08T12:44:42Z
+timestamp: 2026-11-13T12:00:00Z
 generated: { by: codex/gpt-6, at: 2026-10-30T15:48:41Z }
 ---
 
@@ -37,15 +37,7 @@ l'opzione ibrida: libreria sopra, servizio sotto.
 
 # Decisioni da prendere
 
-Il [refactoring delle scritture](/current/architecture/partition-commit.md#scritture-accumulate-nel-writer),
-previsto prima del trasporto remoto, è concluso e ha già cambiato il
-contratto dei nodi. Nella [modalità con buffer](/current/architecture/partition-commit.md#modalità-di-scrittura),
-pensata per il nodo remoto, il writer accumula le modifiche finali per ID
-e le trasferisce al commit o con il flush, senza una chiamata remota per
-ogni operazione; il nodo locale resta nella modalità diretta. Restano
-aperti i [costi del buffer e gli esiti remoti](/future/architecture/buffer-costs-and-remote-outcomes.md).
-
-- Errori remoti, timeout, dimensione dei batch, riconoscimento dei commit ripetuti e recupero degli esiti incerti nel contratto dei nodi.
+- Realizzazione dei nodi remoti invocabili via gRPC dietro il contratto dei nodi; il modo di realizzarli è ancora da analizzare.
 - Eventuale hosting di più nodi, ciascuno riservato al proprio Space, nello stesso servizio remoto: identità, instradamento e ciclo di vita. Vedi [evoluzioni di nodi e Space](/future/architecture/nodes-and-spaces.md).
 - Eventuale servizio per assegnare generatorId, gTick e barriere.
 - Eventuale centralizzazione della destinazione dei salvataggi.
@@ -55,10 +47,3 @@ aperti i [costi del buffer e gli esiti remoti](/future/architecture/buffer-costs
 Il contratto dei nodi resta interno al sistema anche quando sarà remoto.
 Il software filtra gli accessi dei client esterni; fencing e controlli
 di dominio proteggono da errori e ritardi dei componenti affidabili.
-
-# Analisi di riferimento
-
-L'[analisi del nodo gRPC](/future/analyses/grpc-node.md) approfondisce
-esiti incerti, ripetizione e ordine delle richieste, deadline, propagazione
-del tick e risorse del collegamento. Conserva alternative da valutare,
-senza fissare già il protocollo o la politica dei tentativi.
