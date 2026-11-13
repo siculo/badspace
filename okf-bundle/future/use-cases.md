@@ -4,7 +4,7 @@ title: Casi d'uso
 description: I casi d'uso che BADSPACE vuole supportare, ciascuno con la sua configurazione delle partizioni e i soli meccanismi che gli servono.
 tags: [badspace, use-cases, partitioning]
 status: stable
-timestamp: 2026-11-08T12:44:42Z
+timestamp: 2026-11-13T09:10:04Z
 generated: { by: codex/gpt-6, at: 2026-10-27T15:24:41Z }
 ---
 
@@ -29,7 +29,7 @@ Gli scenari specifici dei giochi sono indicati con "Gioco".
 | Gioco: mondo a zone contigue con confini | Partizioni per zona, gTick, k > 1 sulle partizioni di confine; le query vicino al confine interrogano più zone | Migrazione, [letture coerenti al tick N](/future/mechanisms/consistent-reads.md), [query su più partizioni](/current/architecture/multi-partition-queries.md) |
 | Gioco: strategia mista per tipo di entità | Geometria statica divisa per zone con indice build-once; proiettili (molte scritture, poche query, densità regolare) in un'unica partizione globale con una grid uniforme a celle grandi, l'indice più economico nelle scritture; giocatori (molte query, spesso raccolti in gruppi densi) con una griglia di quadtree, che non crolla nelle query con i dati a cluster ma costa di più nelle scritture | Aggregazione tra partizioni con indici diversi |
 | Carico sbilanciato tra zone | Si cede un'intera partizione calda a un altro writer, o la si divide | [Ribilanciamento e split](/future/mechanisms/rebalancing-and-split.md) |
-| Server distribuito o cluster | Partizioni su [nodi](/current/architecture/layers.md#nodi) separati (processi o macchine), contratto dei nodi esposto via gRPC; l'API resta nel processo del software | Tutti, con coordinamento esterno del gTick |
+| Server distribuito o cluster | Partizioni su [nodi](/current/architecture/layers.md#nodi) separati (processi o macchine), con accesso tramite una futura implementazione dei [nodi remoti](/future/decisions/tool-type.md) | Tutti, con coordinamento esterno del gTick |
 
 # Scritture locali e remote
 

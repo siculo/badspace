@@ -5,6 +5,7 @@ description: "Valutazione statica del prototipo e proposte su tempo logico, prop
 tags: [badspace, analysis, architecture, distribution]
 status: draft
 generated: { by: codex/gpt-6, at: 2026-10-30T15:48:41Z }
+timestamp: 2026-11-13T09:10:04Z
 ---
 
 # Analisi del design del prototipo BADSPACE
@@ -43,7 +44,7 @@ Una possibile API è `prepareCommit(t)`: ogni writer congela le modifiche destin
 
 Attribuire i commit allo **stesso tick logico** non garantisce un’applicazione atomica fra partizioni. Se i reader devono vedere soltanto passi interamente completati, serve anche un coordinamento della pubblicazione degli snapshot. Va inoltre precisato il rapporto fra tick del commit, avanzamento e tick dello snapshot pubblicato, rispettando il confine di pubblicazione previsto dal modello.
 
-Sono proposte future da valutare con il nodo remoto, mantenendo la forma semplice per gli usi che non richiedono questa sincronizzazione.
+Sono proposte future sul coordinamento dei tick, da valutare per gli usi che richiedono questa sincronizzazione.
 
 ## 2. Dare al nuovo writer una base di ripartenza osservabile
 
@@ -128,7 +129,7 @@ Un costo concreto da misurare è il rollback al cambio di proprietario: quando c
 | Momento | Revisioni |
 |---|---|
 | Prossimo intervento locale | Base osservabile del nuovo writer; misure e limite del pool |
-| Blocco nodo remoto | Avanzamento del tick osservabile |
+| Coordinamento dei tick | Avanzamento del tick osservabile |
 | Prima della migrazione | Identità del recupero, durabilità e contenuto persistente dei messaggi |
 | Insieme alla migrazione | Visibilità delle copie e correttezza delle query aggregate |
 

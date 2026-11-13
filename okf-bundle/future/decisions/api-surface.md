@@ -4,7 +4,7 @@ title: "Estensioni dell’API"
 description: "Ritorno a snapshot più vecchi, letture del pending, attesa del tick, operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi."
 tags: [badspace, documentation]
 status: draft
-timestamp: 2026-11-08T12:44:42Z
+timestamp: 2026-11-13T09:10:04Z
 generated: { by: claude-code/claude-opus-5-5, at: 2026-11-03T10:57:10Z }
 ---
 
@@ -26,7 +26,7 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 | Tick | Attesa dell'inizio di un tick da parte del writer | Da valutare: oggi l'avvisa il software che chiama `setTick` |
 | Query | Raycast: primo hit e tutti gli hit, anche aggregati su più partizioni | Da progettare per entità puntiformi; richiede di riprendere il lavoro sugli indici |
 | Metadati | Metadati di sistema, tombstone e loro eliminazione | Da introdurre con la migrazione; i controlli prima affidati alle conditional writes, rimosse con il refactoring del writer, vanno riesaminati |
-| Persistenza | Esposizione dell’ultimo tick persistito e salvataggio asincrono | Rimandati a durabilità osservabile e nodi remoti |
+| Persistenza | Esposizione dell’ultimo tick persistito e salvataggio asincrono | Rimandati alla durabilità osservabile |
 | Coordinamento | Scelta del tick N comune, nuovo tentativo quando N esce dalla finestra di una partizione, eventuale barriera; verifica e acquisizione con esito senza eccezione sulla singola partizione | Da valutare con le letture coerenti |
 | Migrazione | Operazione di supporto per spostare entità tra partizioni | Protocollo progettato, API di dettaglio aperta |
 
@@ -36,7 +36,6 @@ quando si introduce il relativo concetto, senza anticiparle nel codice.
 - Altre regioni di query: capsula, frustum e poligono.
 - Più query o commit di più partizioni in una chiamata al nodo.
 - Scadenza massima delle acquisizioni configurabile sul nodo.
-- Controllo anticipato della scadenza nella view per risparmiare chiamate remote.
 - Copia autonoma dello snapshot esposta al software, distinta dalla copia interna per i salvataggi.
 - Creazione di una partizione con dati iniziali: come per il caricamento da un salvataggio, i dati sarebbero il commit della creazione, leggibili dal tick successivo.
 

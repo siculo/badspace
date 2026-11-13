@@ -5,6 +5,7 @@ description: Nei prototipi le coordinate sono double; la scelta per l'implementa
 tags: [badspace, design, coordinates, precision]
 status: draft
 generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+timestamp: 2026-11-13T09:10:04Z
 ---
 
 # Stato
@@ -37,8 +38,8 @@ Coordinate come interi con segno a 64 bit in centimetri: limite 2⁶³ cm
 - **In C usare `int64_t`**, non `long`: su Windows `long` è a 32 bit.
 - **Ordine dei byte**: i bit sono gli stessi, l'ordine in memoria no
   (x86 e ARM little-endian; la serializzazione Java big-endian). Il
-  formato di [persistenza](/current/decisions/persistence.md) e di rete deve
-  fissarlo; gRPC/protobuf lo fa già.
+  formato di [persistenza](/current/decisions/persistence.md) deve
+  fissarlo.
 - **Determinismo dei calcoli**: `+ − × ÷ √` sono arrotondate
   correttamente e danno risultati identici ovunque. Le differenze
   vengono da contrazione in FMA e `-ffast-math` in C/C++, e dalle

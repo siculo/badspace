@@ -5,6 +5,7 @@ description: "Recupero ricostruttivo, tagli coerenti, durabilità osservabile, s
 tags: [badspace, documentation]
 status: draft
 generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+timestamp: 2026-11-13T09:10:04Z
 ---
 
 # Perimetro
@@ -99,8 +100,7 @@ errore.
   eliminare il salvataggio più recente lo fa tornare indietro, mentre
   la migrazione conta sul fatto che non succeda. Si rivede con la
   durabilità osservabile.
-- Salvataggio asincrono nel contratto del nodo, con il nodo gRPC e la
-  durabilità osservabile.
+- Salvataggio asincrono da valutare con la durabilità osservabile.
 - Durabilità del salvataggio secondo la piattaforma. Il nodo sincronizza
   file e directory sul disco, ma la garanzia dipende da sistema
   operativo, filesystem e disco: su macOS la sincronizzazione non svuota
@@ -112,12 +112,9 @@ errore.
 
 # Salvataggio asincrono
 
-Un salvataggio asincrono nel contratto del nodo si valuta con il [nodo
-gRPC](/current/decisions/tool-type.md), dove una chiamata lunga occupa la
-chiamata remota e il suo timeout, e con la [durabilità
-osservabile](/future/architecture/observable-durability.md), dove serve sapere
-quando un salvataggio è finito senza aspettarlo. La forma più probabile
-è avviare il salvataggio e poi interrogarne lo stato.
+Un salvataggio asincrono si valuta con la [durabilità
+osservabile](/future/architecture/observable-durability.md), per sapere
+quando un salvataggio è finito senza aspettarlo.
 
 # Collocazione della destinazione
 

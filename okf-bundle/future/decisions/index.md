@@ -1,6 +1,6 @@
 # Percorso di lettura
 
-* [Nodi remoti e distribuzione](./tool-type.md) - Direzione scelta per i nodi gRPC, alternative considerate e questioni aperte del futuro confine di rete.
+* [Nodi remoti e distribuzione](./tool-type.md) - Futura implementazione dei nodi remoti.
 * [Estensioni dell’API](./api-surface.md) - Operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi.
 * [Evoluzioni del partizionamento](./partitioning.md) - Problemi di confine, query e migrazione tra partizioni, ribilanciamento e supporto a più indici ancora da valutare.
 * [Entità statiche vs dinamiche](./static-vs-dynamic-entities.md) - BADSPACE separa le entità statiche (build-once) da quelle dinamiche (aggiornate a ogni tick) a livello di struttura dati, come caso particolare di partizionamento, unificando però le query di prossimità.

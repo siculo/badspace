@@ -5,6 +5,7 @@ description: Prototipi in Java, con codice da buttare, per iterare in fretta; il
 tags: [badspace, design, language, prototyping]
 status: draft
 generated: { by: codex/gpt-6, at: 2026-10-25T09:04:35Z }
+timestamp: 2026-11-13T09:10:04Z
 ---
 
 # Stato
@@ -18,9 +19,9 @@ Ancora da decidere, anche alla luce dei prototipi, tra:
 - **C (C11)** — pro: linguaggio familiare, semplice, con interfaccia C
   nativa usabile da qualunque linguaggio. Contro: servono utility interne
   (array dinamico, hash map, allocatori); sicurezza della memoria e dei
-  thread a carico di chi sviluppa; gRPC scomodo.
+  thread a carico di chi sviluppa.
 - **C++** — pro: la libreria standard copre le utility senza dipendenze
-  esterne; i template esprimono bene il 2D/3D; gRPC ufficiale. Contro:
+  esterne; i template esprimono bene il 2D/3D. Contro:
   linguaggio molto più complesso del C.
 - **Rust** — pro: libreria standard ricca, poche dipendenze; il
   compilatore impedisce i data race; i trait si adattano al 2D/3D. Contro:
@@ -52,8 +53,8 @@ Come si realizza, nei diversi linguaggi, una interfaccia:
 
 - Il [confronto tra C e Rust](/future/decisions/c-vs-rust.md) — overflow,
   coordinate generiche, 2D/3D, strutture degli indici e borrow checker.
-- Il [tipo di strumento](/current/decisions/tool-type.md) — libreria embedded
-  evolvibile in servizio gRPC: il supporto a gRPC pesa nella scelta.
+- Il [tipo di strumento](/current/decisions/tool-type.md) — ruolo del
+  framework e distribuzione corrente come libreria embedded.
 - La [concorrenza](/current/decisions/concurrency.md) è condizionata dal restare
   in-process per ora, e influenza la scelta del linguaggio.
 - L'[approccio di sviluppo](/process/development-approach.md) a

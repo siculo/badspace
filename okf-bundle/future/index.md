@@ -12,7 +12,7 @@
 * [Strutture transazionali, rollback e recupero](./architecture/transactional-components.md) - Attesa dell'inizio del tick, letture del pending, ritorno a snapshot più vecchi, e possibili evoluzioni del coordinamento.
 
 * [Primitive richieste dai meccanismi futuri](./architecture/minimal-core.md) - Dipendenze tra il nucleo corrente e i protocolli futuri: metadati di sistema, tombstone, durabilità e coordinamento.
-* [Nodi remoti e distribuzione](./decisions/tool-type.md) - Direzione scelta per i nodi gRPC, alternative considerate e questioni aperte del futuro confine di rete.
+* [Nodi remoti e distribuzione](./decisions/tool-type.md) - Futura implementazione dei nodi remoti.
 * [Estensioni dell’API](./decisions/api-surface.md) - Operazioni future su più partizioni, gruppi, raycast e questioni aperte del contratto dei nodi.
 
 # Problemi, scelte e meccanismi

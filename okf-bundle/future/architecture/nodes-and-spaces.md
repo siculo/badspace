@@ -5,6 +5,7 @@ description: "Hosting di più nodi in un servizio remoto, recupero dei nodi vuot
 tags: [badspace, architecture, partitioning, distribution]
 status: draft
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T20:31:26Z }
+timestamp: 2026-11-13T09:10:04Z
 ---
 
 # Stato e base della proposta
@@ -38,16 +39,7 @@ davvero, con costi aggiuntivi per le operazioni che attraversano gli Space.
 # Più nodi nello stesso servizio remoto
 
 Un futuro servizio potrebbe ospitare nodi di Space differenti, ed
-eventualmente più nodi dello stesso Space. La factory remota potrebbe
-creare un nodo nel servizio e restituire all'API un collegamento attraverso
-il quale lo Space costruisce il proprio handle.
-
-Il servizio va raggiunto mediante un indirizzo; il nodo ospitato deve
-avere un'identità per l'instradamento interno. Forma e durata di questa
-identità, eventuale identificazione dello Space sul servizio, creazione,
-riconnessione e gestione degli errori restano da progettare con i
-[nodi remoti](/future/decisions/tool-type.md). L'handle applicativo non
-implica oggi un nome globale o un'identità persistente del nodo.
+eventualmente più nodi dello stesso Space.
 
 Ogni nodo mantiene il proprio tick, le partizioni e una propria directory
 di persistenza. La condivisione del processo non deve mescolare elenchi,
