@@ -1,7 +1,7 @@
 package prototest.server;
 
 import prototest.api.Node;
-import prototest.api.errors.service.PartitionException;
+import prototest.api.errors.service.PartitionNotFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -65,6 +65,6 @@ public class NodeServer implements Node {
         } finally {
             partitionsLock.unlock();
         }
-        throw new PartitionException("Partition \"%s\" does not exists".formatted(name));
+        throw new PartitionNotFoundException("Partition \"%s\" does not exists".formatted(name));
     }
 }

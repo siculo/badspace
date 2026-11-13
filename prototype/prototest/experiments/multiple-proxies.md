@@ -73,7 +73,8 @@ dei proxy terminati restano in memoria. Gli errori del servizio non vengono
 ancora registrati come risultati da ripetere.
 
 Con esito incerto il nodo va considerato da recuperare, ricaricandone lo
-stato da uno snapshot persistente. Il recupero e la marcatura del nodo non
-sono implementati in questo esperimento. Un timeout del client non dimostra
+stato da uno snapshot persistente. Il recupero non è implementato in questo
+esperimento; il successivo [esperimento sullo stato di errore del proxy](concurrent-network-and-recovery.md)
+introduce il blocco locale del proxy. Un timeout del client non dimostra
 che l'operazione non sia stata eseguita e non autorizza a proseguire come
 se il nodo fosse sicuramente integro.

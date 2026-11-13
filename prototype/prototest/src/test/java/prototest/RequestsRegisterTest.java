@@ -2,7 +2,7 @@ package prototest;
 
 import org.junit.Test;
 import prototest.api.RequestId;
-import prototest.api.errors.network.UnrecoverableProtocolException;
+import prototest.api.errors.network.NodeRecoveryRequiredException;
 import prototest.server.RequestsRegister;
 
 import java.time.Clock;
@@ -29,7 +29,7 @@ public class RequestsRegisterTest {
         String result = register.executeOnceAndReturn(new RequestId(SECOND_PROXY, 0), () -> "accepted");
 
         assertEquals("accepted", result);
-        assertThrows(UnrecoverableProtocolException.class,
+        assertThrows(NodeRecoveryRequiredException.class,
                 () -> register.executeOnce(expired, () -> fail("Expired request ran again")));
     }
 
@@ -45,9 +45,9 @@ public class RequestsRegisterTest {
         clock.now = 202;
         register.executeOnce(new RequestId(SECOND_PROXY, 1), () -> {});
 
-        assertThrows(UnrecoverableProtocolException.class,
+        assertThrows(NodeRecoveryRequiredException.class,
                 () -> register.executeOnce(first, () -> fail("Expired request ran again")));
-        assertThrows(UnrecoverableProtocolException.class,
+        assertThrows(NodeRecoveryRequiredException.class,
                 () -> register.executeOnce(second, () -> fail("Expired request ran again")));
     }
 

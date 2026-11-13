@@ -5,8 +5,8 @@ import org.junit.Test;
 import prototest.api.Node;
 import prototest.api.Reader;
 import prototest.api.Writer;
-import prototest.api.errors.network.UnrecoverableProtocolException;
-import prototest.api.errors.service.PartitionException;
+import prototest.api.errors.network.NodeRecoveryRequiredException;
+import prototest.api.errors.service.PartitionNotFoundException;
 import prototest.proxy.FakeNetworkInterface;
 
 import static org.junit.Assert.*;
@@ -66,9 +66,9 @@ public class NetworkResilienceTest {
     }
 
     @Test
-    public void returnsAnUnrecoverableProtocolException() {
+    public void requiresNodeRecoveryAfterRetryTimeout() {
         fakeNetworkInterface.pushResults(13, OpResult.REQUEST_MISSING, OpResult.RESPONSE_MISSING);
-        UnrecoverableProtocolException exception = assertThrows(UnrecoverableProtocolException.class, () -> service.create(PARTITION_NAME));
+        NodeRecoveryRequiredException exception = assertThrows(NodeRecoveryRequiredException.class, () -> service.create(PARTITION_NAME));
         assertEquals("Unrecoverable timeout", exception.getMessage());
     }
 
@@ -76,6 +76,6 @@ public class NetworkResilienceTest {
     public void returnsAServiceException() {
         fakeNetworkInterface.pushResults(OpResult.OK);
         Writer writer = service.writer(PARTITION_NAME);
-        assertThrows(PartitionException.class, () -> writer.write("any content"));
+        assertThrows(PartitionNotFoundException.class, () -> writer.write("any content"));
     }
 }

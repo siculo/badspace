@@ -1,7 +1,7 @@
 package prototest.server;
 
 import prototest.api.RequestId;
-import prototest.api.errors.network.UnrecoverableProtocolException;
+import prototest.api.errors.network.NodeRecoveryRequiredException;
 
 import java.time.Clock;
 import java.util.HashMap;
@@ -61,7 +61,7 @@ public class RequestsRegister {
 
     private void validateRequestId(RequestId requestId) {
         if (requestId.sequence() <= lastExpiredSequences.getOrDefault(requestId.proxyId(), -1L)) {
-            throw new UnrecoverableProtocolException("Request %s expired".formatted(requestId));
+            throw new NodeRecoveryRequiredException("Request %s expired".formatted(requestId));
         }
     }
 

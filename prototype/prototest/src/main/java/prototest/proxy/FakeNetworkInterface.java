@@ -2,12 +2,17 @@ package prototest.proxy;
 
 import prototest.api.NodeNetworkInterface;
 import prototest.api.RequestId;
-import prototest.api.errors.network.RecoverableProtocolException;
+import prototest.api.errors.network.RetryableCommunicationException;
+import prototest.api.errors.network.NodeRecoveryRequiredException;
 
 import java.util.*;
 import java.util.function.Supplier;
-import java.util.stream.Stream;
 
+/**
+ * Simulates a network shared by concurrent callers. Queue and configuration changes
+ * are synchronized, but latency and server operations do not hold the network monitor.
+ * Each attempt consumes one queued outcome; concurrent callers have no fixed order.
+ */
 public class FakeNetworkInterface implements NodeNetworkInterface {
 
     private final NodeNetworkInterface node;
@@ -73,53 +78,56 @@ public class FakeNetworkInterface implements NodeNetworkInterface {
         simulateResponseDispatch(opResult);
     }
 
-    public void pushResults(OpResult... results) {
-        opResultQueue.addAll(Arrays.stream(results).toList());
+    public synchronized void pushResults(OpResult... results) {
+        opResultQueue.addAll(List.of(results));
     }
 
-    public void pushResults(int repetitions, OpResult... results) {
+    public synchronized void pushResults(int repetitions, OpResult... results) {
         for(int i = 0; i < repetitions; i++) {
-            opResultQueue.addAll(Arrays.stream(results).toList());
+            opResultQueue.addAll(List.of(results));
         }
     }
 
-    public void clearResults() {
+    public synchronized void clearResults() {
         opResultQueue.clear();
     }
 
-    private OpResult fetchResult() {
+    private synchronized OpResult fetchResult() {
         return Objects.requireNonNullElse(opResultQueue.poll(), OpResult.OK);
     }
 
     private void simulateRequestDispatch(OpResult opResult) {
         randomSleep();
         if (opResult == OpResult.REQUEST_MISSING) {
-            throw new RecoverableProtocolException("Request missing");
+            throw new RetryableCommunicationException("Request missing");
         }
     }
 
     private void simulateResponseDispatch(OpResult opResult) {
         randomSleep();
         if (opResult == OpResult.RESPONSE_MISSING) {
-            throw new RecoverableProtocolException("Request missing");
+            throw new RetryableCommunicationException("Response missing");
         }
     }
 
     private void randomSleep() {
         try {
-            if (minLatency > 0 && maxLatency >= minLatency) {
-                Thread.sleep(random.nextLong(minLatency, maxLatency));
-            }
+            Thread.sleep(nextLatency());
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            Thread.currentThread().interrupt();
+            throw new NodeRecoveryRequiredException("Network attempt interrupted", e);
         }
     }
 
-    public void setRandom(Random random) {
-        this.random = random;
+    private synchronized long nextLatency() {
+        return minLatency == maxLatency ? minLatency : random.nextLong(minLatency, maxLatency);
     }
 
-    public void setNetworkLatency(long minLatency, long maxLatency) {
+    public synchronized void setRandom(Random random) {
+        this.random = Objects.requireNonNull(random, "random");
+    }
+
+    public synchronized void setNetworkLatency(long minLatency, long maxLatency) {
         if (minLatency < 0 || maxLatency < minLatency) {
             throw new IllegalArgumentException("minLatency = %d, maxLatency = %d".formatted(minLatency, maxLatency));
         }

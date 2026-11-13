@@ -12,3 +12,4 @@ mvn -f prototype/pom.xml -pl prototest test
 Risultati e limiti degli esperimenti:
 
 - [Richieste da più proxy](experiments/multiple-proxies.md)
+- [Rete concorrente e stato di errore del proxy](experiments/concurrent-network-and-recovery.md)
