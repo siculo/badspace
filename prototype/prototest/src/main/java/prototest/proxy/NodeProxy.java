@@ -2,10 +2,11 @@ package prototest.proxy;
 
 import prototest.api.Node;
 import prototest.api.NodeNetworkInterface;
-import prototest.api.errors.network.ProtocolException;
+import prototest.api.RequestId;
 import prototest.api.errors.network.RecoverableProtocolException;
 import prototest.api.errors.network.UnrecoverableProtocolException;
 
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -13,7 +14,9 @@ import java.util.function.Function;
 public class NodeProxy implements Node {
 
     private final NodeNetworkInterface node;
+    // Concurrent calls share this counter; retries keep their locally allocated ID.
     private final AtomicLong idGenerator;
+    private final UUID proxyId = UUID.randomUUID();
     private final long timeout;
 
 
@@ -53,8 +56,13 @@ public class NodeProxy implements Node {
         return executeAndReturn((requestId) -> node.readPartitionSnapshot(requestId, name));
     }
 
-    private <T> void execute(Consumer<Long> operation) {
-        long requestId = idGenerator.getAndIncrement();
+    private RequestId nextRequestId() {
+        long sequence = idGenerator.getAndUpdate(value -> Math.incrementExact(value));
+        return new RequestId(proxyId, sequence);
+    }
+
+    private void execute(Consumer<RequestId> operation) {
+        RequestId requestId = nextRequestId();
         long startTime = System.currentTimeMillis();
         while (true) {
             try {
@@ -67,8 +75,8 @@ public class NodeProxy implements Node {
             }
         }
     }
-    private <T> T executeAndReturn(Function<Long, T> operation) {
-        long requestId = idGenerator.getAndIncrement();
+    private <T> T executeAndReturn(Function<RequestId, T> operation) {
+        RequestId requestId = nextRequestId();
         long startTime = System.currentTimeMillis();
         while (true) {
             try {

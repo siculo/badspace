@@ -1,67 +1,73 @@
 package prototest.server;
 
+import prototest.api.RequestId;
 import prototest.api.errors.network.UnrecoverableProtocolException;
 
+import java.time.Clock;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 public class RequestsRegister {
 
-    private final Map<Long, Request> requests = new ConcurrentHashMap<>();
+    // All requests and expiration limits are accessed under this register's monitor.
+    private final Map<RequestId, Request> requests = new HashMap<>();
+    private final Map<UUID, Long> lastExpiredSequences = new HashMap<>();
     private final long timeout;
-
-    private long lastExpiredId = -1;
+    private final Clock clock;
 
     public RequestsRegister(long timeout) {
-        this.timeout = timeout;
+        this(timeout, Clock.systemUTC());
     }
 
-    public synchronized void executeOnce(long requestId, Runnable operation) {
+    /** Creates a register with the clock used to measure response retention. */
+    public RequestsRegister(long timeout, Clock clock) {
+        this.timeout = timeout;
+        this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    public synchronized void executeOnce(RequestId requestId, Runnable operation) {
         validateRequestId(requestId);
         if (!requests.containsKey(requestId)) {
             operation.run();
-            requests.put(requestId, new Request(null));
+            requests.put(requestId, new Request(null, clock.millis()));
         }
         removeExpired();
     }
 
-    public synchronized <T> T executeOnceAndReturn(long requestId, Supplier<T> function) {
+    public synchronized <T> T executeOnceAndReturn(RequestId requestId, Supplier<T> function) {
         validateRequestId(requestId);
         T result = null;
         if (requests.containsKey(requestId)) {
             return (T) requests.get(requestId).result();
         }
         result = function.get();
-        requests.put(requestId, new Request(result));
+        requests.put(requestId, new Request(result, clock.millis()));
         removeExpired();
         return result;
     }
 
     private void removeExpired() {
-        List<Long> expiredIds = requests.entrySet().stream()
+        List<RequestId> expiredIds = requests.entrySet().stream()
                 .filter(requestsEntry -> requestsEntry.getValue()
-                        .isExpired(timeout)).map(Map.Entry::getKey).toList();
-        expiredIds.stream().max(Long::compareTo).ifPresent(
-                maxExpiredId -> lastExpiredId = maxExpiredId
-        );
+                        .isExpired(timeout, clock.millis())).map(Map.Entry::getKey).toList();
+        expiredIds.forEach(requestId -> lastExpiredSequences.merge(
+                requestId.proxyId(), requestId.sequence(), Math::max));
         expiredIds.forEach(requests::remove);
     }
 
-    private void validateRequestId(long requestId) {
-        if (requestId <= lastExpiredId) {
-            throw new UnrecoverableProtocolException("Request %d expired".formatted(requestId));
+    private void validateRequestId(RequestId requestId) {
+        if (requestId.sequence() <= lastExpiredSequences.getOrDefault(requestId.proxyId(), -1L)) {
+            throw new UnrecoverableProtocolException("Request %s expired".formatted(requestId));
         }
     }
 
     private record Request(Object result, long timestamp) {
-        public Request(Object result) {
-            this(result, System.currentTimeMillis());
-        }
-
-        public boolean isExpired(long timeout) {
-            return System.currentTimeMillis() - timestamp > timeout;
+        public boolean isExpired(long timeout, long now) {
+            return now - timestamp > timeout;
         }
     }
 }

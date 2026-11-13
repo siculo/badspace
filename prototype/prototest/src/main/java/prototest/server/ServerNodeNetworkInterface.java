@@ -1,6 +1,7 @@
 package prototest.server;
 
 import prototest.api.NodeNetworkInterface;
+import prototest.api.RequestId;
 
 public class ServerNodeNetworkInterface implements NodeNetworkInterface {
 
@@ -17,7 +18,7 @@ public class ServerNodeNetworkInterface implements NodeNetworkInterface {
     }
 
     @Override
-    public synchronized void createPartition(long requestId, String name) {
+    public synchronized void createPartition(RequestId requestId, String name) {
         requestsRegistery.executeOnce(
                 requestId,
                 () -> nodeServer.createPartition(name)
@@ -25,7 +26,7 @@ public class ServerNodeNetworkInterface implements NodeNetworkInterface {
     }
 
     @Override
-    public synchronized void destroyPartition(long requestId, String name) {
+    public synchronized void destroyPartition(RequestId requestId, String name) {
         requestsRegistery.executeOnce(
                 requestId,
                 () -> nodeServer.destroyPartition(name)
@@ -33,7 +34,7 @@ public class ServerNodeNetworkInterface implements NodeNetworkInterface {
     }
 
     @Override
-    public synchronized boolean partitionExists(long requestId, String name) {
+    public synchronized boolean partitionExists(RequestId requestId, String name) {
         return requestsRegistery.executeOnceAndReturn(
                 requestId,
                 () -> nodeServer.partitionExists(name)
@@ -41,7 +42,7 @@ public class ServerNodeNetworkInterface implements NodeNetworkInterface {
     }
 
     @Override
-    public synchronized void writeToPartition(long requestId, String name, String data) {
+    public synchronized void writeToPartition(RequestId requestId, String name, String data) {
         requestsRegistery.executeOnce(
                 requestId,
                 () -> nodeServer.writeToPartition(name, data)
@@ -49,7 +50,7 @@ public class ServerNodeNetworkInterface implements NodeNetworkInterface {
     }
 
     @Override
-    public void commitPartition(long requestId, String name) {
+    public void commitPartition(RequestId requestId, String name) {
         requestsRegistery.executeOnce(
                 requestId,
                 () -> nodeServer.commitPartition(name)
@@ -57,7 +58,7 @@ public class ServerNodeNetworkInterface implements NodeNetworkInterface {
     }
 
     @Override
-    public String readPartitionSnapshot(long requestId, String name) {
+    public String readPartitionSnapshot(RequestId requestId, String name) {
         return requestsRegistery.executeOnceAndReturn(
                 requestId,
                 () -> nodeServer.readPartitionSnapshot(name)

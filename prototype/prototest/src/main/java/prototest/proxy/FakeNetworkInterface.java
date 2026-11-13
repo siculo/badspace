@@ -1,6 +1,7 @@
 package prototest.proxy;
 
 import prototest.api.NodeNetworkInterface;
+import prototest.api.RequestId;
 import prototest.api.errors.network.RecoverableProtocolException;
 
 import java.util.*;
@@ -28,32 +29,32 @@ public class FakeNetworkInterface implements NodeNetworkInterface {
     }
 
     @Override
-    public void createPartition(long requestId, String name) {
+    public void createPartition(RequestId requestId, String name) {
         execute(() -> node.createPartition(requestId, name));
     }
 
     @Override
-    public void destroyPartition(long requestId, String name) {
+    public void destroyPartition(RequestId requestId, String name) {
         execute(() -> node.destroyPartition(requestId, name));
     }
 
     @Override
-    public boolean partitionExists(long requestId, String name) {
+    public boolean partitionExists(RequestId requestId, String name) {
         return executeAndReturn(() -> node.partitionExists(requestId, name));
     }
 
     @Override
-    public void writeToPartition(long requestId, String name, String data) {
+    public void writeToPartition(RequestId requestId, String name, String data) {
         execute(() -> node.writeToPartition(requestId, name, data));
     }
 
     @Override
-    public void commitPartition(long requestId, String name) {
+    public void commitPartition(RequestId requestId, String name) {
         execute(() -> node.commitPartition(requestId, name));
     }
 
     @Override
-    public String readPartitionSnapshot(long requestId, String name) {
+    public String readPartitionSnapshot(RequestId requestId, String name) {
         return executeAndReturn(() -> node.readPartitionSnapshot(requestId, name));
     }
 
