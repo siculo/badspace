@@ -21,6 +21,14 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 import static prototest.proxy.FakeNetworkInterface.OpResult.*;
 
+/**
+ * Checks when the proxy stays usable, when it requires recovery and what
+ * happens to the calls still pending at the first final error.
+ *
+ * <p>Relevant orderings are forced with latches, waits are bounded and worker
+ * errors reach the test. The timeout cases use a zero retry timeout and an
+ * explicit outcome, so they do not depend on machine speed.
+ */
 public class NodeProxyRecoveryTest {
     @Test
     public void serviceErrorsLeaveTheProxyUsable() {

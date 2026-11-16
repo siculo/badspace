@@ -5,11 +5,6 @@
 Permettere a più istanze di `NodeProxy` di invocare lo stesso endpoint
 senza scambiare una richiesta nuova per il retry di un altro proxy.
 
-Prima ogni proxy ripartiva dal numero zero e il registro usava solo quel
-numero come chiave: la prima creazione del secondo proxy poteva tornare
-senza errore e senza creare la partizione richiesta. Una lettura poteva
-restituire il risultato registrato per un altro proxy.
-
 ## Modifica
 
 `RequestId` contiene l'UUID dell'istanza del proxy e una sequenza crescente
@@ -29,36 +24,6 @@ Il registro mantiene la serializzazione delle operazioni già presente.
 
 La sequenza esprime l'ordine di generazione nello stesso proxy, non
 l'ordine di arrivo né un ordine globale tra proxy diversi.
-
-## Verifiche
-
-`MultipleProxiesTest` attraversa il proxy e l'adattatore server reali;
-per i retry attraversa anche la rete fittizia, con latenza zero ed esiti
-espliciti. Non usa `TestService`, i cui writer e reader saltano ancora
-la rete: quel problema del vecchio supporto di test resta da correggere.
-
-Sono verificati:
-
-- creazione di due partizioni da proxy diversi sullo stesso endpoint;
-- restituzione di risultati diversi a richieste con la stessa sequenza
-  ma provenienti da proxy diversi;
-- sostituzione di un proxy con una nuova istanza, senza riuso delle richieste;
-- scritture di due proxy con risposte perse, senza duplicare il contenuto;
-- commit con risposta persa, senza pubblicare una seconda volta il buffer vuoto;
-- mantenimento dell'ID nei retry e avanzamento tra operazioni nuove;
-- scritture concorrenti dei due proxy, conservando entrambi i contributi.
-
-`RequestsRegisterTest` verifica risultati separati, arrivo fuori ordine
-prima delle scadenze e isolamento delle soglie di scadenza. Usa un clock
-controllato, senza attese reali.
-
-Comando dalla radice del repository:
-
-```sh
-mvn -f prototype/pom.xml -pl prototest test
-```
-
-Risultato: 17 test passati, di cui 9 nuovi, nessun errore o fallimento.
 
 ## Limiti e regola sull'esito incerto
 

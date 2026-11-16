@@ -1,6 +1,6 @@
 # prototest
 
-Esperimenti sulle invocazioni remote con servizio semplificato e rete
+Progetto sperimentale sulle invocazioni remote con servizio semplificato e rete
 fittizia. Il progetto non implementa gRPC.
 
 Test dalla radice del repository:
@@ -9,7 +9,7 @@ Test dalla radice del repository:
 mvn -f prototype/pom.xml -pl prototest test
 ```
 
-Risultati e limiti degli esperimenti:
+Appunti sulla sperimentazione:
 
-- [Richieste da più proxy](experiments/multiple-proxies.md)
-- [Rete concorrente e stato di errore del proxy](experiments/concurrent-network-and-recovery.md)
+- [Richieste da più proxy](notes/multiple-proxies.md)
+- [Rete concorrente e stato di errore del proxy](notes/concurrent-network-and-recovery.md)

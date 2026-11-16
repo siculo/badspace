@@ -20,6 +20,15 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 import static prototest.proxy.FakeNetworkInterface.OpResult.*;
 
+/**
+ * Checks that the fake network and one shared proxy work with concurrent
+ * calls: each queued outcome is consumed once, and concurrent writes are not
+ * duplicated.
+ *
+ * <p>Relevant orderings are forced with latches, waits are bounded and worker
+ * errors reach the test. The test also checks the partitions really created on
+ * the server, not only the returned results.
+ */
 public class FakeNetworkConcurrencyTest {
     private static final UUID PROXY_ID = new UUID(0, 1);
 

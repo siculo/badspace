@@ -9,9 +9,25 @@ import java.util.*;
 import java.util.function.Supplier;
 
 /**
- * Simulates a network shared by concurrent callers. Queue and configuration changes
- * are synchronized, but latency and server operations do not hold the network monitor.
- * Each attempt consumes one queued outcome; concurrent callers have no fixed order.
+ * Simulates a network shared by concurrent callers. The outcome queue, random generator,
+ * and latency configuration are protected by the same monitor. Adding, clearing, and
+ * taking outcomes, drawing random values, and changing the configuration are synchronized.
+ * The monitor is not held during waits or server calls, so multiple attempts can use
+ * the network at the same time.
+ *
+ * <p>Each attempt takes one outcome, which applies to both the request and the response
+ * even if another thread changes or clears the queue in the meantime. Outcomes belong
+ * to the network, rather than to a thread or proxy. With concurrent calls, there is no
+ * fixed order for which call takes a given outcome. An empty queue means
+ * {@link OpResult#OK}.
+ *
+ * <p>The latency configuration is read separately for the request and the response.
+ * A change can therefore affect the response of a request that has already been sent.
+ * Constant latencies are allowed, including zero.
+ *
+ * <p>An interruption during a wait preserves the thread's interrupt flag and throws
+ * {@link NodeRecoveryRequiredException}. The attempt has an uncertain outcome because
+ * the interruption can happen after the server has executed the operation.
  */
 public class FakeNetworkInterface implements NodeNetworkInterface {
 

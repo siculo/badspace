@@ -13,6 +13,12 @@ import java.util.UUID;
 
 import static org.junit.Assert.*;
 
+/**
+ * Checks that requests from different proxies keep separate results and
+ * separate expiration limits, also when they arrive out of order.
+ *
+ * <p>Uses a controlled clock, so no test waits for real time.
+ */
 public class RequestsRegisterTest {
     private static final UUID FIRST_PROXY = new UUID(0, 1);
     private static final UUID SECOND_PROXY = new UUID(0, 2);

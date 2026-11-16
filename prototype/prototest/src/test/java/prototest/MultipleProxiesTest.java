@@ -17,6 +17,14 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 import static prototest.proxy.FakeNetworkInterface.OpResult.*;
 
+/**
+ * Checks that several proxies use the same endpoint without mixing their
+ * requests or results.
+ *
+ * <p>Uses the real proxy and the real server adapter. The retry tests also go
+ * through the fake network, with zero latency and explicit outcomes. Does not
+ * use {@link TestService}, whose writers and readers still skip the network.
+ */
 public class MultipleProxiesTest {
     private final NodeServer server = new NodeServer();
     private final NodeNetworkInterface endpoint = new ServerNodeNetworkInterface(server, 60000);
