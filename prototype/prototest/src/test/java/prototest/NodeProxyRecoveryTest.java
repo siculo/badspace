@@ -19,7 +19,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
-import static prototest.proxy.FakeNetworkInterface.Delivery.*;
 
 /**
  * Checks when the proxy stays usable, when it requires recovery and what
@@ -47,8 +46,8 @@ public class NodeProxyRecoveryTest {
     public void aLostResponseRequiresRecoveryAndBlocksAllNodeOperations() {
         var server = new NodeServer();
         var network = network(server);
-        var proxy = new NodeProxy(network, 0);
-        network.expect(call -> true, DELIVER, DROP);
+        network.on(n -> n.createPartition(null, null)).onFirstCall().dropResponse();
+        var proxy = new NodeProxy(network.build(), 0);
 
         var failure = assertThrows(NodeRecoveryRequiredException.class,
                 () -> proxy.createPartition("created"));
@@ -78,10 +77,9 @@ public class NodeProxyRecoveryTest {
     public void aSuccessfulRetryLeavesTheProxyUsable() {
         var server = new NodeServer();
         var network = network(server);
-        var proxy = new NodeProxy(network, 60000);
-        network.expect(call -> true, DROP, DELIVER);
-        network.expect(call -> true, DELIVER, DROP);
-        network.expect(call -> true, DELIVER, DELIVER);
+        network.on(n -> n.createPartition(null, null)).onFirstCall().dropRequest()
+                .on(n -> n.createPartition(null, null)).onCall(2).dropResponse();
+        var proxy = new NodeProxy(network.build(), 60000);
 
         proxy.createPartition("present");
 
@@ -110,7 +108,7 @@ public class NodeProxyRecoveryTest {
     @Test
     public void interruptionPreservesTheFlagAndRequiresRecovery() {
         var server = new NodeServer();
-        var proxy = new NodeProxy(network(server), 1000);
+        var proxy = new NodeProxy(network(server).build(), 1000);
         try {
             Thread.currentThread().interrupt();
             assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("blocked"));
@@ -245,8 +243,8 @@ public class NodeProxyRecoveryTest {
     public void recoveryAllowsNewCallsWithoutReusingRequestIds() {
         var server = new NodeServer();
         var network = network(server);
-        var proxy = new NodeProxy(network, 0);
-        network.expect(call -> true, DELIVER, DROP);
+        network.on(n -> n.createPartition(null, null)).onFirstCall().dropResponse();
+        var proxy = new NodeProxy(network.build(), 0);
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("present"));
         assertTrue(proxy.recoveryRequired());
 
@@ -342,7 +340,7 @@ public class NodeProxyRecoveryTest {
     }
 
     private static FakeNetworkInterface network(NodeServer server) {
-        var network = new FakeNetworkInterface(new ServerNodeNetworkInterface(server, 60000));
+        var network = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(server, 60000));
         return network;
     }
 

@@ -13,7 +13,7 @@ public class App {
     private static Service service;
 
     static void main(String[] args) {
-        FakeNetworkInterface networkInterface = new FakeNetworkInterface(new ServerNodeNetworkInterface(2000));
+        var networkInterface = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(2000)).build();
 
         service = new ServiceClient(new NodeProxy(networkInterface, 2000));
         service.create("ONE");

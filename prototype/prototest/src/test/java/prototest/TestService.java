@@ -24,9 +24,9 @@ public class TestService implements Service {
         referenceService = new ServiceClient(referenceNodeServer);
 
         nodeServer = new NodeServer();
-        fakeNetworkInterface = new FakeNetworkInterface(new ServerNodeNetworkInterface(nodeServer, registryTimeout));
+        fakeNetworkInterface = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(nodeServer, registryTimeout));
 
-        nodeProxy = new NodeProxy(fakeNetworkInterface, registryTimeout);
+        nodeProxy = new NodeProxy(fakeNetworkInterface.build(), registryTimeout);
         service = new ServiceClient(nodeProxy);
     }
 

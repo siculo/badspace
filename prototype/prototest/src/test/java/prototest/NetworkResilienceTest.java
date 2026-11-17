@@ -12,8 +12,6 @@ import prototest.server.ServerNodeNetworkInterface;
 import java.time.Duration;
 
 import static org.junit.Assert.*;
-import static prototest.proxy.FakeNetworkInterface.Delivery.*;
-import static prototest.proxy.FakeNetworkInterface.Operation.*;
 
 public class NetworkResilienceTest {
     private static final String PARTITION_NAME = "example";
@@ -21,60 +19,57 @@ public class NetworkResilienceTest {
 
     private NodeServer server;
     private FakeNetworkInterface network;
-    private NodeProxy proxy;
 
     @Before
     public void before() {
         server = new NodeServer();
-        network = new FakeNetworkInterface(new ServerNodeNetworkInterface(server, 60000));
-        proxy = new NodeProxy(network, 60000);
+        network = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(server, 60000));
     }
 
     @Test
     public void retriesOnRequestMissing() throws Exception {
-        var lost = network.expect(call -> call.operation() == CREATE_PARTITION, DROP, DELIVER);
-        var retry = network.expect(call -> call.operation() == CREATE_PARTITION, DELIVER, DELIVER);
+        network.on(n -> n.createPartition(null, null)).onFirstCall().dropRequest();
+        var proxy = new NodeProxy(network.build(), 60000);
 
         proxy.createPartition(PARTITION_NAME);
 
         assertTrue(server.partitionExists(PARTITION_NAME));
-        assertEquals(lost.request().awaitArrival(WAIT).requestId(),
-                retry.request().awaitArrival(WAIT).requestId());
-        network.verify();
+        assertEquals(network.awaitCall(n -> n.createPartition(null, null), 1, WAIT).invocation().args()[0],
+                network.awaitCall(n -> n.createPartition(null, null), 2, WAIT).invocation().args()[0]);
+        network.assertAllRulesUsedAndCallsFinished();
     }
 
     @Test
     public void retriesOnResponseMissing() throws Exception {
         server.createPartition(PARTITION_NAME);
-        var lost = network.expect(call -> call.operation() == PARTITION_EXISTS, DELIVER, DROP);
-        var retry = network.expect(call -> call.operation() == PARTITION_EXISTS, DELIVER, DELIVER);
+        network.on(n -> n.partitionExists(null, null)).onFirstCall().dropResponse();
+        var proxy = new NodeProxy(network.build(), 60000);
 
         assertTrue(proxy.partitionExists(PARTITION_NAME));
 
-        assertEquals(lost.response().awaitArrival(WAIT).requestId(),
-                retry.response().awaitArrival(WAIT).requestId());
-        network.verify();
+        assertEquals(network.awaitCall(n -> n.partitionExists(null, null), 1, WAIT).invocation().args()[0],
+                network.awaitCall(n -> n.partitionExists(null, null), 2, WAIT).invocation().args()[0]);
+        network.assertAllRulesUsedAndCallsFinished();
     }
 
     @Test
     public void retriesWithoutDuplicatingEffects() {
         server.createPartition(PARTITION_NAME);
-        network.expect(call -> call.operation() == WRITE_TO_PARTITION, DELIVER, DROP);
-        network.expect(call -> call.operation() == WRITE_TO_PARTITION, DELIVER, DELIVER);
-        network.expect(call -> call.operation() == COMMIT_PARTITION, DELIVER, DROP);
-        network.expect(call -> call.operation() == COMMIT_PARTITION, DELIVER, DELIVER);
+        network.on(n -> n.writeToPartition(null, null, null)).onFirstCall().dropResponse()
+                .on(n -> n.commitPartition(null, null)).onFirstCall().dropResponse();
+        var proxy = new NodeProxy(network.build(), 60000);
 
         proxy.writeToPartition(PARTITION_NAME, "content");
         proxy.commitPartition(PARTITION_NAME);
 
         assertEquals("content", proxy.readPartitionSnapshot(PARTITION_NAME));
-        network.verify();
+        network.assertAllRulesUsedAndCallsFinished();
     }
 
     @Test
     public void requiresNodeRecoveryAfterRetryTimeout() {
-        proxy = new NodeProxy(network, 0);
-        network.expect(call -> call.operation() == CREATE_PARTITION, DROP, DELIVER);
+        network.on(n -> n.createPartition(null, null)).onFirstCall().dropRequest();
+        var proxy = new NodeProxy(network.build(), 0);
 
         var error = assertThrows(NodeRecoveryRequiredException.class,
                 () -> proxy.createPartition(PARTITION_NAME));
@@ -82,17 +77,18 @@ public class NetworkResilienceTest {
         assertEquals("Unrecoverable timeout", error.getMessage());
         assertTrue(proxy.recoveryRequired());
         assertFalse(server.partitionExists(PARTITION_NAME));
-        network.verify();
+        network.assertAllRulesUsedAndCallsFinished();
     }
 
     @Test
     public void returnsAServiceException() {
-        network.expect(call -> call.operation() == WRITE_TO_PARTITION, DELIVER, DELIVER);
+        network.on(n -> n.writeToPartition(null, null, null)).onEveryCall().deliver();
+        var proxy = new NodeProxy(network.build(), 60000);
 
         assertThrows(PartitionNotFoundException.class,
                 () -> proxy.writeToPartition(PARTITION_NAME, "content"));
 
         assertFalse(proxy.recoveryRequired());
-        network.verify();
+        network.assertAllRulesUsedAndCallsFinished();
     }
 }

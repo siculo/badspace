@@ -14,14 +14,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
-import static prototest.proxy.FakeNetworkInterface.Delivery.*;
 
 /**
  * Checks that several proxies use the same endpoint without mixing their
  * requests or results.
  *
  * <p>Uses the real proxy and the real server adapter. The retry tests also go
- * through the fake network, with explicit delivery plans. Does not
+ * through the fake network, with explicit delivery rules. Does not
  * use {@link TestService}, whose writers and readers still skip the network.
  */
 public class MultipleProxiesTest {
@@ -60,34 +59,38 @@ public class MultipleProxiesTest {
 
     @Test
     public void retriesKeepTheSameIdAndDoNotDuplicateWritesOrCommits() throws Exception {
-        var firstNetwork = new FakeNetworkInterface(endpoint);
-        var secondNetwork = new FakeNetworkInterface(endpoint);
-        var first = new NodeProxy(firstNetwork, 1000);
-        var second = new NodeProxy(secondNetwork, 1000);
+        var firstNetwork = FakeNetworkInterface.wrap(endpoint)
+                .on(n -> n.writeToPartition(null, null, null)).onFirstCall().dropRequest()
+                .on(n -> n.writeToPartition(null, null, null)).onCall(2).dropResponse()
+                .on(n -> n.commitPartition(null, null)).onFirstCall().dropResponse();
+        var secondNetwork = FakeNetworkInterface.wrap(endpoint)
+                .on(n -> n.writeToPartition(null, null, null)).onFirstCall().dropResponse();
+        var first = new NodeProxy(firstNetwork.build(), 60000);
+        var second = new NodeProxy(secondNetwork.build(), 60000);
         server.createPartition("shared");
 
-        var firstLostRequest = firstNetwork.expect(call -> true, DROP, DELIVER);
-        var firstLostResponse = firstNetwork.expect(call -> true, DELIVER, DROP);
-        var firstSuccess = firstNetwork.expect(call -> true, DELIVER, DELIVER);
         first.writeToPartition("shared", "A");
-        var secondLostResponse = secondNetwork.expect(call -> true, DELIVER, DROP);
-        var secondSuccess = secondNetwork.expect(call -> true, DELIVER, DELIVER);
         second.writeToPartition("shared", "B");
-        var lostCommit = firstNetwork.expect(call -> true, DELIVER, DROP);
-        var successfulCommit = firstNetwork.expect(call -> true, DELIVER, DELIVER);
         first.commitPartition("shared");
 
         assertEquals("AB", server.readPartitionSnapshot("shared"));
         assertEquals("AB", second.readPartitionSnapshot("shared"));
-        firstNetwork.verify();
-        secondNetwork.verify();
-        RequestId writeId = firstLostRequest.request().awaitArrival(Duration.ZERO).requestId();
-        assertEquals(writeId, firstLostResponse.request().awaitArrival(Duration.ZERO).requestId());
-        assertEquals(writeId, firstSuccess.request().awaitArrival(Duration.ZERO).requestId());
-        RequestId secondWriteId = secondLostResponse.request().awaitArrival(Duration.ZERO).requestId();
-        assertEquals(secondWriteId, secondSuccess.request().awaitArrival(Duration.ZERO).requestId());
-        RequestId commitId = lostCommit.request().awaitArrival(Duration.ZERO).requestId();
-        assertEquals(commitId, successfulCommit.request().awaitArrival(Duration.ZERO).requestId());
+        firstNetwork.assertAllRulesUsedAndCallsFinished();
+        secondNetwork.assertAllRulesUsedAndCallsFinished();
+        RequestId writeId = (RequestId) firstNetwork.awaitCall(
+                n -> n.writeToPartition(null, null, null), 1, Duration.ZERO).invocation().args()[0];
+        for (int number = 2; number <= 3; number++) {
+            assertEquals(writeId, firstNetwork.awaitCall(n -> n.writeToPartition(null, null, null),
+                    number, Duration.ZERO).invocation().args()[0]);
+        }
+        RequestId secondWriteId = (RequestId) secondNetwork.awaitCall(
+                n -> n.writeToPartition(null, null, null), 1, Duration.ZERO).invocation().args()[0];
+        assertEquals(secondWriteId, secondNetwork.awaitCall(n -> n.writeToPartition(null, null, null),
+                2, Duration.ZERO).invocation().args()[0]);
+        RequestId commitId = (RequestId) firstNetwork.awaitCall(
+                n -> n.commitPartition(null, null), 1, Duration.ZERO).invocation().args()[0];
+        assertEquals(commitId, firstNetwork.awaitCall(n -> n.commitPartition(null, null),
+                2, Duration.ZERO).invocation().args()[0]);
         assertEquals(writeId.proxyId(), commitId.proxyId());
         assertTrue(commitId.sequence() > writeId.sequence());
         assertNotEquals(writeId.proxyId(), secondWriteId.proxyId());
