@@ -19,15 +19,14 @@ public class TestService implements Service {
     private final Node nodeProxy;
     private final Service service;
 
-    public TestService(long registeryTimeout, long minNetworkLatency, long maxNetworkLatency) {
+    public TestService(long registryTimeout) {
         referenceNodeServer = new NodeServer();
         referenceService = new ServiceClient(referenceNodeServer);
 
         nodeServer = new NodeServer();
-        fakeNetworkInterface = new FakeNetworkInterface(new ServerNodeNetworkInterface(nodeServer, registeryTimeout));
-        fakeNetworkInterface.setNetworkLatency(minNetworkLatency, maxNetworkLatency);
+        fakeNetworkInterface = new FakeNetworkInterface(new ServerNodeNetworkInterface(nodeServer, registryTimeout));
 
-        nodeProxy = new NodeProxy(fakeNetworkInterface, registeryTimeout);
+        nodeProxy = new NodeProxy(fakeNetworkInterface, registryTimeout);
         service = new ServiceClient(nodeProxy);
     }
 

@@ -19,7 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
-import static prototest.proxy.FakeNetworkInterface.OpResult.*;
+import static prototest.proxy.FakeNetworkInterface.Delivery.*;
 
 /**
  * Checks when the proxy stays usable, when it requires recovery and what
@@ -48,7 +48,7 @@ public class NodeProxyRecoveryTest {
         var server = new NodeServer();
         var network = network(server);
         var proxy = new NodeProxy(network, 0);
-        network.pushResults(RESPONSE_MISSING);
+        network.expect(call -> true, DELIVER, DROP);
 
         var failure = assertThrows(NodeRecoveryRequiredException.class,
                 () -> proxy.createPartition("created"));
@@ -79,7 +79,9 @@ public class NodeProxyRecoveryTest {
         var server = new NodeServer();
         var network = network(server);
         var proxy = new NodeProxy(network, 60000);
-        network.pushResults(REQUEST_MISSING, RESPONSE_MISSING, OK);
+        network.expect(call -> true, DROP, DELIVER);
+        network.expect(call -> true, DELIVER, DROP);
+        network.expect(call -> true, DELIVER, DELIVER);
 
         proxy.createPartition("present");
 
@@ -244,7 +246,7 @@ public class NodeProxyRecoveryTest {
         var server = new NodeServer();
         var network = network(server);
         var proxy = new NodeProxy(network, 0);
-        network.pushResults(RESPONSE_MISSING);
+        network.expect(call -> true, DELIVER, DROP);
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("present"));
         assertTrue(proxy.recoveryRequired());
 
@@ -341,7 +343,6 @@ public class NodeProxyRecoveryTest {
 
     private static FakeNetworkInterface network(NodeServer server) {
         var network = new FakeNetworkInterface(new ServerNodeNetworkInterface(server, 60000));
-        network.setNetworkLatency(0, 0);
         return network;
     }
 

@@ -14,7 +14,6 @@ public class App {
 
     static void main(String[] args) {
         FakeNetworkInterface networkInterface = new FakeNetworkInterface(new ServerNodeNetworkInterface(2000));
-        networkInterface.setNetworkLatency(70, 100);
 
         service = new ServiceClient(new NodeProxy(networkInterface, 2000));
         service.create("ONE");

@@ -2,52 +2,53 @@ package prototest;
 
 import org.junit.Test;
 import prototest.api.RequestId;
+import prototest.api.errors.network.ConnectionUnavailableException;
+import prototest.api.errors.network.NodeRecoveryRequiredException;
 import prototest.api.errors.network.RetryableCommunicationException;
 import prototest.proxy.FakeNetworkInterface;
 import prototest.proxy.NodeProxy;
 import prototest.server.NodeServer;
 import prototest.server.ServerNodeNetworkInterface;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
-import static prototest.proxy.FakeNetworkInterface.OpResult.*;
+import static prototest.proxy.FakeNetworkInterface.Delivery.*;
+import static prototest.proxy.FakeNetworkInterface.Operation.*;
 
-/**
- * Checks that the fake network and one shared proxy work with concurrent
- * calls: each queued outcome is consumed once, and concurrent writes are not
- * duplicated.
- *
- * <p>Relevant orderings are forced with latches, waits are bounded and worker
- * errors reach the test. The test also checks the partitions really created on
- * the server, not only the returned results.
- */
+/** Checks concurrent delivery with explicit plans and bounded observation waits. */
 public class FakeNetworkConcurrencyTest {
     private static final UUID PROXY_ID = new UUID(0, 1);
+    private static final Duration WAIT = Duration.ofSeconds(5);
 
     @Test
-    public void concurrentAttemptsConsumeEachQueuedOutcomeOnce() throws Exception {
+    public void concurrentAttemptsConsumeEachMatchingPlanOnce() throws Exception {
         var server = new NodeServer();
         var network = new FakeNetworkInterface(new ServerNodeNetworkInterface(server, 60000));
-        network.setNetworkLatency(0, 0);
-        network.pushResults(20, REQUEST_MISSING, RESPONSE_MISSING, OK);
+        for (int index = 0; index < 20; index++) {
+            network.expect(call -> true, DROP, DELIVER);
+            network.expect(call -> true, DELIVER, DROP);
+            network.expect(call -> true, DELIVER, DELIVER);
+        }
         var start = new CountDownLatch(1);
         var ready = new CountDownLatch(4);
         var workers = Executors.newFixedThreadPool(4);
         List<Future<String>> results = new ArrayList<>();
         try {
-            for (int i = 0; i < 60; i++) {
-                int sequence = i;
+            for (int index = 0; index < 60; index++) {
+                int sequence = index;
                 results.add(workers.submit(() -> {
                     ready.countDown();
-                    await(start);
+                    assertTrue(start.await(5, TimeUnit.SECONDS));
                     try {
                         network.createPartition(new RequestId(PROXY_ID, sequence), "partition-" + sequence);
                         return "OK";
@@ -61,20 +62,20 @@ public class FakeNetworkConcurrencyTest {
             int requestsMissing = 0;
             int responsesMissing = 0;
             int successes = 0;
-            for (int i = 0; i < results.size(); i++) {
-                String result = results.get(i).get(5, TimeUnit.SECONDS);
+            for (int index = 0; index < results.size(); index++) {
+                String result = results.get(index).get(5, TimeUnit.SECONDS);
                 switch (result) {
                     case "Request missing" -> {
                         requestsMissing++;
-                        assertFalse(server.partitionExists("partition-" + i));
+                        assertFalse(server.partitionExists("partition-" + index));
                     }
                     case "Response missing" -> {
                         responsesMissing++;
-                        assertTrue(server.partitionExists("partition-" + i));
+                        assertTrue(server.partitionExists("partition-" + index));
                     }
                     case "OK" -> {
                         successes++;
-                        assertTrue(server.partitionExists("partition-" + i));
+                        assertTrue(server.partitionExists("partition-" + index));
                     }
                     default -> fail("Unexpected outcome: " + result);
                 }
@@ -82,8 +83,9 @@ public class FakeNetworkConcurrencyTest {
             assertEquals(20, requestsMissing);
             assertEquals(20, responsesMissing);
             assertEquals(20, successes);
-            network.createPartition(new RequestId(PROXY_ID, 60), "after-queue");
-            assertTrue(server.partitionExists("after-queue"));
+            network.verify();
+            network.createPartition(new RequestId(PROXY_ID, 60), "after-plans");
+            assertTrue(server.partitionExists("after-plans"));
         } finally {
             start.countDown();
             workers.shutdownNow();
@@ -92,93 +94,138 @@ public class FakeNetworkConcurrencyTest {
     }
 
     @Test
-    public void threadsShareOneProxyAndNetworkWithoutDuplicatingWrites() throws Exception {
+    public void heldRequestsAllowTheTestToChooseTheOrderOfConcurrentWrites() throws Exception {
         var server = new NodeServer();
         server.createPartition("shared");
         var network = new FakeNetworkInterface(new ServerNodeNetworkInterface(server, 60000));
-        network.setNetworkLatency(0, 0);
-        network.pushResults(RESPONSE_MISSING, RESPONSE_MISSING, OK, OK);
-        var proxy = new NodeProxy(network, 60000);
-        var ready = new CountDownLatch(2);
-        var start = new CountDownLatch(1);
+        var firstId = new RequestId(PROXY_ID, 0);
+        var secondId = new RequestId(PROXY_ID, 1);
+        var first = network.expect(call -> call.requestId().equals(firstId), HOLD, DELIVER);
+        var second = network.expect(call -> call.requestId().equals(secondId), HOLD, DELIVER);
         var workers = Executors.newFixedThreadPool(2);
         try {
-            var first = workers.submit(() -> {
-                ready.countDown();
-                await(start);
-                proxy.writeToPartition("shared", "A");
-            });
-            var second = workers.submit(() -> {
-                ready.countDown();
-                await(start);
-                proxy.writeToPartition("shared", "B");
-            });
-            assertTrue(ready.await(5, TimeUnit.SECONDS));
-            start.countDown();
-            first.get(5, TimeUnit.SECONDS);
-            second.get(5, TimeUnit.SECONDS);
-            proxy.commitPartition("shared");
+            var firstResult = workers.submit(() -> network.writeToPartition(firstId, "shared", "A"));
+            var secondResult = workers.submit(() -> network.writeToPartition(secondId, "shared", "B"));
+            assertEquals(firstId, first.request().awaitArrival(WAIT).requestId());
+            assertEquals(secondId, second.request().awaitArrival(WAIT).requestId());
+            assertFalse(firstResult.isDone());
+            assertFalse(secondResult.isDone());
 
-            String content = proxy.readPartitionSnapshot("shared");
-            assertTrue(content.equals("AB") || content.equals("BA"));
-            assertFalse(proxy.recoveryRequired());
+            second.request().deliver();
+            secondResult.get(5, TimeUnit.SECONDS);
+            first.request().deliver();
+            firstResult.get(5, TimeUnit.SECONDS);
+
+            server.commitPartition("shared");
+            assertEquals("BA", server.readPartitionSnapshot("shared"));
+            network.verify();
         } finally {
-            start.countDown();
+            release(first.request());
+            release(second.request());
             workers.shutdownNow();
             assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
         }
     }
 
     @Test
-    public void serverCallsCanOverlapWhileTheNetworkIsReconfigured() throws Exception {
-        var entered = new CountDownLatch(2);
-        var finish = new CountDownLatch(1);
+    public void registeringPlansDoesNotChangeAnAttemptAlreadyWaitingForItsResponse() throws Exception {
         var server = new NodeServer();
+        var network = new FakeNetworkInterface(new ServerNodeNetworkInterface(server, 60000));
+        var first = network.expect(call -> call.partitionName().equals("first"), DELIVER, HOLD);
+        var workers = Executors.newSingleThreadExecutor();
+        try {
+            var result = workers.submit(() -> network.createPartition(new RequestId(PROXY_ID, 0), "first"));
+            first.response().awaitArrival(WAIT);
+            assertTrue(server.partitionExists("first"));
+            network.expect(call -> call.operation() == CREATE_PARTITION, DROP, DELIVER);
+
+            assertThrows(RetryableCommunicationException.class,
+                    () -> network.createPartition(new RequestId(PROXY_ID, 1), "second"));
+            assertFalse(server.partitionExists("second"));
+            first.response().deliver();
+            result.get(5, TimeUnit.SECONDS);
+            network.verify();
+        } finally {
+            release(first.response());
+            workers.shutdownNow();
+            assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void aHeldResponseCanBeDeliveredAfterProxyRecovery() throws Exception {
+        verifyLateResponse(false);
+    }
+
+    @Test
+    public void aHeldResponseCanBeLostAfterProxyRecovery() throws Exception {
+        verifyLateResponse(true);
+    }
+
+    private static void verifyLateResponse(boolean dropResponse) throws Exception {
+        var server = new NodeServer();
+        var transport = new AtomicReference<Thread>();
+        var oldAttempts = new AtomicInteger();
         var endpoint = new ServerNodeNetworkInterface(server, 60000) {
             @Override
             public void createPartition(RequestId requestId, String name) {
-                entered.countDown();
-                await(finish);
+                if (name.equals("old")) {
+                    transport.set(Thread.currentThread());
+                    oldAttempts.incrementAndGet();
+                }
                 super.createPartition(requestId, name);
             }
         };
         var network = new FakeNetworkInterface(endpoint);
-        network.setNetworkLatency(1, 1);
-        network.pushResults(OK, OK, RESPONSE_MISSING);
-        var workers = Executors.newFixedThreadPool(2);
+        var old = network.expect(call -> call.partitionName().equals("old"), DELIVER, HOLD);
+        network.expect(call -> call.partitionName().equals("fail"), DROP, DELIVER);
+        var proxy = new NodeProxy(network, 0);
+        var workers = Executors.newSingleThreadExecutor();
         try {
-            var first = workers.submit(() -> network.createPartition(new RequestId(PROXY_ID, 0), "first"));
-            var second = workers.submit(() -> network.createPartition(new RequestId(PROXY_ID, 1), "second"));
-            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var pending = workers.submit(() -> {
+                var error = assertThrows(ConnectionUnavailableException.class,
+                        () -> proxy.createPartition("old"));
+                assertFalse(Thread.currentThread().isInterrupted());
+                return error;
+            });
+            old.response().awaitArrival(WAIT);
+            assertTrue(server.partitionExists("old"));
+            var failure = assertThrows(NodeRecoveryRequiredException.class,
+                    () -> proxy.createPartition("fail"));
+            assertSame(failure, pending.get(5, TimeUnit.SECONDS).getCause());
+            assertThrows(IllegalStateException.class, network::verify);
 
-            network.clearResults();
-            network.pushResults(REQUEST_MISSING);
-            network.setRandom(new Random(1));
-            network.setNetworkLatency(0, 0);
-            finish.countDown();
-            first.get(5, TimeUnit.SECONDS);
-            second.get(5, TimeUnit.SECONDS);
-
-            assertTrue(server.partitionExists("first"));
-            assertTrue(server.partitionExists("second"));
-            assertEquals("Request missing", assertThrows(RetryableCommunicationException.class,
-                    () -> network.createPartition(new RequestId(PROXY_ID, 2), "missing")).getMessage());
-            assertFalse(server.partitionExists("missing"));
+            proxy.recover();
+            proxy.createPartition("new");
+            if (dropResponse) {
+                old.response().drop();
+            } else {
+                old.response().deliver();
+            }
+            old.awaitCompletion(WAIT);
+            // Wait for the executor as well as the simulated network to process the late result.
+            transport.get().join(5000);
+            assertFalse(transport.get().isAlive());
+            assertEquals(1, oldAttempts.get());
+            assertFalse(proxy.recoveryRequired());
+            assertTrue(proxy.partitionExists("new"));
+            network.verify();
         } finally {
-            finish.countDown();
+            release(old.response());
+            if (transport.get() != null) {
+                transport.get().join(5000);
+                assertFalse(transport.get().isAlive());
+            }
             workers.shutdownNow();
             assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
         }
     }
 
-    private static void await(CountDownLatch latch) {
+    private static void release(FakeNetworkInterface.ExchangePoint point) {
         try {
-            if (!latch.await(5, TimeUnit.SECONDS)) {
-                throw new AssertionError("Operation was not released");
-            }
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            throw new AssertionError(error);
+            point.deliver();
+        } catch (IllegalStateException ignored) {
+            // The point may have been released already or not reached after a test failure.
         }
     }
 }
