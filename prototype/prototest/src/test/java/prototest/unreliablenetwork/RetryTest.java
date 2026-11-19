@@ -11,6 +11,7 @@ import prototest.server.NodeServer;
 import prototest.server.ServerNodeNetworkInterface;
 
 import static org.junit.Assert.*;
+import static prototest.proxy.FakeNetworkInterface.any;
 
 /**
  * Checks that the proxy retries lost requests and lost responses with the same
@@ -37,14 +38,14 @@ public class RetryTest {
      */
     @Test
     public void retriesOnRequestMissing() throws Exception {
-        network.on(n -> n.createPartition(null, null)).onFirstCall().dropRequest();
+        network.on(n -> n.createPartition(any(), any())).onFirstCall().dropRequest();
         var proxy = new NodeProxy(network.build(), 60000);
 
         proxy.createPartition(PARTITION_NAME);
 
         assertTrue(server.partitionExists(PARTITION_NAME));
-        var firstAttempt = network.awaitAttempt(n -> n.createPartition(null, null), 1);
-        var retryAttempt = network.awaitAttempt(n -> n.createPartition(null, null), 2);
+        var firstAttempt = network.awaitAttempt(n -> n.createPartition(any(), any()), 1);
+        var retryAttempt = network.awaitAttempt(n -> n.createPartition(any(), any()), 2);
         var firstRequestId = (RequestId) firstAttempt.invocation().args()[0];
         var retryRequestId = (RequestId) retryAttempt.invocation().args()[0];
         assertEquals(firstRequestId, retryRequestId);
@@ -58,13 +59,13 @@ public class RetryTest {
     @Test
     public void retriesOnResponseMissing() throws Exception {
         server.createPartition(PARTITION_NAME);
-        network.on(n -> n.partitionExists(null, null)).onFirstCall().dropResponse();
+        network.on(n -> n.partitionExists(any(), any())).onFirstCall().dropResponse();
         var proxy = new NodeProxy(network.build(), 60000);
 
         assertTrue(proxy.partitionExists(PARTITION_NAME));
 
-        var firstAttempt = network.awaitAttempt(n -> n.partitionExists(null, null), 1);
-        var retryAttempt = network.awaitAttempt(n -> n.partitionExists(null, null), 2);
+        var firstAttempt = network.awaitAttempt(n -> n.partitionExists(any(), any()), 1);
+        var retryAttempt = network.awaitAttempt(n -> n.partitionExists(any(), any()), 2);
         var firstRequestId = (RequestId) firstAttempt.invocation().args()[0];
         var retryRequestId = (RequestId) retryAttempt.invocation().args()[0];
         assertEquals(firstRequestId, retryRequestId);
@@ -79,8 +80,8 @@ public class RetryTest {
     @Test
     public void retriesWithoutDuplicatingEffects() {
         server.createPartition(PARTITION_NAME);
-        network.on(n -> n.writeToPartition(null, null, null)).onFirstCall().dropResponse()
-                .on(n -> n.commitPartition(null, null)).onFirstCall().dropResponse();
+        network.on(n -> n.writeToPartition(any(), any(), any())).onFirstCall().dropResponse()
+                .on(n -> n.commitPartition(any(), any())).onFirstCall().dropResponse();
         var proxy = new NodeProxy(network.build(), 60000);
 
         proxy.writeToPartition(PARTITION_NAME, "content");
@@ -97,7 +98,7 @@ public class RetryTest {
      */
     @Test
     public void requiresNodeRecoveryAfterRetryTimeout() {
-        network.on(n -> n.createPartition(null, null)).onFirstCall().dropRequest();
+        network.on(n -> n.createPartition(any(), any())).onFirstCall().dropRequest();
         var proxy = new NodeProxy(network.build(), 0);
 
         var error = assertThrows(NodeRecoveryRequiredException.class,
@@ -116,7 +117,7 @@ public class RetryTest {
      */
     @Test
     public void returnsAServiceException() {
-        network.on(n -> n.writeToPartition(null, null, null)).onEveryCall().deliver();
+        network.on(n -> n.writeToPartition(any(), any(), any())).onEveryCall().deliver();
         var proxy = new NodeProxy(network.build(), 60000);
 
         assertThrows(PartitionNotFoundException.class,
@@ -132,8 +133,8 @@ public class RetryTest {
      */
     @Test
     public void aSuccessfulRetryLeavesTheProxyUsable() {
-        network.on(n -> n.createPartition(null, null)).onFirstCall().dropRequest()
-                .on(n -> n.createPartition(null, null)).onCall(2).dropResponse();
+        network.on(n -> n.createPartition(any(), any())).onFirstCall().dropRequest()
+                .on(n -> n.createPartition(any(), any())).onCall(2).dropResponse();
         var proxy = new NodeProxy(network.build(), 60000);
 
         proxy.createPartition(PARTITION_NAME);
@@ -153,11 +154,11 @@ public class RetryTest {
     public void retriesOfSeveralProxiesKeepTheirIdsAndDoNotDuplicateWritesOrCommits() throws Exception {
         var endpoint = new ServerNodeNetworkInterface(server, 60000);
         var firstNetwork = FakeNetworkInterface.wrap(endpoint)
-                .on(n -> n.writeToPartition(null, null, null)).onFirstCall().dropRequest()
-                .on(n -> n.writeToPartition(null, null, null)).onCall(2).dropResponse()
-                .on(n -> n.commitPartition(null, null)).onFirstCall().dropResponse();
+                .on(n -> n.writeToPartition(any(), any(), any())).onFirstCall().dropRequest()
+                .on(n -> n.writeToPartition(any(), any(), any())).onCall(2).dropResponse()
+                .on(n -> n.commitPartition(any(), any())).onFirstCall().dropResponse();
         var secondNetwork = FakeNetworkInterface.wrap(endpoint)
-                .on(n -> n.writeToPartition(null, null, null)).onFirstCall().dropResponse();
+                .on(n -> n.writeToPartition(any(), any(), any())).onFirstCall().dropResponse();
         var first = new NodeProxy(firstNetwork.build(), 60000);
         var second = new NodeProxy(secondNetwork.build(), 60000);
         server.createPartition("shared");
@@ -170,22 +171,22 @@ public class RetryTest {
         assertEquals("AB", second.readPartitionSnapshot("shared"));
         firstNetwork.assertAllRulesUsedAndCallsFinished();
         secondNetwork.assertAllRulesUsedAndCallsFinished();
-        var writeAttempt = firstNetwork.awaitAttempt(n -> n.writeToPartition(null, null, null), 1);
+        var writeAttempt = firstNetwork.awaitAttempt(n -> n.writeToPartition(any(), any(), any()), 1);
         var writeId = (RequestId) writeAttempt.invocation().args()[0];
         for (int number = 2; number <= 3; number++) {
-            var retryAttempt = firstNetwork.awaitAttempt(n -> n.writeToPartition(null, null, null), number);
+            var retryAttempt = firstNetwork.awaitAttempt(n -> n.writeToPartition(any(), any(), any()), number);
             var retryRequestId = (RequestId) retryAttempt.invocation().args()[0];
             assertEquals(writeId, retryRequestId);
         }
-        var secondWriteAttempt = secondNetwork.awaitAttempt(n -> n.writeToPartition(null, null, null), 1);
+        var secondWriteAttempt = secondNetwork.awaitAttempt(n -> n.writeToPartition(any(), any(), any()), 1);
         var secondWriteId = (RequestId) secondWriteAttempt.invocation().args()[0];
-        var secondWriteRetryAttempt = secondNetwork.awaitAttempt(n -> n.writeToPartition(null, null, null), 2);
+        var secondWriteRetryAttempt = secondNetwork.awaitAttempt(n -> n.writeToPartition(any(), any(), any()), 2);
         var secondWriteRetryId = (RequestId) secondWriteRetryAttempt.invocation().args()[0];
         assertEquals(secondWriteId, secondWriteRetryId);
 
-        var commitAttempt = firstNetwork.awaitAttempt(n -> n.commitPartition(null, null), 1);
+        var commitAttempt = firstNetwork.awaitAttempt(n -> n.commitPartition(any(), any()), 1);
         var commitId = (RequestId) commitAttempt.invocation().args()[0];
-        var commitRetryAttempt = firstNetwork.awaitAttempt(n -> n.commitPartition(null, null), 2);
+        var commitRetryAttempt = firstNetwork.awaitAttempt(n -> n.commitPartition(any(), any()), 2);
         var commitRetryId = (RequestId) commitRetryAttempt.invocation().args()[0];
         assertEquals(commitId, commitRetryId);
         assertEquals(writeId.proxyId(), commitId.proxyId());

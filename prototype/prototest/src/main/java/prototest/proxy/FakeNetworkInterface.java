@@ -20,13 +20,15 @@ import java.util.function.Predicate;
 /**
  * Builds a controllable {@link NodeNetworkInterface} without simulated latency.
  * Methods are selected by invoking them on a recording proxy, for example
- * {@code wrap(endpoint).on(n -> n.createPartition(null, null)).onFirstCall().dropRequest().build()}.
- * Selector arguments are ignored; {@link RuleBuilder#withArgs(Predicate)} filters real arguments.
+ * {@code wrap(endpoint).on(n -> n.createPartition(any(), any())).onFirstCall().dropRequest().build()}.
+ * Every selector argument must use {@link #any()} or {@link #eq(Object)}.
  *
  * <p>Every entry into the generated proxy counts as a call, including retries and lost
- * requests. Counts are per method, shared by all threads and independent of argument
- * filters and matching rules. The first matching rule wins. Rules remain registered;
- * unmatched calls deliver both messages. Build freezes configuration and is allowed once.
+ * requests. Frequency and history conditions count calls matching the complete selector,
+ * shared by all threads and independent of additional withArgs/and filters and rule outcomes.
+ * Invocation.callNumber remains the global entry number for its method. The first matching
+ * rule wins. Rules remain registered; unmatched calls deliver both messages.
+ * Build freezes configuration and is allowed once.
  *
  * <p>Configuration is single-threaded. After build, observation and network calls can
  * use the same builder from different threads. Call registration and rule selection
@@ -45,12 +47,13 @@ import java.util.function.Predicate;
  */
 public final class FakeNetworkInterface {
     private static final Duration DEFAULT_OBSERVATION_TIMEOUT = Duration.ofSeconds(5);
+    // Each capture owns its context; matcher calls only access the current thread's context.
+    private static final ThreadLocal<RecordingContext> RECORDING_CONTEXT = new ThreadLocal<>();
 
     private final NodeNetworkInterface node;
     private final Duration observationTimeout;
-    // After build, counts, rule usage and call registration use this monitor.
+    // After build, rule usage, history and call registration use this monitor.
     private final List<Rule> rules = new ArrayList<>();
-    private final Map<Method, Integer> counts = new HashMap<>();
     private final Map<Method, List<Attempt>> calls = new HashMap<>();
     private boolean built;
 
@@ -64,7 +67,10 @@ public final class FakeNetworkInterface {
         HOLD
     }
 
-    /** Selects exactly one network method by invoking it; supplied arguments are ignored. */
+    /**
+     * Selects exactly one network method with any()/eq() reference argument matchers.
+     * The lambda runs only on a recording proxy. Nested recording is not supported.
+     */
     @FunctionalInterface
     public interface Selector {
         /**
@@ -99,20 +105,94 @@ public final class FakeNetworkInterface {
         }
     }
 
-    private record Selection(Invocation invocation, Map<Method, Integer> history) {
+    private record CapturedSelector(Method method, List<Predicate<Object>> matchers) {
+        private boolean matches(Invocation invocation) {
+            if (!method.equals(invocation.method)) {
+                return false;
+            }
+            for (int index = 0; index < matchers.size(); index++) {
+                if (!matchers.get(index).test(invocation.args[index])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    private static final class RecordingContext {
+        private final List<Predicate<Object>> matchers = new ArrayList<>();
+        private CapturedSelector selected;
+
+        private Object record(Method method, Object[] args) {
+            if (method.getDeclaringClass() == Object.class) {
+                throw new IllegalArgumentException("Selector must invoke a network method");
+            }
+            if (selected != null) {
+                throw new IllegalArgumentException("Selector must invoke exactly one network method");
+            }
+            int parameterCount = method.getParameterCount();
+            if (matchers.size() != parameterCount) {
+                throw new IllegalArgumentException("Every selector argument must use any() or eq(): "
+                        + method.getName());
+            }
+            for (Object arg : args) {
+                if (arg != null) {
+                    throw new IllegalArgumentException("Selector arguments must be matcher placeholders");
+                }
+            }
+            selected = new CapturedSelector(method, List.copyOf(matchers));
+            matchers.clear();
+            // Current network methods return void, boolean or String.
+            return method.getReturnType() == boolean.class ? false : null;
+        }
+    }
+
+    /**
+     * Matches any reference argument, including null, while recording a selector.
+     * All arguments in the selected call must use matchers.
+     *
+     * @param <T> the reference parameter type
+     * @return a null placeholder used only by the recording proxy
+     * @throws IllegalStateException if no selector is being recorded on this thread
+     */
+    public static <T> T any() {
+        currentContext().matchers.add(value -> true);
+        return null;
+    }
+
+    /**
+     * Matches a reference argument using Objects.equals, including a null expected value.
+     * All arguments in the selected call must use matchers.
+     *
+     * @param expected the expected argument
+     * @param <T> the reference parameter type
+     * @return a null placeholder used only by the recording proxy
+     * @throws IllegalStateException if no selector is being recorded on this thread
+     */
+    public static <T> T eq(T expected) {
+        currentContext().matchers.add(value -> Objects.equals(expected, value));
+        return null;
+    }
+
+    private static RecordingContext currentContext() {
+        RecordingContext context = RECORDING_CONTEXT.get();
+        if (context == null) {
+            throw new IllegalStateException("Matchers can only be used while recording a selector");
+        }
+        return context;
     }
 
     private static final class Rule {
-        private final Method method;
+        private final CapturedSelector selector;
         private final IntPredicate frequency;
-        private final Predicate<Selection> condition;
+        private final Predicate<Invocation> condition;
         private final Delivery request;
         private final Delivery response;
         private boolean used;
 
-        private Rule(Method method, IntPredicate frequency, Predicate<Selection> condition,
+        private Rule(CapturedSelector selector, IntPredicate frequency, Predicate<Invocation> condition,
                      Delivery request, Delivery response) {
-            this.method = method;
+            this.selector = selector;
             this.frequency = frequency;
             this.condition = condition;
             this.request = request;
@@ -154,10 +234,11 @@ public final class FakeNetworkInterface {
     /**
      * Starts a rule for a network method. By default it applies on every call.
      *
-     * @param selector invokes exactly one network method; arguments are ignored
+     * @param selector invokes exactly one network method with argument matchers
      * @return the rule builder
-     * @throws IllegalArgumentException if the selector does not invoke exactly one network method
-     * @throws IllegalStateException if the network was already built
+     * @throws IllegalArgumentException if the selector does not invoke exactly one network
+     *         method with a matcher for every argument
+     * @throws IllegalStateException if the network was already built or recording is nested
      */
     public synchronized RuleBuilder on(Selector selector) {
         checkMutable();
@@ -193,12 +274,13 @@ public final class FakeNetworkInterface {
      * Waits for an attempt using this network's default observation timeout.
      * Observing an attempt does not consume it or wait for its completion.
      *
-     * @param selector the method to observe; selector arguments are ignored
-     * @param number the one-based attempt number for that method
+     * @param selector the method and arguments to observe
+     * @param number the one-based attempt number matching the complete selector
      * @return the registered attempt
      * @throws IllegalArgumentException if number is not positive or the selector
-     *         does not invoke exactly one network method
-     * @throws IllegalStateException if build was not called or the attempt does not arrive in time
+     *         does not invoke exactly one network method with a matcher for every argument
+     * @throws IllegalStateException if build was not called, recording is nested,
+     *         or the attempt does not arrive in time
      * @throws InterruptedException if the observing test thread is interrupted
      */
     public Attempt awaitAttempt(Selector selector, int number) throws InterruptedException {
@@ -210,30 +292,37 @@ public final class FakeNetworkInterface {
      * points; use awaitArrival on a point before deciding its delivery. This method
      * observes calls without consuming them, and can be used repeatedly for the same number.
      *
-     * @param selector the method to observe; selector arguments are ignored
-     * @param number the one-based entry number for that method
+     * @param selector the method and arguments to observe
+     * @param number the one-based entry number matching the complete selector
      * @param timeout maximum real wait; zero only checks existing calls
      * @return the registered attempt
      * @throws IllegalArgumentException if number is not positive, timeout is negative,
-     *         or the selector does not invoke exactly one network method
-     * @throws IllegalStateException if build was not called or the call does not arrive in time
+     *         or the selector does not invoke exactly one network method with a matcher for every argument
+     * @throws IllegalStateException if build was not called, recording is nested,
+     *         or the call does not arrive in time
      * @throws InterruptedException if the observing test thread is interrupted
      */
     public synchronized Attempt awaitAttempt(Selector selector, int number, Duration timeout)
             throws InterruptedException {
         requireBuilt();
         requirePositive(number);
-        Method method = capture(selector);
+        CapturedSelector captured = capture(selector);
         long limit = waitLimit(timeout);
         long start = System.nanoTime();
-        while (calls.getOrDefault(method, List.of()).size() < number) {
+        while (true) {
+            int matching = 0;
+            for (Attempt attempt : calls.getOrDefault(captured.method, List.of())) {
+                if (captured.matches(attempt.invocation) && ++matching == number) {
+                    return attempt;
+                }
+            }
             long remaining = limit - (System.nanoTime() - start);
             if (remaining <= 0) {
-                throw new IllegalStateException("Call " + number + " did not arrive: " + method.getName());
+                throw new IllegalStateException("Matching attempt " + number + " did not arrive: "
+                        + captured.method.getName());
             }
             TimeUnit.NANOSECONDS.timedWait(this, remaining);
         }
-        return calls.get(method).get(number - 1);
     }
 
     /**
@@ -249,7 +338,7 @@ public final class FakeNetworkInterface {
         for (int index = 0; index < rules.size(); index++) {
             Rule rule = rules.get(index);
             if (!rule.used) {
-                throw new AssertionError("Unused network rule #" + (index + 1) + ": " + rule.method.getName());
+                throw new AssertionError("Unused network rule #" + (index + 1) + ": " + rule.selector.method.getName());
             }
         }
         for (List<Attempt> attempts : calls.values()) {
@@ -265,17 +354,16 @@ public final class FakeNetworkInterface {
     }
 
     private synchronized Attempt register(Method method, Object[] args) {
-        Map<Method, Integer> history = Map.copyOf(counts);
-        int number = Math.incrementExact(counts.getOrDefault(method, 0));
-        counts.put(method, number);
+        int number = Math.incrementExact(calls.getOrDefault(method, List.of()).size());
         var invocation = new Invocation(method, args, number);
-        var selection = new Selection(invocation, history);
         Attempt attempt = null;
         try {
             Delivery request = Delivery.DELIVER;
             Delivery response = Delivery.DELIVER;
             for (Rule rule : rules) {
-                if (rule.method.equals(method) && rule.frequency.test(number) && rule.condition.test(selection)) {
+                if (rule.selector.matches(invocation)
+                        && rule.frequency.test(Math.incrementExact(countMatches(rule.selector)))
+                        && rule.condition.test(invocation)) {
                     rule.used = true;
                     request = rule.request;
                     response = rule.response;
@@ -337,41 +425,50 @@ public final class FakeNetworkInterface {
         return timeout.toNanos();
     }
 
-    private static Method capture(Selector selector) {
-        Objects.requireNonNull(selector, "selector");
-        Method[] selected = new Method[1];
-        int[] count = new int[1];
-        var recorder = (NodeNetworkInterface) Proxy.newProxyInstance(
-                NodeNetworkInterface.class.getClassLoader(),
-                new Class<?>[]{NodeNetworkInterface.class}, (instance, method, args) -> {
-                    if (method.getDeclaringClass() == Object.class) {
-                        throw new IllegalArgumentException("Selector must invoke a network method");
-                    }
-                    count[0]++;
-                    selected[0] = method;
-                    if (method.getReturnType() == boolean.class) {
-                        return false;
-                    }
-                    return null;
-                });
-        selector.accept(recorder);
-        if (count[0] != 1) {
-            throw new IllegalArgumentException("Selector must invoke exactly one network method: " + count[0]);
+    // Called under this network's monitor, before registering the current invocation.
+    private int countMatches(CapturedSelector selector) {
+        int count = 0;
+        for (Attempt attempt : calls.getOrDefault(selector.method, List.of())) {
+            if (selector.matches(attempt.invocation)) {
+                count++;
+            }
         }
-        return selected[0];
+        return count;
+    }
+
+    private static CapturedSelector capture(Selector selector) {
+        Objects.requireNonNull(selector, "selector");
+        if (RECORDING_CONTEXT.get() != null) {
+            throw new IllegalStateException("Selector recording cannot be nested");
+        }
+        var context = new RecordingContext();
+        RECORDING_CONTEXT.set(context);
+        try {
+            var recorder = (NodeNetworkInterface) Proxy.newProxyInstance(
+                    NodeNetworkInterface.class.getClassLoader(),
+                    new Class<?>[]{NodeNetworkInterface.class}, (instance, method, args) ->
+                            context.record(method, args == null ? new Object[0] : args));
+            selector.accept(recorder);
+            if (context.selected == null || !context.matchers.isEmpty()) {
+                throw new IllegalArgumentException("Selector must contain exactly one call with argument matchers");
+            }
+            return context.selected;
+        } finally {
+            RECORDING_CONTEXT.remove();
+        }
     }
 
     /** Configures the frequency, conditions and delivery of a persistent rule. */
     public static final class RuleBuilder {
         private final FakeNetworkInterface parent;
-        private final Method method;
+        private final CapturedSelector selector;
         // Rule builders are only used during single-threaded configuration.
         private IntPredicate frequency = number -> true;
-        private Predicate<Selection> condition = selection -> true;
+        private Predicate<Invocation> condition = invocation -> true;
 
-        private RuleBuilder(FakeNetworkInterface parent, Method method) {
+        private RuleBuilder(FakeNetworkInterface parent, CapturedSelector selector) {
             this.parent = parent;
-            this.method = method;
+            this.selector = selector;
         }
 
         /**
@@ -387,7 +484,7 @@ public final class FakeNetworkInterface {
         }
 
         /**
-         * Applies only on the first method entry.
+         * Applies only on the first entry matching the complete selector.
          *
          * @return this rule builder
          * @throws IllegalStateException if the network was already built
@@ -397,9 +494,10 @@ public final class FakeNetworkInterface {
         }
 
         /**
-         * Applies only on the given method entry, replacing an earlier frequency selector.
+         * Applies only on the given matching entry, replacing an earlier frequency selector.
          *
-         * @param number the one-based entry number, independent of argument filters
+         * @param number the one-based entry number matching the selector,
+         *               independent of withArgs/and filters
          * @return this rule builder
          * @throws IllegalArgumentException if number is not positive
          * @throws IllegalStateException if the network was already built
@@ -412,7 +510,7 @@ public final class FakeNetworkInterface {
         }
 
         /**
-         * Applies from the given method entry onwards.
+         * Applies from the given entry matching the selector onwards.
          *
          * @param number the first included entry number
          * @return this rule builder
@@ -427,7 +525,7 @@ public final class FakeNetworkInterface {
         }
 
         /**
-         * Applies on the first given number of entries.
+         * Applies on the first given number of entries matching the selector.
          *
          * @param number the number of included entries
          * @return this rule builder
@@ -444,25 +542,27 @@ public final class FakeNetworkInterface {
         /**
          * Adds a condition that the method had an earlier entry, completed or not.
          *
-         * @param selector the method to check, ignoring selector arguments
+         * @param selector the method and arguments to check in prior history
          * @return this rule builder
          * @throws IllegalArgumentException if the selector does not identify one network method
-         * @throws IllegalStateException if the network was already built
+         *         with a matcher for every argument
+         * @throws IllegalStateException if the network was already built or recording is nested
          */
         public RuleBuilder onlyIfCalled(Selector selector) {
             parent.checkMutable();
-            Method other = capture(selector);
-            condition = condition.and(selection -> selection.history.getOrDefault(other, 0) > 0);
+            CapturedSelector other = capture(selector);
+            condition = condition.and(invocation -> parent.countMatches(other) > 0);
             return this;
         }
 
         /**
          * Adds a condition that the method had no earlier entry.
          *
-         * @param selector the method to check, ignoring selector arguments
+         * @param selector the method and arguments to check in prior history
          * @return this rule builder
          * @throws IllegalArgumentException if the selector does not identify one network method
-         * @throws IllegalStateException if the network was already built
+         *         with a matcher for every argument
+         * @throws IllegalStateException if the network was already built or recording is nested
          */
         public RuleBuilder onlyIfNeverCalled(Selector selector) {
             return onlyIfCalledTimes(selector, 0);
@@ -471,24 +571,24 @@ public final class FakeNetworkInterface {
         /**
          * Adds a condition on the number of earlier method entries.
          *
-         * @param selector the method to check, ignoring selector arguments
+         * @param selector the method and arguments to check in prior history
          * @param number the exact prior count, including failed and pending calls
          * @return this rule builder
          * @throws IllegalArgumentException if number is negative or the selector is invalid
-         * @throws IllegalStateException if the network was already built
+         * @throws IllegalStateException if the network was already built or recording is nested
          */
         public RuleBuilder onlyIfCalledTimes(Selector selector, int number) {
             parent.checkMutable();
             if (number < 0) {
                 throw new IllegalArgumentException("Negative prior call count: " + number);
             }
-            Method other = capture(selector);
-            condition = condition.and(selection -> selection.history.getOrDefault(other, 0) == number);
+            CapturedSelector other = capture(selector);
+            condition = condition.and(invocation -> parent.countMatches(other) == number);
             return this;
         }
 
         /**
-         * Adds an argument filter without changing how method entries are counted.
+         * Adds an argument filter without changing how selector matches are counted.
          *
          * @param predicate a predicate receiving a copy of the real argument array
          * @return this rule builder
@@ -511,7 +611,7 @@ public final class FakeNetworkInterface {
         public RuleBuilder and(Predicate<Invocation> predicate) {
             parent.checkMutable();
             Objects.requireNonNull(predicate, "predicate");
-            condition = condition.and(selection -> predicate.test(selection.invocation));
+            condition = condition.and(predicate);
             return this;
         }
 
@@ -576,7 +676,7 @@ public final class FakeNetworkInterface {
          */
         public FakeNetworkInterface delivery(Delivery request, Delivery response) {
             parent.checkMutable();
-            parent.rules.add(new Rule(method, frequency, condition,
+            parent.rules.add(new Rule(selector, frequency, condition,
                     Objects.requireNonNull(request, "request"), Objects.requireNonNull(response, "response")));
             return parent;
         }

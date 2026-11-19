@@ -17,6 +17,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
+import static prototest.proxy.FakeNetworkInterface.any;
+import static prototest.proxy.FakeNetworkInterface.eq;
 
 /**
  * Checks when lost or held messages require the recovery of the proxy, and
@@ -28,7 +30,7 @@ import static org.junit.Assert.*;
  */
 public class RecoveryTest {
     private static final Duration WAIT = Duration.ofSeconds(5);
-    private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(null, null);
+    private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(any(), any());
 
     /**
      * The server creates the partition, but the response is lost and the retry
@@ -41,7 +43,7 @@ public class RecoveryTest {
     public void aLostResponseRequiresRecoveryAndBlocksAllNodeOperations() {
         var server = new NodeServer();
         var network = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(server, 60000));
-        network.on(n -> n.createPartition(null, null)).onFirstCall().dropResponse();
+        network.on(n -> n.createPartition(any(), any())).onFirstCall().dropResponse();
         var proxy = new NodeProxy(network.build(), 0);
 
         var failure = assertThrows(NodeRecoveryRequiredException.class,
@@ -98,7 +100,7 @@ public class RecoveryTest {
     public void recoveryAllowsNewCallsWithoutReusingRequestIds() {
         var server = new NodeServer();
         var network = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(server, 60000));
-        network.on(n -> n.createPartition(null, null)).onFirstCall().dropResponse();
+        network.on(n -> n.createPartition(any(), any())).onFirstCall().dropResponse();
         var proxy = new NodeProxy(network.build(), 0);
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("present"));
         assertTrue(proxy.recoveryRequired());
@@ -165,8 +167,8 @@ public class RecoveryTest {
             }
         };
         var network = FakeNetworkInterface.wrap(endpoint)
-                .on(CREATE).onFirstCall().withArgs(args -> args[1].equals("old")).holdResponse()
-                .on(CREATE).withArgs(args -> args[1].equals("fail")).dropRequest();
+                .on(n -> n.createPartition(any(), eq("old"))).onFirstCall().holdResponse()
+                .on(n -> n.createPartition(any(), eq("fail"))).dropRequest();
         var proxy = new NodeProxy(network.build(), 0);
         FakeNetworkInterface.Attempt old = null;
         var workers = Executors.newSingleThreadExecutor();

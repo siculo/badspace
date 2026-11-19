@@ -17,13 +17,15 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
+import static prototest.proxy.FakeNetworkInterface.any;
+import static prototest.proxy.FakeNetworkInterface.eq;
 
 /** Checks atomic rule selection, prior history and separate controls for concurrent calls. */
 public class FakeNetworkConcurrencyTest {
     private static final UUID PROXY_ID = new UUID(0, 1);
     private static final Duration WAIT = Duration.ofSeconds(5);
-    private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(null, null);
-    private static final FakeNetworkInterface.Selector WRITE = n -> n.writeToPartition(null, null, null);
+    private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(any(), any());
+    private static final FakeNetworkInterface.Selector WRITE = n -> n.writeToPartition(any(), any(), any());
 
     @Test
     public void concurrentAttemptsGetUniqueMethodNumbersAndUsePersistentRules() throws Exception {
@@ -107,10 +109,8 @@ public class FakeNetworkConcurrencyTest {
         try {
             var firstResult = workers.submit(() -> node.writeToPartition(firstId, "shared", "A"));
             var secondResult = workers.submit(() -> node.writeToPartition(secondId, "shared", "B"));
-            var entryOne = network.awaitAttempt(WRITE, 1);
-            var entryTwo = network.awaitAttempt(WRITE, 2);
-            first = entryOne.invocation().args()[0].equals(firstId) ? entryOne : entryTwo;
-            second = first == entryOne ? entryTwo : entryOne;
+            first = network.awaitAttempt(n -> n.writeToPartition(eq(firstId), eq("shared"), any()), 1);
+            second = network.awaitAttempt(n -> n.writeToPartition(eq(secondId), eq("shared"), any()), 1);
             assertNotSame(first, second);
             var firstInvocation = first.request().awaitArrival(WAIT);
             var secondInvocation = second.request().awaitArrival(WAIT);
@@ -142,7 +142,7 @@ public class FakeNetworkConcurrencyTest {
         var server = new NodeServer();
         var network = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(server, 60000))
                 .on(CREATE).onFirstCall().holdRequest()
-                .on(n -> n.partitionExists(null, null)).onlyIfCalled(CREATE).dropRequest();
+                .on(n -> n.partitionExists(any(), any())).onlyIfCalled(CREATE).dropRequest();
         var node = network.build();
         var workers = Executors.newSingleThreadExecutor();
         FakeNetworkInterface.Attempt first = null;
@@ -188,6 +188,43 @@ public class FakeNetworkConcurrencyTest {
             network.assertAllRulesUsedAndCallsFinished();
         } finally {
             release(first, false);
+            workers.shutdownNow();
+            assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void concurrentSelectorRecordingKeepsMatchersSeparate() throws Exception {
+        var matchersReady = new CountDownLatch(2);
+        var workers = Executors.newFixedThreadPool(2);
+        List<Future<?>> results = new ArrayList<>();
+        try {
+            for (int index = 0; index < 2; index++) {
+                String partitionName = "partition-" + index;
+                results.add(workers.submit(() -> {
+                    var network = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(new NodeServer(), 60000));
+                    network.on(n -> {
+                        RequestId requestPlaceholder = any();
+                        matchersReady.countDown();
+                        try {
+                            assertTrue(matchersReady.await(5, TimeUnit.SECONDS));
+                        } catch (InterruptedException error) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException("Selector recording interrupted", error);
+                        }
+                        n.createPartition(requestPlaceholder, eq(partitionName));
+                    }).dropRequest();
+                    var node = network.build();
+                    assertThrows(RetryableCommunicationException.class,
+                            () -> node.createPartition(new RequestId(PROXY_ID, 0), partitionName));
+                    node.createPartition(new RequestId(PROXY_ID, 1), "other");
+                    network.assertAllRulesUsedAndCallsFinished();
+                }));
+            }
+            for (var result : results) {
+                result.get(5, TimeUnit.SECONDS);
+            }
+        } finally {
             workers.shutdownNow();
             assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
         }

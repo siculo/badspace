@@ -13,19 +13,37 @@ proxy generato e i controlli di osservazione possono essere usati da più thread
 Il simulatore non introduce latenze casuali.
 
 I metodi vengono identificati tramite lambda, senza un elenco parallelo di
-operazioni. Gli argomenti della lambda di selezione vengono ignorati;
-`withArgs` filtra gli argomenti effettivi. Per esempio:
+operazioni. Ogni argomento del selector usa un matcher: `any()` accetta
+qualsiasi riferimento, incluso `null`; `eq(valore)` confronta con
+`Objects.equals` e supporta anche `eq(null)`. Non si mescolano matcher e
+valori diretti. Per esempio:
 
 ```java
+import static prototest.proxy.FakeNetworkInterface.any;
+import static prototest.proxy.FakeNetworkInterface.eq;
+
 var network = FakeNetworkInterface.wrap(endpoint)
-        .on(n -> n.createPartition(null, null)).onFirstCall().dropRequest()
-        .on(n -> n.writeToPartition(null, null, null)).onCall(2).dropResponse();
+        .on(n -> n.createPartition(any(), eq("example"))).onFirstCall().dropRequest()
+        .on(n -> n.writeToPartition(any(), any(), any())).onCall(2).dropResponse();
 var node = network.build();
 ```
 
+Il selector viene eseguito su un proxy di registrazione che non chiama il
+server. Durante la sua esecuzione, `any()` ed `eq()` aggiungono predicati a
+un contesto del thread corrente e restituiscono segnaposto `null`. Il proxy
+associa i predicati ai parametri in ordine. Il contesto viene rimosso anche
+se la registrazione fallisce; i matcher fuori dalla registrazione e le
+registrazioni annidate sono errori. I matcher coprono i parametri di tipo
+riferimento dell'interfaccia attuale. `withArgs` resta disponibile per
+condizioni più complesse sugli argomenti effettivi.
+
 Ogni ingresso nel metodo del proxy conta come chiamata, inclusi i retry e
-le richieste perse. I contatori sono distinti per metodo, condivisi tra
-thread e indipendenti dai filtri sugli argomenti. `onEveryCall()` è il
+le richieste perse. Frequenze, attese e condizioni sulla storia contano le
+invocazioni che corrispondono al selector completo, metodo e argomenti.
+Una chiamata per un'altra partizione non avanza il conteggio del selector
+limitato a `eq("example")`. I conteggi sono condivisi tra thread e indipendenti
+dagli ulteriori filtri `withArgs` e `and`, e dall'esito delle regole.
+`Invocation.callNumber()` mantiene invece il numero globale per metodo. `onEveryCall()` è il
 comportamento predefinito; `onFirstCall`, `onCall`, `onFirstCalls` e
 `onCallsFrom` limitano gli ingressi su cui si applica una regola.
 Le regole restano registrate e vince la prima che corrisponde; una chiamata
@@ -41,13 +59,13 @@ l'acquisizione del lock, non l'ordine di avvio dei thread.
 La richiesta e la risposta possono essere consegnate, perse o trattenute.
 `awaitAttempt(selettore, numero)` restituisce un `Attempt` con i controlli
 `request()` e `response()` della singola invocazione. Il numero parte da 1
-ed è relativo al metodo selezionato. L'attesa usa un timeout di sicurezza
+ed è relativo alle invocazioni che corrispondono al selector completo. L'attesa usa un timeout di sicurezza
 di cinque secondi, configurabile per istanza con `wrap(endpoint, timeout)`.
 L'overload `awaitAttempt(selettore, numero, timeout)` permette di specificare
 un limite diverso, anche `Duration.ZERO` per controllare subito la storia.
 Questo valore predefinito riguarda solo l'osservazione dei tentativi;
-`awaitArrival` e `awaitCompletion` ricevono ancora un timeout esplicito. Il test osserva
-l'arrivo al punto con `awaitArrival`, poi decide se consegnare o perdere
+`awaitArrival` e `awaitCompletion` ricevono ancora un timeout esplicito.
+Il test osserva l'arrivo al punto con `awaitArrival`, poi decide se consegnare o perdere
 il messaggio trattenuto. L'arrivo della risposta indica che il server ha
 già completato l'operazione. Una regola `onEveryCall()` crea controlli
 separati per ogni invocazione.

@@ -16,6 +16,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
+import static prototest.proxy.FakeNetworkInterface.any;
+import static prototest.proxy.FakeNetworkInterface.eq;
 import static prototest.proxy.FakeNetworkInterface.Delivery.*;
 
 /**
@@ -24,14 +26,14 @@ import static prototest.proxy.FakeNetworkInterface.Delivery.*;
 public class FakeNetworkInterfaceTest {
     private static final Duration WAIT = Duration.ofSeconds(5);
     private static final RequestId REQUEST_ID = id(0);
-    private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(null, null);
+    private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(any(), any());
     private final NodeServer server = new NodeServer();
     private final FakeNetworkInterface network =
             FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(server, 60000));
 
     @Test
     public void unmatchedMethodsDeliverNormallyAndLeaveOtherRulesUnused() {
-        network.on(n -> n.destroyPartition(null, null)).dropRequest();
+        network.on(n -> n.destroyPartition(any(), any())).dropRequest();
         var node = network.build();
 
         node.createPartition(REQUEST_ID, "present");
@@ -48,19 +50,28 @@ public class FakeNetworkInterfaceTest {
     public void lambdasSelectEveryMethodWithoutInvokingTheEndpoint() throws Exception {
         List<FakeNetworkInterface.Selector> selectors = List.of(
                 CREATE,
-                n -> n.destroyPartition(null, null),
-                n -> n.partitionExists(null, null),
-                n -> n.writeToPartition(null, null, null),
-                n -> n.commitPartition(null, null),
-                n -> n.readPartitionSnapshot(null, null)
+                n -> n.destroyPartition(any(), any()),
+                n -> n.partitionExists(any(), any()),
+                n -> n.writeToPartition(any(), any(), any()),
+                n -> n.commitPartition(any(), any()),
+                n -> n.readPartitionSnapshot(any(), any())
         );
         for (var selector : selectors) {
             network.on(selector).dropRequest();
         }
         var node = network.build();
-        for (var selector : selectors) {
-            assertThrows(RetryableCommunicationException.class, () -> selector.accept(node));
-            var attempt = network.awaitAttempt(selector, 1, Duration.ZERO);
+        List<FakeNetworkInterface.Selector> actualCalls = List.of(
+                n -> n.createPartition(REQUEST_ID, "example"),
+                n -> n.destroyPartition(REQUEST_ID, "example"),
+                n -> n.partitionExists(REQUEST_ID, "example"),
+                n -> n.writeToPartition(REQUEST_ID, "example", "data"),
+                n -> n.commitPartition(REQUEST_ID, "example"),
+                n -> n.readPartitionSnapshot(REQUEST_ID, "example")
+        );
+        for (int index = 0; index < selectors.size(); index++) {
+            var actualCall = actualCalls.get(index);
+            assertThrows(RetryableCommunicationException.class, () -> actualCall.accept(node));
+            var attempt = network.awaitAttempt(selectors.get(index), 1, Duration.ZERO);
             assertEquals(1, attempt.invocation().callNumber());
             attempt.awaitCompletion(Duration.ZERO);
         }
@@ -100,7 +111,7 @@ public class FakeNetworkInterfaceTest {
 
     @Test
     public void endpointErrorsSkipTheResponsePointAndFinishTheAttempt() throws Exception {
-        FakeNetworkInterface.Selector write = n -> n.writeToPartition(null, null, null);
+        FakeNetworkInterface.Selector write = n -> n.writeToPartition(any(), any(), any());
         var node = network.on(write).holdResponse().build();
 
         assertThrows(PartitionNotFoundException.class,
@@ -143,7 +154,7 @@ public class FakeNetworkInterfaceTest {
     @Test
     public void aHeldResponseReturnsItsValueOnlyAfterDelivery() throws Exception {
         server.createPartition("present");
-        FakeNetworkInterface.Selector query = n -> n.partitionExists(null, null);
+        FakeNetworkInterface.Selector query = n -> n.partitionExists(any(), any());
         var node = network.on(query).holdResponse().build();
         var worker = Executors.newSingleThreadExecutor();
         FakeNetworkInterface.Attempt attempt = null;
@@ -339,9 +350,9 @@ public class FakeNetworkInterfaceTest {
 
     @Test
     public void conditionsOnOtherMethodsCombineWithArgumentFilters() {
-        var node = network.on(n -> n.partitionExists(null, null)).onlyIfNeverCalled(CREATE)
+        var node = network.on(n -> n.partitionExists(any(), any())).onlyIfNeverCalled(CREATE)
                 .withArgs(args -> args[1].equals("target")).dropRequest()
-                .on(n -> n.partitionExists(null, null)).onlyIfCalledTimes(CREATE, 1)
+                .on(n -> n.partitionExists(any(), any())).onlyIfCalledTimes(CREATE, 1)
                 .and(call -> call.callNumber() == 3).dropResponse().build();
 
         assertFalse(node.partitionExists(id(0), "other"));
@@ -393,12 +404,114 @@ public class FakeNetworkInterfaceTest {
     }
 
     @Test
+    public void selectorsMatchArgumentsInOrderAndCompareValues() throws Exception {
+        var node = network.on(n -> n.writeToPartition(eq(REQUEST_ID), eq("target"), eq("data")))
+                .dropRequest().build();
+        server.createPartition("target");
+        server.createPartition("data");
+
+        node.writeToPartition(id(1), "target", "data");
+        node.writeToPartition(REQUEST_ID, "target", "other");
+        node.writeToPartition(REQUEST_ID, "data", "target");
+        var equalRequestId = new RequestId(REQUEST_ID.proxyId(), REQUEST_ID.sequence());
+        assertThrows(RetryableCommunicationException.class,
+                () -> node.writeToPartition(equalRequestId, new String("target"), new String("data")));
+
+        var attempt = network.awaitAttempt(
+                n -> n.writeToPartition(eq(REQUEST_ID), eq("target"), eq("data")), 1, Duration.ZERO);
+        assertEquals(4, attempt.invocation().callNumber());
+        network.assertAllRulesUsedAndCallsFinished();
+    }
+
+    @Test
+    public void anyMatchesNullAndEqNullSelectsOnlyNull() throws Exception {
+        var node = network.on(n -> n.createPartition(any(), any())).dropRequest().build();
+        assertThrows(RetryableCommunicationException.class, () -> node.createPartition(null, null));
+        assertThrows(RetryableCommunicationException.class, () -> node.createPartition(REQUEST_ID, "present"));
+
+        var nullAttempt = network.awaitAttempt(n -> n.createPartition(eq(null), eq(null)), 1, Duration.ZERO);
+        assertEquals(1, nullAttempt.invocation().callNumber());
+        assertThrows(IllegalStateException.class,
+                () -> network.awaitAttempt(n -> n.createPartition(eq(null), eq(null)), 2, Duration.ZERO));
+        var secondAttempt = network.awaitAttempt(CREATE, 2, Duration.ZERO);
+        assertEquals(2, secondAttempt.invocation().callNumber());
+        network.assertAllRulesUsedAndCallsFinished();
+    }
+
+    @Test
+    public void attemptNumbersAndRuleFrequencyCountOnlyCompleteSelectorMatches() throws Exception {
+        FakeNetworkInterface.Selector target = n -> n.createPartition(any(), eq("target"));
+        var node = network.on(target).onCall(2).dropRequest().build();
+        node.createPartition(id(0), "other");
+        node.createPartition(id(1), "target");
+        node.createPartition(id(2), "another");
+        assertThrows(RetryableCommunicationException.class, () -> node.createPartition(id(3), "target"));
+
+        var firstAttempt = network.awaitAttempt(target, 1, Duration.ZERO);
+        var secondAttempt = network.awaitAttempt(target, 2, Duration.ZERO);
+        assertEquals(2, firstAttempt.invocation().callNumber());
+        assertEquals(4, secondAttempt.invocation().callNumber());
+        assertSame(secondAttempt, network.awaitAttempt(CREATE, 4, Duration.ZERO));
+        network.assertAllRulesUsedAndCallsFinished();
+    }
+
+    @Test
+    public void historyConditionsCountOnlyPriorCompleteSelectorMatches() {
+        FakeNetworkInterface.Selector target = n -> n.createPartition(any(), eq("target"));
+        var node = network.on(target).onlyIfNeverCalled(target).dropRequest()
+                .on(n -> n.partitionExists(any(), eq("target"))).onlyIfCalledTimes(target, 1).dropResponse()
+                .on(n -> n.partitionExists(any(), eq("later"))).onlyIfCalled(target).dropRequest().build();
+
+        node.createPartition(id(0), "other");
+        assertFalse(node.partitionExists(id(1), "target"));
+        assertFalse(node.partitionExists(id(2), "later"));
+        assertThrows(RetryableCommunicationException.class, () -> node.createPartition(id(3), "target"));
+        assertThrows(RetryableCommunicationException.class, () -> node.partitionExists(id(4), "target"));
+        assertThrows(RetryableCommunicationException.class, () -> node.partitionExists(id(5), "later"));
+        node.createPartition(id(6), "target");
+        assertTrue(node.partitionExists(id(7), "target"));
+        network.assertAllRulesUsedAndCallsFinished();
+    }
+
+    @Test
+    public void everySelectorArgumentMustUseAMatcher() {
+        assertThrows(IllegalArgumentException.class,
+                () -> network.on(n -> n.createPartition(any(), "target")));
+        assertThrows(IllegalArgumentException.class,
+                () -> network.on(n -> n.createPartition(null, null)));
+        assertThrows(IllegalArgumentException.class, () -> network.on(n -> {
+            any();
+            n.createPartition(any(), any());
+        }));
+        assertThrows(IllegalArgumentException.class, () -> network.on(n -> {
+            n.createPartition(any(), any());
+            any();
+        }));
+        network.on(CREATE).dropRequest();
+    }
+
+    @Test
+    public void recordingContextIsRemovedAfterSuccessAndFailure() {
+        assertThrows(IllegalStateException.class, () -> FakeNetworkInterface.any());
+        assertThrows(IllegalStateException.class, () -> eq("outside"));
+        var failure = new IllegalStateException("Broken selector");
+        assertSame(failure, assertThrows(IllegalStateException.class, () -> network.on(n -> {
+            any();
+            throw failure;
+        })));
+        assertThrows(IllegalStateException.class, () -> FakeNetworkInterface.any());
+        assertThrows(IllegalStateException.class, () -> network.on(n -> network.on(CREATE)));
+        network.on(CREATE).dropRequest();
+        assertThrows(IllegalStateException.class, () -> eq("outside"));
+    }
+
+    @Test
     public void invalidSelectorsAndCountsAreRejectedDuringConfiguration() {
         assertThrows(IllegalArgumentException.class, () -> network.on(n -> {
         }));
         assertThrows(IllegalArgumentException.class, () -> network.on(n -> {
-            n.createPartition(null, null);
-            n.destroyPartition(null, null);
+            n.createPartition(any(), any());
+            n.destroyPartition(any(), any());
         }));
         assertThrows(IllegalArgumentException.class, () -> network.on(Object::toString));
         assertThrows(IllegalArgumentException.class, () -> network.on(CREATE).onCall(0));
