@@ -79,7 +79,8 @@ public class FakeNetworkConcurrencyTest {
             assertEquals(20, successes);
             network.assertAllRulesUsedAndCallsFinished();
             for (int number = 1; number <= 60; number++) {
-                assertEquals(number, network.awaitCall(CREATE, number, Duration.ZERO).invocation().callNumber());
+                var attempt = network.awaitAttempt(CREATE, number, Duration.ZERO);
+                assertEquals(number, attempt.invocation().callNumber());
             }
             assertThrows(RetryableCommunicationException.class,
                     () -> node.createPartition(new RequestId(PROXY_ID, 60), "after-calls"));
@@ -106,13 +107,17 @@ public class FakeNetworkConcurrencyTest {
         try {
             var firstResult = workers.submit(() -> node.writeToPartition(firstId, "shared", "A"));
             var secondResult = workers.submit(() -> node.writeToPartition(secondId, "shared", "B"));
-            var entryOne = network.awaitCall(WRITE, 1, WAIT);
-            var entryTwo = network.awaitCall(WRITE, 2, WAIT);
+            var entryOne = network.awaitAttempt(WRITE, 1);
+            var entryTwo = network.awaitAttempt(WRITE, 2);
             first = entryOne.invocation().args()[0].equals(firstId) ? entryOne : entryTwo;
             second = first == entryOne ? entryTwo : entryOne;
             assertNotSame(first, second);
-            assertEquals(firstId, first.request().awaitArrival(WAIT).args()[0]);
-            assertEquals(secondId, second.request().awaitArrival(WAIT).args()[0]);
+            var firstInvocation = first.request().awaitArrival(WAIT);
+            var secondInvocation = second.request().awaitArrival(WAIT);
+            var firstRequestId = (RequestId) firstInvocation.args()[0];
+            var secondRequestId = (RequestId) secondInvocation.args()[0];
+            assertEquals(firstId, firstRequestId);
+            assertEquals(secondId, secondRequestId);
             assertFalse(firstResult.isDone());
             assertFalse(secondResult.isDone());
 
@@ -143,7 +148,7 @@ public class FakeNetworkConcurrencyTest {
         FakeNetworkInterface.Attempt first = null;
         try {
             var result = workers.submit(() -> node.createPartition(new RequestId(PROXY_ID, 0), "first"));
-            first = network.awaitCall(CREATE, 1, WAIT);
+            first = network.awaitAttempt(CREATE, 1);
             first.request().awaitArrival(WAIT);
             assertFalse(server.partitionExists("first"));
 
@@ -172,7 +177,7 @@ public class FakeNetworkConcurrencyTest {
         FakeNetworkInterface.Attempt first = null;
         try {
             var result = workers.submit(() -> node.createPartition(new RequestId(PROXY_ID, 0), "first"));
-            first = network.awaitCall(CREATE, 1, WAIT);
+            first = network.awaitAttempt(CREATE, 1);
             first.request().awaitArrival(WAIT);
             assertThrows(RetryableCommunicationException.class,
                     () -> node.createPartition(new RequestId(PROXY_ID, 1), "second"));

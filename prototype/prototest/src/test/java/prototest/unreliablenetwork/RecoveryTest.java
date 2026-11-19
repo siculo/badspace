@@ -177,7 +177,7 @@ public class RecoveryTest {
                 assertFalse(Thread.currentThread().isInterrupted());
                 return error;
             });
-            old = network.awaitCall(CREATE, 1, WAIT);
+            old = network.awaitAttempt(CREATE, 1);
             old.response().awaitArrival(WAIT);
             assertTrue(server.partitionExists("old"));
             var failure = assertThrows(NodeRecoveryRequiredException.class,

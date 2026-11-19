@@ -36,7 +36,7 @@ import java.util.function.Predicate;
  * run under the monitor and must be short, side-effect free and non-blocking.
  * Endpoint calls and message waits run outside that monitor.
  *
- * <p>{@link #awaitCall(Selector, int, Duration)} provides separate delivery controls for
+ * <p>{@link #awaitAttempt(Selector, int, Duration)} provides separate delivery controls for
  * each invocation, including those selected by an every-call rule. A held message ignores
  * transport interruption until the test releases it, then restores the interrupt flag.
  * Tests must release held messages in cleanup, including after assertion failures.
@@ -44,7 +44,10 @@ import java.util.function.Predicate;
  * response containing a service error is not simulated.
  */
 public final class FakeNetworkInterface {
+    private static final Duration DEFAULT_OBSERVATION_TIMEOUT = Duration.ofSeconds(5);
+
     private final NodeNetworkInterface node;
+    private final Duration observationTimeout;
     // After build, counts, rule usage and call registration use this monitor.
     private final List<Rule> rules = new ArrayList<>();
     private final Map<Method, Integer> counts = new HashMap<>();
@@ -117,19 +120,35 @@ public final class FakeNetworkInterface {
         }
     }
 
-    private FakeNetworkInterface(NodeNetworkInterface node) {
+    private FakeNetworkInterface(NodeNetworkInterface node, Duration observationTimeout) {
         this.node = Objects.requireNonNull(node, "node");
+        waitLimit(observationTimeout);
+        this.observationTimeout = observationTimeout;
     }
 
     /**
-     * Starts configuration of a network around an endpoint.
+     * Starts configuration of a network with a five-second attempt observation timeout.
      *
      * @param node the endpoint invoked after request delivery
      * @return a new builder with independent history and controls
      * @throws NullPointerException if node is null
      */
     public static FakeNetworkInterface wrap(NodeNetworkInterface node) {
-        return new FakeNetworkInterface(node);
+        return wrap(node, DEFAULT_OBSERVATION_TIMEOUT);
+    }
+
+    /**
+     * Starts configuration with a default timeout for observing attempts.
+     *
+     * @param node the endpoint invoked after request delivery
+     * @param observationTimeout maximum real wait for awaitAttempt without an explicit timeout;
+     *                           zero only checks existing attempts
+     * @return a new builder with independent history and controls
+     * @throws NullPointerException if node or observationTimeout is null
+     * @throws IllegalArgumentException if observationTimeout is negative
+     */
+    public static FakeNetworkInterface wrap(NodeNetworkInterface node, Duration observationTimeout) {
+        return new FakeNetworkInterface(node, observationTimeout);
     }
 
     /**
@@ -171,6 +190,22 @@ public final class FakeNetworkInterface {
     }
 
     /**
+     * Waits for an attempt using this network's default observation timeout.
+     * Observing an attempt does not consume it or wait for its completion.
+     *
+     * @param selector the method to observe; selector arguments are ignored
+     * @param number the one-based attempt number for that method
+     * @return the registered attempt
+     * @throws IllegalArgumentException if number is not positive or the selector
+     *         does not invoke exactly one network method
+     * @throws IllegalStateException if build was not called or the attempt does not arrive in time
+     * @throws InterruptedException if the observing test thread is interrupted
+     */
+    public Attempt awaitAttempt(Selector selector, int number) throws InterruptedException {
+        return awaitAttempt(selector, number, observationTimeout);
+    }
+
+    /**
      * Waits for a method entry. The returned attempt has its own request and response
      * points; use awaitArrival on a point before deciding its delivery. This method
      * observes calls without consuming them, and can be used repeatedly for the same number.
@@ -184,7 +219,7 @@ public final class FakeNetworkInterface {
      * @throws IllegalStateException if build was not called or the call does not arrive in time
      * @throws InterruptedException if the observing test thread is interrupted
      */
-    public synchronized Attempt awaitCall(Selector selector, int number, Duration timeout)
+    public synchronized Attempt awaitAttempt(Selector selector, int number, Duration timeout)
             throws InterruptedException {
         requireBuilt();
         requirePositive(number);

@@ -10,8 +10,6 @@ import prototest.proxy.NodeProxy;
 import prototest.server.NodeServer;
 import prototest.server.ServerNodeNetworkInterface;
 
-import java.time.Duration;
-
 import static org.junit.Assert.*;
 
 /**
@@ -23,7 +21,6 @@ import static org.junit.Assert.*;
  */
 public class RetryTest {
     private static final String PARTITION_NAME = "example";
-    private static final Duration WAIT = Duration.ofSeconds(5);
 
     private NodeServer server;
     private FakeNetworkInterface network;
@@ -46,8 +43,11 @@ public class RetryTest {
         proxy.createPartition(PARTITION_NAME);
 
         assertTrue(server.partitionExists(PARTITION_NAME));
-        assertEquals(network.awaitCall(n -> n.createPartition(null, null), 1, WAIT).invocation().args()[0],
-                network.awaitCall(n -> n.createPartition(null, null), 2, WAIT).invocation().args()[0]);
+        var firstAttempt = network.awaitAttempt(n -> n.createPartition(null, null), 1);
+        var retryAttempt = network.awaitAttempt(n -> n.createPartition(null, null), 2);
+        var firstRequestId = (RequestId) firstAttempt.invocation().args()[0];
+        var retryRequestId = (RequestId) retryAttempt.invocation().args()[0];
+        assertEquals(firstRequestId, retryRequestId);
         network.assertAllRulesUsedAndCallsFinished();
     }
 
@@ -63,8 +63,11 @@ public class RetryTest {
 
         assertTrue(proxy.partitionExists(PARTITION_NAME));
 
-        assertEquals(network.awaitCall(n -> n.partitionExists(null, null), 1, WAIT).invocation().args()[0],
-                network.awaitCall(n -> n.partitionExists(null, null), 2, WAIT).invocation().args()[0]);
+        var firstAttempt = network.awaitAttempt(n -> n.partitionExists(null, null), 1);
+        var retryAttempt = network.awaitAttempt(n -> n.partitionExists(null, null), 2);
+        var firstRequestId = (RequestId) firstAttempt.invocation().args()[0];
+        var retryRequestId = (RequestId) retryAttempt.invocation().args()[0];
+        assertEquals(firstRequestId, retryRequestId);
         network.assertAllRulesUsedAndCallsFinished();
     }
 
@@ -167,20 +170,24 @@ public class RetryTest {
         assertEquals("AB", second.readPartitionSnapshot("shared"));
         firstNetwork.assertAllRulesUsedAndCallsFinished();
         secondNetwork.assertAllRulesUsedAndCallsFinished();
-        RequestId writeId = (RequestId) firstNetwork.awaitCall(
-                n -> n.writeToPartition(null, null, null), 1, Duration.ZERO).invocation().args()[0];
+        var writeAttempt = firstNetwork.awaitAttempt(n -> n.writeToPartition(null, null, null), 1);
+        var writeId = (RequestId) writeAttempt.invocation().args()[0];
         for (int number = 2; number <= 3; number++) {
-            assertEquals(writeId, firstNetwork.awaitCall(n -> n.writeToPartition(null, null, null),
-                    number, Duration.ZERO).invocation().args()[0]);
+            var retryAttempt = firstNetwork.awaitAttempt(n -> n.writeToPartition(null, null, null), number);
+            var retryRequestId = (RequestId) retryAttempt.invocation().args()[0];
+            assertEquals(writeId, retryRequestId);
         }
-        RequestId secondWriteId = (RequestId) secondNetwork.awaitCall(
-                n -> n.writeToPartition(null, null, null), 1, Duration.ZERO).invocation().args()[0];
-        assertEquals(secondWriteId, secondNetwork.awaitCall(n -> n.writeToPartition(null, null, null),
-                2, Duration.ZERO).invocation().args()[0]);
-        RequestId commitId = (RequestId) firstNetwork.awaitCall(
-                n -> n.commitPartition(null, null), 1, Duration.ZERO).invocation().args()[0];
-        assertEquals(commitId, firstNetwork.awaitCall(n -> n.commitPartition(null, null),
-                2, Duration.ZERO).invocation().args()[0]);
+        var secondWriteAttempt = secondNetwork.awaitAttempt(n -> n.writeToPartition(null, null, null), 1);
+        var secondWriteId = (RequestId) secondWriteAttempt.invocation().args()[0];
+        var secondWriteRetryAttempt = secondNetwork.awaitAttempt(n -> n.writeToPartition(null, null, null), 2);
+        var secondWriteRetryId = (RequestId) secondWriteRetryAttempt.invocation().args()[0];
+        assertEquals(secondWriteId, secondWriteRetryId);
+
+        var commitAttempt = firstNetwork.awaitAttempt(n -> n.commitPartition(null, null), 1);
+        var commitId = (RequestId) commitAttempt.invocation().args()[0];
+        var commitRetryAttempt = firstNetwork.awaitAttempt(n -> n.commitPartition(null, null), 2);
+        var commitRetryId = (RequestId) commitRetryAttempt.invocation().args()[0];
+        assertEquals(commitId, commitRetryId);
         assertEquals(writeId.proxyId(), commitId.proxyId());
         assertTrue(commitId.sequence() > writeId.sequence());
         assertNotEquals(writeId.proxyId(), secondWriteId.proxyId());

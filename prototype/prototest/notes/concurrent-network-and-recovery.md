@@ -39,8 +39,14 @@ usata per queste condizioni. L'ordine fra ingressi concorrenti segue
 l'acquisizione del lock, non l'ordine di avvio dei thread.
 
 La richiesta e la risposta possono essere consegnate, perse o trattenute.
-`awaitCall(selettore, numero, timeout)` restituisce i controlli distinti
-della singola invocazione: `request()` e `response()`. Il test osserva
+`awaitAttempt(selettore, numero)` restituisce un `Attempt` con i controlli
+`request()` e `response()` della singola invocazione. Il numero parte da 1
+ed è relativo al metodo selezionato. L'attesa usa un timeout di sicurezza
+di cinque secondi, configurabile per istanza con `wrap(endpoint, timeout)`.
+L'overload `awaitAttempt(selettore, numero, timeout)` permette di specificare
+un limite diverso, anche `Duration.ZERO` per controllare subito la storia.
+Questo valore predefinito riguarda solo l'osservazione dei tentativi;
+`awaitArrival` e `awaitCompletion` ricevono ancora un timeout esplicito. Il test osserva
 l'arrivo al punto con `awaitArrival`, poi decide se consegnare o perdere
 il messaggio trattenuto. L'arrivo della risposta indica che il server ha
 già completato l'operazione. Una regola `onEveryCall()` crea controlli

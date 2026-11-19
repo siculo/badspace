@@ -60,7 +60,7 @@ public class FakeNetworkInterfaceTest {
         var node = network.build();
         for (var selector : selectors) {
             assertThrows(RetryableCommunicationException.class, () -> selector.accept(node));
-            var attempt = network.awaitCall(selector, 1, Duration.ZERO);
+            var attempt = network.awaitAttempt(selector, 1, Duration.ZERO);
             assertEquals(1, attempt.invocation().callNumber());
             attempt.awaitCompletion(Duration.ZERO);
         }
@@ -75,10 +75,12 @@ public class FakeNetworkInterfaceTest {
         var error = assertThrows(RetryableCommunicationException.class,
                 () -> node.createPartition(REQUEST_ID, "missing"));
 
-        var attempt = network.awaitCall(CREATE, 1, Duration.ZERO);
+        var attempt = network.awaitAttempt(CREATE, 1, Duration.ZERO);
         assertEquals("Request missing", error.getMessage());
         assertFalse(server.partitionExists("missing"));
-        assertEquals(REQUEST_ID, attempt.request().awaitArrival(Duration.ZERO).args()[0]);
+        var requestInvocation = attempt.request().awaitArrival(Duration.ZERO);
+        var requestId = (RequestId) requestInvocation.args()[0];
+        assertEquals(REQUEST_ID, requestId);
         assertThrows(IllegalStateException.class, () -> attempt.response().awaitArrival(Duration.ZERO));
         attempt.awaitCompletion(Duration.ZERO);
         network.assertAllRulesUsedAndCallsFinished();
@@ -104,7 +106,7 @@ public class FakeNetworkInterfaceTest {
         assertThrows(PartitionNotFoundException.class,
                 () -> node.writeToPartition(REQUEST_ID, "missing", "value"));
 
-        var attempt = network.awaitCall(write, 1, Duration.ZERO);
+        var attempt = network.awaitAttempt(write, 1, Duration.ZERO);
         assertThrows(IllegalStateException.class, () -> attempt.response().awaitArrival(Duration.ZERO));
         network.assertAllRulesUsedAndCallsFinished();
     }
@@ -118,7 +120,7 @@ public class FakeNetworkInterfaceTest {
             var result = worker.submit(
                     () -> assertThrows(RetryableCommunicationException.class, () -> node.createPartition(REQUEST_ID, "missing"))
             );
-            attempt = network.awaitCall(CREATE, 1, WAIT);
+            attempt = network.awaitAttempt(CREATE, 1);
             attempt.request().awaitArrival(WAIT);
             assertFalse(server.partitionExists("missing"));
             assertFalse(result.isDone());
@@ -147,7 +149,7 @@ public class FakeNetworkInterfaceTest {
         FakeNetworkInterface.Attempt attempt = null;
         try {
             var result = worker.submit(() -> node.partitionExists(REQUEST_ID, "present"));
-            attempt = network.awaitCall(query, 1, WAIT);
+            attempt = network.awaitAttempt(query, 1);
             attempt.response().awaitArrival(WAIT);
             assertFalse(result.isDone());
 
@@ -175,7 +177,7 @@ public class FakeNetworkInterfaceTest {
                 node.createPartition(REQUEST_ID, "present");
                 return Thread.currentThread().isInterrupted();
             });
-            attempt = network.awaitCall(CREATE, 1, WAIT);
+            attempt = network.awaitAttempt(CREATE, 1);
             attempt.response().awaitArrival(WAIT);
             assertFalse(result.isDone());
             assertTrue(server.partitionExists("present"));
@@ -195,23 +197,47 @@ public class FakeNetworkInterfaceTest {
     public void anObserverCanTimeOutWithoutChangingTheRulesOrHistory() throws Exception {
         var node = network.on(CREATE).onFirstCall().dropRequest().build();
         assertThrows(IllegalStateException.class,
-                () -> network.awaitCall(CREATE, 1, Duration.ofMillis(1)));
+                () -> network.awaitAttempt(CREATE, 1, Duration.ofMillis(1)));
         assertThrows(AssertionError.class, network::assertAllRulesUsedAndCallsFinished);
         assertThrows(IllegalArgumentException.class,
-                () -> network.awaitCall(CREATE, 0, WAIT));
+                () -> network.awaitAttempt(CREATE, 0));
         assertThrows(IllegalArgumentException.class,
-                () -> network.awaitCall(CREATE, 1, Duration.ofNanos(-1)));
+                () -> network.awaitAttempt(CREATE, 1, Duration.ofNanos(-1)));
 
         assertThrows(RetryableCommunicationException.class,
                 () -> node.createPartition(REQUEST_ID, "missing"));
-        var attempt = network.awaitCall(CREATE, 1, Duration.ZERO);
-        assertSame(attempt, network.awaitCall(CREATE, 1, Duration.ZERO));
+        var attempt = network.awaitAttempt(CREATE, 1, Duration.ZERO);
+        assertSame(attempt, network.awaitAttempt(CREATE, 1, Duration.ZERO));
         assertThrows(IllegalStateException.class, () -> attempt.response().awaitArrival(Duration.ZERO));
         assertThrows(IllegalArgumentException.class,
                 () -> attempt.request().awaitArrival(Duration.ofNanos(-1)));
         assertThrows(IllegalArgumentException.class,
                 () -> attempt.awaitCompletion(Duration.ofNanos(-1)));
         network.assertAllRulesUsedAndCallsFinished();
+    }
+
+    @Test
+    public void attemptObservationUsesTheTimeoutConfiguredForItsNetwork() throws Exception {
+        var immediateNetwork = FakeNetworkInterface.wrap(
+                new ServerNodeNetworkInterface(server, 60000), Duration.ZERO);
+        var node = immediateNetwork.build();
+
+        assertThrows(IllegalStateException.class, () -> immediateNetwork.awaitAttempt(CREATE, 1));
+        node.createPartition(REQUEST_ID, "present");
+
+        var attempt = immediateNetwork.awaitAttempt(CREATE, 1);
+        var requestId = (RequestId) attempt.invocation().args()[0];
+        assertEquals(REQUEST_ID, requestId);
+        assertSame(attempt, immediateNetwork.awaitAttempt(CREATE, 1, WAIT));
+        immediateNetwork.assertAllRulesUsedAndCallsFinished();
+    }
+
+    @Test
+    public void invalidDefaultObservationTimeoutsAreRejected() {
+        var endpoint = new ServerNodeNetworkInterface(server, 60000);
+        assertThrows(IllegalArgumentException.class,
+                () -> FakeNetworkInterface.wrap(endpoint, Duration.ofNanos(-1)));
+        assertThrows(NullPointerException.class, () -> FakeNetworkInterface.wrap(endpoint, null));
     }
 
     @Test
@@ -337,10 +363,12 @@ public class FakeNetworkInterfaceTest {
                 () -> node.createPartition(id(0), "first")));
         node.createPartition(id(1), "second");
 
-        var first = network.awaitCall(CREATE, 1, Duration.ZERO);
+        var first = network.awaitAttempt(CREATE, 1, Duration.ZERO);
         first.awaitCompletion(Duration.ZERO);
-        assertEquals("first", first.invocation().args()[1]);
-        assertEquals(2, network.awaitCall(CREATE, 2, Duration.ZERO).invocation().callNumber());
+        var firstPartitionName = (String) first.invocation().args()[1];
+        assertEquals("first", firstPartitionName);
+        var secondAttempt = network.awaitAttempt(CREATE, 2, Duration.ZERO);
+        assertEquals(2, secondAttempt.invocation().callNumber());
         assertFalse(server.partitionExists("first"));
         assertTrue(server.partitionExists("second"));
     }
@@ -353,12 +381,14 @@ public class FakeNetworkInterfaceTest {
         }).deliver().build();
 
         node.createPartition(REQUEST_ID, "original");
-        var attempt = network.awaitCall(CREATE, 1, Duration.ZERO);
+        var attempt = network.awaitAttempt(CREATE, 1, Duration.ZERO);
         attempt.invocation().args()[1] = "changed again";
 
         assertTrue(server.partitionExists("original"));
         assertFalse(server.partitionExists("changed"));
-        assertEquals("original", attempt.request().awaitArrival(Duration.ZERO).args()[1]);
+        var requestInvocation = attempt.request().awaitArrival(Duration.ZERO);
+        var partitionName = (String) requestInvocation.args()[1];
+        assertEquals("original", partitionName);
         network.assertAllRulesUsedAndCallsFinished();
     }
 
@@ -375,7 +405,7 @@ public class FakeNetworkInterfaceTest {
         assertThrows(IllegalArgumentException.class, () -> network.on(CREATE).onCallsFrom(-1));
         assertThrows(IllegalArgumentException.class, () -> network.on(CREATE).onFirstCalls(0));
         assertThrows(IllegalArgumentException.class, () -> network.on(CREATE).onlyIfCalledTimes(CREATE, -1));
-        assertThrows(IllegalStateException.class, () -> network.awaitCall(CREATE, 1, WAIT));
+        assertThrows(IllegalStateException.class, () -> network.awaitAttempt(CREATE, 1));
         assertThrows(IllegalStateException.class, network::assertAllRulesUsedAndCallsFinished);
     }
 
@@ -399,9 +429,10 @@ public class FakeNetworkInterfaceTest {
         assertFalse(node.equals(server));
         assertEquals(System.identityHashCode(node), node.hashCode());
         assertEquals("FakeNetworkInterface", node.toString());
-        assertThrows(IllegalStateException.class, () -> network.awaitCall(CREATE, 1, Duration.ZERO));
+        assertThrows(IllegalStateException.class, () -> network.awaitAttempt(CREATE, 1, Duration.ZERO));
         node.createPartition(REQUEST_ID, "first");
-        assertEquals(1, network.awaitCall(CREATE, 1, Duration.ZERO).invocation().callNumber());
+        var firstAttempt = network.awaitAttempt(CREATE, 1, Duration.ZERO);
+        assertEquals(1, firstAttempt.invocation().callNumber());
         network.assertAllRulesUsedAndCallsFinished();
     }
 
