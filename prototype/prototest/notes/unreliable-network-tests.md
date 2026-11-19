@@ -54,7 +54,7 @@ risultato salvato senza applicare di nuovo l'operazione.
 | `retriesOnResponseMissing` | prima risposta persa | il proxy riceve il risultato; i due tentativi hanno lo stesso ID |
 | `retriesWithoutDuplicatingEffects` | risposte perse della prima scrittura e del primo commit | il contenuto è scritto una sola volta |
 | `aSuccessfulRetryLeavesTheProxyUsable` | richiesta persa, poi risposta persa | il terzo tentativo riesce e il proxy resta usabile |
-| `retriesOfSeveralProxiesKeepTheirIdsAndDoNotDuplicateWritesOrCommits` | due proxy, ognuno con la sua rete, perdono richieste e risposte | ogni retry mantiene l'ID della sua chiamata; nessuna scrittura o commit duplicato; ID diversi tra i proxy |
+| `retriesFromDifferentProxiesWithTheSameSequenceApplyEachWriteOnce` | la prima risposta alla scrittura di ciascun proxy va persa | due richieste con lo stesso numero di sequenza producono una sola scrittura ciascuna, su due partizioni distinte |
 | `requiresNodeRecoveryAfterRetryTimeout` | prima richiesta persa, timeout zero | nessun retry: `"Unrecoverable timeout"` e proxy da recuperare |
 | `returnsAServiceException` | consegna normale | l'errore del servizio arriva al chiamante senza retry; il proxy resta usabile |
 

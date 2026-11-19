@@ -144,53 +144,38 @@ public class RetryTest {
     }
 
     /**
-     * Two proxies share the same server, each one behind its own fake network.
-     * Writes and the commit lose requests or responses: every retry keeps the ID of
-     * its call, the server applies each write and the commit only once, and the IDs
-     * of the two proxies differ. In the same proxy the commit, which comes later,
-     * has a higher sequence than the write.
+     * Two proxies send their first write to the same endpoint, each on its own
+     * partition. Both responses are lost. The endpoint applies each write once
+     * even though the two requests have the same sequence number.
      */
     @Test
-    public void retriesOfSeveralProxiesKeepTheirIdsAndDoNotDuplicateWritesOrCommits() throws Exception {
+    public void retriesFromDifferentProxiesWithTheSameSequenceApplyEachWriteOnce() throws Exception {
         var endpoint = new ServerNodeNetworkInterface(server, 60000);
         var firstNetwork = FakeNetworkInterface.wrap(endpoint)
-                .on(n -> n.writeToPartition(any(), any(), any())).onFirstCall().dropRequest()
-                .on(n -> n.writeToPartition(any(), any(), any())).onCall(2).dropResponse()
-                .on(n -> n.commitPartition(any(), any())).onFirstCall().dropResponse();
+                .on(n -> n.writeToPartition(any(), any(), any())).onFirstCall().dropResponse();
         var secondNetwork = FakeNetworkInterface.wrap(endpoint)
                 .on(n -> n.writeToPartition(any(), any(), any())).onFirstCall().dropResponse();
         var first = new NodeProxy(firstNetwork.build(), 60000);
         var second = new NodeProxy(secondNetwork.build(), 60000);
-        server.createPartition("shared");
+        server.createPartition("first");
+        server.createPartition("second");
 
-        first.writeToPartition("shared", "A");
-        second.writeToPartition("shared", "B");
-        first.commitPartition("shared");
+        first.writeToPartition("first", "A");
+        second.writeToPartition("second", "B");
 
-        assertEquals("AB", server.readPartitionSnapshot("shared"));
-        assertEquals("AB", second.readPartitionSnapshot("shared"));
+        var firstAttempt = firstNetwork.awaitAttempt(n -> n.writeToPartition(any(), any(), any()), 1);
+        var secondAttempt = secondNetwork.awaitAttempt(n -> n.writeToPartition(any(), any(), any()), 1);
+        var firstId = (RequestId) firstAttempt.invocation().args()[0];
+        var secondId = (RequestId) secondAttempt.invocation().args()[0];
+        // Each proxy starts its own increasing sequence at zero. If ID generation
+        // changes, revisit this setup so the two requests still share a sequence.
+        assertEquals(firstId.sequence(), secondId.sequence());
         firstNetwork.assertAllRulesUsedAndCallsFinished();
         secondNetwork.assertAllRulesUsedAndCallsFinished();
-        var writeAttempt = firstNetwork.awaitAttempt(n -> n.writeToPartition(any(), any(), any()), 1);
-        var writeId = (RequestId) writeAttempt.invocation().args()[0];
-        for (int number = 2; number <= 3; number++) {
-            var retryAttempt = firstNetwork.awaitAttempt(n -> n.writeToPartition(any(), any(), any()), number);
-            var retryRequestId = (RequestId) retryAttempt.invocation().args()[0];
-            assertEquals(writeId, retryRequestId);
-        }
-        var secondWriteAttempt = secondNetwork.awaitAttempt(n -> n.writeToPartition(any(), any(), any()), 1);
-        var secondWriteId = (RequestId) secondWriteAttempt.invocation().args()[0];
-        var secondWriteRetryAttempt = secondNetwork.awaitAttempt(n -> n.writeToPartition(any(), any(), any()), 2);
-        var secondWriteRetryId = (RequestId) secondWriteRetryAttempt.invocation().args()[0];
-        assertEquals(secondWriteId, secondWriteRetryId);
 
-        var commitAttempt = firstNetwork.awaitAttempt(n -> n.commitPartition(any(), any()), 1);
-        var commitId = (RequestId) commitAttempt.invocation().args()[0];
-        var commitRetryAttempt = firstNetwork.awaitAttempt(n -> n.commitPartition(any(), any()), 2);
-        var commitRetryId = (RequestId) commitRetryAttempt.invocation().args()[0];
-        assertEquals(commitId, commitRetryId);
-        assertEquals(writeId.proxyId(), commitId.proxyId());
-        assertTrue(commitId.sequence() > writeId.sequence());
-        assertNotEquals(writeId.proxyId(), secondWriteId.proxyId());
+        server.commitPartition("first");
+        server.commitPartition("second");
+        assertEquals("A", server.readPartitionSnapshot("first"));
+        assertEquals("B", server.readPartitionSnapshot("second"));
     }
 }
