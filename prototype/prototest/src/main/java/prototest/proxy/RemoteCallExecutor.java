@@ -6,6 +6,7 @@ import prototest.api.errors.network.RetryableCommunicationException;
 import prototest.api.errors.network.NodeRecoveryRequiredException;
 
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -14,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.LongSupplier;
 
 /**
  * Executes concurrent remote calls with request IDs, retries and local recovery state.
@@ -81,6 +83,7 @@ final class RemoteCallExecutor {
     private final AtomicLong idGenerator;
     private final UUID proxyId = UUID.randomUUID();
     private final long timeout;
+    private final LongSupplier nanoTime;
     // Session state and pending call registration are protected by stateLock.
     private final Object stateLock = new Object();
     private Session session = new Session();
@@ -92,11 +95,24 @@ final class RemoteCallExecutor {
      * @throws IllegalArgumentException if timeout is negative
      */
     RemoteCallExecutor(long timeout) {
+        this(timeout, System::nanoTime);
+    }
+
+    /**
+     * Creates a call executor with a monotonic time source.
+     *
+     * @param timeout the retry timeout in milliseconds
+     * @param nanoTime the monotonic time source in nanoseconds
+     * @throws IllegalArgumentException if timeout is negative
+     * @throws NullPointerException if the time source is null
+     */
+    RemoteCallExecutor(long timeout, LongSupplier nanoTime) {
         this.idGenerator = new AtomicLong();
         if (timeout < 0) {
             throw new IllegalArgumentException("Negative timeout: " + timeout);
         }
         this.timeout = TimeUnit.MILLISECONDS.toNanos(timeout);
+        this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
     }
 
     /**
@@ -198,8 +214,8 @@ final class RemoteCallExecutor {
     }
 
     private <T> void runCall(Call<T> call, RequestId requestId, Function<RequestId, T> operation) {
-        long startTime = System.nanoTime();
         try {
+            long startTime = nanoTime.getAsLong();
             while (!call.result.isDone()) {
                 try {
                     T result = operation.apply(requestId);
@@ -208,7 +224,7 @@ final class RemoteCallExecutor {
                     }
                     return;
                 } catch (RetryableCommunicationException error) {
-                    if (System.nanoTime() - startTime >= timeout) {
+                    if (nanoTime.getAsLong() - startTime >= timeout) {
                         failSession(call, new NodeRecoveryRequiredException("Unrecoverable timeout", error));
                         return;
                     }

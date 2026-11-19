@@ -15,9 +15,10 @@ tra il proxy reale e l'adattatore reale del server:
 ```
 
 Le regole della rete sono esplicite: nessun guasto e nessun ritardo casuale,
-quindi ogni test esegue sempre lo stesso scenario. I casi con un timeout dei
-retry usano un timeout zero, così il primo messaggio perso è già un errore
-finale e il risultato non dipende dalla velocità della macchina.
+quindi ogni test esegue sempre lo stesso scenario. I casi di rete che
+esauriscono il timeout dei retry usano un timeout zero, così il primo messaggio
+perso è già un errore finale. Il test della scadenza del risultato sul server
+fa avanzare l'orologio del registro mentre la prima risposta è trattenuta.
 
 ## Stato del proxy
 
@@ -51,12 +52,13 @@ risultato salvato senza applicare di nuovo l'operazione.
 | Test | Rete | Verifica |
 |---|---|---|
 | `retriesOnRequestMissing` | prima richiesta persa | la partizione viene creata; i due tentativi hanno lo stesso ID |
-| `retriesOnResponseMissing` | prima risposta persa | il proxy riceve il risultato; i due tentativi hanno lo stesso ID |
+| `aRetryReturnsTheOriginalResultAfterThePartitionIsRemoved` | prima risposta trattenuta e poi persa, dopo la rimozione della partizione | il retry usa lo stesso ID e riceve il risultato salvato; una nuova chiamata vede la rimozione |
+| `aRetryOfAnExpiredRequestRequiresRecovery` | prima risposta trattenuta e poi persa, dopo la rimozione del risultato dal registro | il server rifiuta l'ID scaduto, la scrittura resta applicata una sola volta e il proxy richiede il recupero |
 | `retriesWithoutDuplicatingEffects` | risposte perse della prima scrittura e del primo commit | il contenuto è scritto una sola volta |
 | `aSuccessfulRetryLeavesTheProxyUsable` | richiesta persa, poi risposta persa | il terzo tentativo riesce e il proxy resta usabile |
 | `retriesFromDifferentProxiesWithTheSameSequenceApplyEachWriteOnce` | la prima risposta alla scrittura di ciascun proxy va persa | due richieste con lo stesso numero di sequenza producono una sola scrittura ciascuna, su due partizioni distinte |
 | `requiresNodeRecoveryAfterRetryTimeout` | prima richiesta persa, timeout zero | nessun retry: `"Unrecoverable timeout"` e proxy da recuperare |
-| `returnsAServiceException` | consegna normale | l'errore del servizio arriva al chiamante senza retry; il proxy resta usabile |
+| `returnsAServiceExceptionWithoutRetrying` | consegna normale | l'errore del servizio arriva al chiamante dopo un solo tentativo; il proxy resta usabile |
 
 ## Recupero: `RecoveryTest`
 
@@ -95,6 +97,8 @@ stato del proxy    usabile        da recuperare  usabile
 
 ## Test collegati
 
+- `prototest.proxy.RemoteCallExecutorTest`: con un tempo monotono controllato,
+  l'esecutore ritenta prima della scadenza e si ferma quando il timeout è raggiunto.
 - `prototest.proxy.NodeProxyRecoveryTest`: errori finali prodotti direttamente
   dall'endpoint, senza messaggi persi, e chiamate concorrenti al primo errore.
 - `prototest.fakenetwork`: test della rete fittizia stessa.

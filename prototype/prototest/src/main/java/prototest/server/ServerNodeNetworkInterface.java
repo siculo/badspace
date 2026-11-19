@@ -3,14 +3,27 @@ package prototest.server;
 import prototest.api.NodeNetworkInterface;
 import prototest.api.RequestId;
 
+import java.time.Clock;
+
 public class ServerNodeNetworkInterface implements NodeNetworkInterface {
 
     private final NodeServer nodeServer;
     private final RequestsRegister requestsRegistery;
 
     public ServerNodeNetworkInterface(NodeServer nodeServer, long registeryTimeout) {
+        this(nodeServer, registeryTimeout, Clock.systemUTC());
+    }
+
+    /**
+     * Creates a server endpoint with a clock for expiring saved results.
+     *
+     * @param nodeServer the server that executes the requests
+     * @param registerTimeout the retention time for saved results in milliseconds
+     * @param clock the clock used to measure result age
+     */
+    public ServerNodeNetworkInterface(NodeServer nodeServer, long registerTimeout, Clock clock) {
         this.nodeServer = nodeServer;
-        requestsRegistery = new RequestsRegister(registeryTimeout);
+        requestsRegistery = new RequestsRegister(registerTimeout, clock);
     }
 
     public ServerNodeNetworkInterface(long registeryTimeout) {
