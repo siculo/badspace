@@ -1,4 +1,4 @@
-package prototest;
+package prototest.server;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -6,7 +6,6 @@ import prototest.api.Reader;
 import prototest.api.Service;
 import prototest.api.Writer;
 import prototest.proxy.ServiceClient;
-import prototest.server.NodeServer;
 
 import static org.junit.Assert.*;
 

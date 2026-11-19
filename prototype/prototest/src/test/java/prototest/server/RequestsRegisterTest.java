@@ -1,9 +1,8 @@
-package prototest;
+package prototest.server;
 
 import org.junit.Test;
 import prototest.api.RequestId;
 import prototest.api.errors.network.NodeRecoveryRequiredException;
-import prototest.server.RequestsRegister;
 
 import java.time.Clock;
 import java.time.Instant;

@@ -1,4 +1,4 @@
-package prototest;
+package prototest.fakenetwork;
 
 import org.junit.Test;
 import prototest.api.NodeNetworkInterface;

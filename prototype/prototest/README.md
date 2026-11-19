@@ -13,3 +13,4 @@ Appunti sulla sperimentazione:
 
 - [Richieste da più proxy](notes/multiple-proxies.md)
 - [Rete concorrente e stato di errore del proxy](notes/concurrent-network-and-recovery.md)
+- [Test del proxy su rete inaffidabile](notes/unreliable-network-tests.md)

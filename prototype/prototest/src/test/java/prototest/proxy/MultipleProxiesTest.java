@@ -1,14 +1,10 @@
-package prototest;
+package prototest.proxy;
 
 import org.junit.Test;
 import prototest.api.NodeNetworkInterface;
-import prototest.api.RequestId;
-import prototest.proxy.FakeNetworkInterface;
-import prototest.proxy.NodeProxy;
 import prototest.server.NodeServer;
 import prototest.server.ServerNodeNetworkInterface;
 
-import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -19,9 +15,10 @@ import static org.junit.Assert.*;
  * Checks that several proxies use the same endpoint without mixing their
  * requests or results.
  *
- * <p>Uses the real proxy and the real server adapter. The retry tests also go
- * through the fake network, with explicit delivery rules. Does not
- * use {@link TestService}, whose writers and readers still skip the network.
+ * <p>Uses the real proxy and the real server adapter, without the fake
+ * network: retries of several proxies are checked in
+ * {@link prototest.unreliablenetwork.RetryTest}. Does not use
+ * {@link TestService}, whose writers and readers still skip the network.
  */
 public class MultipleProxiesTest {
     private final NodeServer server = new NodeServer();
@@ -55,45 +52,6 @@ public class MultipleProxiesTest {
         new NodeProxy(endpoint, 1000).destroyPartition("previous");
 
         assertFalse(server.partitionExists("previous"));
-    }
-
-    @Test
-    public void retriesKeepTheSameIdAndDoNotDuplicateWritesOrCommits() throws Exception {
-        var firstNetwork = FakeNetworkInterface.wrap(endpoint)
-                .on(n -> n.writeToPartition(null, null, null)).onFirstCall().dropRequest()
-                .on(n -> n.writeToPartition(null, null, null)).onCall(2).dropResponse()
-                .on(n -> n.commitPartition(null, null)).onFirstCall().dropResponse();
-        var secondNetwork = FakeNetworkInterface.wrap(endpoint)
-                .on(n -> n.writeToPartition(null, null, null)).onFirstCall().dropResponse();
-        var first = new NodeProxy(firstNetwork.build(), 60000);
-        var second = new NodeProxy(secondNetwork.build(), 60000);
-        server.createPartition("shared");
-
-        first.writeToPartition("shared", "A");
-        second.writeToPartition("shared", "B");
-        first.commitPartition("shared");
-
-        assertEquals("AB", server.readPartitionSnapshot("shared"));
-        assertEquals("AB", second.readPartitionSnapshot("shared"));
-        firstNetwork.assertAllRulesUsedAndCallsFinished();
-        secondNetwork.assertAllRulesUsedAndCallsFinished();
-        RequestId writeId = (RequestId) firstNetwork.awaitCall(
-                n -> n.writeToPartition(null, null, null), 1, Duration.ZERO).invocation().args()[0];
-        for (int number = 2; number <= 3; number++) {
-            assertEquals(writeId, firstNetwork.awaitCall(n -> n.writeToPartition(null, null, null),
-                    number, Duration.ZERO).invocation().args()[0]);
-        }
-        RequestId secondWriteId = (RequestId) secondNetwork.awaitCall(
-                n -> n.writeToPartition(null, null, null), 1, Duration.ZERO).invocation().args()[0];
-        assertEquals(secondWriteId, secondNetwork.awaitCall(n -> n.writeToPartition(null, null, null),
-                2, Duration.ZERO).invocation().args()[0]);
-        RequestId commitId = (RequestId) firstNetwork.awaitCall(
-                n -> n.commitPartition(null, null), 1, Duration.ZERO).invocation().args()[0];
-        assertEquals(commitId, firstNetwork.awaitCall(n -> n.commitPartition(null, null),
-                2, Duration.ZERO).invocation().args()[0]);
-        assertEquals(writeId.proxyId(), commitId.proxyId());
-        assertTrue(commitId.sequence() > writeId.sequence());
-        assertNotEquals(writeId.proxyId(), secondWriteId.proxyId());
     }
 
     @Test

@@ -1,12 +1,9 @@
-package prototest;
+package prototest.fakenetwork;
 
 import org.junit.Test;
 import prototest.api.RequestId;
-import prototest.api.errors.network.ConnectionUnavailableException;
-import prototest.api.errors.network.NodeRecoveryRequiredException;
 import prototest.api.errors.network.RetryableCommunicationException;
 import prototest.proxy.FakeNetworkInterface;
-import prototest.proxy.NodeProxy;
 import prototest.server.NodeServer;
 import prototest.server.ServerNodeNetworkInterface;
 
@@ -18,8 +15,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
 
@@ -188,77 +183,6 @@ public class FakeNetworkConcurrencyTest {
             network.assertAllRulesUsedAndCallsFinished();
         } finally {
             release(first, false);
-            workers.shutdownNow();
-            assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
-        }
-    }
-
-    @Test
-    public void aHeldResponseCanBeDeliveredAfterProxyRecovery() throws Exception {
-        verifyLateResponse(false);
-    }
-
-    @Test
-    public void aHeldResponseCanBeLostAfterProxyRecovery() throws Exception {
-        verifyLateResponse(true);
-    }
-
-    private static void verifyLateResponse(boolean dropResponse) throws Exception {
-        var server = new NodeServer();
-        var transport = new AtomicReference<Thread>();
-        var oldAttempts = new AtomicInteger();
-        var endpoint = new ServerNodeNetworkInterface(server, 60000) {
-            @Override
-            public void createPartition(RequestId requestId, String name) {
-                if (name.equals("old")) {
-                    transport.set(Thread.currentThread());
-                    oldAttempts.incrementAndGet();
-                }
-                super.createPartition(requestId, name);
-            }
-        };
-        var network = FakeNetworkInterface.wrap(endpoint)
-                .on(CREATE).onFirstCall().withArgs(args -> args[1].equals("old")).holdResponse()
-                .on(CREATE).withArgs(args -> args[1].equals("fail")).dropRequest();
-        var proxy = new NodeProxy(network.build(), 0);
-        FakeNetworkInterface.Attempt old = null;
-        var workers = Executors.newSingleThreadExecutor();
-        try {
-            var pending = workers.submit(() -> {
-                var error = assertThrows(ConnectionUnavailableException.class,
-                        () -> proxy.createPartition("old"));
-                assertFalse(Thread.currentThread().isInterrupted());
-                return error;
-            });
-            old = network.awaitCall(CREATE, 1, WAIT);
-            old.response().awaitArrival(WAIT);
-            assertTrue(server.partitionExists("old"));
-            var failure = assertThrows(NodeRecoveryRequiredException.class,
-                    () -> proxy.createPartition("fail"));
-            assertSame(failure, pending.get(5, TimeUnit.SECONDS).getCause());
-            assertThrows(AssertionError.class, network::assertAllRulesUsedAndCallsFinished);
-
-            proxy.recover();
-            proxy.createPartition("new");
-            if (dropResponse) {
-                old.response().drop();
-            } else {
-                old.response().deliver();
-            }
-            old.awaitCompletion(WAIT);
-            // Wait for the executor as well as the simulated network to process the late result.
-            transport.get().join(5000);
-            assertFalse(transport.get().isAlive());
-            assertEquals(1, oldAttempts.get());
-            assertFalse(proxy.recoveryRequired());
-            assertTrue(proxy.partitionExists("new"));
-            network.assertAllRulesUsedAndCallsFinished();
-        } finally {
-            release(old, true);
-            if (transport.get() != null) {
-                transport.get().join(5000);
-                assertFalse(transport.get().isAlive());
-            }
             workers.shutdownNow();
             assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
         }

@@ -1,9 +1,6 @@
-package prototest;
+package prototest.proxy;
 
 import prototest.api.*;
-import prototest.proxy.FakeNetworkInterface;
-import prototest.proxy.NodeProxy;
-import prototest.proxy.ServiceClient;
 import prototest.server.NodeServer;
 import prototest.server.ServerNodeNetworkInterface;
 
