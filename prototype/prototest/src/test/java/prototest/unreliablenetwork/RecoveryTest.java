@@ -170,7 +170,6 @@ public class RecoveryTest {
                 .on(n -> n.createPartition(any(), eq("old"))).onFirstCall().holdResponse()
                 .on(n -> n.createPartition(any(), eq("fail"))).dropRequest();
         var proxy = new NodeProxy(network.build(), 0);
-        FakeNetworkInterface.Attempt old = null;
         var workers = Executors.newSingleThreadExecutor();
         try {
             var pending = workers.submit(() -> {
@@ -179,7 +178,7 @@ public class RecoveryTest {
                 assertFalse(Thread.currentThread().isInterrupted());
                 return error;
             });
-            old = network.awaitAttempt(CREATE, 1);
+            var old = network.awaitAttempt(CREATE, 1);
             old.response().awaitArrival(WAIT);
             assertTrue(server.partitionExists("old"));
             var failure = assertThrows(NodeRecoveryRequiredException.class,
@@ -203,24 +202,13 @@ public class RecoveryTest {
             assertTrue(proxy.partitionExists("new"));
             network.assertAllRulesUsedAndCallsFinished();
         } finally {
-            release(old, true);
+            network.releaseHeldMessages();
             if (transport.get() != null) {
                 transport.get().join(5000);
                 assertFalse(transport.get().isAlive());
             }
             workers.shutdownNow();
             assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
-        }
-    }
-
-    private static void release(FakeNetworkInterface.Attempt attempt, boolean response) {
-        if (attempt == null) {
-            return;
-        }
-        try {
-            (response ? attempt.response() : attempt.request()).deliver();
-        } catch (IllegalStateException ignored) {
-            // The point may have been released already or not reached after a test failure.
         }
     }
 }

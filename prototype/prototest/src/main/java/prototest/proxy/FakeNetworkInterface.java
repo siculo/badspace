@@ -41,7 +41,7 @@ import java.util.function.Predicate;
  * <p>{@link #awaitAttempt(Selector, int, Duration)} provides separate delivery controls for
  * each invocation, including those selected by an every-call rule. A held message ignores
  * transport interruption until the test releases it, then restores the interrupt flag.
- * Tests must release held messages in cleanup, including after assertion failures.
+ * Tests should call {@link #releaseHeldMessages()} in cleanup before waiting for workers.
  * Endpoint exceptions propagate directly without reaching the response point, so a lost
  * response containing a service error is not simulated.
  */
@@ -56,6 +56,9 @@ public final class FakeNetworkInterface {
     private final List<Rule> rules = new ArrayList<>();
     private final Map<Method, List<Attempt>> calls = new HashMap<>();
     private boolean built;
+    // Set by releaseHeldMessages() and read by register(), both under this monitor.
+    // Once set, it stays set: new attempts never hold their messages.
+    private boolean holdsReleased;
 
     /** Delivery of one request or response. */
     public enum Delivery {
@@ -69,6 +72,7 @@ public final class FakeNetworkInterface {
 
     /**
      * Selects exactly one network method with any()/eq() reference argument matchers.
+     * Write each matcher directly in its argument position. Matchers are recorded in evaluation order.
      * The lambda runs only on a recording proxy. Nested recording is not supported.
      */
     @FunctionalInterface
@@ -149,7 +153,7 @@ public final class FakeNetworkInterface {
 
     /**
      * Matches any reference argument, including null, while recording a selector.
-     * All arguments in the selected call must use matchers.
+     * Write a matcher directly in each argument position of the selected call.
      *
      * @param <T> the reference parameter type
      * @return a null placeholder used only by the recording proxy
@@ -162,7 +166,7 @@ public final class FakeNetworkInterface {
 
     /**
      * Matches a reference argument using Objects.equals, including a null expected value.
-     * All arguments in the selected call must use matchers.
+     * Write a matcher directly in each argument position of the selected call.
      *
      * @param expected the expected argument
      * @param <T> the reference parameter type
@@ -326,6 +330,24 @@ public final class FakeNetworkInterface {
     }
 
     /**
+     * Delivers all held messages and disables holds for the rest of this network's lifetime.
+     * This includes messages that have not arrived yet. Existing loss decisions still apply.
+     * Repeated calls have the same effect.
+     *
+     * @throws IllegalStateException if build was not called
+     */
+    public synchronized void releaseHeldMessages() {
+        requireBuilt();
+        holdsReleased = true;
+        for (var attempts : calls.values()) {
+            for (var attempt : attempts) {
+                attempt.request.releaseHold();
+                attempt.response.releaseHold();
+            }
+        }
+    }
+
+    /**
      * Asserts that each rule matched at least once and all registered calls finished.
      * An every-call rule needs only one match. This does not wait for future calls or
      * for the proxy's caller to process a result.
@@ -368,6 +390,14 @@ public final class FakeNetworkInterface {
                     request = rule.request;
                     response = rule.response;
                     break;
+                }
+            }
+            if (holdsReleased) {
+                if (request == Delivery.HOLD) {
+                    request = Delivery.DELIVER;
+                }
+                if (response == Delivery.HOLD) {
+                    response = Delivery.DELIVER;
                 }
             }
             attempt = new Attempt(invocation, request, response);
@@ -666,7 +696,8 @@ public final class FakeNetworkInterface {
         }
 
         /**
-         * Registers the rule with explicit request and response modes.
+         * Registers the rule with explicit request and response modes. The response mode
+         * applies only after the request reaches the endpoint and the endpoint returns normally.
          *
          * @param request request delivery mode
          * @param response response delivery mode
@@ -715,17 +746,15 @@ public final class FakeNetworkInterface {
          * @throws InterruptedException if the observing test thread is interrupted
          */
         public synchronized void awaitCompletion(Duration timeout) throws InterruptedException {
-            if (timeout.isNegative()) {
-                throw new IllegalArgumentException("Negative completion timeout: " + timeout);
-            }
-            long remaining = timeout.toNanos();
+            long limit = waitLimit(timeout);
+            long remaining = limit;
             long start = System.nanoTime();
             while (!finished) {
                 if (remaining <= 0) {
                     throw new IllegalStateException("Attempt did not finish within " + timeout);
                 }
                 TimeUnit.NANOSECONDS.timedWait(this, remaining);
-                remaining = timeout.toNanos() - (System.nanoTime() - start);
+                remaining = limit - (System.nanoTime() - start);
             }
         }
 
@@ -771,23 +800,21 @@ public final class FakeNetworkInterface {
          * reached, such as the response to a dropped request, also times out.
          *
          * @param timeout maximum real waiting time; zero only checks current arrival
-         * @return the arriving attempt
+         * @return the invocation for this message
          * @throws IllegalArgumentException if timeout is negative
          * @throws IllegalStateException if the message does not arrive before timeout
          * @throws InterruptedException if the observing test thread is interrupted
          */
         public synchronized Invocation awaitArrival(Duration timeout) throws InterruptedException {
-            if (timeout.isNegative()) {
-                throw new IllegalArgumentException("Negative arrival timeout: " + timeout);
-            }
-            long remaining = timeout.toNanos();
+            long limit = waitLimit(timeout);
+            long remaining = limit;
             long start = System.nanoTime();
             while (invocation == null) {
                 if (remaining <= 0) {
                     throw new IllegalStateException("Message did not arrive within " + timeout);
                 }
                 TimeUnit.NANOSECONDS.timedWait(this, remaining);
-                remaining = timeout.toNanos() - (System.nanoTime() - start);
+                remaining = limit - (System.nanoTime() - start);
             }
             return invocation;
         }
@@ -808,6 +835,13 @@ public final class FakeNetworkInterface {
          */
         public synchronized void drop() {
             decide(Delivery.DROP);
+        }
+
+        private synchronized void releaseHold() {
+            if (delivery == Delivery.HOLD) {
+                delivery = Delivery.DELIVER;
+                notifyAll();
+            }
         }
 
         private void decide(Delivery decision) {

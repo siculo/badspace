@@ -103,14 +103,12 @@ public class FakeNetworkConcurrencyTest {
         var node = network.build();
         var firstId = new RequestId(PROXY_ID, 0);
         var secondId = new RequestId(PROXY_ID, 1);
-        FakeNetworkInterface.Attempt first = null;
-        FakeNetworkInterface.Attempt second = null;
         var workers = Executors.newFixedThreadPool(2);
         try {
             var firstResult = workers.submit(() -> node.writeToPartition(firstId, "shared", "A"));
             var secondResult = workers.submit(() -> node.writeToPartition(secondId, "shared", "B"));
-            first = network.awaitAttempt(n -> n.writeToPartition(eq(firstId), eq("shared"), any()), 1);
-            second = network.awaitAttempt(n -> n.writeToPartition(eq(secondId), eq("shared"), any()), 1);
+            var first = network.awaitAttempt(n -> n.writeToPartition(eq(firstId), eq("shared"), any()), 1);
+            var second = network.awaitAttempt(n -> n.writeToPartition(eq(secondId), eq("shared"), any()), 1);
             assertNotSame(first, second);
             var firstInvocation = first.request().awaitArrival(WAIT);
             var secondInvocation = second.request().awaitArrival(WAIT);
@@ -130,8 +128,7 @@ public class FakeNetworkConcurrencyTest {
             assertEquals("BA", server.readPartitionSnapshot("shared"));
             network.assertAllRulesUsedAndCallsFinished();
         } finally {
-            release(first, false);
-            release(second, false);
+            network.releaseHeldMessages();
             workers.shutdownNow();
             assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
         }
@@ -145,10 +142,9 @@ public class FakeNetworkConcurrencyTest {
                 .on(n -> n.partitionExists(any(), any())).onlyIfCalled(CREATE).dropRequest();
         var node = network.build();
         var workers = Executors.newSingleThreadExecutor();
-        FakeNetworkInterface.Attempt first = null;
         try {
             var result = workers.submit(() -> node.createPartition(new RequestId(PROXY_ID, 0), "first"));
-            first = network.awaitAttempt(CREATE, 1);
+            var first = network.awaitAttempt(CREATE, 1);
             first.request().awaitArrival(WAIT);
             assertFalse(server.partitionExists("first"));
 
@@ -160,7 +156,7 @@ public class FakeNetworkConcurrencyTest {
             assertTrue(server.partitionExists("first"));
             network.assertAllRulesUsedAndCallsFinished();
         } finally {
-            release(first, false);
+            network.releaseHeldMessages();
             workers.shutdownNow();
             assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
         }
@@ -174,10 +170,9 @@ public class FakeNetworkConcurrencyTest {
                 .on(CREATE).onlyIfCalled(CREATE).dropRequest();
         var node = network.build();
         var workers = Executors.newSingleThreadExecutor();
-        FakeNetworkInterface.Attempt first = null;
         try {
             var result = workers.submit(() -> node.createPartition(new RequestId(PROXY_ID, 0), "first"));
-            first = network.awaitAttempt(CREATE, 1);
+            var first = network.awaitAttempt(CREATE, 1);
             first.request().awaitArrival(WAIT);
             assertThrows(RetryableCommunicationException.class,
                     () -> node.createPartition(new RequestId(PROXY_ID, 1), "second"));
@@ -187,7 +182,7 @@ public class FakeNetworkConcurrencyTest {
             assertFalse(server.partitionExists("second"));
             network.assertAllRulesUsedAndCallsFinished();
         } finally {
-            release(first, false);
+            network.releaseHeldMessages();
             workers.shutdownNow();
             assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
         }
@@ -227,17 +222,6 @@ public class FakeNetworkConcurrencyTest {
         } finally {
             workers.shutdownNow();
             assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
-        }
-    }
-
-    private static void release(FakeNetworkInterface.Attempt attempt, boolean response) {
-        if (attempt == null) {
-            return;
-        }
-        try {
-            (response ? attempt.response() : attempt.request()).deliver();
-        } catch (IllegalStateException ignored) {
-            // The point may have been released already or not reached after a test failure.
         }
     }
 }

@@ -123,21 +123,60 @@ public class FakeNetworkInterfaceTest {
     }
 
     @Test
+    public void cleanupReleasesAnArrivedRequestAndItsFutureResponse() throws Exception {
+        var node = network.on(CREATE).delivery(HOLD, HOLD).build();
+        var worker = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory());
+        try {
+            var result = worker.submit(() -> node.createPartition(REQUEST_ID, "present"));
+            var attempt = network.awaitAttempt(CREATE, 1);
+            attempt.request().awaitArrival(WAIT);
+
+            network.releaseHeldMessages();
+
+            result.get(5, TimeUnit.SECONDS);
+            assertTrue(server.partitionExists("present"));
+            network.assertAllRulesUsedAndCallsFinished();
+        } finally {
+            network.releaseHeldMessages();
+            worker.shutdownNow();
+            assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void cleanupBeforeRegistrationReleasesFutureHoldsAndKeepsLosses() throws Exception {
+        var node = network.on(CREATE).delivery(HOLD, DROP).build();
+        network.releaseHeldMessages();
+        network.releaseHeldMessages();
+
+        var worker = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory());
+        try {
+            var result = worker.submit(() -> assertThrows(RetryableCommunicationException.class,
+                    () -> node.createPartition(REQUEST_ID, "present")));
+            assertEquals("Response missing", result.get(5, TimeUnit.SECONDS).getMessage());
+            assertTrue(server.partitionExists("present"));
+            network.assertAllRulesUsedAndCallsFinished();
+        } finally {
+            network.releaseHeldMessages();
+            worker.shutdownNow();
+            assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     public void aHeldRequestCanBeDroppedWithoutCallingTheEndpoint() throws Exception {
         var node = network.on(CREATE).holdRequest().build();
         var worker = Executors.newSingleThreadExecutor();
-        FakeNetworkInterface.Attempt attempt = null;
         try {
             var result = worker.submit(
                     () -> assertThrows(RetryableCommunicationException.class, () -> node.createPartition(REQUEST_ID, "missing"))
             );
-            attempt = network.awaitAttempt(CREATE, 1);
+            var attempt = network.awaitAttempt(CREATE, 1);
             attempt.request().awaitArrival(WAIT);
             assertFalse(server.partitionExists("missing"));
             assertFalse(result.isDone());
             assertThrows(AssertionError.class, network::assertAllRulesUsedAndCallsFinished);
-            var pending = attempt;
-            assertThrows(IllegalStateException.class, () -> pending.awaitCompletion(Duration.ZERO));
+            assertThrows(IllegalStateException.class, () -> attempt.awaitCompletion(Duration.ZERO));
 
             attempt.request().drop();
 
@@ -145,7 +184,7 @@ public class FakeNetworkInterfaceTest {
             assertFalse(server.partitionExists("missing"));
             network.assertAllRulesUsedAndCallsFinished();
         } finally {
-            release(attempt, false);
+            network.releaseHeldMessages();
             worker.shutdownNow();
             assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
         }
@@ -157,10 +196,9 @@ public class FakeNetworkInterfaceTest {
         FakeNetworkInterface.Selector query = n -> n.partitionExists(any(), any());
         var node = network.on(query).holdResponse().build();
         var worker = Executors.newSingleThreadExecutor();
-        FakeNetworkInterface.Attempt attempt = null;
         try {
             var result = worker.submit(() -> node.partitionExists(REQUEST_ID, "present"));
-            attempt = network.awaitAttempt(query, 1);
+            var attempt = network.awaitAttempt(query, 1);
             attempt.response().awaitArrival(WAIT);
             assertFalse(result.isDone());
 
@@ -171,7 +209,7 @@ public class FakeNetworkInterfaceTest {
             assertThrows(IllegalStateException.class, attempt.response()::drop);
             network.assertAllRulesUsedAndCallsFinished();
         } finally {
-            release(attempt, true);
+            network.releaseHeldMessages();
             worker.shutdownNow();
             assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
         }
@@ -181,14 +219,13 @@ public class FakeNetworkInterfaceTest {
     public void heldMessagesIgnoreCancellationAndPreserveTheWorkerInterruptFlag() throws Exception {
         var node = network.on(CREATE).holdResponse().build();
         var worker = Executors.newSingleThreadExecutor();
-        FakeNetworkInterface.Attempt attempt = null;
         try {
             var result = worker.submit(() -> {
                 Thread.currentThread().interrupt();
                 node.createPartition(REQUEST_ID, "present");
                 return Thread.currentThread().isInterrupted();
             });
-            attempt = network.awaitAttempt(CREATE, 1);
+            var attempt = network.awaitAttempt(CREATE, 1);
             attempt.response().awaitArrival(WAIT);
             assertFalse(result.isDone());
             assertTrue(server.partitionExists("present"));
@@ -198,7 +235,7 @@ public class FakeNetworkInterfaceTest {
             assertTrue(result.get(5, TimeUnit.SECONDS));
             network.assertAllRulesUsedAndCallsFinished();
         } finally {
-            release(attempt, true);
+            network.releaseHeldMessages();
             worker.shutdownNow();
             assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
         }
@@ -551,16 +588,5 @@ public class FakeNetworkInterfaceTest {
 
     private static RequestId id(long sequence) {
         return new RequestId(new UUID(0, 1), sequence);
-    }
-
-    private static void release(FakeNetworkInterface.Attempt attempt, boolean response) {
-        if (attempt == null) {
-            return;
-        }
-        try {
-            (response ? attempt.response() : attempt.request()).deliver();
-        } catch (IllegalStateException ignored) {
-            // Cleanup also runs when a test fails before arrival or after release.
-        }
     }
 }

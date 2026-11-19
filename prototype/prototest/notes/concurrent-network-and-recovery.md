@@ -31,7 +31,9 @@ var node = network.build();
 Il selector viene eseguito su un proxy di registrazione che non chiama il
 server. Durante la sua esecuzione, `any()` ed `eq()` aggiungono predicati a
 un contesto del thread corrente e restituiscono segnaposto `null`. Il proxy
-associa i predicati ai parametri in ordine. Il contesto viene rimosso anche
+associa i predicati ai parametri in ordine di valutazione. Scrivere ogni matcher
+direttamente nella posizione del suo argomento, come in `createPartition(any(), eq("example"))`.
+Calcolare prima `eq("example")` in una variabile assocerebbe quel predicato al primo parametro. Il contesto viene rimosso anche
 se la registrazione fallisce; i matcher fuori dalla registrazione e le
 registrazioni annidate sono errori. I matcher coprono i parametri di tipo
 riferimento dell'interfaccia attuale. `withArgs` resta disponibile per
@@ -72,7 +74,9 @@ separati per ogni invocazione.
 
 Un messaggio trattenuto resta in attesa anche dopo l'interruzione del worker:
 il test può così consegnare risposte tardive dopo il recupero del proxy.
-La pulizia del test deve rilasciare tutti i messaggi trattenuti.
+Nel `finally` il test chiama `releaseHeldMessages()` prima di aspettare i worker.
+Il rilascio vale anche per i messaggi in arrivo e per i tentativi successivi.
+Le perdite configurate o già decise restano valide.
 `awaitCompletion` attende la conclusione del tentativo nella rete simulata;
 non attende che il proxy elabori il risultato.
 `assertAllRulesUsedAndCallsFinished()` segnala con `AssertionError` regole
