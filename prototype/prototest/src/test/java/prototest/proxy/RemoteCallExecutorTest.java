@@ -4,6 +4,7 @@ import org.junit.Test;
 import prototest.api.errors.network.NodeRecoveryRequiredException;
 import prototest.api.errors.network.RetryableCommunicationException;
 
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -21,6 +22,7 @@ public class RemoteCallExecutorTest {
         long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         var now = new AtomicLong();
         var calls = new RemoteCallExecutor(timeoutMillis, now::get);
+        calls.connect(UUID::randomUUID);
         var firstFailure = new RetryableCommunicationException("First request lost");
         var lastFailure = new RetryableCommunicationException("Retry request lost");
 

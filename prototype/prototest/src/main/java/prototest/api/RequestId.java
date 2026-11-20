@@ -4,16 +4,16 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Identifies a request by its proxy instance and its sequence in that proxy.
- * Sequences describe generation order, not arrival order, and are not comparable across proxies.
+ * Identifies a request by its session token and its sequence in that session.
+ * Sequences describe the order in which calls are started, regardless of arrival order.
  * Retries use the same ID as the original attempt.
  *
- * @param proxyId the identity of one proxy instance
- * @param sequence the non-negative sequence in that proxy
+ * @param sessionToken the token issued by the server
+ * @param sequence the non-negative sequence in that session
  */
-public record RequestId(UUID proxyId, long sequence) {
+public record RequestId(UUID sessionToken, long sequence) {
     public RequestId {
-        Objects.requireNonNull(proxyId, "proxyId");
+        Objects.requireNonNull(sessionToken, "sessionToken");
         if (sequence < 0) {
             throw new IllegalArgumentException("Negative request sequence: " + sequence);
         }

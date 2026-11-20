@@ -1,8 +1,9 @@
 # Rete concorrente e stato di errore del proxy
 
 `NodeProxy` delega l'esecuzione delle chiamate a un `RemoteCallExecutor`
-dedicato. La gestione di retry, errori, concorrenza e recupero locale è descritta
-nelle [Javadoc di `RemoteCallExecutor`](../src/main/java/prototest/proxy/RemoteCallExecutor.java).
+dedicato. Le [Javadoc di `RemoteCallExecutor`](../src/main/java/prototest/proxy/RemoteCallExecutor.java)
+descrivono retry, errori e concorrenza. Il [ciclo di vita delle sessioni](multiple-proxies.md#durata-delle-sessioni)
+spiega quando il server accetta il token del proxy.
 
 ## Controllo degli esperimenti di rete
 

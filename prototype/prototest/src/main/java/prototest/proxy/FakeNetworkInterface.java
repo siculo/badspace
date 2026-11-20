@@ -146,7 +146,6 @@ public final class FakeNetworkInterface {
             }
             selected = new CapturedSelector(method, List.copyOf(matchers));
             matchers.clear();
-            // Current network methods return void, boolean or String.
             return method.getReturnType() == boolean.class ? false : null;
         }
     }

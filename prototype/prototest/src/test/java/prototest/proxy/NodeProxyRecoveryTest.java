@@ -1,5 +1,6 @@
 package prototest.proxy;
 
+import org.junit.Rule;
 import org.junit.Test;
 import prototest.api.RequestId;
 import prototest.api.errors.network.NodeRecoveryRequiredException;
@@ -7,6 +8,7 @@ import prototest.api.errors.network.ConnectionUnavailableException;
 import prototest.api.errors.service.PartitionNotFoundException;
 import prototest.server.NodeServer;
 import prototest.server.ServerNodeNetworkInterface;
+import prototest.server.TestEndpoints;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -31,10 +33,14 @@ import static org.junit.Assert.*;
  * explicit outcome, so they do not depend on machine speed.
  */
 public class NodeProxyRecoveryTest {
+    @Rule
+    public final TestEndpoints endpoints = new TestEndpoints();
+
     @Test
     public void serviceErrorsLeaveTheProxyUsable() {
         var server = new NodeServer();
-        var proxy = new NodeProxy(new ServerNodeNetworkInterface(server, 60000), 1000);
+        var proxy = new NodeProxy(endpoints.track(new ServerNodeNetworkInterface(server, 60000)), 1000);
+        proxy.connect();
 
         assertThrows(PartitionNotFoundException.class, () -> proxy.writeToPartition("missing", "data"));
         assertFalse(proxy.recoveryRequired());
@@ -47,13 +53,14 @@ public class NodeProxyRecoveryTest {
     @Test
     public void aFinalErrorFromTheEndpointRequiresRecovery() {
         var failure = new NodeRecoveryRequiredException("Request expired");
-        var endpoint = new ServerNodeNetworkInterface(60000) {
+        var endpoint = endpoints.track(new ServerNodeNetworkInterface(60000) {
             @Override
             public boolean partitionExists(RequestId requestId, String name) {
                 throw failure;
             }
-        };
+        });
         var proxy = new NodeProxy(endpoint, 1000);
+        proxy.connect();
 
         assertSame(failure, assertThrows(NodeRecoveryRequiredException.class,
                 () -> proxy.partitionExists("any")));
@@ -67,7 +74,7 @@ public class NodeProxyRecoveryTest {
         var entered = new CountDownLatch(1);
         var finish = new CountDownLatch(1);
         var server = new NodeServer();
-        var endpoint = new ServerNodeNetworkInterface(server, 60000) {
+        var endpoint = endpoints.track(new ServerNodeNetworkInterface(server, 60000) {
             @Override
             public void createPartition(RequestId requestId, String name) {
                 entered.countDown();
@@ -79,8 +86,9 @@ public class NodeProxyRecoveryTest {
             public boolean partitionExists(RequestId requestId, String name) {
                 throw new NodeRecoveryRequiredException("Connection lost");
             }
-        };
+        });
         var proxy = new NodeProxy(endpoint, 1000);
+        proxy.connect();
         var worker = Executors.newSingleThreadExecutor();
         try {
             var result = worker.submit(() -> {
@@ -111,7 +119,7 @@ public class NodeProxyRecoveryTest {
         var release = new CountDownLatch(1);
         var transportThreads = new ConcurrentLinkedQueue<Thread>();
         var original = new NodeRecoveryRequiredException("Connection lost");
-        var endpoint = new ServerNodeNetworkInterface(60000) {
+        var endpoint = endpoints.track(new ServerNodeNetworkInterface(60000) {
             private void blockTransport() {
                 transportThreads.add(Thread.currentThread());
                 entered.countDown();
@@ -143,8 +151,9 @@ public class NodeProxyRecoveryTest {
             public boolean partitionExists(RequestId requestId, String name) {
                 throw original;
             }
-        };
+        });
         var proxy = new NodeProxy(endpoint, 1000);
+        proxy.connect();
         var callers = Executors.newFixedThreadPool(3);
         List<Future<ConnectionUnavailableException>> results = new ArrayList<>();
         try {
@@ -191,18 +200,21 @@ public class NodeProxyRecoveryTest {
         verifyLateResponseAfterRecovery(true);
     }
 
-    private static void verifyLateResponseAfterRecovery(boolean lateFailure) throws Exception {
+    private void verifyLateResponseAfterRecovery(boolean lateFailure) throws Exception {
         var entered = new CountDownLatch(1);
         var interrupted = new CountDownLatch(1);
         var finish = new CountDownLatch(1);
         var transportDone = new CountDownLatch(1);
         var server = new NodeServer();
-        var endpoint = new ServerNodeNetworkInterface(server, 60000) {
+        var endpoint = endpoints.track(new ServerNodeNetworkInterface(server, 60000) {
             @Override
             public void createPartition(RequestId requestId, String name) {
                 if (!name.equals("old")) {
                     super.createPartition(requestId, name);
                     return;
+                }
+                if (!lateFailure) {
+                    super.createPartition(requestId, name);
                 }
                 entered.countDown();
                 try {
@@ -217,7 +229,6 @@ public class NodeProxyRecoveryTest {
                     if (lateFailure) {
                         throw new NodeRecoveryRequiredException("Late failure");
                     }
-                    super.createPartition(requestId, name);
                 } finally {
                     transportDone.countDown();
                 }
@@ -230,8 +241,9 @@ public class NodeProxyRecoveryTest {
                 }
                 return super.partitionExists(requestId, name);
             }
-        };
+        });
         var proxy = new NodeProxy(endpoint, 1000);
+        proxy.connect();
         var worker = Executors.newSingleThreadExecutor();
         try {
             var result = worker.submit(() -> {

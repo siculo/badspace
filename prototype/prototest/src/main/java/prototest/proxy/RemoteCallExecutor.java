@@ -12,10 +12,10 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
  * Executes concurrent remote calls with request IDs, retries and local recovery state.
@@ -66,30 +66,24 @@ import java.util.function.LongSupplier;
  * without starting its transport operation. Notifying other callers of a session
  * failure does not change their interrupt flags.
  *
- * <h2>Local recovery</h2>
- * <p>{@link #recoveryRequired()} reports whether the current session has failed.
- * {@link #recover()} replaces a failed session with a healthy one without waiting for
- * old workers to finish. It does nothing while healthy. Old calls remain failed, stop
- * retrying and cannot change the new session through late results or errors. The UUID
- * and request sequence are retained across recovery to avoid reusing request IDs
- * already registered on the server.
- *
- * <p>Recovery only resets this executor's local state. It does not restore the remote
- * node from a persistent snapshot or reset other proxies connected to the same node.
+ * <h2>Session lifecycle</h2>
+ * <p>The executor starts disconnected. A successful connection or recovery installs
+ * a server token and starts a new request sequence. Connection changes run outside the
+ * state lock, with new calls blocked until the transition finishes. Old workers retain
+ * their original token and cannot change the result or state of a newer session.
  */
 final class RemoteCallExecutor {
 
-    // Concurrent calls share this counter; retries keep their locally allocated ID.
-    private final AtomicLong idGenerator;
-    private final UUID proxyId = UUID.randomUUID();
     private final long timeout;
     private final LongSupplier nanoTime;
-    // Session state and pending call registration are protected by stateLock.
+    // Callers and workers access the session, transitions and pending calls under stateLock.
     private final Object stateLock = new Object();
-    private Session session = new Session();
+    private Session session;
+    private boolean transitioning;
+    private boolean disconnectPending;
 
     /**
-     * Creates an independent call session and request ID sequence.
+     * Creates a disconnected executor.
      *
      * @param timeout the retry timeout in milliseconds
      * @throws IllegalArgumentException if timeout is negative
@@ -107,7 +101,6 @@ final class RemoteCallExecutor {
      * @throws NullPointerException if the time source is null
      */
     RemoteCallExecutor(long timeout, LongSupplier nanoTime) {
-        this.idGenerator = new AtomicLong();
         if (timeout < 0) {
             throw new IllegalArgumentException("Negative timeout: " + timeout);
         }
@@ -122,25 +115,86 @@ final class RemoteCallExecutor {
      */
     boolean recoveryRequired() {
         synchronized (stateLock) {
-            return session.failure != null;
+            return session != null && session.failure != null && !disconnectPending;
         }
     }
 
-    /**
-     * Clears the local error so new calls can proceed. Does nothing while healthy.
-     * Old calls remain cancelled. This does not restore or change the remote node.
-     */
-    void recover() {
+    void connect(Supplier<UUID> open) {
         synchronized (stateLock) {
-            if (session.failure != null) {
-                session = new Session();
+            requireNoTransition();
+            if (session != null) {
+                throw new IllegalStateException("Proxy must be disconnected to connect");
+            }
+            transitioning = true;
+        }
+        openSession(open);
+    }
+
+    void recover(Function<UUID, UUID> renew) {
+        UUID previousToken;
+        synchronized (stateLock) {
+            requireNoTransition();
+            if (session == null || disconnectPending) {
+                throw new IllegalStateException("Proxy has no session to recover");
+            }
+            if (session.failure == null) {
+                return;
+            }
+            previousToken = session.token;
+            transitioning = true;
+        }
+        openSession(() -> renew.apply(previousToken));
+    }
+
+    void disconnect(Consumer<UUID> revoke) {
+        Session closing;
+        synchronized (stateLock) {
+            requireNoTransition();
+            if (session == null) {
+                return;
+            }
+            transitioning = true;
+            disconnectPending = true;
+            closing = session;
+            if (closing.failure == null) {
+                closing.failure = new NodeRecoveryRequiredException("Proxy is disconnecting");
+                cancelCalls(closing, null,
+                        new ConnectionUnavailableException("Connection unavailable: proxy is disconnecting", null));
+            }
+        }
+        boolean revoked = false;
+        try {
+            revoke.accept(closing.token);
+            revoked = true;
+        } finally {
+            synchronized (stateLock) {
+                if (revoked) {
+                    session = null;
+                    disconnectPending = false;
+                }
+                transitioning = false;
             }
         }
     }
 
-    private RequestId nextRequestId() {
-        long sequence = idGenerator.getAndUpdate(Math::incrementExact);
-        return new RequestId(proxyId, sequence);
+    private void openSession(Supplier<UUID> open) {
+        Session opened = null;
+        try {
+            opened = new Session(Objects.requireNonNull(open.get(), "session token"));
+        } finally {
+            synchronized (stateLock) {
+                if (opened != null) {
+                    session = opened;
+                }
+                transitioning = false;
+            }
+        }
+    }
+
+    private void requireNoTransition() {
+        if (transitioning) {
+            throw new IllegalStateException("A connection change is already in progress");
+        }
     }
 
     /**
@@ -173,10 +227,14 @@ final class RemoteCallExecutor {
     <T> T executeAndReturn(Function<RequestId, T> operation) {
         Call<T> call;
         synchronized (stateLock) {
+            if (transitioning || disconnectPending || session == null) {
+                throw new ConnectionUnavailableException("Connection unavailable: proxy has no usable session", null);
+            }
             if (session.failure != null) {
                 throw new ConnectionUnavailableException(session.failure);
             }
-            RequestId requestId = nextRequestId();
+            var requestId = new RequestId(session.token, session.nextSequence);
+            session.nextSequence = Math.incrementExact(session.nextSequence);
             call = new Call<>(session);
             session.calls.add(call);
             if (Thread.currentThread().isInterrupted()) {
@@ -247,22 +305,31 @@ final class RemoteCallExecutor {
                 return;
             }
             failedSession.failure = error;
-            for (Call<?> call : failedSession.calls) {
-                if (!call.result.isDone()) {
-                    call.result.completeExceptionally(call == failedCall
-                            ? error : new ConnectionUnavailableException(error));
-                    // Only private transport workers are interrupted, never application callers.
-                    if (call.worker != null && call.worker != Thread.currentThread()) {
-                        call.worker.interrupt();
-                    }
+            cancelCalls(failedSession, failedCall, new ConnectionUnavailableException(error));
+        }
+    }
+
+    private void cancelCalls(Session session, Call<?> failedCall, ConnectionUnavailableException unavailable) {
+        for (Call<?> call : session.calls) {
+            if (!call.result.isDone()) {
+                call.result.completeExceptionally(call == failedCall ? session.failure : unavailable);
+                // Only private transport workers are interrupted, never application callers.
+                if (call.worker != null && call.worker != Thread.currentThread()) {
+                    call.worker.interrupt();
                 }
             }
         }
     }
 
     private static final class Session {
+        private final UUID token;
         private final Set<Call<?>> calls = new HashSet<>();
+        private long nextSequence;
         private NodeRecoveryRequiredException failure;
+
+        private Session(UUID token) {
+            this.token = token;
+        }
     }
 
     private static final class Call<T> {

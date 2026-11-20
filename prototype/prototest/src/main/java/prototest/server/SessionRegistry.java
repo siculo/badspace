@@ -1,0 +1,111 @@
+package prototest.server;
+
+import prototest.api.RequestId;
+import prototest.api.errors.network.NodeRecoveryRequiredException;
+
+import java.time.Clock;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.function.Supplier;
+
+/** Keeps the sessions and their completed requests under the endpoint's lock. */
+final class SessionRegistry {
+    private final Map<UUID, Session> sessions = new HashMap<>();
+    private final long requestTimeout;
+    private final long sessionTimeout;
+    private final Clock clock;
+
+    SessionRegistry(long requestTimeout, long sessionTimeout, Clock clock) {
+        if (requestTimeout < 0 || sessionTimeout <= 0) {
+            throw new IllegalArgumentException("Invalid retention timeouts: " + requestTimeout + ", " + sessionTimeout);
+        }
+        this.requestTimeout = requestTimeout;
+        this.sessionTimeout = sessionTimeout;
+        this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    UUID open() {
+        var token = UUID.randomUUID();
+        sessions.put(token, new Session(clock.millis()));
+        return token;
+    }
+
+    void revoke(UUID token) {
+        sessions.remove(Objects.requireNonNull(token, "token"));
+    }
+
+    void revokeAll() {
+        sessions.clear();
+    }
+
+    void executeOnce(RequestId requestId, Runnable operation) {
+        executeOnceAndReturn(requestId, () -> {
+            operation.run();
+            return null;
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    <T> T executeOnceAndReturn(RequestId requestId, Supplier<T> operation) {
+        var token = requestId.sessionToken();
+        var session = sessions.get(token);
+        if (session == null || removeExpired(token, session, clock.millis())) {
+            throw new NodeRecoveryRequiredException("Session %s is unavailable".formatted(token));
+        }
+        long sequence = requestId.sequence();
+        if (sequence <= session.lastExpiredSequence) {
+            throw new NodeRecoveryRequiredException("Request %s expired".formatted(requestId));
+        }
+        var saved = session.requests.get(sequence);
+        if (saved != null) {
+            return (T) saved.result();
+        }
+        T result = operation.get();
+        session.requests.put(sequence, new Request(result, clock.millis()));
+        return result;
+    }
+
+    void removeExpired() {
+        long now = clock.millis();
+        sessions.values().removeIf(session -> isExpired(session, now));
+    }
+
+    private boolean removeExpired(UUID token, Session session, long now) {
+        if (!isExpired(session, now)) {
+            return false;
+        }
+        sessions.remove(token);
+        return true;
+    }
+
+    private boolean isExpired(Session session, long now) {
+        if (!session.requests.isEmpty()) {
+            var entries = session.requests.entrySet().iterator();
+            while (entries.hasNext()) {
+                var entry = entries.next();
+                if (now - entry.getValue().completedAt() > requestTimeout) {
+                    session.lastExpiredSequence = Math.max(session.lastExpiredSequence, entry.getKey());
+                    entries.remove();
+                }
+            }
+            if (session.requests.isEmpty()) {
+                session.emptySince = now;
+            }
+        }
+        return session.requests.isEmpty() && now - session.emptySince >= sessionTimeout;
+    }
+
+    private static final class Session {
+        private final Map<Long, Request> requests = new HashMap<>();
+        private long lastExpiredSequence = -1;
+        private long emptySince;
+
+        private Session(long openedAt) {
+            emptySince = openedAt;
+        }
+    }
+
+    private record Request(Object result, long completedAt) {}
+}

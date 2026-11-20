@@ -6,14 +6,14 @@ import prototest.server.ServerNodeNetworkInterface;
 
 import java.util.Objects;
 
-public class TestService implements Service {
+public class TestService implements Service, AutoCloseable {
 
     private final NodeServer referenceNodeServer;
     private final Service referenceService;
 
     private final NodeServer nodeServer;
     private final FakeNetworkInterface fakeNetworkInterface;
-    private final Node nodeProxy;
+    private final ServerNodeNetworkInterface endpoint;
     private final Service service;
 
     public TestService(long registryTimeout) {
@@ -21,10 +21,17 @@ public class TestService implements Service {
         referenceService = new ServiceClient(referenceNodeServer);
 
         nodeServer = new NodeServer();
-        fakeNetworkInterface = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(nodeServer, registryTimeout));
+        endpoint = new ServerNodeNetworkInterface(nodeServer, registryTimeout);
+        fakeNetworkInterface = FakeNetworkInterface.wrap(endpoint);
 
-        nodeProxy = new NodeProxy(fakeNetworkInterface.build(), registryTimeout);
+        var nodeProxy = new NodeProxy(fakeNetworkInterface.build(), registryTimeout);
+        nodeProxy.connect();
         service = new ServiceClient(nodeProxy);
+    }
+
+    @Override
+    public void close() {
+        endpoint.close();
     }
 
     public FakeNetworkInterface fakeNetworkInterface() {

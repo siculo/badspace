@@ -5,7 +5,7 @@ import prototest.api.NodeNetworkInterface;
 
 /**
  * Maps node operations to network calls through a dedicated remote call executor.
- * Instances support concurrent calls. Recovery only resets the local call state.
+ * Instances support concurrent calls after opening a session with the server.
  *
  * @see RemoteCallExecutor
  */
@@ -15,7 +15,7 @@ public class NodeProxy implements Node {
     private final RemoteCallExecutor calls;
 
     /**
-     * Creates a proxy with its own request IDs and recovery state.
+     * Creates a disconnected proxy.
      *
      * @param node the network endpoint
      * @param timeout the retry timeout in milliseconds
@@ -24,6 +24,14 @@ public class NodeProxy implements Node {
     public NodeProxy(NodeNetworkInterface node, long timeout) {
         this.node = node;
         this.calls = new RemoteCallExecutor(timeout);
+    }
+
+    /**
+     * Opens the initial session or reconnects after a confirmed disconnection.
+     * @throws IllegalStateException if the proxy is not disconnected or is changing its connection
+     */
+    public void connect() {
+        calls.connect(node::connect);
     }
 
     /**
@@ -36,11 +44,20 @@ public class NodeProxy implements Node {
     }
 
     /**
-     * Enables new calls after a failure without restoring the remote node.
-     * Does nothing while healthy. Old calls remain cancelled.
+     * Replaces the failed session with a new one from the server. Does nothing while healthy.
+     * @throws IllegalStateException if there is no session to recover or a connection change is in progress
      */
     public void recover() {
-        calls.recover();
+        calls.recover(node::recover);
+    }
+
+    /**
+     * Stops local calls and revokes the session on the server. Retry this operation
+     * if confirmation is lost. Does nothing if already disconnected.
+     * @throws IllegalStateException if a connection change is already in progress
+     */
+    public void disconnect() {
+        calls.disconnect(node::disconnect);
     }
 
     @Override

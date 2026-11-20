@@ -1,6 +1,7 @@
 package prototest.unreliablenetwork;
 
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import prototest.api.RequestId;
 import prototest.api.errors.network.NodeRecoveryRequiredException;
@@ -9,6 +10,7 @@ import prototest.proxy.FakeNetworkInterface;
 import prototest.proxy.NodeProxy;
 import prototest.server.NodeServer;
 import prototest.server.ServerNodeNetworkInterface;
+import prototest.server.TestEndpoints;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -30,6 +32,9 @@ import static prototest.proxy.FakeNetworkInterface.any;
  * with explicit delivery rules.
  */
 public class RetryTest {
+    @Rule
+    public final TestEndpoints endpoints = new TestEndpoints();
+
     private static final String PARTITION_NAME = "example";
     private static final Duration WAIT = Duration.ofSeconds(5);
 
@@ -39,7 +44,7 @@ public class RetryTest {
     @Before
     public void before() {
         server = new NodeServer();
-        network = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(server, 60000));
+        network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
     }
 
     /**
@@ -50,6 +55,7 @@ public class RetryTest {
     public void retriesOnRequestMissing() throws Exception {
         network.on(n -> n.createPartition(any(), any())).onFirstCall().dropRequest();
         var proxy = new NodeProxy(network.build(), 60000);
+        proxy.connect();
 
         proxy.createPartition(PARTITION_NAME);
 
@@ -73,6 +79,7 @@ public class RetryTest {
         FakeNetworkInterface.Selector partitionExists = n -> n.partitionExists(any(), any());
         network.on(partitionExists).onFirstCall().holdResponse();
         var proxy = new NodeProxy(network.build(), 60000);
+        proxy.connect();
         var callers = Executors.newSingleThreadExecutor();
         try {
             var result = callers.submit(() -> proxy.partitionExists(PARTITION_NAME));
@@ -105,10 +112,12 @@ public class RetryTest {
         long retentionMillis = 100;
         var now = new AtomicLong();
         InstantSource time = () -> Instant.ofEpochMilli(now.get());
-        var endpoint = new ServerNodeNetworkInterface(server, retentionMillis, time.withZone(ZoneOffset.UTC));
+        var endpoint = endpoints.track(
+                new ServerNodeNetworkInterface(server, retentionMillis, time.withZone(ZoneOffset.UTC)));
         FakeNetworkInterface.Selector write = n -> n.writeToPartition(any(), any(), any());
         var expiringNetwork = FakeNetworkInterface.wrap(endpoint).on(write).onFirstCall().holdResponse();
         var proxy = new NodeProxy(expiringNetwork.build(), 60000);
+        proxy.connect();
         server.createPartition(PARTITION_NAME);
 
         var callers = Executors.newSingleThreadExecutor();
@@ -148,6 +157,7 @@ public class RetryTest {
         network.on(n -> n.writeToPartition(any(), any(), any())).onFirstCall().dropResponse()
                 .on(n -> n.commitPartition(any(), any())).onFirstCall().dropResponse();
         var proxy = new NodeProxy(network.build(), 60000);
+        proxy.connect();
 
         proxy.writeToPartition(PARTITION_NAME, "content");
         proxy.commitPartition(PARTITION_NAME);
@@ -165,6 +175,7 @@ public class RetryTest {
     public void requiresNodeRecoveryAfterRetryTimeout() {
         network.on(n -> n.createPartition(any(), any())).onFirstCall().dropRequest();
         var proxy = new NodeProxy(network.build(), 0);
+        proxy.connect();
 
         var error = assertThrows(NodeRecoveryRequiredException.class,
                 () -> proxy.createPartition(PARTITION_NAME));
@@ -184,6 +195,7 @@ public class RetryTest {
         FakeNetworkInterface.Selector write = n -> n.writeToPartition(any(), any(), any());
         network.on(write).onFirstCall().deliver();
         var proxy = new NodeProxy(network.build(), 60000);
+        proxy.connect();
 
         assertThrows(PartitionNotFoundException.class,
                 () -> proxy.writeToPartition(PARTITION_NAME, "content"));
@@ -203,6 +215,7 @@ public class RetryTest {
         network.on(n -> n.createPartition(any(), any())).onFirstCall().dropRequest()
                 .on(n -> n.createPartition(any(), any())).onCall(2).dropResponse();
         var proxy = new NodeProxy(network.build(), 60000);
+        proxy.connect();
 
         proxy.createPartition(PARTITION_NAME);
 
@@ -217,13 +230,15 @@ public class RetryTest {
      */
     @Test
     public void retriesFromDifferentProxiesWithTheSameSequenceApplyEachWriteOnce() throws Exception {
-        var endpoint = new ServerNodeNetworkInterface(server, 60000);
+        var endpoint = endpoints.track(new ServerNodeNetworkInterface(server, 60000));
         var firstNetwork = FakeNetworkInterface.wrap(endpoint)
                 .on(n -> n.writeToPartition(any(), any(), any())).onFirstCall().dropResponse();
         var secondNetwork = FakeNetworkInterface.wrap(endpoint)
                 .on(n -> n.writeToPartition(any(), any(), any())).onFirstCall().dropResponse();
         var first = new NodeProxy(firstNetwork.build(), 60000);
+        first.connect();
         var second = new NodeProxy(secondNetwork.build(), 60000);
+        second.connect();
         server.createPartition("first");
         server.createPartition("second");
 

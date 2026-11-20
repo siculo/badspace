@@ -12,10 +12,21 @@ public class App {
 
     private static Service service;
 
-    static void main(String[] args) {
-        var networkInterface = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(2000)).build();
+    static void main(String[] args) throws InterruptedException {
+        try (var endpoint = new ServerNodeNetworkInterface(2000)) {
+            var network = FakeNetworkInterface.wrap(endpoint).build();
+            var proxy = new NodeProxy(network, 2000);
+            proxy.connect();
+            try {
+                runDemo(proxy);
+            } finally {
+                proxy.disconnect();
+            }
+        }
+    }
 
-        service = new ServiceClient(new NodeProxy(networkInterface, 2000));
+    private static void runDemo(NodeProxy proxy) throws InterruptedException {
+        service = new ServiceClient(proxy);
         service.create("ONE");
         service.create("TWO");
 
@@ -27,6 +38,10 @@ public class App {
         wr2.start();
         rd1.start();
         rd2.start();
+        wr1.join();
+        wr2.join();
+        rd1.join();
+        rd2.join();
     }
 
     static class WriterThread extends Thread {

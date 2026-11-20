@@ -2,37 +2,108 @@ package prototest.server;
 
 import prototest.api.NodeNetworkInterface;
 import prototest.api.RequestId;
+import prototest.api.errors.network.NodeRecoveryRequiredException;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
-public class ServerNodeNetworkInterface implements NodeNetworkInterface {
+/** Serializes session changes, request execution and installation of restored node state. */
+public class ServerNodeNetworkInterface implements NodeNetworkInterface, AutoCloseable {
+    private static final long DEFAULT_SESSION_TIMEOUT = Duration.ofMinutes(30).toMillis();
 
-    private final NodeServer nodeServer;
-    private final RequestsRegister requestsRegistery;
+    // Network calls and periodic cleanup share this endpoint's monitor.
+    private NodeServer nodeServer;
+    private final SessionRegistry sessions;
+    private final ScheduledExecutorService cleanup;
+    private boolean closed;
 
-    public ServerNodeNetworkInterface(NodeServer nodeServer, long registeryTimeout) {
-        this(nodeServer, registeryTimeout, Clock.systemUTC());
+    public ServerNodeNetworkInterface(NodeServer nodeServer, long requestTimeout) {
+        this(nodeServer, requestTimeout, Clock.systemUTC());
+    }
+
+    public ServerNodeNetworkInterface(NodeServer nodeServer, long requestTimeout, Clock clock) {
+        this(nodeServer, requestTimeout, DEFAULT_SESSION_TIMEOUT, clock);
+    }
+
+    public ServerNodeNetworkInterface(NodeServer nodeServer, long requestTimeout, long sessionTimeout) {
+        this(nodeServer, requestTimeout, sessionTimeout, Clock.systemUTC());
     }
 
     /**
-     * Creates a server endpoint with a clock for expiring saved results.
+     * Starts an endpoint and its periodic cleanup task.
      *
      * @param nodeServer the server that executes the requests
-     * @param registerTimeout the retention time for saved results in milliseconds
-     * @param clock the clock used to measure result age
+     * @param requestTimeout the retention time for saved results in milliseconds
+     * @param sessionTimeout the positive retention time for empty sessions in milliseconds
+     * @param clock the clock used to measure both retention times
      */
-    public ServerNodeNetworkInterface(NodeServer nodeServer, long registerTimeout, Clock clock) {
-        this.nodeServer = nodeServer;
-        requestsRegistery = new RequestsRegister(registerTimeout, clock);
+    public ServerNodeNetworkInterface(NodeServer nodeServer, long requestTimeout, long sessionTimeout, Clock clock) {
+        this.nodeServer = Objects.requireNonNull(nodeServer, "nodeServer");
+        sessions = new SessionRegistry(requestTimeout, sessionTimeout, clock);
+        cleanup = Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().name("session-cleanup").factory());
+        long cleanupInterval = Math.max(1, Math.min(requestTimeout, sessionTimeout));
+        cleanup.scheduleWithFixedDelay(this::removeExpiredSessions, cleanupInterval, cleanupInterval,
+                TimeUnit.MILLISECONDS);
     }
 
-    public ServerNodeNetworkInterface(long registeryTimeout) {
-        this(new NodeServer(), registeryTimeout);
+    public ServerNodeNetworkInterface(long requestTimeout) {
+        this(new NodeServer(), requestTimeout);
+    }
+
+    @Override
+    public synchronized UUID connect() {
+        requireOpen();
+        return sessions.open();
+    }
+
+    @Override
+    public synchronized UUID recover(UUID previousToken) {
+        requireOpen();
+        sessions.revoke(previousToken);
+        return sessions.open();
+    }
+
+    @Override
+    public synchronized void disconnect(UUID token) {
+        sessions.revoke(token);
+    }
+
+    /**
+     * Installs restored node state and revokes all current sessions before serving it.
+     * @param restoredServer the node whose state is ready to serve
+     */
+    public synchronized void restore(NodeServer restoredServer) {
+        requireOpen();
+        nodeServer = Objects.requireNonNull(restoredServer, "restoredServer");
+        sessions.revokeAll();
+    }
+
+    /** Stops cleanup and revokes all sessions. Further connections are rejected. */
+    @Override
+    public synchronized void close() {
+        closed = true;
+        sessions.revokeAll();
+        cleanup.shutdown();
+    }
+
+    private synchronized void removeExpiredSessions() {
+        sessions.removeExpired();
+    }
+
+    private void requireOpen() {
+        if (closed) {
+            throw new NodeRecoveryRequiredException("Server endpoint is closed");
+        }
     }
 
     @Override
     public synchronized void createPartition(RequestId requestId, String name) {
-        requestsRegistery.executeOnce(
+        sessions.executeOnce(
                 requestId,
                 () -> nodeServer.createPartition(name)
         );
@@ -40,7 +111,7 @@ public class ServerNodeNetworkInterface implements NodeNetworkInterface {
 
     @Override
     public synchronized void destroyPartition(RequestId requestId, String name) {
-        requestsRegistery.executeOnce(
+        sessions.executeOnce(
                 requestId,
                 () -> nodeServer.destroyPartition(name)
         );
@@ -48,7 +119,7 @@ public class ServerNodeNetworkInterface implements NodeNetworkInterface {
 
     @Override
     public synchronized boolean partitionExists(RequestId requestId, String name) {
-        return requestsRegistery.executeOnceAndReturn(
+        return sessions.executeOnceAndReturn(
                 requestId,
                 () -> nodeServer.partitionExists(name)
         );
@@ -56,23 +127,23 @@ public class ServerNodeNetworkInterface implements NodeNetworkInterface {
 
     @Override
     public synchronized void writeToPartition(RequestId requestId, String name, String data) {
-        requestsRegistery.executeOnce(
+        sessions.executeOnce(
                 requestId,
                 () -> nodeServer.writeToPartition(name, data)
         );
     }
 
     @Override
-    public void commitPartition(RequestId requestId, String name) {
-        requestsRegistery.executeOnce(
+    public synchronized void commitPartition(RequestId requestId, String name) {
+        sessions.executeOnce(
                 requestId,
                 () -> nodeServer.commitPartition(name)
         );
     }
 
     @Override
-    public String readPartitionSnapshot(RequestId requestId, String name) {
-        return requestsRegistery.executeOnceAndReturn(
+    public synchronized String readPartitionSnapshot(RequestId requestId, String name) {
+        return sessions.executeOnceAndReturn(
                 requestId,
                 () -> nodeServer.readPartitionSnapshot(name)
         );

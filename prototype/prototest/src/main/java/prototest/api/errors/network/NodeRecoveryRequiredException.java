@@ -7,7 +7,7 @@ package prototest.api.errors.network;
  * failure as their cause, without waiting for the transport to finish.
  *
  * <p>This error does not prove that the operation had no effect on the server.
- * Recovering the proxy clears only its local error state; it does not restore the node.
+ * Recovering the proxy replaces its session on the server. Node state is restored separately.
  */
 public class NodeRecoveryRequiredException extends CommunicationException {
     /**

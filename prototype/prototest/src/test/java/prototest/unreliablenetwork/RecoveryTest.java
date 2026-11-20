@@ -1,5 +1,6 @@
 package prototest.unreliablenetwork;
 
+import org.junit.Rule;
 import org.junit.Test;
 import prototest.api.RequestId;
 import prototest.api.errors.network.ConnectionUnavailableException;
@@ -8,6 +9,7 @@ import prototest.proxy.FakeNetworkInterface;
 import prototest.proxy.NodeProxy;
 import prototest.server.NodeServer;
 import prototest.server.ServerNodeNetworkInterface;
+import prototest.server.TestEndpoints;
 
 import java.time.Duration;
 import java.util.List;
@@ -29,6 +31,9 @@ import static prototest.proxy.FakeNetworkInterface.eq;
  * do not depend on machine speed.
  */
 public class RecoveryTest {
+    @Rule
+    public final TestEndpoints endpoints = new TestEndpoints();
+
     private static final Duration WAIT = Duration.ofSeconds(5);
     private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(any(), any());
 
@@ -42,9 +47,10 @@ public class RecoveryTest {
     @Test
     public void aLostResponseRequiresRecoveryAndBlocksAllNodeOperations() {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(server, 60000));
+        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
         network.on(n -> n.createPartition(any(), any())).onFirstCall().dropResponse();
         var proxy = new NodeProxy(network.build(), 0);
+        proxy.connect();
 
         var failure = assertThrows(NodeRecoveryRequiredException.class,
                 () -> proxy.createPartition("created"));
@@ -78,7 +84,8 @@ public class RecoveryTest {
     @Test
     public void interruptionPreservesTheFlagAndRequiresRecovery() {
         var server = new NodeServer();
-        var proxy = new NodeProxy(FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(server, 60000)).build(), 1000);
+        var proxy = new NodeProxy(FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000))).build(), 1000);
+        proxy.connect();
         try {
             Thread.currentThread().interrupt();
             assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("blocked"));
@@ -99,9 +106,10 @@ public class RecoveryTest {
     @Test
     public void recoveryAllowsNewCallsWithoutReusingRequestIds() {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(new ServerNodeNetworkInterface(server, 60000));
+        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
         network.on(n -> n.createPartition(any(), any())).onFirstCall().dropResponse();
         var proxy = new NodeProxy(network.build(), 0);
+        proxy.connect();
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("present"));
         assertTrue(proxy.recoveryRequired());
 
@@ -152,11 +160,11 @@ public class RecoveryTest {
      *
      * @param dropResponse whether the held response is lost instead of delivered
      */
-    private static void verifyHeldResponseAfterRecovery(boolean dropResponse) throws Exception {
+    private void verifyHeldResponseAfterRecovery(boolean dropResponse) throws Exception {
         var server = new NodeServer();
         var transport = new AtomicReference<Thread>();
         var oldAttempts = new AtomicInteger();
-        var endpoint = new ServerNodeNetworkInterface(server, 60000) {
+        var endpoint = endpoints.track(new ServerNodeNetworkInterface(server, 60000) {
             @Override
             public void createPartition(RequestId requestId, String name) {
                 if (name.equals("old")) {
@@ -165,11 +173,12 @@ public class RecoveryTest {
                 }
                 super.createPartition(requestId, name);
             }
-        };
+        });
         var network = FakeNetworkInterface.wrap(endpoint)
                 .on(n -> n.createPartition(any(), eq("old"))).onFirstCall().holdResponse()
                 .on(n -> n.createPartition(any(), eq("fail"))).dropRequest();
         var proxy = new NodeProxy(network.build(), 0);
+        proxy.connect();
         var workers = Executors.newSingleThreadExecutor();
         try {
             var pending = workers.submit(() -> {

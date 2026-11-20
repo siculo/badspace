@@ -10,7 +10,7 @@ tra il proxy reale e l'adattatore reale del server:
 +-------------+     +----------------------+     +-----------------------------+
 |  NodeProxy  |---->| FakeNetworkInterface |---->| ServerNodeNetworkInterface  |
 +-------------+     +----------------------+     +-----------------------------+
-                      perde o trattiene             registro delle richieste
+                      perde o trattiene             registro delle sessioni
                       singoli messaggi              e NodeServer
 ```
 
@@ -22,9 +22,10 @@ fa avanzare l'orologio del registro mentre la prima risposta è trattenuta.
 
 ## Stato del proxy
 
-I test controllano lo stato del proxy dopo ogni scenario. Il proxy resta
-usabile finché un errore non rende incerto l'esito di una chiamata; da quel
-momento rifiuta tutte le operazioni fino a `recover()`.
+I test controllano lo stato del proxy dopo ogni scenario. Il proxy diventa
+usabile dopo `connect()`. Un errore irrecuperabile blocca le operazioni
+fino al successo di `recover()`. `disconnect()` blocca subito le operazioni
+e, quando il server conferma la revoca, permette un nuovo `connect()`.
 
 ```text
     errore del servizio
@@ -40,8 +41,9 @@ momento rifiuta tutte le operazioni fino a `recover()`.
             +---------------------------------------------------------+
 ```
 
-Il diagramma riguarda solo lo stato locale del proxy: `recover()` non
-ripristina il nodo remoto e non annulla gli effetti già applicati dal server.
+Il diagramma mostra le transizioni dopo il primo collegamento. `recover()`
+revoca la vecchia sessione sul server e ne apre un'altra. Gli effetti già
+applicati restano sul nodo.
 
 ## Retry: `RetryTest`
 
@@ -97,6 +99,11 @@ stato del proxy    usabile        da recuperare  usabile
 
 ## Test collegati
 
+- `prototest.unreliablenetwork.SessionLifecycleTest` ritarda o perde le
+  conferme delle transizioni e consegna richieste rimaste in transito dopo
+  revoca, scadenza e ripristino.
+- `prototest.server.SessionRegistryTest` controlla la scadenza di risultati
+  e sessioni con un orologio controllabile e verifica la pulizia periodica.
 - `prototest.proxy.RemoteCallExecutorTest`: con un tempo monotono controllato,
   l'esecutore ritenta prima della scadenza e si ferma quando il timeout è raggiunto.
 - `prototest.proxy.NodeProxyRecoveryTest`: errori finali prodotti direttamente
