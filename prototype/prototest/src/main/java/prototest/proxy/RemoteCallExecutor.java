@@ -156,7 +156,7 @@ final class RemoteCallExecutor {
                 boolean consistent = repair.getAsBoolean();
                 synchronized (stateLock) {
                     if (renewed.failure != null) {
-                        throw renewed.failure;
+                        throw new NodeRecoveryRequiredException("Node repair ignored a failed call", renewed.failure);
                     }
                     if (!consistent) {
                         renewed.failure = new NodeRecoveryRequiredException("Node repair is incomplete");

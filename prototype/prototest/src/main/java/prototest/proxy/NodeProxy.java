@@ -2,6 +2,7 @@ package prototest.proxy;
 
 import prototest.api.Node;
 import prototest.api.NodeNetworkInterface;
+import prototest.api.errors.network.NodeRecoveryRequiredException;
 
 import java.util.Objects;
 import java.util.function.Predicate;
@@ -62,11 +63,14 @@ public class NodeProxy implements Node {
      * need separate coordination. If repair fails, repeat with a repair that
      * can start from partially restored state. Errors from renewal and repair
      * reach the caller and leave recovery required.
+     * The repair must rethrow any call error that requires recovery.
      *
      * @param repair synchronous repair that returns true when the node state is consistent
      * @return true if already healthy or repair succeeded, false if repair reports
      *         that more work is needed
      * @throws IllegalStateException if there is no session to recover or a connection change is in progress
+     * @throws NodeRecoveryRequiredException if a call fails and leaves recovery required,
+     *         even if the repair catches the error and returns false
      */
     public boolean recover(Predicate<Node> repair) {
         Objects.requireNonNull(repair, "repair");

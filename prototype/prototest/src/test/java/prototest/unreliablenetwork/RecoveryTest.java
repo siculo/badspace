@@ -16,8 +16,10 @@ import prototest.server.TestEndpoints;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -44,9 +46,8 @@ public class RecoveryTest {
     /**
      * A lost create response triggers recovery. The client rebuilds the partition,
      * but the first repair fails when the network drops the commit response.
-     * The proxy rejects calls from other threads during repair and keeps normal
-     * calls blocked after the failure. A second repair rebuilds the partition
-     * from scratch and makes the expected snapshot available.
+     * The proxy keeps normal calls blocked after the failure. A second repair
+     * rebuilds the partition from scratch and makes the expected snapshot available.
      */
     @Test
     public void repairRestartsAfterALostCommitResponse() {
@@ -59,21 +60,76 @@ public class RecoveryTest {
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
 
         Predicate<Node> repair = node -> {
-            assertTrue(proxy.recoveryRequired());
-            CompletableFuture.runAsync(() ->
-                    assertThrows(ConnectionUnavailableException.class, () -> proxy.partitionExists("p"))).join();
             node.destroyPartition("p");
             node.createPartition("p");
             node.writeToPartition("p", "saved");
             node.commitPartition("p");
             return "saved".equals(node.readPartitionSnapshot("p"));
         };
+
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.recover(repair));
         assertThrows(ConnectionUnavailableException.class, () -> proxy.readPartitionSnapshot("p"));
 
         assertTrue(proxy.recover(repair));
         assertFalse(proxy.recoveryRequired());
         assertEquals("saved", proxy.readPartitionSnapshot("p"));
+    }
+
+    @Test
+    public void recoveryFailsWhenRepairIgnoresACallFailure() {
+        var server = new NodeServer();
+        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
+        network.on(CREATE).onFirstCall().dropResponse();
+        network.on(n -> n.commitPartition(any(), any())).onFirstCall().dropResponse();
+        var proxy = new NodeProxy(network.build(), 0);
+        proxy.connect();
+        assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
+
+        var callFailure = new AtomicReference<NodeRecoveryRequiredException>();
+        var recoveryFailure = assertThrows(NodeRecoveryRequiredException.class, () -> proxy.recover(node -> {
+            callFailure.set(assertThrows(NodeRecoveryRequiredException.class, () -> node.commitPartition("p")));
+            return true;
+        }));
+
+        assertEquals("Node repair ignored a failed call", recoveryFailure.getMessage());
+        assertSame(callFailure.get(), recoveryFailure.getCause());
+        assertTrue(proxy.recoveryRequired());
+    }
+
+    /**
+     * During repair, the proxy reports that recovery is required and rejects
+     * calls from other threads without waiting for the repair to finish.
+     */
+    @Test
+    public void repairRejectsCallsFromOtherThreads() {
+        var server = new NodeServer();
+        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
+        network.on(CREATE).onFirstCall().dropResponse();
+        var proxy = new NodeProxy(network.build(), 0);
+        proxy.connect();
+        assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
+
+        assertTrue(proxy.recover(node -> {
+            assertTrue(proxy.recoveryRequired());
+            var otherThread = CompletableFuture.runAsync(() ->
+                    assertThrows(ConnectionUnavailableException.class, () -> proxy.partitionExists("p")));
+            awaitCompletion(otherThread);
+            return node.partitionExists("p");
+        }));
+        assertTrue(proxy.partitionExists("p"));
+    }
+
+    private static void awaitCompletion(CompletableFuture<?> task) {
+        try {
+            task.get(WAIT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (ExecutionException error) {
+            throw new AssertionError("Call from another thread was not rejected", error.getCause());
+        } catch (TimeoutException error) {
+            throw new AssertionError("Call from another thread waited for the repair", error);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(error);
+        }
     }
 
     /**

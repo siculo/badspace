@@ -46,12 +46,8 @@ conserva i risultati delle sole operazioni riuscite.
 
 Il timeout del proxy lascia incerto l'esito dell'operazione. Il rinnovo
 della sessione blocca le vecchie richieste ancora in transito dal momento
-della revoca. Il server conserva gli effetti già applicati. Per simulare
-il ripristino, l'endpoint può installare un altro `NodeServer` già pronto.
-Nella stessa sezione critica revoca tutti i token e sostituisce il nodo.
-Una richiesta porta sempre il suo token originale, quindi viene respinta
-se arriva dopo il ripristino. L'esperimento usa uno stato fornito dal
-chiamante per simulare il caricamento da uno snapshot.
+della revoca. Il server conserva gli effetti già applicati, che il client
+può correggere con `recover(repair)`.
 
 Se una sessione inattiva scade, la prima chiamata riceve
 `SessionUnavailableException`: il server ha respinto quel tentativo prima
@@ -62,12 +58,16 @@ il nodo. Anche le altre chiamate pendenti possono avere avuto effetto.
 
 Con `recover(repair)` il client rinnova il token e usa le operazioni di
 `Node` sul thread chiamante. Gli altri thread dello stesso proxy restano
-bloccati all'ammissione (ricevono un errore immediato). La funzione di riparazione restituisce
-`true` quando il client conferma la consistenza, oppure `false` se serve
-ancora intervenire. Il proxy restituisce lo stesso valore e riapre le
-operazioni solo con `true`. Se era già operativo, restituisce `true` senza
-invocare la funzione. Dopo `false` o un'eccezione, il client può ripetere `recover(repair)` partendo dagli effetti
-già applicati. Gli altri proxy vanno coordinati dal client.
+esclusi e ricevono un errore immediato. La funzione di riparazione
+restituisce `true` quando il client conferma la consistenza, oppure
+`false` se serve ancora intervenire. Il proxy restituisce lo stesso
+valore e riapre le operazioni solo dopo una riparazione riuscita. Se era
+già operativo, restituisce `true` senza invocare la funzione. La
+riparazione deve propagare ogni errore di chiamata che richiede recupero.
+Se lo intercetta e restituisce un valore, `recover(repair)` solleva
+comunque un'eccezione. Dopo `false` o un'eccezione, il client può ripetere
+`recover(repair)` partendo dagli effetti già applicati. Gli altri proxy
+vanno coordinati dal client.
 
 Per esempio, con accesso esclusivo e una copia dello stato atteso, il
 client può eliminare una partizione nota, ricrearla, riscrivere lo snapshot,

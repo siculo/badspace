@@ -6,6 +6,7 @@ import prototest.api.RequestId;
 import prototest.api.errors.network.ConnectionUnavailableException;
 import prototest.api.errors.network.NodeRecoveryRequiredException;
 import prototest.api.errors.network.RetryableCommunicationException;
+import prototest.api.errors.network.SessionUnavailableException;
 import prototest.proxy.FakeNetworkInterface;
 import prototest.proxy.NodeProxy;
 import prototest.server.NodeServer;
@@ -156,6 +157,25 @@ public class SessionLifecycleTest {
     }
 
     @Test
+    public void anIdleProxyCanRenewAfterItsFirstAttemptIsRejected() {
+        var now = new AtomicLong();
+        InstantSource time = () -> Instant.ofEpochMilli(now.get());
+        var server = new NodeServer();
+        long sessionTimeout = 1000;
+        try (var endpoint = new ServerNodeNetworkInterface(server, 1000, sessionTimeout,
+                time.withZone(ZoneOffset.UTC))) {
+            var proxy = new NodeProxy(endpoint, 0);
+            proxy.connect();
+            now.set(sessionTimeout);
+            assertThrows(SessionUnavailableException.class, () -> proxy.createPartition("p"));
+            assertFalse(server.partitionExists("p"));
+            proxy.recover();
+            proxy.createPartition("p");
+            assertTrue(proxy.partitionExists("p"));
+        }
+    }
+
+    @Test
     public void anExpiredSessionRejectsARequestThatWasStillInTransit() throws Exception {
         var now = new AtomicLong();
         InstantSource time = () -> Instant.ofEpochMilli(now.get());
@@ -163,44 +183,27 @@ public class SessionLifecycleTest {
         long sessionTimeout = 1000;
         try (var endpoint = new ServerNodeNetworkInterface(server, 1000, sessionTimeout,
                 time.withZone(ZoneOffset.UTC))) {
-            verifyRequestRejectedAfterInvalidation(endpoint, () -> now.set(sessionTimeout), server);
-        }
-    }
+            var network = FakeNetworkInterface.wrap(endpoint).on(OLD_CREATE).holdRequest();
+            var node = network.build();
+            var token = node.connect();
+            try (var workers = Executors.newVirtualThreadPerTaskExecutor()) {
+                try {
+                    var pending = workers.submit(() -> node.createPartition(new RequestId(token, 0), "old"));
+                    var old = network.awaitAttempt(OLD_CREATE, 1, WAIT);
+                    old.request().awaitArrival(WAIT);
+                    now.set(sessionTimeout);
+                    old.request().deliver();
+                    assertTrue(failureOf(pending) instanceof SessionUnavailableException);
+                    assertFalse(server.partitionExists("old"));
 
-    @Test
-    public void aRestoredServerRejectsARequestThatWasStillInTransit() throws Exception {
-        var original = new NodeServer();
-        var restored = new NodeServer();
-        try (var endpoint = new ServerNodeNetworkInterface(original, 60000)) {
-            verifyRequestRejectedAfterInvalidation(endpoint, () -> endpoint.restore(restored), restored);
-            assertFalse(original.partitionExists("old"));
-            assertFalse(original.partitionExists("new"));
-        }
-    }
-
-    private static void verifyRequestRejectedAfterInvalidation(ServerNodeNetworkInterface endpoint,
-                                                                Runnable invalidate, NodeServer active)
-            throws Exception {
-        var network = FakeNetworkInterface.wrap(endpoint).on(OLD_CREATE).holdRequest();
-        var node = network.build();
-        var token = node.connect();
-        try (var workers = Executors.newVirtualThreadPerTaskExecutor()) {
-            try {
-                var pending = workers.submit(() -> node.createPartition(new RequestId(token, 0), "old"));
-                var old = network.awaitAttempt(OLD_CREATE, 1, WAIT);
-                old.request().awaitArrival(WAIT);
-                invalidate.run();
-                old.request().deliver();
-                assertTrue(failureOf(pending) instanceof NodeRecoveryRequiredException);
-                assertFalse(active.partitionExists("old"));
-
-                var renewed = node.recover(token);
-                assertNotEquals(token, renewed);
-                node.createPartition(new RequestId(renewed, 0), "new");
-                assertTrue(active.partitionExists("new"));
-                network.assertAllRulesUsedAndCallsFinished();
-            } finally {
-                network.releaseHeldMessages();
+                    var renewed = node.recover(token);
+                    assertNotEquals(token, renewed);
+                    node.createPartition(new RequestId(renewed, 0), "new");
+                    assertTrue(server.partitionExists("new"));
+                    network.assertAllRulesUsedAndCallsFinished();
+                } finally {
+                    network.releaseHeldMessages();
+                }
             }
         }
     }

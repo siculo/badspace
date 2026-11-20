@@ -12,12 +12,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/** Serializes session changes, request execution and installation of restored node state. */
+/** Serializes session changes and request execution. */
 public class ServerNodeNetworkInterface implements NodeNetworkInterface, AutoCloseable {
     private static final long DEFAULT_SESSION_TIMEOUT = Duration.ofMinutes(30).toMillis();
 
     // Network calls and periodic cleanup share this endpoint's monitor.
-    private NodeServer nodeServer;
+    private final NodeServer nodeServer;
     private final SessionRegistry sessions;
     private final ScheduledExecutorService cleanup;
     private boolean closed;
@@ -71,16 +71,6 @@ public class ServerNodeNetworkInterface implements NodeNetworkInterface, AutoClo
     @Override
     public synchronized void disconnect(UUID token) {
         sessions.revoke(token);
-    }
-
-    /**
-     * Installs restored node state and revokes all current sessions before serving it.
-     * @param restoredServer the node whose state is ready to serve
-     */
-    public synchronized void restore(NodeServer restoredServer) {
-        requireOpen();
-        nodeServer = Objects.requireNonNull(restoredServer, "restoredServer");
-        sessions.revokeAll();
     }
 
     /** Stops cleanup and revokes all sessions. Further connections are rejected. */

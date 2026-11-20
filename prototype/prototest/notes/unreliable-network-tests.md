@@ -101,7 +101,8 @@ stato del proxy    usabile        da recuperare  usabile
 
 - `prototest.unreliablenetwork.SessionLifecycleTest` ritarda o perde le
   conferme delle transizioni e consegna richieste rimaste in transito dopo
-  revoca, scadenza e ripristino.
+  revoca o scadenza. Verifica anche che un proxy inattivo possa rinnovare la
+  sessione dopo il rifiuto al primo tentativo.
 - `prototest.server.SessionRegistryTest` controlla la scadenza di risultati
   e sessioni con un orologio controllabile e verifica la pulizia periodica.
 - `prototest.proxy.RemoteCallExecutorTest`: con un tempo monotono controllato,
