@@ -75,6 +75,12 @@ public class RecoveryTest {
         assertEquals("saved", proxy.readPartitionSnapshot("p"));
     }
 
+    /**
+     * A lost create response triggers recovery. During repair the network drops
+     * the commit response, and the repair catches the error and returns true.
+     * Recovery still fails with a new error whose cause is the ignored call
+     * failure, and the proxy still requires recovery.
+     */
     @Test
     public void recoveryFailsWhenRepairIgnoresACallFailure() {
         var server = new NodeServer();

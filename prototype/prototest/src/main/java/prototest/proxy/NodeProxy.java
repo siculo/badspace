@@ -70,7 +70,7 @@ public class NodeProxy implements Node {
      *         that more work is needed
      * @throws IllegalStateException if there is no session to recover or a connection change is in progress
      * @throws NodeRecoveryRequiredException if a call fails and leaves recovery required,
-     *         even if the repair catches the error and returns false
+     *         even if the repair catches the error and returns a value
      */
     public boolean recover(Predicate<Node> repair) {
         Objects.requireNonNull(repair, "repair");
