@@ -69,10 +69,18 @@ final class SessionRegistry {
 
     void removeExpired() {
         long now = clock.millis();
-        sessions.values().removeIf(session -> isExpired(session, now));
+        var entries = sessions.values().iterator();
+        while (entries.hasNext()) {
+            var session = entries.next();
+            removeExpiredRequests(session, now);
+            if (isExpired(session, now)) {
+                entries.remove();
+            }
+        }
     }
 
     private boolean removeExpired(UUID token, Session session, long now) {
+        removeExpiredRequests(session, now);
         if (!isExpired(session, now)) {
             return false;
         }
@@ -80,20 +88,24 @@ final class SessionRegistry {
         return true;
     }
 
-    private boolean isExpired(Session session, long now) {
-        if (!session.requests.isEmpty()) {
-            var entries = session.requests.entrySet().iterator();
-            while (entries.hasNext()) {
-                var entry = entries.next();
-                if (now - entry.getValue().completedAt() > requestTimeout) {
-                    session.lastExpiredSequence = Math.max(session.lastExpiredSequence, entry.getKey());
-                    entries.remove();
-                }
-            }
-            if (session.requests.isEmpty()) {
-                session.emptySince = now;
+    private void removeExpiredRequests(Session session, long now) {
+        if (session.requests.isEmpty()) {
+            return;
+        }
+        var entries = session.requests.entrySet().iterator();
+        while (entries.hasNext()) {
+            var entry = entries.next();
+            if (now - entry.getValue().completedAt() > requestTimeout) {
+                session.lastExpiredSequence = Math.max(session.lastExpiredSequence, entry.getKey());
+                entries.remove();
             }
         }
+        if (session.requests.isEmpty()) {
+            session.emptySince = now;
+        }
+    }
+
+    private boolean isExpired(Session session, long now) {
         return session.requests.isEmpty() && now - session.emptySince >= sessionTimeout;
     }
 

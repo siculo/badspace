@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.Assert.*;
 
 /**
- * Checks that requests from different proxies keep separate results and
+ * Checks that requests from different sessions keep separate results and
  * separate expiration limits, also when they arrive out of order.
  *
  * <p>Uses a controlled clock, so no test waits for real time.
@@ -24,71 +24,71 @@ import static org.junit.Assert.*;
 public class SessionRegistryTest {
 
     @Test
-    public void expirationOfOneProxyDoesNotRejectAnotherProxysLowerSequence() {
+    public void expirationInOneSessionDoesNotRejectAnotherSessionsLowerSequence() {
         var clock = new TestClock();
-        var register = new SessionRegistry(100, 2000, clock);
-        var firstToken = register.open();
-        var secondToken = register.open();
+        var registry = new SessionRegistry(100, 2000, clock);
+        var firstToken = registry.open();
+        var secondToken = registry.open();
         var expired = new RequestId(firstToken, 20);
-        register.executeOnce(expired, () -> {});
+        registry.executeOnce(expired, () -> {});
         clock.now = 101;
-        register.executeOnce(new RequestId(firstToken, 21), () -> {});
+        registry.executeOnce(new RequestId(firstToken, 21), () -> {});
 
-        String result = register.executeOnceAndReturn(new RequestId(secondToken, 0), () -> "accepted");
+        String result = registry.executeOnceAndReturn(new RequestId(secondToken, 0), () -> "accepted");
 
         assertEquals("accepted", result);
         assertThrows(NodeRecoveryRequiredException.class,
-                () -> register.executeOnce(expired, () -> fail("Expired request ran again")));
+                () -> registry.executeOnce(expired, () -> fail("Expired request ran again")));
     }
 
     @Test
-    public void anotherProxyDoesNotHideTheExpirationLimit() {
+    public void anotherSessionDoesNotHideTheExpirationLimit() {
         var clock = new TestClock();
-        var register = new SessionRegistry(100, 2000, clock);
-        var firstToken = register.open();
-        var secondToken = register.open();
+        var registry = new SessionRegistry(100, 2000, clock);
+        var firstToken = registry.open();
+        var secondToken = registry.open();
         var first = new RequestId(firstToken, 20);
         var second = new RequestId(secondToken, 0);
-        register.executeOnce(first, () -> {});
+        registry.executeOnce(first, () -> {});
         clock.now = 101;
-        register.executeOnce(second, () -> {});
+        registry.executeOnce(second, () -> {});
         clock.now = 202;
-        register.executeOnce(new RequestId(secondToken, 1), () -> {});
+        registry.executeOnce(new RequestId(secondToken, 1), () -> {});
 
         assertThrows(NodeRecoveryRequiredException.class,
-                () -> register.executeOnce(first, () -> fail("Expired request ran again")));
+                () -> registry.executeOnce(first, () -> fail("Expired request ran again")));
         assertThrows(NodeRecoveryRequiredException.class,
-                () -> register.executeOnce(second, () -> fail("Expired request ran again")));
+                () -> registry.executeOnce(second, () -> fail("Expired request ran again")));
     }
 
     @Test
     public void generationOrderDoesNotRequireTheSameArrivalOrderBeforeExpiration() {
-        var register = new SessionRegistry(100, 2000, new TestClock());
-        var firstToken = register.open();
+        var registry = new SessionRegistry(100, 2000, new TestClock());
+        var firstToken = registry.open();
         var newer = new RequestId(firstToken, 1);
         var older = new RequestId(firstToken, 0);
 
-        assertEquals("newer", register.executeOnceAndReturn(newer, () -> "newer"));
-        assertEquals("older", register.executeOnceAndReturn(older, () -> "older"));
-        assertEquals("older", register.executeOnceAndReturn(older, () -> {
+        assertEquals("newer", registry.executeOnceAndReturn(newer, () -> "newer"));
+        assertEquals("older", registry.executeOnceAndReturn(older, () -> "older"));
+        assertEquals("older", registry.executeOnceAndReturn(older, () -> {
             throw new AssertionError("Duplicate request ran again");
         }));
     }
 
     @Test
-    public void resultsAreRetainedSeparatelyForEachProxy() {
-        var register = new SessionRegistry(100, 2000, new TestClock());
-        var firstToken = register.open();
-        var secondToken = register.open();
+    public void resultsAreRetainedSeparatelyForEachSession() {
+        var registry = new SessionRegistry(100, 2000, new TestClock());
+        var firstToken = registry.open();
+        var secondToken = registry.open();
         var first = new RequestId(firstToken, 0);
         var second = new RequestId(secondToken, 0);
 
-        assertEquals("first", register.executeOnceAndReturn(first, () -> "first"));
-        assertEquals("second", register.executeOnceAndReturn(second, () -> "second"));
-        assertEquals("first", register.executeOnceAndReturn(first, () -> {
+        assertEquals("first", registry.executeOnceAndReturn(first, () -> "first"));
+        assertEquals("second", registry.executeOnceAndReturn(second, () -> "second"));
+        assertEquals("first", registry.executeOnceAndReturn(first, () -> {
             throw new AssertionError("Duplicate request ran again");
         }));
-        assertEquals("second", register.executeOnceAndReturn(second, () -> {
+        assertEquals("second", registry.executeOnceAndReturn(second, () -> {
             throw new AssertionError("Duplicate request ran again");
         }));
     }
@@ -96,36 +96,36 @@ public class SessionRegistryTest {
     @Test
     public void sessionTimeoutBeginsWhenTheLastResultIsRemoved() {
         var clock = new TestClock();
-        var register = new SessionRegistry(100, 200, clock);
-        var token = register.open();
-        register.executeOnce(new RequestId(token, 0), () -> {});
+        var registry = new SessionRegistry(100, 200, clock);
+        var token = registry.open();
+        registry.executeOnce(new RequestId(token, 0), () -> {});
         clock.now = 50;
-        register.executeOnce(new RequestId(token, 1), () -> {});
+        registry.executeOnce(new RequestId(token, 1), () -> {});
 
         clock.now = 101;
-        register.removeExpired();
+        registry.removeExpired();
         clock.now = 250;
-        register.removeExpired();
+        registry.removeExpired();
 
         clock.now = 449;
         assertThrows(NodeRecoveryRequiredException.class,
-                () -> register.executeOnce(new RequestId(token, 1), () -> fail("Expired request ran again")));
+                () -> registry.executeOnce(new RequestId(token, 1), () -> fail("Expired request ran again")));
         clock.now = 450;
         var error = assertThrows(NodeRecoveryRequiredException.class,
-                () -> register.executeOnce(new RequestId(token, 2), () -> fail("Expired session ran a new request")));
+                () -> registry.executeOnce(new RequestId(token, 2), () -> fail("Expired session ran a new request")));
         assertEquals("Session %s is unavailable".formatted(token), error.getMessage());
     }
 
     @Test
     public void aNewRequestKeepsAnIdleSessionOpen() {
         var clock = new TestClock();
-        var register = new SessionRegistry(100, 200, clock);
-        var token = register.open();
+        var registry = new SessionRegistry(100, 200, clock);
+        var token = registry.open();
 
         clock.now = 199;
-        register.executeOnce(new RequestId(token, 0), () -> {});
+        registry.executeOnce(new RequestId(token, 0), () -> {});
         clock.now = 200;
-        assertEquals("accepted", register.executeOnceAndReturn(new RequestId(token, 1), () -> "accepted"));
+        assertEquals("accepted", registry.executeOnceAndReturn(new RequestId(token, 1), () -> "accepted"));
     }
 
     @Test

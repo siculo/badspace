@@ -52,8 +52,9 @@ public class NodeProxy implements Node {
     }
 
     /**
-     * Stops local calls and revokes the session on the server. Retry this operation
-     * if confirmation is lost. Does nothing if already disconnected.
+     * Stops local calls and revokes the session on the server. Once disconnection
+     * succeeds, call {@link #connect()} to resume using the proxy. If confirmation
+     * is lost, retry this operation first. Does nothing if already disconnected.
      * @throws IllegalStateException if a connection change is already in progress
      */
     public void disconnect() {

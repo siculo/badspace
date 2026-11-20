@@ -4,9 +4,14 @@ package prototest.api.errors.network;
  * A call cannot continue because its proxy has no usable session. Pending calls
  * receive this error without waiting for the transport to finish.
  *
- * <p>The cause is the original error that made the session fail. As a
- * {@link NodeRecoveryRequiredException}, this error can be handled together with
- * other failures that require recovery.
+ * <p>The cause is the original session failure when available. It can be
+ * {@code null}, for example while the proxy is disconnected or changing its
+ * connection.
+ *
+ * <p>After a session failure, use {@code recover()}. Before the first connection
+ * or after a confirmed disconnection, use {@code connect()}. Wait for any
+ * connection change already in progress. If disconnection failed, retry
+ * {@code disconnect()} before connecting again.
  */
 public final class ConnectionUnavailableException extends NodeRecoveryRequiredException {
     /**
