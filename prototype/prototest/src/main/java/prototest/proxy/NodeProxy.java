@@ -3,6 +3,9 @@ package prototest.proxy;
 import prototest.api.Node;
 import prototest.api.NodeNetworkInterface;
 
+import java.util.Objects;
+import java.util.function.Predicate;
+
 /**
  * Maps node operations to network calls through a dedicated remote call executor.
  * Instances support concurrent calls after opening a session with the server.
@@ -44,11 +47,30 @@ public class NodeProxy implements Node {
     }
 
     /**
-     * Replaces the failed session with a new one from the server. Does nothing while healthy.
+     * Renews only the failed session. Use this after an idle session expires
+     * when no calls have uncertain effects. For uncertain writes use
+     * {@link #recover(Predicate)}. Does nothing while healthy.
      * @throws IllegalStateException if there is no session to recover or a connection change is in progress
      */
     public void recover() {
-        calls.recover(node::recover);
+        recover(node -> true);
+    }
+
+    /**
+     * Renews a failed session, then runs the client's repair on the calling thread.
+     * Other threads cannot use this proxy until repair succeeds. Other proxies
+     * need separate coordination. If repair fails, repeat with a repair that
+     * can start from partially restored state. Errors from renewal and repair
+     * reach the caller and leave recovery required.
+     *
+     * @param repair synchronous repair that returns true when the node state is consistent
+     * @return true if already healthy or repair succeeded, false if repair reports
+     *         that more work is needed
+     * @throws IllegalStateException if there is no session to recover or a connection change is in progress
+     */
+    public boolean recover(Predicate<Node> repair) {
+        Objects.requireNonNull(repair, "repair");
+        return calls.recover(node::recover, () -> repair.test(this));
     }
 
     /**

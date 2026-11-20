@@ -2,6 +2,8 @@ package prototest.unreliablenetwork;
 
 import org.junit.Rule;
 import org.junit.Test;
+
+import prototest.api.Node;
 import prototest.api.RequestId;
 import prototest.api.errors.network.ConnectionUnavailableException;
 import prototest.api.errors.network.NodeRecoveryRequiredException;
@@ -13,10 +15,12 @@ import prototest.server.TestEndpoints;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
 import static org.junit.Assert.*;
 import static prototest.proxy.FakeNetworkInterface.any;
@@ -36,6 +40,68 @@ public class RecoveryTest {
 
     private static final Duration WAIT = Duration.ofSeconds(5);
     private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(any(), any());
+
+    /**
+     * A lost create response triggers recovery. The client rebuilds the partition,
+     * but the first repair fails when the network drops the commit response.
+     * The proxy rejects calls from other threads during repair and keeps normal
+     * calls blocked after the failure. A second repair rebuilds the partition
+     * from scratch and makes the expected snapshot available.
+     */
+    @Test
+    public void repairRestartsAfterALostCommitResponse() {
+        var server = new NodeServer();
+        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
+        network.on(CREATE).onFirstCall().dropResponse();
+        network.on(n -> n.commitPartition(any(), any())).onFirstCall().dropResponse();
+        var proxy = new NodeProxy(network.build(), 0);
+        proxy.connect();
+        assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
+
+        Predicate<Node> repair = node -> {
+            assertTrue(proxy.recoveryRequired());
+            CompletableFuture.runAsync(() ->
+                    assertThrows(ConnectionUnavailableException.class, () -> proxy.partitionExists("p"))).join();
+            node.destroyPartition("p");
+            node.createPartition("p");
+            node.writeToPartition("p", "saved");
+            node.commitPartition("p");
+            return "saved".equals(node.readPartitionSnapshot("p"));
+        };
+        assertThrows(NodeRecoveryRequiredException.class, () -> proxy.recover(repair));
+        assertThrows(ConnectionUnavailableException.class, () -> proxy.readPartitionSnapshot("p"));
+
+        assertTrue(proxy.recover(repair));
+        assertFalse(proxy.recoveryRequired());
+        assertEquals("saved", proxy.readPartitionSnapshot("p"));
+    }
+
+    /**
+     * A repair that finds an unexpected snapshot returns false. The proxy keeps
+     * normal calls blocked until a later repair writes and confirms the expected
+     * snapshot. Once healthy, the proxy skips the repair callback.
+     */
+    @Test
+    public void anIncompleteRepairKeepsTheProxyBlockedUntilTheClientConfirmsTheSnapshot() {
+        var server = new NodeServer();
+        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
+        network.on(CREATE).onFirstCall().dropResponse();
+        var proxy = new NodeProxy(network.build(), 0);
+        proxy.connect();
+        assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
+
+        assertFalse(proxy.recover(node -> "saved".equals(node.readPartitionSnapshot("p"))));
+        assertTrue(proxy.recoveryRequired());
+        assertThrows(ConnectionUnavailableException.class, () -> proxy.writeToPartition("p", "blocked"));
+
+        assertTrue(proxy.recover(node -> {
+            node.writeToPartition("p", "saved");
+            node.commitPartition("p");
+            return "saved".equals(node.readPartitionSnapshot("p"));
+        }));
+        assertEquals("saved", proxy.readPartitionSnapshot("p"));
+        assertTrue(proxy.recover(node -> { throw new AssertionError("Healthy proxy ran repair"); }));
+    }
 
     /**
      * The server creates the partition, but the response is lost and the retry

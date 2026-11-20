@@ -1,8 +1,10 @@
 package prototest.proxy;
 
 import org.junit.Test;
+
 import prototest.api.errors.network.NodeRecoveryRequiredException;
 import prototest.api.errors.network.RetryableCommunicationException;
+import prototest.api.errors.network.SessionUnavailableException;
 
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -11,6 +13,22 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.Assert.*;
 
 public class RemoteCallExecutorTest {
+    @Test
+    public void rejectionOnRetryLeavesTheFirstAttemptUncertain() {
+        var calls = new RemoteCallExecutor(100, () -> 0L);
+        calls.connect(UUID::randomUUID);
+        var attempts = new AtomicLong();
+        var expired = new SessionUnavailableException("Session expired");
+        var failure = assertThrows(NodeRecoveryRequiredException.class, () -> calls.execute(id -> {
+            if (attempts.getAndIncrement() == 0) {
+                throw new RetryableCommunicationException("Response lost");
+            }
+            throw expired;
+        }));
+        assertEquals(NodeRecoveryRequiredException.class, failure.getClass());
+        assertSame(expired, failure.getCause());
+    }
+
     /**
      * A controlled clock makes the first loss occur one nanosecond before the
      * deadline and the second loss occur at the deadline. The executor allows

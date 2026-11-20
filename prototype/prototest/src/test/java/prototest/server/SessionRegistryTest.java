@@ -1,8 +1,11 @@
 package prototest.server;
 
 import org.junit.Test;
+
 import prototest.api.RequestId;
 import prototest.api.errors.network.NodeRecoveryRequiredException;
+import prototest.api.errors.network.SessionUnavailableException;
+import prototest.proxy.NodeProxy;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -22,6 +25,22 @@ import static org.junit.Assert.*;
  * <p>Uses a controlled clock, so no test waits for real time.
  */
 public class SessionRegistryTest {
+
+    @Test
+    public void anIdleProxyCanRenewAfterItsFirstAttemptIsRejected() {
+        var clock = new TestClock();
+        var server = new NodeServer();
+        try (var endpoint = new ServerNodeNetworkInterface(server, 100, 200, clock)) {
+            var proxy = new NodeProxy(endpoint, 0);
+            proxy.connect();
+            clock.now = 200;
+            assertThrows(SessionUnavailableException.class, () -> proxy.createPartition("p"));
+            assertFalse(server.partitionExists("p"));
+            proxy.recover();
+            proxy.createPartition("p");
+            assertTrue(proxy.partitionExists("p"));
+        }
+    }
 
     @Test
     public void expirationInOneSessionDoesNotRejectAnotherSessionsLowerSequence() {
@@ -111,7 +130,7 @@ public class SessionRegistryTest {
         assertThrows(NodeRecoveryRequiredException.class,
                 () -> registry.executeOnce(new RequestId(token, 1), () -> fail("Expired request ran again")));
         clock.now = 450;
-        var error = assertThrows(NodeRecoveryRequiredException.class,
+        var error = assertThrows(SessionUnavailableException.class,
                 () -> registry.executeOnce(new RequestId(token, 2), () -> fail("Expired session ran a new request")));
         assertEquals("Session %s is unavailable".formatted(token), error.getMessage());
     }

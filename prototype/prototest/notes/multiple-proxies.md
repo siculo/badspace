@@ -52,3 +52,27 @@ Nella stessa sezione critica revoca tutti i token e sostituisce il nodo.
 Una richiesta porta sempre il suo token originale, quindi viene respinta
 se arriva dopo il ripristino. L'esperimento usa uno stato fornito dal
 chiamante per simulare il caricamento da uno snapshot.
+
+Se una sessione inattiva scade, la prima chiamata riceve
+`SessionUnavailableException`: il server ha respinto quel tentativo prima
+di eseguirlo. Se era il primo tentativo e la chiamata era isolata, basta
+`recover()`. Se il rifiuto arriva durante un retry, il proxy segnala
+`NodeRecoveryRequiredException`: il primo tentativo può avere modificato
+il nodo. Anche le altre chiamate pendenti possono avere avuto effetto.
+
+Con `recover(repair)` il client rinnova il token e usa le operazioni di
+`Node` sul thread chiamante. Gli altri thread dello stesso proxy restano
+bloccati all'ammissione (ricevono un errore immediato). La funzione di riparazione restituisce
+`true` quando il client conferma la consistenza, oppure `false` se serve
+ancora intervenire. Il proxy restituisce lo stesso valore e riapre le
+operazioni solo con `true`. Se era già operativo, restituisce `true` senza
+invocare la funzione. Dopo `false` o un'eccezione, il client può ripetere `recover(repair)` partendo dagli effetti
+già applicati. Gli altri proxy vanno coordinati dal client.
+
+Per esempio, con accesso esclusivo e una copia dello stato atteso, il
+client può eliminare una partizione nota, ricrearla, riscrivere lo snapshot,
+fare commit e riscrivere i dati ancora da pubblicare. Ripartire
+dall'eliminazione evita di duplicare le scritture dopo una risposta persa.
+L'API permette di leggere lo snapshot di una partizione nota. Per ricostruire
+l'intero nodo servono anche i nomi delle partizioni interessate e i dati
+pendenti: il client deve conservarli perché l'API non li espone.

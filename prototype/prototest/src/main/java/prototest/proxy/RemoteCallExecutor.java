@@ -2,8 +2,9 @@ package prototest.proxy;
 
 import prototest.api.RequestId;
 import prototest.api.errors.network.ConnectionUnavailableException;
-import prototest.api.errors.network.RetryableCommunicationException;
 import prototest.api.errors.network.NodeRecoveryRequiredException;
+import prototest.api.errors.network.RetryableCommunicationException;
+import prototest.api.errors.network.SessionUnavailableException;
 
 import java.util.HashSet;
 import java.util.Objects;
@@ -12,6 +13,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
@@ -80,6 +82,7 @@ final class RemoteCallExecutor {
     private final Object stateLock = new Object();
     private Session session;
     private boolean transitioning;
+    private Thread recoveryCaller;
     private boolean disconnectPending;
 
     /**
@@ -115,7 +118,7 @@ final class RemoteCallExecutor {
      */
     boolean recoveryRequired() {
         synchronized (stateLock) {
-            return session != null && session.failure != null && !disconnectPending;
+            return session != null && (session.failure != null || recoveryCaller != null) && !disconnectPending;
         }
     }
 
@@ -130,7 +133,7 @@ final class RemoteCallExecutor {
         openSession(open);
     }
 
-    void recover(Function<UUID, UUID> renew) {
+    boolean recover(Function<UUID, UUID> renew, BooleanSupplier repair) {
         UUID previousToken;
         synchronized (stateLock) {
             requireNoTransition();
@@ -138,12 +141,42 @@ final class RemoteCallExecutor {
                 throw new IllegalStateException("Proxy has no session to recover");
             }
             if (session.failure == null) {
-                return;
+                return true;
             }
             previousToken = session.token;
             transitioning = true;
         }
-        openSession(() -> renew.apply(previousToken));
+        try {
+            var renewed = new Session(Objects.requireNonNull(renew.apply(previousToken), "session token"));
+            synchronized (stateLock) {
+                session = renewed;
+                recoveryCaller = Thread.currentThread();
+            }
+            try {
+                boolean consistent = repair.getAsBoolean();
+                synchronized (stateLock) {
+                    if (renewed.failure != null) {
+                        throw renewed.failure;
+                    }
+                    if (!consistent) {
+                        renewed.failure = new NodeRecoveryRequiredException("Node repair is incomplete");
+                    }
+                    return consistent;
+                }
+            } catch (RuntimeException | Error error) {
+                synchronized (stateLock) {
+                    if (renewed.failure == null) {
+                        renewed.failure = new NodeRecoveryRequiredException("Node repair failed", error);
+                    }
+                }
+                throw error;
+            }
+        } finally {
+            synchronized (stateLock) {
+                recoveryCaller = null;
+                transitioning = false;
+            }
+        }
     }
 
     void disconnect(Consumer<UUID> revoke) {
@@ -227,7 +260,7 @@ final class RemoteCallExecutor {
     <T> T executeAndReturn(Function<RequestId, T> operation) {
         Call<T> call;
         synchronized (stateLock) {
-            if (transitioning || disconnectPending || session == null) {
+            if ((transitioning && recoveryCaller != Thread.currentThread()) || disconnectPending || session == null) {
                 throw new ConnectionUnavailableException("Connection unavailable: proxy has no usable session", null);
             }
             if (session.failure != null) {
@@ -273,6 +306,7 @@ final class RemoteCallExecutor {
 
     private <T> void runCall(Call<T> call, RequestId requestId, Function<RequestId, T> operation) {
         try {
+            boolean retried = false;
             long startTime = nanoTime.getAsLong();
             while (!call.result.isDone()) {
                 try {
@@ -286,6 +320,12 @@ final class RemoteCallExecutor {
                         failSession(call, new NodeRecoveryRequiredException("Unrecoverable timeout", error));
                         return;
                     }
+                    retried = true;
+                } catch (SessionUnavailableException error) {
+                    failSession(call, retried
+                            ? new NodeRecoveryRequiredException("Session unavailable after retry", error)
+                            : error);
+                    return;
                 } catch (NodeRecoveryRequiredException error) {
                     failSession(call, error);
                     return;

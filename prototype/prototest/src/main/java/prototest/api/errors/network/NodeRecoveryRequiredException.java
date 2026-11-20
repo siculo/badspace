@@ -7,7 +7,10 @@ package prototest.api.errors.network;
  * failure as their cause, without waiting for the transport to finish.
  *
  * <p>This error does not prove that the operation had no effect on the server.
- * Recovering the proxy replaces its session on the server. Node state is restored separately.
+ * A {@link SessionUnavailableException} from the proxy means the server rejected
+ * this call on its first attempt. Other pending calls may still have had effects.
+ * After an uncertain outcome the client must restore consistent node state
+ * before resuming normal operations.
  */
 public class NodeRecoveryRequiredException extends CommunicationException {
     /**

@@ -2,6 +2,7 @@ package prototest.server;
 
 import prototest.api.RequestId;
 import prototest.api.errors.network.NodeRecoveryRequiredException;
+import prototest.api.errors.network.SessionUnavailableException;
 
 import java.time.Clock;
 import java.util.HashMap;
@@ -52,7 +53,7 @@ final class SessionRegistry {
         var token = requestId.sessionToken();
         var session = sessions.get(token);
         if (session == null || removeExpired(token, session, clock.millis())) {
-            throw new NodeRecoveryRequiredException("Session %s is unavailable".formatted(token));
+            throw new SessionUnavailableException("Session %s is unavailable".formatted(token));
         }
         long sequence = requestId.sequence();
         if (sequence <= session.lastExpiredSequence) {
