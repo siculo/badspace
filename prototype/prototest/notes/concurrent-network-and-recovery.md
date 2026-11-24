@@ -1,15 +1,17 @@
 # Rete concorrente e stato di errore del proxy
 
-`NodeProxy` delega l'esecuzione delle chiamate a un `RemoteCallExecutor`
-dedicato. Le [Javadoc di `RemoteCallExecutor`](../src/main/java/prototest/proxy/RemoteCallExecutor.java)
+`NodeProxy` delega l'esecuzione delle chiamate a un `RemoteCallExecutor`.
+L'executor gestisce la sessione tramite `SessionNetworkInterface`.
+Le [Javadoc di `RemoteCallExecutor`](../src/main/java/prototest/remote/client/RemoteCallExecutor.java)
 descrivono retry, errori e concorrenza. Il [ciclo di vita delle sessioni](multiple-proxies.md#durata-delle-sessioni)
 spiega quando il server accetta il token del proxy.
 
 ## Controllo degli esperimenti di rete
 
-`FakeNetworkInterface` è un builder: `wrap(endpoint)` avvia la configurazione
-e `build()` genera un'implementazione di `NodeNetworkInterface`, fissando
-le regole. La configurazione avviene in un solo thread; dopo `build()` il
+`FakeNetworkInterface<T>` è un builder. `wrap(Contratto.class, endpoint)`
+avvia la configurazione per un'interfaccia remota pubblica e `build()`
+genera un'implementazione di quel contratto, fissando le regole.
+La configurazione avviene in un solo thread; dopo `build()` il
 proxy generato e i controlli di osservazione possono essere usati da più thread.
 Il simulatore non introduce latenze casuali.
 
@@ -20,10 +22,10 @@ qualsiasi riferimento, incluso `null`; `eq(valore)` confronta con
 valori diretti. Per esempio:
 
 ```java
-import static prototest.proxy.FakeNetworkInterface.any;
-import static prototest.proxy.FakeNetworkInterface.eq;
+import static prototest.remote.network.FakeNetworkInterface.any;
+import static prototest.remote.network.FakeNetworkInterface.eq;
 
-var network = FakeNetworkInterface.wrap(endpoint)
+var network = FakeNetworkInterface.wrap(NodeNetworkInterface.class, endpoint)
         .on(n -> n.createPartition(any(), eq("example"))).onFirstCall().dropRequest()
         .on(n -> n.writeToPartition(any(), any(), any())).onCall(2).dropResponse();
 var node = network.build();
@@ -37,7 +39,7 @@ direttamente nella posizione del suo argomento, come in `createPartition(any(), 
 Calcolare prima `eq("example")` in una variabile assocerebbe quel predicato al primo parametro. Il contesto viene rimosso anche
 se la registrazione fallisce; i matcher fuori dalla registrazione e le
 registrazioni annidate sono errori. I matcher coprono i parametri di tipo
-riferimento dell'interfaccia attuale. `withArgs` resta disponibile per
+riferimento. `withArgs` resta disponibile per
 condizioni più complesse sugli argomenti effettivi.
 
 Ogni ingresso nel metodo del proxy conta come chiamata, inclusi i retry e
@@ -63,7 +65,7 @@ La richiesta e la risposta possono essere consegnate, perse o trattenute.
 `awaitAttempt(selettore, numero)` restituisce un `Attempt` con i controlli
 `request()` e `response()` della singola invocazione. Il numero parte da 1
 ed è relativo alle invocazioni che corrispondono al selector completo. L'attesa usa un timeout di sicurezza
-di cinque secondi, configurabile per istanza con `wrap(endpoint, timeout)`.
+di cinque secondi, configurabile per istanza con `wrap(Contratto.class, endpoint, timeout)`.
 L'overload `awaitAttempt(selettore, numero, timeout)` permette di specificare
 un limite diverso, anche `Duration.ZERO` per controllare subito la storia.
 Questo valore predefinito riguarda solo l'osservazione dei tentativi;
@@ -86,7 +88,7 @@ errore d'uso (`IllegalStateException`). I timeout delle attese di osservazione
 servono a evitare test bloccati, non a simulare il tempo di rete.
 
 Il contratto completo è nelle
-[Javadoc di `FakeNetworkInterface`](../src/main/java/prototest/proxy/FakeNetworkInterface.java).
+[Javadoc di `FakeNetworkInterface`](../src/main/java/prototest/remote/network/FakeNetworkInterface.java).
 
 ## Limiti
 

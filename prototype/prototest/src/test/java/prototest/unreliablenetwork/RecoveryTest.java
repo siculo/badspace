@@ -3,15 +3,15 @@ package prototest.unreliablenetwork;
 import org.junit.Rule;
 import org.junit.Test;
 
-import prototest.api.Node;
-import prototest.api.RequestId;
-import prototest.api.errors.network.ConnectionUnavailableException;
-import prototest.api.errors.network.NodeRecoveryRequiredException;
-import prototest.proxy.FakeNetworkInterface;
-import prototest.proxy.NodeProxy;
-import prototest.server.NodeServer;
-import prototest.server.ServerNodeNetworkInterface;
-import prototest.server.TestEndpoints;
+import prototest.example.api.Node;
+import prototest.example.server.NodeServer;
+import prototest.example.server.NodeTestEndpoint;
+import prototest.example.server.NodeTestNetwork;
+import prototest.example.server.TestEndpoints;
+import prototest.remote.api.RequestId;
+import prototest.remote.api.errors.ConnectionUnavailableException;
+import prototest.remote.api.errors.NodeRecoveryRequiredException;
+import prototest.remote.network.FakeNetworkInterface;
 
 import java.time.Duration;
 import java.util.List;
@@ -24,9 +24,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
+import static prototest.example.server.NodeTestEndpoint.proxyFor;
 import static org.junit.Assert.*;
-import static prototest.proxy.FakeNetworkInterface.any;
-import static prototest.proxy.FakeNetworkInterface.eq;
+import static prototest.remote.network.FakeNetworkInterface.any;
+import static prototest.remote.network.FakeNetworkInterface.eq;
 
 /**
  * Checks when lost or held messages require the recovery of the proxy, and
@@ -41,7 +42,7 @@ public class RecoveryTest {
     public final TestEndpoints endpoints = new TestEndpoints();
 
     private static final Duration WAIT = Duration.ofSeconds(5);
-    private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(any(), any());
+    private static final FakeNetworkInterface.Selector<NodeTestNetwork> CREATE = n -> n.createPartition(any(), any());
 
     /**
      * A lost create response triggers recovery. The client rebuilds the partition,
@@ -52,10 +53,10 @@ public class RecoveryTest {
     @Test
     public void repairRestartsAfterALostCommitResponse() {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)));
         network.on(CREATE).onFirstCall().dropResponse();
         network.on(n -> n.commitPartition(any(), any())).onFirstCall().dropResponse();
-        var proxy = new NodeProxy(network.build(), 0);
+        var proxy = proxyFor(network.build(), 0);
         proxy.connect();
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
 
@@ -84,10 +85,10 @@ public class RecoveryTest {
     @Test
     public void recoveryFailsWhenRepairIgnoresACallFailure() {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)));
         network.on(CREATE).onFirstCall().dropResponse();
         network.on(n -> n.commitPartition(any(), any())).onFirstCall().dropResponse();
-        var proxy = new NodeProxy(network.build(), 0);
+        var proxy = proxyFor(network.build(), 0);
         proxy.connect();
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
 
@@ -109,9 +110,9 @@ public class RecoveryTest {
     @Test
     public void repairRejectsCallsFromOtherThreads() {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)));
         network.on(CREATE).onFirstCall().dropResponse();
-        var proxy = new NodeProxy(network.build(), 0);
+        var proxy = proxyFor(network.build(), 0);
         proxy.connect();
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
 
@@ -146,9 +147,9 @@ public class RecoveryTest {
     @Test
     public void anIncompleteRepairKeepsTheProxyBlockedUntilTheClientConfirmsTheSnapshot() {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)));
         network.on(CREATE).onFirstCall().dropResponse();
-        var proxy = new NodeProxy(network.build(), 0);
+        var proxy = proxyFor(network.build(), 0);
         proxy.connect();
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
 
@@ -175,9 +176,9 @@ public class RecoveryTest {
     @Test
     public void aLostResponseRequiresRecoveryAndBlocksAllNodeOperations() {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)));
         network.on(n -> n.createPartition(any(), any())).onFirstCall().dropResponse();
-        var proxy = new NodeProxy(network.build(), 0);
+        var proxy = proxyFor(network.build(), 0);
         proxy.connect();
 
         var failure = assertThrows(NodeRecoveryRequiredException.class,
@@ -212,7 +213,7 @@ public class RecoveryTest {
     @Test
     public void interruptionPreservesTheFlagAndRequiresRecovery() {
         var server = new NodeServer();
-        var proxy = new NodeProxy(FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000))).build(), 1000);
+        var proxy = proxyFor(FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000))).build(), 1000);
         proxy.connect();
         try {
             Thread.currentThread().interrupt();
@@ -234,9 +235,9 @@ public class RecoveryTest {
     @Test
     public void recoveryAllowsNewCallsWithoutReusingRequestIds() {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)));
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)));
         network.on(n -> n.createPartition(any(), any())).onFirstCall().dropResponse();
-        var proxy = new NodeProxy(network.build(), 0);
+        var proxy = proxyFor(network.build(), 0);
         proxy.connect();
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("present"));
         assertTrue(proxy.recoveryRequired());
@@ -292,7 +293,7 @@ public class RecoveryTest {
         var server = new NodeServer();
         var transport = new AtomicReference<Thread>();
         var oldAttempts = new AtomicInteger();
-        var endpoint = endpoints.track(new ServerNodeNetworkInterface(server, 60000) {
+        var endpoint = endpoints.track(new NodeTestEndpoint(server, 60000) {
             @Override
             public void createPartition(RequestId requestId, String name) {
                 if (name.equals("old")) {
@@ -302,10 +303,10 @@ public class RecoveryTest {
                 super.createPartition(requestId, name);
             }
         });
-        var network = FakeNetworkInterface.wrap(endpoint)
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint)
                 .on(n -> n.createPartition(any(), eq("old"))).onFirstCall().holdResponse()
                 .on(n -> n.createPartition(any(), eq("fail"))).dropRequest();
-        var proxy = new NodeProxy(network.build(), 0);
+        var proxy = proxyFor(network.build(), 0);
         proxy.connect();
         var workers = Executors.newSingleThreadExecutor();
         try {

@@ -2,14 +2,14 @@ package prototest.fakenetwork;
 
 import org.junit.Rule;
 import org.junit.Test;
-import prototest.api.NodeNetworkInterface;
-import prototest.api.RequestId;
-import prototest.api.errors.network.RetryableCommunicationException;
-import prototest.api.errors.service.PartitionNotFoundException;
-import prototest.proxy.FakeNetworkInterface;
-import prototest.server.NodeServer;
-import prototest.server.ServerNodeNetworkInterface;
-import prototest.server.TestEndpoints;
+import prototest.example.api.errors.service.PartitionNotFoundException;
+import prototest.example.server.NodeServer;
+import prototest.example.server.NodeTestEndpoint;
+import prototest.example.server.NodeTestNetwork;
+import prototest.example.server.TestEndpoints;
+import prototest.remote.api.RequestId;
+import prototest.remote.api.errors.RetryableCommunicationException;
+import prototest.remote.network.FakeNetworkInterface;
 
 import java.time.Duration;
 import java.util.List;
@@ -18,9 +18,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
-import static prototest.proxy.FakeNetworkInterface.any;
-import static prototest.proxy.FakeNetworkInterface.eq;
-import static prototest.proxy.FakeNetworkInterface.Delivery.*;
+import static prototest.remote.network.FakeNetworkInterface.Delivery.*;
+import static prototest.remote.network.FakeNetworkInterface.any;
+import static prototest.remote.network.FakeNetworkInterface.eq;
 
 /**
  * Checks method selection, persistent rules, entry history and delivery controls.
@@ -30,12 +30,12 @@ public class FakeNetworkInterfaceTest {
     public final TestEndpoints endpoints = new TestEndpoints();
 
     private static final Duration WAIT = Duration.ofSeconds(5);
-    private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(any(), any());
+    private static final FakeNetworkInterface.Selector<NodeTestNetwork> CREATE = n -> n.createPartition(any(), any());
     private final NodeServer server = new NodeServer();
-    private final ServerNodeNetworkInterface endpoint = endpoints.track(new ServerNodeNetworkInterface(server, 60000));
+    private final NodeTestEndpoint endpoint = endpoints.track(new NodeTestEndpoint(server, 60000));
     private final UUID sessionToken = endpoint.connect();
     private final RequestId firstRequestId = id(0);
-    private final FakeNetworkInterface network = FakeNetworkInterface.wrap(endpoint);
+    private final FakeNetworkInterface<NodeTestNetwork> network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint);
 
     @Test
     public void unmatchedMethodsDeliverNormallyAndLeaveOtherRulesUnused() {
@@ -54,7 +54,7 @@ public class FakeNetworkInterfaceTest {
 
     @Test
     public void lambdasSelectEveryMethodWithoutInvokingTheEndpoint() throws Exception {
-        List<FakeNetworkInterface.Selector> selectors = List.of(
+        List<FakeNetworkInterface.Selector<NodeTestNetwork>> selectors = List.of(
                 CREATE,
                 n -> n.destroyPartition(any(), any()),
                 n -> n.partitionExists(any(), any()),
@@ -66,7 +66,7 @@ public class FakeNetworkInterfaceTest {
             network.on(selector).dropRequest();
         }
         var node = network.build();
-        List<FakeNetworkInterface.Selector> actualCalls = List.of(
+        List<FakeNetworkInterface.Selector<NodeTestNetwork>> actualCalls = List.of(
                 n -> n.createPartition(firstRequestId, "example"),
                 n -> n.destroyPartition(firstRequestId, "example"),
                 n -> n.partitionExists(firstRequestId, "example"),
@@ -117,7 +117,7 @@ public class FakeNetworkInterfaceTest {
 
     @Test
     public void endpointErrorsSkipTheResponsePointAndFinishTheAttempt() throws Exception {
-        FakeNetworkInterface.Selector write = n -> n.writeToPartition(any(), any(), any());
+        FakeNetworkInterface.Selector<NodeTestNetwork> write = n -> n.writeToPartition(any(), any(), any());
         var node = network.on(write).holdResponse().build();
 
         assertThrows(PartitionNotFoundException.class,
@@ -199,7 +199,7 @@ public class FakeNetworkInterfaceTest {
     @Test
     public void aHeldResponseReturnsItsValueOnlyAfterDelivery() throws Exception {
         server.createPartition("present");
-        FakeNetworkInterface.Selector query = n -> n.partitionExists(any(), any());
+        FakeNetworkInterface.Selector<NodeTestNetwork> query = n -> n.partitionExists(any(), any());
         var node = network.on(query).holdResponse().build();
         var worker = Executors.newSingleThreadExecutor();
         try {
@@ -272,7 +272,7 @@ public class FakeNetworkInterfaceTest {
 
     @Test
     public void attemptObservationUsesTheTimeoutConfiguredForItsNetwork() throws Exception {
-        var immediateNetwork = FakeNetworkInterface.wrap(
+        var immediateNetwork = FakeNetworkInterface.wrap(NodeTestNetwork.class,
                 endpoint, Duration.ZERO);
         var node = immediateNetwork.build();
 
@@ -289,8 +289,8 @@ public class FakeNetworkInterfaceTest {
     @Test
     public void invalidDefaultObservationTimeoutsAreRejected() {
         assertThrows(IllegalArgumentException.class,
-                () -> FakeNetworkInterface.wrap(endpoint, Duration.ofNanos(-1)));
-        assertThrows(NullPointerException.class, () -> FakeNetworkInterface.wrap(endpoint, null));
+                () -> FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint, Duration.ofNanos(-1)));
+        assertThrows(NullPointerException.class, () -> FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint, null));
     }
 
     @Test
@@ -482,7 +482,7 @@ public class FakeNetworkInterfaceTest {
 
     @Test
     public void attemptNumbersAndRuleFrequencyCountOnlyCompleteSelectorMatches() throws Exception {
-        FakeNetworkInterface.Selector target = n -> n.createPartition(any(), eq("target"));
+        FakeNetworkInterface.Selector<NodeTestNetwork> target = n -> n.createPartition(any(), eq("target"));
         var node = network.on(target).onCall(2).dropRequest().build();
         node.createPartition(id(0), "other");
         node.createPartition(id(1), "target");
@@ -499,7 +499,7 @@ public class FakeNetworkInterfaceTest {
 
     @Test
     public void historyConditionsCountOnlyPriorCompleteSelectorMatches() {
-        FakeNetworkInterface.Selector target = n -> n.createPartition(any(), eq("target"));
+        FakeNetworkInterface.Selector<NodeTestNetwork> target = n -> n.createPartition(any(), eq("target"));
         var node = network.on(target).onlyIfNeverCalled(target).dropRequest()
                 .on(n -> n.partitionExists(any(), eq("target"))).onlyIfCalledTimes(target, 1).dropResponse()
                 .on(n -> n.partitionExists(any(), eq("later"))).onlyIfCalled(target).dropRequest().build();
@@ -578,7 +578,7 @@ public class FakeNetworkInterfaceTest {
 
     @Test
     public void objectMethodsUseIdentityAndDoNotEnterNetworkHistory() throws Exception {
-        NodeNetworkInterface node = network.build();
+        NodeTestNetwork node = network.build();
 
         assertTrue(node.equals(node));
         assertFalse(node.equals(server));

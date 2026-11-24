@@ -2,12 +2,13 @@ package prototest.fakenetwork;
 
 import org.junit.Rule;
 import org.junit.Test;
-import prototest.api.RequestId;
-import prototest.api.errors.network.RetryableCommunicationException;
-import prototest.proxy.FakeNetworkInterface;
-import prototest.server.NodeServer;
-import prototest.server.ServerNodeNetworkInterface;
-import prototest.server.TestEndpoints;
+import prototest.example.server.NodeServer;
+import prototest.example.server.NodeTestEndpoint;
+import prototest.example.server.NodeTestNetwork;
+import prototest.example.server.TestEndpoints;
+import prototest.remote.api.RequestId;
+import prototest.remote.api.errors.RetryableCommunicationException;
+import prototest.remote.network.FakeNetworkInterface;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -18,8 +19,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
-import static prototest.proxy.FakeNetworkInterface.any;
-import static prototest.proxy.FakeNetworkInterface.eq;
+import static prototest.remote.network.FakeNetworkInterface.any;
+import static prototest.remote.network.FakeNetworkInterface.eq;
 
 /** Checks atomic rule selection, prior history and separate controls for concurrent calls. */
 public class FakeNetworkConcurrencyTest {
@@ -27,13 +28,13 @@ public class FakeNetworkConcurrencyTest {
     public final TestEndpoints endpoints = new TestEndpoints();
 
     private static final Duration WAIT = Duration.ofSeconds(5);
-    private static final FakeNetworkInterface.Selector CREATE = n -> n.createPartition(any(), any());
-    private static final FakeNetworkInterface.Selector WRITE = n -> n.writeToPartition(any(), any(), any());
+    private static final FakeNetworkInterface.Selector<NodeTestNetwork> CREATE = n -> n.createPartition(any(), any());
+    private static final FakeNetworkInterface.Selector<NodeTestNetwork> WRITE = n -> n.writeToPartition(any(), any(), any());
 
     @Test
     public void concurrentAttemptsGetUniqueMethodNumbersAndUsePersistentRules() throws Exception {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)))
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)))
                 .on(CREATE).and(call -> call.callNumber() % 3 == 1).dropRequest()
                 .on(CREATE).and(call -> call.callNumber() % 3 == 2).dropResponse()
                 .on(CREATE).deliver();
@@ -102,7 +103,7 @@ public class FakeNetworkConcurrencyTest {
     public void heldRequestsAllowTheTestToChooseTheOrderOfConcurrentWrites() throws Exception {
         var server = new NodeServer();
         server.createPartition("shared");
-        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)))
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)))
                 .on(WRITE).onEveryCall().holdRequest();
         var node = network.build();
         var sessionToken = node.connect();
@@ -142,7 +143,7 @@ public class FakeNetworkConcurrencyTest {
     @Test
     public void historyCountsCallsThatAreStillWaitingBeforeTheEndpoint() throws Exception {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)))
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)))
                 .on(CREATE).onFirstCall().holdRequest()
                 .on(n -> n.partitionExists(any(), any())).onlyIfCalled(CREATE).dropRequest();
         var node = network.build();
@@ -171,7 +172,7 @@ public class FakeNetworkConcurrencyTest {
     @Test
     public void laterCallsDoNotChangeTheRuleAlreadyChosenForAHeldRequest() throws Exception {
         var server = new NodeServer();
-        var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(server, 60000)))
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)))
                 .on(CREATE).onlyIfNeverCalled(CREATE).holdRequest()
                 .on(CREATE).onlyIfCalled(CREATE).dropRequest();
         var node = network.build();
@@ -204,7 +205,7 @@ public class FakeNetworkConcurrencyTest {
             for (int index = 0; index < 2; index++) {
                 String partitionName = "partition-" + index;
                 results.add(workers.submit(() -> {
-                    var network = FakeNetworkInterface.wrap(endpoints.track(new ServerNodeNetworkInterface(new NodeServer(), 60000)));
+                    var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(new NodeServer(), 60000)));
                     network.on(n -> {
                         RequestId requestPlaceholder = any();
                         matchersReady.countDown();

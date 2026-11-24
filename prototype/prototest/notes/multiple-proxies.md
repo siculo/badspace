@@ -11,9 +11,10 @@ senza scambiare una richiesta nuova per il retry di un altro proxy.
 a partire da zero. Il server genera un nuovo token con `UUID.randomUUID()`
 a ogni apertura, anche quando lo stesso proxy recupera la sessione.
 
-Il proxy assegna la sequenza sotto lo stesso lock con cui ammette le
+L'executor client assegna la sequenza sotto lo stesso lock con cui ammette le
 chiamate concorrenti. All'esaurimento del contatore, l'incremento fallisce.
-Ogni chiamata conserva il suo ID per tutti i tentativi.
+Ogni chiamata conserva il suo ID per tutti i tentativi. Più proxy possono
+usare la stessa sessione condividendo l'executor e la sua sequenza.
 
 Il registro verifica il token e cerca il risultato nella sessione
 corrispondente. La sequenza indica l'ordine di assegnazione nella sessione.
@@ -30,8 +31,11 @@ pendenti e chiede al server di eliminare la sessione. Se si perde la conferma,
 il proxy conserva il token per ripetere `disconnect()`. Il server conferma
 la disconnessione anche se il token è già assente.
 
-L'endpoint elimina periodicamente risultati e sessioni scadute, anche in
-assenza di traffico. Controlla le scadenze anche quando ammette una richiesta.
+`ServerSessionEndpoint` elimina periodicamente risultati e sessioni scadute,
+anche in assenza di traffico. Gli adattatori applicativi gli affidano le
+operazioni attraverso `executeOnce` ed `executeOnceAndReturn`. Lo stesso lock
+copre il controllo delle scadenze, l'esecuzione, la registrazione del risultato
+e le transizioni di sessione.
 Il timeout della sessione parte quando viene eliminato l'ultimo risultato,
 oppure all'apertura se la sessione è ancora vuota. Il valore predefinito è
 30 minuti ed è configurabile separatamente dal timeout dei risultati.

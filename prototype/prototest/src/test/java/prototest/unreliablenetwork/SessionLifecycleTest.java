@@ -1,16 +1,16 @@
 package prototest.unreliablenetwork;
 
 import org.junit.Test;
-import prototest.api.NodeNetworkInterface;
-import prototest.api.RequestId;
-import prototest.api.errors.network.ConnectionUnavailableException;
-import prototest.api.errors.network.NodeRecoveryRequiredException;
-import prototest.api.errors.network.RetryableCommunicationException;
-import prototest.api.errors.network.SessionUnavailableException;
-import prototest.proxy.FakeNetworkInterface;
-import prototest.proxy.NodeProxy;
-import prototest.server.NodeServer;
-import prototest.server.ServerNodeNetworkInterface;
+import prototest.example.proxy.NodeProxy;
+import prototest.example.server.NodeServer;
+import prototest.example.server.NodeTestEndpoint;
+import prototest.example.server.NodeTestNetwork;
+import prototest.remote.api.RequestId;
+import prototest.remote.api.errors.ConnectionUnavailableException;
+import prototest.remote.api.errors.NodeRecoveryRequiredException;
+import prototest.remote.api.errors.RetryableCommunicationException;
+import prototest.remote.api.errors.SessionUnavailableException;
+import prototest.remote.network.FakeNetworkInterface;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -23,16 +23,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
+import static prototest.example.server.NodeTestEndpoint.proxyFor;
 import static org.junit.Assert.*;
-import static prototest.proxy.FakeNetworkInterface.any;
-import static prototest.proxy.FakeNetworkInterface.eq;
+import static prototest.remote.network.FakeNetworkInterface.any;
+import static prototest.remote.network.FakeNetworkInterface.eq;
 
 public class SessionLifecycleTest {
     private static final Duration WAIT = Duration.ofSeconds(5);
-    private static final FakeNetworkInterface.Selector CONNECT = NodeNetworkInterface::connect;
-    private static final FakeNetworkInterface.Selector RECOVER = node -> node.recover(any());
-    private static final FakeNetworkInterface.Selector DISCONNECT = node -> node.disconnect(any());
-    private static final FakeNetworkInterface.Selector OLD_CREATE = node -> node.createPartition(any(), eq("old"));
+    private static final FakeNetworkInterface.Selector<NodeTestNetwork> CONNECT = NodeTestNetwork::connect;
+    private static final FakeNetworkInterface.Selector<NodeTestNetwork> RECOVER = node -> node.recover(any());
+    private static final FakeNetworkInterface.Selector<NodeTestNetwork> DISCONNECT = node -> node.disconnect(any());
+    private static final FakeNetworkInterface.Selector<NodeTestNetwork> OLD_CREATE = node -> node.createPartition(any(), eq("old"));
 
     @Test
     public void aFailedConnectionLeavesTheProxyDisconnected() throws Exception {
@@ -44,15 +45,15 @@ public class SessionLifecycleTest {
         verifyFailedTransition(RECOVER, NodeProxy::recover, true);
     }
 
-    private static void verifyFailedTransition(FakeNetworkInterface.Selector selector,
+    private static void verifyFailedTransition(FakeNetworkInterface.Selector<NodeTestNetwork> selector,
                                                Consumer<NodeProxy> transition, boolean recovering)
             throws Exception {
-        try (var endpoint = new ServerNodeNetworkInterface(60000)) {
-            var network = FakeNetworkInterface.wrap(endpoint).on(selector).onFirstCall().holdResponse();
+        try (var endpoint = new NodeTestEndpoint(60000)) {
+            var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint).on(selector).onFirstCall().holdResponse();
             if (recovering) {
                 network.on(node -> node.createPartition(any(), eq("fail"))).dropRequest();
             }
-            var proxy = new NodeProxy(network.build(), 0);
+            var proxy = proxyFor(network.build(), 0);
             assertBlocked(proxy, network);
             if (recovering) {
                 proxy.connect();
@@ -85,11 +86,11 @@ public class SessionLifecycleTest {
     @Test
     public void disconnectionCancelsPendingCallsAndCanBeRetriedAfterALostConfirmation() throws Exception {
         var server = new NodeServer();
-        try (var endpoint = new ServerNodeNetworkInterface(server, 60000)) {
-            var network = FakeNetworkInterface.wrap(endpoint)
+        try (var endpoint = new NodeTestEndpoint(server, 60000)) {
+            var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint)
                     .on(OLD_CREATE).holdRequest()
                     .on(DISCONNECT).onFirstCall().holdResponse();
-            var proxy = new NodeProxy(network.build(), 0);
+            var proxy = proxyFor(network.build(), 0);
             proxy.connect();
             try (var workers = Executors.newVirtualThreadPerTaskExecutor()) {
                 try {
@@ -129,10 +130,10 @@ public class SessionLifecycleTest {
     @Test
     public void recoveryRejectsARequestThatWasStillInTransit() throws Exception {
         var server = new NodeServer();
-        try (var endpoint = new ServerNodeNetworkInterface(server, 60000)) {
-            var network = FakeNetworkInterface.wrap(endpoint).on(OLD_CREATE).holdRequest()
+        try (var endpoint = new NodeTestEndpoint(server, 60000)) {
+            var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint).on(OLD_CREATE).holdRequest()
                     .on(node -> node.createPartition(any(), eq("fail"))).dropRequest();
-            var proxy = new NodeProxy(network.build(), 0);
+            var proxy = proxyFor(network.build(), 0);
             proxy.connect();
             try (var workers = Executors.newVirtualThreadPerTaskExecutor()) {
                 try {
@@ -162,9 +163,9 @@ public class SessionLifecycleTest {
         InstantSource time = () -> Instant.ofEpochMilli(now.get());
         var server = new NodeServer();
         long sessionTimeout = 1000;
-        try (var endpoint = new ServerNodeNetworkInterface(server, 1000, sessionTimeout,
+        try (var endpoint = new NodeTestEndpoint(server, 1000, sessionTimeout,
                 time.withZone(ZoneOffset.UTC))) {
-            var proxy = new NodeProxy(endpoint, 0);
+            var proxy = proxyFor(endpoint, 0);
             proxy.connect();
             now.set(sessionTimeout);
             assertThrows(SessionUnavailableException.class, () -> proxy.createPartition("p"));
@@ -181,9 +182,9 @@ public class SessionLifecycleTest {
         InstantSource time = () -> Instant.ofEpochMilli(now.get());
         var server = new NodeServer();
         long sessionTimeout = 1000;
-        try (var endpoint = new ServerNodeNetworkInterface(server, 1000, sessionTimeout,
+        try (var endpoint = new NodeTestEndpoint(server, 1000, sessionTimeout,
                 time.withZone(ZoneOffset.UTC))) {
-            var network = FakeNetworkInterface.wrap(endpoint).on(OLD_CREATE).holdRequest();
+            var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint).on(OLD_CREATE).holdRequest();
             var node = network.build();
             var token = node.connect();
             try (var workers = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -208,7 +209,7 @@ public class SessionLifecycleTest {
         }
     }
 
-    private static void assertBlocked(NodeProxy proxy, FakeNetworkInterface network) {
+    private static void assertBlocked(NodeProxy proxy, FakeNetworkInterface<NodeTestNetwork> network) {
         assertThrows(ConnectionUnavailableException.class, () -> proxy.createPartition("blocked"));
         assertThrows(IllegalStateException.class, () -> network.awaitAttempt(
                 node -> node.createPartition(any(), eq("blocked")), 1, Duration.ZERO));

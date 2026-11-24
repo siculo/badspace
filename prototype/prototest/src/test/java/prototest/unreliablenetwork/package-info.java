@@ -1,9 +1,9 @@
 /**
  * Tests of the proxy behaviour on an unreliable network.
  *
- * <p>Every test uses the real {@link prototest.proxy.NodeProxy} and the real server
- * adapter {@link prototest.server.ServerNodeNetworkInterface}, with a
- * {@link prototest.proxy.FakeNetworkInterface} between them. The fake network loses or
+ * <p>Every test uses the real {@link prototest.example.proxy.NodeProxy} and the real server
+ * adapter {@link prototest.example.server.NodeTestEndpoint}, with a
+ * {@link prototest.remote.network.FakeNetworkInterface} between them. The fake network loses or
  * holds single requests and responses, following explicit rules: there are no random
  * failures or delays, so each test always runs the same scenario.
  *
@@ -16,7 +16,7 @@
  * </ul>
  *
  * <p>The tests that need a final error from the endpoint, without a lost message,
- * use their own endpoints and are in {@code prototest.proxy.NodeProxyRecoveryTest}.
+ * use their own endpoints and are in {@code prototest.example.proxy.NodeProxyRecoveryTest}.
  * The tests of the fake network itself are in {@code prototest.fakenetwork}.
  */
 package prototest.unreliablenetwork;

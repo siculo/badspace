@@ -4,14 +4,19 @@ I test del package `prototest.unreliablenetwork` verificano come si comporta
 `NodeProxy` quando la rete perde o trattiene richieste e risposte. Ogni test
 mette la rete fittizia descritta in
 [Rete concorrente e stato di errore del proxy](concurrent-network-and-recovery.md)
-tra il proxy reale e l'adattatore reale del server:
+tra il proxy e gli endpoint del server. La fixture `NodeTestEndpoint` inoltra
+entrambi i contratti attraverso la stessa simulazione.
 
 ```text
-+-------------+     +----------------------+     +-----------------------------+
-|  NodeProxy  |---->| FakeNetworkInterface |---->| ServerNodeNetworkInterface  |
-+-------------+     +----------------------+     +-----------------------------+
-                      perde o trattiene             registro delle sessioni
-                      singoli messaggi              e NodeServer
++-------------+     +----------------------+     +------------------+
+|  NodeProxy  |---->| FakeNetworkInterface |---->| NodeTestEndpoint |
++-------------+     +----------------------+     +--------+---------+
+                                                          |
+                                                   +------+------+
+                                                   |             |
+                                                   v             v
+                                              sessione       operazioni
+                                              del server     sulle partizioni
 ```
 
 Le regole della rete sono esplicite: nessun guasto e nessun ritardo casuale,
@@ -103,10 +108,12 @@ stato del proxy    usabile        da recuperare  usabile
   conferme delle transizioni e consegna richieste rimaste in transito dopo
   revoca o scadenza. Verifica anche che un proxy inattivo possa rinnovare la
   sessione dopo il rifiuto al primo tentativo.
-- `prototest.server.SessionRegistryTest` controlla la scadenza di risultati
+- `prototest.remote.server.SessionRegistryTest` controlla la scadenza di risultati
   e sessioni con un orologio controllabile e verifica la pulizia periodica.
-- `prototest.proxy.RemoteCallExecutorTest`: con un tempo monotono controllato,
-  l'esecutore ritenta prima della scadenza e si ferma quando il timeout è raggiunto.
-- `prototest.proxy.NodeProxyRecoveryTest`: errori finali prodotti direttamente
+- `prototest.remote.client.RemoteCallExecutorTest`: con un tempo monotono
+  controllato, l'executor ritenta prima della scadenza e si ferma quando il
+  timeout è raggiunto. Verifica anche l'uso della stessa sessione con due
+  API applicative distinte.
+- `prototest.example.proxy.NodeProxyRecoveryTest`: errori finali prodotti direttamente
   dall'endpoint, senza messaggi persi, e chiamate concorrenti al primo errore.
 - `prototest.fakenetwork`: test della rete fittizia stessa.
