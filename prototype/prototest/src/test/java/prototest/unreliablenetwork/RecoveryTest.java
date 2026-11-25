@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -134,12 +135,89 @@ public class RecoveryTest {
     }
 
     /**
+     * The server commits the writes while the network holds the response.
+     * Interrupting the caller while it waits preserves its interrupt flag
+     * and makes recovery necessary. The commit remains visible, and the late
+     * response leaves the recovered proxy usable.
+     *
+     * <p>The diagram starts with writes waiting to be committed. {@code caller}
+     * is the thread that calls commit.
+     * <pre>{@code
+     * caller    test      proxy     network   server
+     * |         |         |         |         |
+     * |-------------------------------------->|  commitPartition, publishes "saved"
+     * |         |         |         *<--------|  the network holds the response
+     * |<--------|         |         |         |  the test interrupts the caller
+     * |<------------------|         |         |  NodeRecoveryRequiredException
+     * *         |         |         |         |  the interrupt flag is still set
+     * |         |         |         |         *  the test reads "saved" on the server
+     * |         |         |         |         |
+     * |         |-------->|         |         |  "recover()"
+     * |         |         |------------------>|  the server renews the session
+     * |         |         |<------------------|
+     * |         |<--------|         |         |
+     * |         |         |<--------|         |  the network delivers the response
+     * |         |---------------------------->|  readPartitionSnapshot through proxy
+     * |         |<----------------------------|  returns "saved"
+     * }</pre>
+     */
+    @Test
+    public void interruptionWhileWaitingForCommitRequiresRecovery() throws Exception {
+        var server = new NodeServer();
+        var transport = new AtomicReference<Thread>();
+        var endpoint = endpoints.track(new NodeTestEndpoint(server, 60000) {
+            @Override
+            public void commitPartition(RequestId requestId, String name) {
+                transport.set(Thread.currentThread());
+                super.commitPartition(requestId, name);
+            }
+        });
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint)
+                .on(COMMIT).onFirstCall().holdResponse();
+        var proxy = proxyFor(network.build(), 0);
+        proxy.connect();
+        proxy.createPartition("p");
+        proxy.writeToPartition("p", "saved");
+
+        var pending = new FutureTask<Void>(() -> {
+            var failure = assertThrows(NodeRecoveryRequiredException.class,
+                    () -> proxy.commitPartition("p"));
+            assertTrue(failure.getCause() instanceof InterruptedException);
+            assertTrue(Thread.currentThread().isInterrupted());
+        }, null);
+        var caller = Thread.ofVirtual().start(pending);
+        try {
+            var commit = network.awaitAttempt(COMMIT, 1, WAIT);
+            commit.response().awaitArrival(WAIT);
+            assertFalse(pending.isDone());
+            caller.interrupt();
+            pending.get(WAIT.toMillis(), TimeUnit.MILLISECONDS);
+            assertTrue(proxy.recoveryRequired());
+            assertEquals("saved", server.readPartitionSnapshot("p"));
+
+            proxy.recover();
+            commit.response().deliver();
+            commit.awaitCompletion(WAIT);
+            // Wait for the proxy worker to process the response before checking the proxy.
+            assertTrue(transport.get().join(WAIT));
+            assertFalse(proxy.recoveryRequired());
+            assertEquals("saved", proxy.readPartitionSnapshot("p"));
+            network.assertAllRulesUsedAndCallsFinished();
+        } finally {
+            caller.interrupt();
+            network.releaseHeldMessages();
+            assertTrue(caller.join(WAIT));
+        }
+    }
+
+    /**
      * After a lost response, {@code recover()} accepts new calls again. The new
      * calls use new request IDs, so the server does not answer them with the saved
      * results of old calls. A second {@code recover()} on a usable proxy changes
      * nothing.
      *
      * <p>A request ID is shown as the session token and the sequence number of the call.
+     * The test checks both parts on the first call of each session.
      * <pre>{@code
      * test        proxy       network     server
      * |           |           |           |
@@ -171,7 +249,7 @@ public class RecoveryTest {
      * }</pre>
      */
     @Test
-    public void recoveryAllowsNewCallsWithoutReusingRequestIds() {
+    public void recoveryAllowsNewCallsWithoutReusingRequestIds() throws InterruptedException {
         var server = new NodeServer();
         var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)));
         network.on(CREATE).onFirstCall().dropResponse();
@@ -179,11 +257,18 @@ public class RecoveryTest {
         proxy.connect();
         assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("present"));
         assertTrue(proxy.recoveryRequired());
+        var failedAttempt = network.awaitAttempt(CREATE, 1, WAIT);
+        var failedRequestId = (RequestId) failedAttempt.invocation().args()[0];
 
         proxy.recover();
 
         assertFalse(proxy.recoveryRequired());
         proxy.destroyPartition("present");
+        var destroyAttempt = network.awaitAttempt(n -> n.destroyPartition(any(), eq("present")), 1, WAIT);
+        var renewedRequestId = (RequestId) destroyAttempt.invocation().args()[0];
+        assertNotEquals(failedRequestId.sessionToken(), renewedRequestId.sessionToken());
+        assertEquals(0L, failedRequestId.sequence());
+        assertEquals(0L, renewedRequestId.sequence());
         assertFalse(server.partitionExists("present"));
         proxy.createPartition("new");
         assertTrue(proxy.partitionExists("new"));
@@ -259,6 +344,63 @@ public class RecoveryTest {
         }));
         assertEquals("saved", proxy.readPartitionSnapshot("p"));
         assertTrue(proxy.recover(node -> { throw new AssertionError("Healthy proxy ran repair"); }));
+    }
+
+    /**
+     * A repair commits a snapshot and then throws its own exception. The proxy
+     * passes the same exception to the caller and keeps normal calls blocked.
+     * A second repair can confirm the snapshot committed by the first one.
+     *
+     * <p>The diagram starts after a lost create response makes recovery necessary.
+     * <pre>{@code
+     * test        proxy       network     server
+     * |           |           |           |
+     * |---------->|           |           |  "recover(repair)"
+     * |           |---------------------->|  the server renews the session
+     * |           |<----------------------|
+     * |<----------|           |           |  the proxy runs the repair
+     * |---------------------------------->|  write, commit
+     * |<----------------------------------|
+     * |---------->|           |           |  the repair throws IllegalStateException
+     * |<----------|           |           |  recover throws the same exception
+     * |           |           |           |
+     * |---------->|           |           |  readPartitionSnapshot
+     * |<----------|           |           |  ConnectionUnavailableException
+     * |           |           |           |
+     * |---------->|           |           |  "recover(repair)"
+     * |           |---------------------->|  the server renews the session
+     * |           |<----------------------|
+     * |<----------|           |           |  the proxy runs the second repair
+     * |---------------------------------->|  readPartitionSnapshot
+     * |<----------------------------------|  returns "saved", the repair returns true
+     * |<----------|           |           |  recover returns true
+     * |---------------------------------->|  readPartitionSnapshot
+     * |<----------------------------------|  returns "saved"
+     * }</pre>
+     */
+    @Test
+    public void recoveryCanResumeAfterTheRepairThrowsItsOwnException() {
+        var server = new NodeServer();
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)));
+        network.on(CREATE).onFirstCall().dropResponse();
+        var proxy = proxyFor(network.build(), 0);
+        proxy.connect();
+        assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
+
+        var callbackFailure = new IllegalStateException("Repair stopped after commit");
+        var failure = assertThrows(IllegalStateException.class, () -> proxy.recover(node -> {
+            node.writeToPartition("p", "saved");
+            node.commitPartition("p");
+            throw callbackFailure;
+        }));
+
+        assertSame(callbackFailure, failure);
+        assertTrue(proxy.recoveryRequired());
+        assertThrows(ConnectionUnavailableException.class, () -> proxy.readPartitionSnapshot("p"));
+
+        assertTrue(proxy.recover(node -> "saved".equals(node.readPartitionSnapshot("p"))));
+        assertFalse(proxy.recoveryRequired());
+        assertEquals("saved", proxy.readPartitionSnapshot("p"));
     }
 
     /**
@@ -431,6 +573,54 @@ public class RecoveryTest {
             awaitCompletion(otherThread);
             return node.partitionExists("p");
         }));
+        assertTrue(proxy.partitionExists("p"));
+    }
+
+    /**
+     * After session renewal, the proxy rejects other connection changes while
+     * the repair callback is still running. The current repair can then finish
+     * and make the proxy usable.
+     *
+     * <p>The diagram starts after a lost create response makes recovery necessary.
+     * {@code thread} tries to change the connection while the callback waits.
+     * <pre>{@code
+     * test      thread    proxy     network   server
+     * |         |         |         |         |
+     * |------------------>|         |         |  "recover(repair)"
+     * |         |         |------------------>|  the server renews the session
+     * |         |         |<------------------|
+     * |<------------------|         |         |  the proxy runs the repair
+     * |-------->|         |         |         |  the repair starts a thread and waits
+     * |         |-------->|         |         |  each of recover, disconnect, connect
+     * |         |<--------|         |         |  IllegalStateException at once
+     * |<--------|         |         |         |  the thread ends
+     * |         |         |         |         |
+     * |-------------------------------------->|  partitionExists
+     * |<--------------------------------------|  returns true, the repair returns true
+     * |<------------------|         |         |  recover returns true
+     * |-------------------------------------->|  partitionExists
+     * |<--------------------------------------|  returns true
+     * }</pre>
+     */
+    @Test
+    public void repairRejectsOtherConnectionChanges() {
+        var server = new NodeServer();
+        var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoints.track(new NodeTestEndpoint(server, 60000)));
+        network.on(CREATE).onFirstCall().dropResponse();
+        var proxy = proxyFor(network.build(), 0);
+        proxy.connect();
+        assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("p"));
+
+        assertTrue(proxy.recover(node -> {
+            var otherThread = CompletableFuture.runAsync(() -> {
+                assertThrows(IllegalStateException.class, proxy::recover);
+                assertThrows(IllegalStateException.class, proxy::disconnect);
+                assertThrows(IllegalStateException.class, proxy::connect);
+            });
+            awaitCompletion(otherThread);
+            return node.partitionExists("p");
+        }));
+        assertFalse(proxy.recoveryRequired());
         assertTrue(proxy.partitionExists("p"));
     }
 
