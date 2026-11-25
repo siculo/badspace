@@ -101,6 +101,62 @@ public class SessionLifecycleTest {
     }
 
     /**
+     * After a lost response, {@code recover()} accepts new calls again. The new
+     * calls use new request IDs, so the server does not answer them with the saved
+     * results of old calls.
+     *
+     * <p>A request ID is shown as the session token and the sequence number of the call.
+     * The test checks both parts on the first call of each session.
+     * <pre>{@code
+     * test        proxy       network     server
+     * |           |           |           |
+     * |---------->|           |           |  connect
+     * |           |---------------------->|  the server opens session A
+     * |           |<----------------------|
+     * |<----------|           |           |
+     * |           |           |           |
+     * |---------------------------------->|  createPartition, request "(A, 0)"
+     * |           |           *<----------|  the network drops the response
+     * |<----------|           |           |  NodeRecoveryRequiredException
+     * |           |           |           |
+     * |---------->|           |           |  "recover()"
+     * |           |---------------------->|  the server revokes A and opens B
+     * |           |<----------------------|
+     * |<----------|           |           |  the proxy accepts calls again
+     * |           |           |           |
+     * |---------------------------------->|  destroyPartition, request "(B, 0)"
+     * |<----------------------------------|
+     * }</pre>
+     */
+    @Test
+    public void recoveryAllowsNewCallsWithoutReusingRequestIds() throws InterruptedException {
+        var server = new NodeServer();
+        FakeNetworkInterface.Selector<NodeTestNetwork> create = node -> node.createPartition(any(), eq("present"));
+        FakeNetworkInterface.Selector<NodeTestNetwork> destroy = node -> node.destroyPartition(any(), eq("present"));
+        try (var endpoint = new NodeTestEndpoint(server, 60000)) {
+            var network = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint)
+                    .on(create).onFirstCall().dropResponse();
+            var proxy = proxyFor(network.build(), 0);
+            proxy.connect();
+            assertThrows(NodeRecoveryRequiredException.class, () -> proxy.createPartition("present"));
+            assertTrue(proxy.recoveryRequired());
+            var failedAttempt = network.awaitAttempt(create, 1, WAIT);
+            var failedRequestId = (RequestId) failedAttempt.invocation().args()[0];
+
+            proxy.recover();
+
+            assertFalse(proxy.recoveryRequired());
+            proxy.destroyPartition("present");
+            var destroyAttempt = network.awaitAttempt(destroy, 1, WAIT);
+            var renewedRequestId = (RequestId) destroyAttempt.invocation().args()[0];
+            assertNotEquals(failedRequestId.sessionToken(), renewedRequestId.sessionToken());
+            assertEquals(0L, failedRequestId.sequence());
+            assertEquals(0L, renewedRequestId.sequence());
+            assertFalse(server.partitionExists("present"));
+        }
+    }
+
+    /**
      * The network drops the response of {@code connect()}. The connection fails
      * without a retry and the proxy stays disconnected: it rejects calls, and a new
      * {@code connect()} works. See {@link #verifyFailedTransition}.

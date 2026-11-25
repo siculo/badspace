@@ -10,11 +10,14 @@
  * <ul>
  *   <li>{@link prototest.unreliablenetwork.RetryTest}: lost messages that the proxy
  *       hides with retries, and the limit after which it stops retrying.</li>
- *   <li>{@link prototest.unreliablenetwork.RecoveryTest}: failures that require the
- *       recovery of the proxy, what the recovery allows, and late responses that
- *       arrive after it.</li>
+ *   <li>{@link prototest.unreliablenetwork.RecoveryRequiredTest}: failures that make
+ *       the proxy require recovery and calls it blocks in that state.</li>
+ *   <li>{@link prototest.unreliablenetwork.RepairTest}: repair outcomes and which
+ *       calls can run during repair.</li>
+ *   <li>{@link prototest.unreliablenetwork.LateResponseTest}: held responses delivered
+ *       or dropped after recovery.</li>
  *   <li>{@link prototest.unreliablenetwork.SessionLifecycleTest}: connection, recovery
- *       and disconnection when their messages are lost, and old requests that reach
+ *       and disconnection, request IDs after renewal, and old requests that reach
  *       the server after their session was revoked or has expired.</li>
  * </ul>
  *

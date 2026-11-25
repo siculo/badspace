@@ -67,20 +67,37 @@ risultato salvato senza applicare di nuovo l'operazione.
 | `requiresNodeRecoveryAfterRetryTimeout` | prima richiesta persa, timeout zero | nessun retry: `"Unrecoverable timeout"` e proxy da recuperare |
 | `returnsAServiceExceptionWithoutRetrying` | consegna normale | l'errore del servizio arriva al chiamante dopo un solo tentativo; il proxy resta usabile |
 
-## Recupero: `RecoveryTest`
+## Ingresso in recupero necessario — `RecoveryRequiredTest`
 
-| Test | Rete | Verifica |
+| Stato iniziale | Evento | Stato finale e verifica |
 |---|---|---|
-| `aLostResponseRequiresRecoveryAndBlocksAllNodeOperations` | risposta persa, timeout zero | il server ha creato la partizione, ma il proxy rifiuta tutte le operazioni con il primo errore come causa |
-| `interruptionPreservesTheFlagAndRequiresRecovery` | nessuna regola | un chiamante già interrotto rende il proxy da recuperare senza inviare la richiesta e conserva il flag di interruzione |
-| `recoveryAllowsNewCallsWithoutReusingRequestIds` | risposta persa, timeout zero | dopo `recover()` le nuove chiamate hanno ID nuovi e raggiungono il server; un secondo `recover()` non cambia nulla |
-| `aHeldResponseCanBeDeliveredAfterProxyRecovery` | risposta trattenuta, poi consegnata | la risposta tardiva non riprende la vecchia chiamata e non cambia lo stato |
-| `aHeldResponseCanBeLostAfterProxyRecovery` | risposta trattenuta, poi persa | la vecchia chiamata non ripete il tentativo dopo il recupero |
+| Proxy usabile | Si perde la risposta alla creazione, con timeout di retry zero | Recupero necessario. La partizione esiste sul server. |
+| Proxy usabile | Un chiamante già interrotto tenta di creare una partizione | Recupero necessario. Il flag resta impostato e la richiesta resta locale. |
+| Proxy usabile, risposta al commit trattenuta | Il chiamante viene interrotto | Recupero necessario. Il flag resta impostato e lo snapshot pubblicato è leggibile sul server. |
+| Recupero necessario | Il client tenta un'operazione sul nodo | Recupero necessario. Il proxy rifiuta ogni operazione con il primo errore come causa. |
 
-### Risposta tardiva dopo il recupero
+## Riparazione — `RepairTest`
 
-Gli ultimi due test seguono lo stesso scenario e cambiano solo la sorte della
-risposta trattenuta. Le distanze sul diagramma non sono in scala.
+| Stato iniziale | Evento | Stato finale e verifica |
+|---|---|---|
+| Recupero necessario dopo una riparazione incompleta | Il callback successivo scrive e verifica lo snapshot atteso | Proxy usabile. Le chiamate ordinarie leggono il nuovo snapshot. |
+| Proxy usabile | Il client invoca `recover(repair)` | Proxy usabile. Il metodo restituisce `true` e salta il callback. |
+| Riparazione in corso | Il callback restituisce `false` | Recupero necessario. Le operazioni ordinarie restano bloccate. |
+| Riparazione in corso | Il callback solleva una propria eccezione dopo il commit | Recupero necessario. Il client riceve la stessa eccezione e può confermare lo snapshot in una riparazione successiva. |
+| Riparazione in corso | Il callback intercetta l'errore finale del commit e restituisce `true` | Recupero necessario. Il proxy segnala l'errore intercettato come causa. |
+| Riparazione in corso | Un altro thread tenta una chiamata ordinaria o una transizione di connessione | Riparazione in corso. Il proxy respinge subito i tentativi e il callback può completarsi. |
+
+Lo scenario con la risposta al commit persa durante la riparazione verifica
+due tentativi. Il primo lascia il proxy da recuperare con il commit già
+applicato sul server. Il secondo ricostruisce la partizione e riapre le
+operazioni una volta verificato lo snapshot atteso.
+
+## Risposte tardive — `LateResponseTest`
+
+I due test partono con il proxy di nuovo usabile e una risposta della vecchia
+sessione ancora trattenuta. La rete la consegna in un caso e la perde
+nell'altro. Il diagramma include gli eventi che preparano lo stato iniziale.
+Le distanze non sono in scala.
 
 ```text
                    1             2              3             4              5
@@ -106,8 +123,9 @@ stato del proxy    usabile        da recuperare  usabile
 
 - `prototest.unreliablenetwork.SessionLifecycleTest` ritarda o perde le
   conferme delle transizioni e consegna richieste rimaste in transito dopo
-  revoca o scadenza. Verifica anche che un proxy inattivo possa rinnovare la
-  sessione dopo il rifiuto al primo tentativo.
+  revoca o scadenza. Verifica il rinnovo di una sessione scaduta e controlla
+  che, dopo `recover()`, la prima richiesta usi un token diverso con
+  sequenza zero.
 - `prototest.remote.server.SessionRegistryTest` controlla la scadenza di risultati
   e sessioni con un orologio controllabile e verifica la pulizia periodica.
 - `prototest.remote.client.RemoteCallExecutorTest`: con un tempo monotono

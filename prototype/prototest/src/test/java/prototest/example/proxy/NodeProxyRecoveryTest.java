@@ -27,7 +27,8 @@ import static org.junit.Assert.*;
  *
  * <p>The endpoints simulate the failures directly. The cases with lost or held
  * messages, which use the fake network, are in
- * {@link prototest.unreliablenetwork.RecoveryTest}.
+ * {@link prototest.unreliablenetwork.RecoveryRequiredTest} and
+ * {@link prototest.unreliablenetwork.LateResponseTest}.
  *
  * <p>Relevant orderings are forced with latches, waits are bounded and worker
  * errors reach the test. The timeout cases use a zero retry timeout and an
