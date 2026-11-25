@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package prototest.remote.v1;
+
+import "google/protobuf/empty.proto";
+
+option java_multiple_files = true;
+option java_package = "prototest.remote.grpc.wire";
+
+service Sessions {
+  rpc Connect(google.protobuf.Empty) returns (SessionToken);
+  rpc Recover(SessionToken) returns (SessionToken);
+  rpc Disconnect(SessionToken) returns (google.protobuf.Empty);
+}
+
+message SessionToken {
+  string value = 1;
+}
+
+message RequestIdentity {
+  SessionToken session_token = 1;
+  int64 sequence = 2;
+}

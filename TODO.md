@@ -214,11 +214,11 @@ Implementato; nel [bundle](okf-bundle/future/architecture/buffer-costs.md) resta
 <a id="fare-grpc"></a>
 ### Nodo gRPC [↑](#blocchi)
 
-Il progetto sperimentale [prototest](prototype/prototest/) è importato così
-com'è, con servizio semplificato e rete fittizia, per esplorare i problemi
-delle invocazioni remote prima di introdurli nei nodi BADSPACE. Non implementa
-gRPC. I risultati degli esperimenti sono documentati nei file Markdown
-di `prototest` (vedi il suo README). I test si eseguono con
+Il progetto sperimentale [prototest](prototype/prototest/) usa un servizio
+semplificato per esplorare le invocazioni remote. La demo collega il client
+all'esempio via gRPC e la suite usa anche una rete fittizia per controllare
+la consegna dei messaggi. Il [README](prototype/prototest/README.md) raccoglie
+le istruzioni per la demo e gli appunti sulla sperimentazione. I test si eseguono con
 `mvn -f prototype/pom.xml -pl prototest test`, oppure direttamente con
 `mvn -f prototype/prototest/pom.xml test`.
 

@@ -1,33 +1,57 @@
 package prototest.example;
 
-import prototest.example.api.NodeNetworkInterface;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import prototest.example.api.Reader;
 import prototest.example.api.Service;
 import prototest.example.api.Writer;
+import prototest.example.grpc.GrpcNodeClient;
+import prototest.example.grpc.GrpcPartitionService;
+import prototest.example.grpc.GrpcSessionService;
 import prototest.example.proxy.NodeProxy;
 import prototest.example.proxy.ServiceClient;
 import prototest.example.server.NodeServer;
 import prototest.example.server.ServerNodeNetworkInterface;
-import prototest.remote.api.SessionNetworkInterface;
 import prototest.remote.client.RemoteCallExecutor;
-import prototest.remote.network.FakeNetworkInterface;
 import prototest.remote.server.ServerSessionEndpoint;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 public class App {
 
     private static Service service;
 
-    static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) throws IOException, InterruptedException {
+        var address = new InetSocketAddress("127.0.0.1", 0);
         try (var sessions = new ServerSessionEndpoint(2000)) {
             var node = new ServerNodeNetworkInterface(new NodeServer(), sessions);
-            var sessionNetwork = FakeNetworkInterface.wrap(SessionNetworkInterface.class, sessions).build();
-            var nodeNetwork = FakeNetworkInterface.wrap(NodeNetworkInterface.class, node).build();
-            var proxy = new NodeProxy(nodeNetwork, new RemoteCallExecutor(sessionNetwork, 2000));
-            proxy.connect();
+            var server = NettyServerBuilder.forAddress(address)
+                    .addService(new GrpcSessionService(sessions))
+                    .addService(new GrpcPartitionService(node))
+                    .build();
             try {
-                runDemo(proxy);
+                server.start();
+                var channel = NettyChannelBuilder.forAddress(address.getHostString(), server.getPort())
+                        .usePlaintext()
+                        .disableRetry()
+                        .build();
+                try {
+                    var transport = new GrpcNodeClient(channel, Duration.ofSeconds(2));
+                    var proxy = new NodeProxy(transport, new RemoteCallExecutor(transport, 2000));
+                    proxy.connect();
+                    try {
+                        runDemo(proxy);
+                    } finally {
+                        proxy.disconnect();
+                    }
+                } finally {
+                    channel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
+                }
             } finally {
-                proxy.disconnect();
+                server.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
             }
         }
     }

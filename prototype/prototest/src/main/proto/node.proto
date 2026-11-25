@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package prototest.example.v1;
+
+import "google/protobuf/empty.proto";
+import "session.proto";
+
+option java_multiple_files = true;
+option java_package = "prototest.example.grpc.wire";
+
+service Partitions {
+  rpc CreatePartition(PartitionRequest) returns (google.protobuf.Empty);
+  rpc DestroyPartition(PartitionRequest) returns (google.protobuf.Empty);
+  rpc PartitionExists(PartitionRequest) returns (ExistsResponse);
+  rpc WriteToPartition(WriteRequest) returns (google.protobuf.Empty);
+  rpc CommitPartition(PartitionRequest) returns (google.protobuf.Empty);
+  rpc ReadPartitionSnapshot(PartitionRequest) returns (SnapshotResponse);
+}
+
+message PartitionRequest {
+  prototest.remote.v1.RequestIdentity request_id = 1;
+  optional string name = 2;
+}
+
+message WriteRequest {
+  PartitionRequest partition = 1;
+  optional string data = 2;
+}
+
+message ExistsResponse {
+  bool exists = 1;
+}
+
+message SnapshotResponse {
+  string snapshot = 1;
+}
