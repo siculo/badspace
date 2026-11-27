@@ -13,6 +13,8 @@ import prototest.remote.api.RequestId;
 import java.util.Objects;
 import java.util.UUID;
 
+import static prototest.example.grpc.GrpcPartitionErrors.CALLS;
+
 /** Exposes the example node's partition operations as a gRPC service. */
 public final class GrpcPartitionService extends PartitionsGrpc.PartitionsImplBase {
     private final NodeNetworkInterface node;
@@ -28,35 +30,35 @@ public final class GrpcPartitionService extends PartitionsGrpc.PartitionsImplBas
 
     @Override
     public void createPartition(PartitionRequest request, StreamObserver<Empty> observer) {
-        GrpcCalls.respond(observer, () -> node.createPartition(requestId(request), name(request)));
+        CALLS.respond(observer, () -> node.createPartition(requestId(request), name(request)));
     }
 
     @Override
     public void destroyPartition(PartitionRequest request, StreamObserver<Empty> observer) {
-        GrpcCalls.respond(observer, () -> node.destroyPartition(requestId(request), name(request)));
+        CALLS.respond(observer, () -> node.destroyPartition(requestId(request), name(request)));
     }
 
     @Override
     public void partitionExists(PartitionRequest request, StreamObserver<ExistsResponse> observer) {
-        GrpcCalls.respond(observer, () -> ExistsResponse.newBuilder()
+        CALLS.respond(observer, () -> ExistsResponse.newBuilder()
                 .setExists(node.partitionExists(requestId(request), name(request))).build());
     }
 
     @Override
     public void writeToPartition(WriteRequest request, StreamObserver<Empty> observer) {
         var partition = request.getPartition();
-        GrpcCalls.respond(observer, () -> node.writeToPartition(
+        CALLS.respond(observer, () -> node.writeToPartition(
                 requestId(partition), name(partition), request.hasData() ? request.getData() : null));
     }
 
     @Override
     public void commitPartition(PartitionRequest request, StreamObserver<Empty> observer) {
-        GrpcCalls.respond(observer, () -> node.commitPartition(requestId(request), name(request)));
+        CALLS.respond(observer, () -> node.commitPartition(requestId(request), name(request)));
     }
 
     @Override
     public void readPartitionSnapshot(PartitionRequest request, StreamObserver<SnapshotResponse> observer) {
-        GrpcCalls.respond(observer, () -> SnapshotResponse.newBuilder()
+        CALLS.respond(observer, () -> SnapshotResponse.newBuilder()
                 .setSnapshot(node.readPartitionSnapshot(requestId(request), name(request))).build());
     }
 

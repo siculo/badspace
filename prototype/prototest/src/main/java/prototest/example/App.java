@@ -7,12 +7,13 @@ import prototest.example.api.Service;
 import prototest.example.api.Writer;
 import prototest.example.grpc.GrpcNodeClient;
 import prototest.example.grpc.GrpcPartitionService;
-import prototest.example.grpc.GrpcSessionService;
 import prototest.example.proxy.NodeProxy;
 import prototest.example.proxy.ServiceClient;
 import prototest.example.server.NodeServer;
 import prototest.example.server.ServerNodeNetworkInterface;
 import prototest.remote.client.RemoteCallExecutor;
+import prototest.remote.grpc.GrpcSessionClient;
+import prototest.remote.grpc.GrpcSessionService;
 import prototest.remote.server.ServerSessionEndpoint;
 
 import java.io.IOException;
@@ -39,8 +40,10 @@ public class App {
                         .disableRetry()
                         .build();
                 try {
-                    var transport = new GrpcNodeClient(channel, Duration.ofSeconds(2));
-                    var proxy = new NodeProxy(transport, new RemoteCallExecutor(transport, 2000));
+                    var attemptTimeout = Duration.ofSeconds(2);
+                    var nodeClient = new GrpcNodeClient(channel, attemptTimeout);
+                    var sessionClient = new GrpcSessionClient(channel, attemptTimeout);
+                    var proxy = new NodeProxy(nodeClient, new RemoteCallExecutor(sessionClient, 2000));
                     proxy.connect();
                     try {
                         runDemo(proxy);

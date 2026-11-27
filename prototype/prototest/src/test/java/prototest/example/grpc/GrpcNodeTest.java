@@ -21,6 +21,8 @@ import prototest.example.server.NodeServer;
 import prototest.example.server.ServerNodeNetworkInterface;
 import prototest.remote.api.errors.SessionUnavailableException;
 import prototest.remote.client.RemoteCallExecutor;
+import prototest.remote.grpc.GrpcSessionClient;
+import prototest.remote.grpc.GrpcSessionService;
 import prototest.remote.server.ServerSessionEndpoint;
 
 import java.net.InetSocketAddress;
@@ -64,8 +66,9 @@ public class GrpcNodeTest {
                 .usePlaintext()
                 .disableRetry()
                 .build();
-        var transport = new GrpcNodeClient(channel, ATTEMPT_TIMEOUT);
-        proxy = new NodeProxy(transport, new RemoteCallExecutor(transport, ATTEMPT_TIMEOUT.toMillis()));
+        var nodeClient = new GrpcNodeClient(channel, ATTEMPT_TIMEOUT);
+        var sessionClient = new GrpcSessionClient(channel, ATTEMPT_TIMEOUT);
+        proxy = new NodeProxy(nodeClient, new RemoteCallExecutor(sessionClient, ATTEMPT_TIMEOUT.toMillis()));
     }
 
     @After

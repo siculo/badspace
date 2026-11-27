@@ -3,7 +3,7 @@ syntax = "proto3";
 package prototest.example.v1;
 
 import "google/protobuf/empty.proto";
-import "session.proto";
+import "remote/session.proto";
 
 option java_multiple_files = true;
 option java_package = "prototest.example.grpc.wire";

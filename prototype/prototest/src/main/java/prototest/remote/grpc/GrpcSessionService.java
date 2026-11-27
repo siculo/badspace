@@ -1,4 +1,4 @@
-package prototest.example.grpc;
+package prototest.remote.grpc;
 
 import com.google.protobuf.Empty;
 import io.grpc.stub.StreamObserver;
@@ -24,17 +24,17 @@ public final class GrpcSessionService extends SessionsGrpc.SessionsImplBase {
 
     @Override
     public void connect(Empty request, StreamObserver<SessionToken> observer) {
-        GrpcCalls.respond(observer, () -> token(sessions.connect()));
+        GrpcCalls.DEFAULT.respond(observer, () -> token(sessions.connect()));
     }
 
     @Override
     public void recover(SessionToken request, StreamObserver<SessionToken> observer) {
-        GrpcCalls.respond(observer, () -> token(sessions.recover(UUID.fromString(request.getValue()))));
+        GrpcCalls.DEFAULT.respond(observer, () -> token(sessions.recover(UUID.fromString(request.getValue()))));
     }
 
     @Override
     public void disconnect(SessionToken request, StreamObserver<Empty> observer) {
-        GrpcCalls.respond(observer, () -> sessions.disconnect(UUID.fromString(request.getValue())));
+        GrpcCalls.DEFAULT.respond(observer, () -> sessions.disconnect(UUID.fromString(request.getValue())));
     }
 
     private static SessionToken token(UUID token) {
