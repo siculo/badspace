@@ -7,10 +7,10 @@ import prototest.example.server.NodeServer;
 import prototest.example.server.NodeTestEndpoint;
 import prototest.example.server.NodeTestNetwork;
 import prototest.example.server.TestEndpoints;
-import prototest.remote.api.RequestId;
-import prototest.remote.api.errors.ConnectionUnavailableException;
-import prototest.remote.api.errors.NodeRecoveryRequiredException;
-import prototest.remote.network.FakeNetworkInterface;
+import badspace.remote.api.RequestId;
+import badspace.remote.api.errors.ConnectionUnavailableException;
+import badspace.remote.api.errors.NodeRecoveryRequiredException;
+import badspace.remote.network.FakeNetworkInterface;
 
 import java.time.Duration;
 import java.util.concurrent.Executors;
@@ -20,8 +20,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static prototest.example.server.NodeTestEndpoint.proxyFor;
 import static org.junit.Assert.*;
-import static prototest.remote.network.FakeNetworkInterface.any;
-import static prototest.remote.network.FakeNetworkInterface.eq;
+import static badspace.remote.network.FakeNetworkInterface.any;
+import static badspace.remote.network.FakeNetworkInterface.eq;
 
 /**
  * Checks what happens when a held response from an old session is delivered

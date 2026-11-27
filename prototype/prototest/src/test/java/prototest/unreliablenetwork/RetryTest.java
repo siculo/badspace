@@ -8,9 +8,9 @@ import prototest.example.server.NodeServer;
 import prototest.example.server.NodeTestEndpoint;
 import prototest.example.server.NodeTestNetwork;
 import prototest.example.server.TestEndpoints;
-import prototest.remote.api.RequestId;
-import prototest.remote.api.errors.NodeRecoveryRequiredException;
-import prototest.remote.network.FakeNetworkInterface;
+import badspace.remote.api.RequestId;
+import badspace.remote.api.errors.NodeRecoveryRequiredException;
+import badspace.remote.network.FakeNetworkInterface;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static prototest.example.server.NodeTestEndpoint.proxyFor;
 import static org.junit.Assert.*;
-import static prototest.remote.network.FakeNetworkInterface.any;
+import static badspace.remote.network.FakeNetworkInterface.any;
 
 /**
  * Checks that the proxy retries lost requests and lost responses with the same

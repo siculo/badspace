@@ -1,8 +1,8 @@
 package prototest.example.server;
 
 import prototest.example.api.NodeNetworkInterface;
-import prototest.remote.api.RequestId;
-import prototest.remote.server.ServerSessionEndpoint;
+import badspace.remote.api.RequestId;
+import badspace.remote.server.ServerSessionEndpoint;
 
 import java.util.Objects;
 

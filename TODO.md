@@ -215,12 +215,12 @@ Implementato; nel [bundle](okf-bundle/future/architecture/buffer-costs.md) resta
 ### Nodo gRPC [↑](#blocchi)
 
 Il progetto sperimentale [prototest](prototype/prototest/) usa un servizio
-semplificato per esplorare le invocazioni remote. La demo collega il client
-all'esempio via gRPC e la suite usa anche una rete fittizia per controllare
+semplificato per esplorare le invocazioni remote. Il modulo [remote](prototype/remote/)
+fornisce la gestione delle sessioni, i retry e gli adattatori gRPC riusabili.
+La demo collega il client all'esempio via gRPC e la suite usa anche una rete fittizia per controllare
 la consegna dei messaggi. Il [README](prototype/prototest/README.md) raccoglie
-le istruzioni per la demo e gli appunti sulla sperimentazione. I test si eseguono con
-`mvn -f prototype/pom.xml -pl prototest test`, oppure direttamente con
-`mvn -f prototype/prototest/pom.xml test`.
+le istruzioni per la demo e gli appunti sulla sperimentazione. I test di entrambi
+i moduli si eseguono con `mvn -f prototype/pom.xml -pl prototest -am test`.
 
 - [ ] Invocazione di nodi remoti via gRPC
 - [ ] Salvataggio asincrono nel contratto del nodo (avvio e poi interrogazione dello stato), se una chiamata sincrona lunga pesa sulla chiamata remota e sul suo timeout (vedi [persistenza](okf-bundle/current/decisions/persistence.md#chiamate))

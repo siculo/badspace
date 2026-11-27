@@ -1,9 +1,9 @@
 package prototest.example.server;
 
 import prototest.example.proxy.NodeProxy;
-import prototest.remote.api.RequestId;
-import prototest.remote.client.RemoteCallExecutor;
-import prototest.remote.server.ServerSessionEndpoint;
+import badspace.remote.api.RequestId;
+import badspace.remote.client.RemoteCallExecutor;
+import badspace.remote.server.ServerSessionEndpoint;
 
 import java.time.Clock;
 import java.util.UUID;

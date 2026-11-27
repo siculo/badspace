@@ -126,9 +126,9 @@ stato del proxy    usabile        da recuperare  usabile
   revoca o scadenza. Verifica il rinnovo di una sessione scaduta e controlla
   che, dopo `recover()`, la prima richiesta usi un token diverso con
   sequenza zero.
-- `prototest.remote.server.SessionRegistryTest` controlla la scadenza di risultati
+- `badspace.remote.server.SessionRegistryTest` controlla la scadenza di risultati
   e sessioni con un orologio controllabile e verifica la pulizia periodica.
-- `prototest.remote.client.RemoteCallExecutorTest`: con un tempo monotono
+- `badspace.remote.client.RemoteCallExecutorTest`: con un tempo monotono
   controllato, l'executor ritenta prima della scadenza e si ferma quando il
   timeout è raggiunto. Verifica anche l'uso della stessa sessione con due
   API applicative distinte.

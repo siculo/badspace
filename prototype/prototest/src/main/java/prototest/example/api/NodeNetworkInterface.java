@@ -1,6 +1,6 @@
 package prototest.example.api;
 
-import prototest.remote.api.RequestId;
+import badspace.remote.api.RequestId;
 
 /** Remote operations on the partitions of a node. */
 public interface NodeNetworkInterface {

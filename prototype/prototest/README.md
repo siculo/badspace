@@ -4,7 +4,8 @@ Progetto sperimentale sulle invocazioni remote. Il servizio d'esempio usa
 gRPC su una connessione locale. I test con rete fittizia controllano la
 consegna di richieste e risposte in modo deterministico.
 
-Il codice riusabile è in `prototest.remote`. I package `api` e `api.errors`
+Il codice riusabile è nel modulo [`remote`](../remote/pom.xml), nel package
+`badspace.remote`. I package `api` e `api.errors`
 definiscono il protocollo di sessione, gli identificatori delle richieste e
 gli errori di rete. `server` gestisce le sessioni, le scadenze e il riuso dei
 risultati, `client` gestisce il ciclo di vita della sessione e i retry, e
@@ -23,7 +24,7 @@ su `127.0.0.1` e una porta assegnata dal sistema.
 
 ## Trasporto gRPC
 
-[Il contratto di sessione](src/main/proto/remote/session.proto) definisce le
+[Il contratto di sessione](../remote/src/main/proto/remote/session.proto) definisce le
 operazioni sui token e il messaggio condiviso con token e sequenza.
 [Il contratto delle partizioni](src/main/proto/example/node.proto) importa
 quel messaggio per identificare ciascuna richiesta. I due servizi usano lo
@@ -42,12 +43,16 @@ al nodo.
 | `UNAVAILABLE`, `DEADLINE_EXCEEDED`, `CANCELLED` | La chiamata al nodo può essere ritentata con lo stesso ID. |
 | Altri codici di errore | Il proxy richiede il recupero dopo una chiamata al nodo. |
 
-Per eseguire test e demo dalla radice del repository:
+I comandi seguenti si eseguono dalla radice del repository.
 
 ```sh
-mvn -f prototype/pom.xml -pl prototest test
+mvn -f prototype/pom.xml -pl prototest -am test
+mvn -f prototype/pom.xml -pl remote -am install
 mvn -f prototype/prototest/pom.xml compile exec:java
 ```
+
+Il primo comando esegue entrambe le suite. Il secondo installa il modulo
+`remote` nel repository Maven locale per avviare la demo dal solo `prototest`.
 
 Maven usa il trasporto TCP Java NIO di Netty per test e demo. Per usare
 la stessa configurazione da un IDE, aggiungere l'opzione JVM

@@ -2,8 +2,8 @@ package prototest.example.proxy;
 
 import prototest.example.api.Node;
 import prototest.example.api.NodeNetworkInterface;
-import prototest.remote.api.errors.NodeRecoveryRequiredException;
-import prototest.remote.client.RemoteCallExecutor;
+import badspace.remote.api.errors.NodeRecoveryRequiredException;
+import badspace.remote.client.RemoteCallExecutor;
 
 import java.util.Objects;
 import java.util.function.Predicate;

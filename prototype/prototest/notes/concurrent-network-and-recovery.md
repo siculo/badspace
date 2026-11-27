@@ -2,7 +2,7 @@
 
 `NodeProxy` delega l'esecuzione delle chiamate a un `RemoteCallExecutor`.
 L'executor gestisce la sessione tramite `SessionNetworkInterface`.
-Le [Javadoc di `RemoteCallExecutor`](../src/main/java/prototest/remote/client/RemoteCallExecutor.java)
+Le [Javadoc di `RemoteCallExecutor`](../../remote/src/main/java/badspace/remote/client/RemoteCallExecutor.java)
 descrivono retry, errori e concorrenza. Il [ciclo di vita delle sessioni](multiple-proxies.md#durata-delle-sessioni)
 spiega quando il server accetta il token del proxy.
 
@@ -22,8 +22,8 @@ qualsiasi riferimento, incluso `null`; `eq(valore)` confronta con
 valori diretti. Per esempio:
 
 ```java
-import static prototest.remote.network.FakeNetworkInterface.any;
-import static prototest.remote.network.FakeNetworkInterface.eq;
+import static badspace.remote.network.FakeNetworkInterface.any;
+import static badspace.remote.network.FakeNetworkInterface.eq;
 
 var network = FakeNetworkInterface.wrap(NodeNetworkInterface.class, endpoint)
         .on(n -> n.createPartition(any(), eq("example"))).onFirstCall().dropRequest()
@@ -88,7 +88,7 @@ errore d'uso (`IllegalStateException`). I timeout delle attese di osservazione
 servono a evitare test bloccati, non a simulare il tempo di rete.
 
 Il contratto completo è nelle
-[Javadoc di `FakeNetworkInterface`](../src/main/java/prototest/remote/network/FakeNetworkInterface.java).
+[Javadoc di `FakeNetworkInterface`](../../remote/src/main/java/badspace/remote/network/FakeNetworkInterface.java).
 
 ## Limiti
 

@@ -21,7 +21,7 @@ Il tempo scorre dall’alto verso il basso. La colonna `gRPC` rappresenta lo stu
     +<--------------+<----------------+                          :
 ```
 
-`GrpcSessionService` inserisce il token nel messaggio `SessionToken` come stringa. `GrpcSessionClient` lo riconverte in `UUID` e lo restituisce a `RemoteCallExecutor`, che lo conserva per le chiamate successive. [GrpcSessionClient.java](../src/main/java/prototest/remote/grpc/GrpcSessionClient.java#L34) · [GrpcSessionService.java](../src/main/java/prototest/remote/grpc/GrpcSessionService.java#L26) · [RemoteCallExecutor.java](../src/main/java/prototest/remote/client/RemoteCallExecutor.java#L238)
+`GrpcSessionService` inserisce il token nel messaggio `SessionToken` come stringa. `GrpcSessionClient` lo riconverte in `UUID` e lo restituisce a `RemoteCallExecutor`, che lo conserva per le chiamate successive. [GrpcSessionClient.java](../../remote/src/main/java/badspace/remote/grpc/GrpcSessionClient.java#L34) · [GrpcSessionService.java](../../remote/src/main/java/badspace/remote/grpc/GrpcSessionService.java#L26) · [RemoteCallExecutor.java](../../remote/src/main/java/badspace/remote/client/RemoteCallExecutor.java#L238)
 
 ## Lettura di uno snapshot
 

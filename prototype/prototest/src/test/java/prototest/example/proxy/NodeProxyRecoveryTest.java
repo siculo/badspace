@@ -6,9 +6,9 @@ import prototest.example.api.errors.service.PartitionNotFoundException;
 import prototest.example.server.NodeServer;
 import prototest.example.server.NodeTestEndpoint;
 import prototest.example.server.TestEndpoints;
-import prototest.remote.api.RequestId;
-import prototest.remote.api.errors.ConnectionUnavailableException;
-import prototest.remote.api.errors.NodeRecoveryRequiredException;
+import badspace.remote.api.RequestId;
+import badspace.remote.api.errors.ConnectionUnavailableException;
+import badspace.remote.api.errors.NodeRecoveryRequiredException;
 
 import java.util.List;
 import java.util.ArrayList;

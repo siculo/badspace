@@ -5,9 +5,9 @@ import prototest.example.api.NodeNetworkInterface;
 import prototest.example.grpc.wire.PartitionRequest;
 import prototest.example.grpc.wire.PartitionsGrpc;
 import prototest.example.grpc.wire.WriteRequest;
-import prototest.remote.api.RequestId;
-import prototest.remote.grpc.wire.RequestIdentity;
-import prototest.remote.grpc.wire.SessionToken;
+import badspace.remote.api.RequestId;
+import badspace.remote.grpc.wire.RequestIdentity;
+import badspace.remote.grpc.wire.SessionToken;
 
 import java.time.Duration;
 import java.util.UUID;

@@ -7,9 +7,9 @@ import prototest.example.server.NodeServer;
 import prototest.example.server.NodeTestEndpoint;
 import prototest.example.server.NodeTestNetwork;
 import prototest.example.server.TestEndpoints;
-import prototest.remote.api.RequestId;
-import prototest.remote.api.errors.RetryableCommunicationException;
-import prototest.remote.network.FakeNetworkInterface;
+import badspace.remote.api.RequestId;
+import badspace.remote.api.errors.RetryableCommunicationException;
+import badspace.remote.network.FakeNetworkInterface;
 
 import java.time.Duration;
 import java.util.List;
@@ -18,9 +18,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
-import static prototest.remote.network.FakeNetworkInterface.Delivery.*;
-import static prototest.remote.network.FakeNetworkInterface.any;
-import static prototest.remote.network.FakeNetworkInterface.eq;
+import static badspace.remote.network.FakeNetworkInterface.Delivery.*;
+import static badspace.remote.network.FakeNetworkInterface.any;
+import static badspace.remote.network.FakeNetworkInterface.eq;
 
 /**
  * Checks method selection, persistent rules, entry history and delivery controls.

@@ -8,9 +8,9 @@ import prototest.example.server.NodeServer;
 import prototest.example.server.NodeTestEndpoint;
 import prototest.example.server.NodeTestNetwork;
 import prototest.example.server.TestEndpoints;
-import prototest.remote.api.errors.ConnectionUnavailableException;
-import prototest.remote.api.errors.NodeRecoveryRequiredException;
-import prototest.remote.network.FakeNetworkInterface;
+import badspace.remote.api.errors.ConnectionUnavailableException;
+import badspace.remote.api.errors.NodeRecoveryRequiredException;
+import badspace.remote.network.FakeNetworkInterface;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -22,7 +22,7 @@ import java.util.function.Predicate;
 
 import static prototest.example.server.NodeTestEndpoint.proxyFor;
 import static org.junit.Assert.*;
-import static prototest.remote.network.FakeNetworkInterface.any;
+import static badspace.remote.network.FakeNetworkInterface.any;
 
 /**
  * Checks the outcomes of the repair callback and who can use the proxy while

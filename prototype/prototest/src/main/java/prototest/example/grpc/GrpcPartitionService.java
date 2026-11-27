@@ -8,7 +8,7 @@ import prototest.example.grpc.wire.PartitionRequest;
 import prototest.example.grpc.wire.PartitionsGrpc;
 import prototest.example.grpc.wire.SnapshotResponse;
 import prototest.example.grpc.wire.WriteRequest;
-import prototest.remote.api.RequestId;
+import badspace.remote.api.RequestId;
 
 import java.util.Objects;
 import java.util.UUID;

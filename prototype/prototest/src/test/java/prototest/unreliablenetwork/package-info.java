@@ -3,7 +3,7 @@
  *
  * <p>The tests use the real {@link prototest.example.proxy.NodeProxy} and the real server
  * adapter {@link prototest.example.server.NodeTestEndpoint}, usually with a
- * {@link prototest.remote.network.FakeNetworkInterface} between them. The fake network loses or
+ * {@link badspace.remote.network.FakeNetworkInterface} between them. The fake network loses or
  * holds single requests and responses, following explicit rules: there are no random
  * failures or delays, so each test always runs the same scenario.
  *

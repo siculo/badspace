@@ -11,10 +11,10 @@ import prototest.example.proxy.NodeProxy;
 import prototest.example.proxy.ServiceClient;
 import prototest.example.server.NodeServer;
 import prototest.example.server.ServerNodeNetworkInterface;
-import prototest.remote.client.RemoteCallExecutor;
-import prototest.remote.grpc.GrpcSessionClient;
-import prototest.remote.grpc.GrpcSessionService;
-import prototest.remote.server.ServerSessionEndpoint;
+import badspace.remote.client.RemoteCallExecutor;
+import badspace.remote.grpc.GrpcSessionClient;
+import badspace.remote.grpc.GrpcSessionService;
+import badspace.remote.server.ServerSessionEndpoint;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;

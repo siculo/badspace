@@ -19,11 +19,11 @@ import prototest.example.grpc.wire.PartitionsGrpc;
 import prototest.example.proxy.NodeProxy;
 import prototest.example.server.NodeServer;
 import prototest.example.server.ServerNodeNetworkInterface;
-import prototest.remote.api.errors.SessionUnavailableException;
-import prototest.remote.client.RemoteCallExecutor;
-import prototest.remote.grpc.GrpcSessionClient;
-import prototest.remote.grpc.GrpcSessionService;
-import prototest.remote.server.ServerSessionEndpoint;
+import badspace.remote.api.errors.SessionUnavailableException;
+import badspace.remote.client.RemoteCallExecutor;
+import badspace.remote.grpc.GrpcSessionClient;
+import badspace.remote.grpc.GrpcSessionService;
+import badspace.remote.server.ServerSessionEndpoint;
 
 import java.net.InetSocketAddress;
 import java.time.Duration;

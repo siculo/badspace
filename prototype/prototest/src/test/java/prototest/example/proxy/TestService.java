@@ -4,7 +4,7 @@ import prototest.example.api.*;
 import prototest.example.server.NodeServer;
 import prototest.example.server.NodeTestEndpoint;
 import prototest.example.server.NodeTestNetwork;
-import prototest.remote.network.FakeNetworkInterface;
+import badspace.remote.network.FakeNetworkInterface;
 
 import java.util.Objects;
 import static prototest.example.server.NodeTestEndpoint.proxyFor;

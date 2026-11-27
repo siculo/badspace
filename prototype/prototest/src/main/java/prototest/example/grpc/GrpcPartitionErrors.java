@@ -2,7 +2,7 @@ package prototest.example.grpc;
 
 import io.grpc.Status;
 import prototest.example.api.errors.service.PartitionNotFoundException;
-import prototest.remote.grpc.GrpcCalls;
+import badspace.remote.grpc.GrpcCalls;
 
 /** Maps partition errors between Java and gRPC. */
 final class GrpcPartitionErrors {
