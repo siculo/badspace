@@ -34,25 +34,33 @@ la disconnessione anche se il token è già assente.
 `ServerSessionEndpoint` elimina periodicamente risultati e sessioni scadute,
 anche in assenza di traffico. Gli adattatori applicativi gli affidano le
 operazioni attraverso `executeOnce` ed `executeOnceAndReturn`. Lo stesso lock
-copre il controllo delle scadenze, l'esecuzione, la registrazione del risultato
-e le transizioni di sessione.
-Il timeout della sessione parte quando viene eliminato l'ultimo risultato,
-oppure all'apertura se la sessione è ancora vuota. Il valore predefinito è
-30 minuti ed è configurabile separatamente dal timeout dei risultati.
-La chiusura dell'endpoint ferma il timer e revoca tutte le sessioni.
+protegge l'ammissione delle richieste, gli esiti e le transizioni di
+sessione. Le operazioni applicative eseguono fuori dal lock, anche in
+parallelo nella stessa sessione. Un duplicato attende l'esito della
+richiesta già in corso.
+
+Il timeout della sessione parte quando la sessione diventa vuota, oppure
+all'apertura. Una richiesta in corso tiene aperta la sessione e il suo esito
+si conserva a partire dal completamento. Il timeout predefinito della
+sessione è di 30 minuti ed è configurabile separatamente da quello degli
+esiti. Alla chiusura l'endpoint revoca tutte le sessioni, attende le
+operazioni già ammesse e ferma il timer.
 
 Finché la sessione esiste, il registro conserva la sequenza più alta tra
-i risultati scaduti. Rifiuta ogni richiesta fino a quella soglia, anche
-se è arrivata fuori ordine e non era ancora stata eseguita. Il registro
+i risultati scaduti. Rifiuta le richieste sconosciute fino a quella soglia
+e riconosce i duplicati delle richieste in corso o con esito ancora conservato.
+Il registro
 conserva i valori restituiti e le eccezioni applicative per la stessa durata.
 I guasti di comunicazione seguono il protocollo di retry e recupero.
 
 ## Ripristino del nodo
 
-Il timeout del proxy lascia incerto l'esito dell'operazione. Il rinnovo
-della sessione blocca le vecchie richieste ancora in transito dal momento
-della revoca. Il server conserva gli effetti già applicati, che il client
-può correggere con `recover(repair)`.
+Il timeout del proxy lascia incerto l'esito dell'operazione. La revoca blocca
+subito le nuove richieste con il vecchio token. Il server attende le operazioni
+già ammesse per quel token prima di confermare la disconnessione o restituire
+un nuovo token. Le altre sessioni possono continuare a operare durante
+l'attesa. Il client può correggere gli effetti già applicati con
+`recover(repair)`.
 
 Se una sessione inattiva scade, la prima chiamata riceve
 `SessionUnavailableException`: il server ha respinto quel tentativo prima

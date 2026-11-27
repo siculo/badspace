@@ -12,14 +12,12 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-/** Serializes session changes and request execution. */
+/** Runs independent requests concurrently and reuses outcomes for duplicate requests. */
 public final class ServerSessionEndpoint implements SessionNetworkInterface, AutoCloseable {
     private static final long DEFAULT_SESSION_TIMEOUT = Duration.ofMinutes(30).toMillis();
 
-    // Session changes, request execution and cleanup share this endpoint's monitor.
     private final SessionRegistry sessions;
     private final ScheduledExecutorService cleanup;
-    private boolean closed;
 
     /**
      * Starts an endpoint with a 30-minute timeout for empty sessions.
@@ -61,48 +59,38 @@ public final class ServerSessionEndpoint implements SessionNetworkInterface, Aut
         sessions = new SessionRegistry(requestTimeout, sessionTimeout, clock);
         cleanup = Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().name("session-cleanup").factory());
         long cleanupInterval = Math.max(1, Math.min(requestTimeout, sessionTimeout));
-        cleanup.scheduleWithFixedDelay(this::removeExpiredSessions, cleanupInterval, cleanupInterval,
+        cleanup.scheduleWithFixedDelay(sessions::removeExpired, cleanupInterval, cleanupInterval,
                 TimeUnit.MILLISECONDS);
     }
 
     @Override
-    public synchronized UUID connect() {
-        requireOpen();
+    public UUID connect() {
         return sessions.open();
     }
 
     @Override
-    public synchronized UUID recover(UUID previousToken) {
-        requireOpen();
+    public UUID recover(UUID previousToken) {
         sessions.revoke(previousToken);
         return sessions.open();
     }
 
     @Override
-    public synchronized void disconnect(UUID token) {
+    public void disconnect(UUID token) {
         sessions.revoke(token);
     }
 
-    /** Stops cleanup and revokes all sessions. Further connections are rejected. */
+    /** Revokes all sessions, waits for their active operations and stops cleanup. */
     @Override
-    public synchronized void close() {
-        closed = true;
-        sessions.revokeAll();
-        cleanup.shutdown();
-    }
-
-    private synchronized void removeExpiredSessions() {
-        sessions.removeExpired();
-    }
-
-    private void requireOpen() {
-        if (closed) {
-            throw new NodeRecoveryRequiredException("Server endpoint is closed");
+    public void close() {
+        try {
+            sessions.close();
+        } finally {
+            cleanup.shutdown();
         }
     }
 
     /**
-     * Runs a new operation under the session lock and saves its outcome.
+     * Runs a new operation and saves its outcome.
      * A retry returns normally or throws the saved application exception without running
      * the operation again.
      *
@@ -118,7 +106,8 @@ public final class ServerSessionEndpoint implements SessionNetworkInterface, Aut
     }
 
     /**
-     * Runs a new request or replays its saved outcome while holding the session lock.
+     * Runs a new request concurrently with other requests. A duplicate waits for the
+     * original operation if it is still in progress, then receives the same outcome.
      * Saves return values and application runtime exceptions for the same retention time.
      * Communication exceptions and other throwables propagate without being saved.
      *
@@ -128,7 +117,7 @@ public final class ServerSessionEndpoint implements SessionNetworkInterface, Aut
      * @return the new or saved result
      * @throws NodeRecoveryRequiredException if the session or request is unavailable
      */
-    public synchronized <T> T executeOnceAndReturn(RequestId requestId, Supplier<T> operation) {
+    public <T> T executeOnceAndReturn(RequestId requestId, Supplier<T> operation) {
         return sessions.executeOnceAndReturn(requestId, operation);
     }
 }
