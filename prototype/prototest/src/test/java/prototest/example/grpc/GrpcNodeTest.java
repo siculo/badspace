@@ -46,6 +46,7 @@ public class GrpcNodeTest {
     private final AtomicLong now = new AtomicLong();
     private final AtomicBoolean loseWriteResponse = new AtomicBoolean();
     private final AtomicInteger writeAttempts = new AtomicInteger();
+    private final AtomicInteger writesOnServer = new AtomicInteger();
     private ServerSessionEndpoint sessions;
     private Server server;
     private ManagedChannel channel;
@@ -55,7 +56,14 @@ public class GrpcNodeTest {
     public void startServer() throws Exception {
         InstantSource time = () -> Instant.ofEpochMilli(now.get());
         sessions = new ServerSessionEndpoint(60000, SESSION_TIMEOUT, time.withZone(ZoneOffset.UTC));
-        var node = new ServerNodeNetworkInterface(new NodeServer(), sessions);
+        var nodeServer = new NodeServer() {
+            @Override
+            public void writeToPartition(String name, String data) {
+                writesOnServer.incrementAndGet();
+                super.writeToPartition(name, data);
+            }
+        };
+        var node = new ServerNodeNetworkInterface(nodeServer, sessions);
         var address = new InetSocketAddress("127.0.0.1", 0);
         server = NettyServerBuilder.forAddress(address)
                 .addService(new GrpcSessionService(sessions))
@@ -138,6 +146,24 @@ public class GrpcNodeTest {
         assertFalse(proxy.recoveryRequired());
     }
 
+    @Test
+    public void retryAfterALostErrorResponseReturnsThePartitionError() {
+        proxy.connect();
+        loseWriteResponse.set(true);
+
+        var failure = assertThrows(PartitionNotFoundException.class,
+                () -> proxy.writeToPartition("missing", "content"));
+
+        assertTrue(failure.getMessage().contains("\"missing\""));
+        assertEquals(2, writeAttempts.get());
+        assertEquals(1, writesOnServer.get());
+        assertFalse(proxy.recoveryRequired());
+        proxy.createPartition("missing");
+        proxy.writeToPartition("missing", "content");
+        proxy.commitPartition("missing");
+        assertEquals("content", proxy.readPartitionSnapshot("missing"));
+    }
+
     private ServerInterceptor writeResponseInterceptor() {
         return new ServerInterceptor() {
             @Override
@@ -155,7 +181,7 @@ public class GrpcNodeTest {
 
                             @Override
                             public void close(Status status, Metadata trailers) {
-                                super.close(status.isOk() ? Status.UNAVAILABLE : status, trailers);
+                                super.close(Status.UNAVAILABLE, new Metadata());
                             }
                         }, headers);
                     }

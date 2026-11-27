@@ -10,6 +10,7 @@ import prototest.example.server.NodeTestNetwork;
 import prototest.example.server.TestEndpoints;
 import badspace.remote.api.RequestId;
 import badspace.remote.api.errors.NodeRecoveryRequiredException;
+import badspace.remote.api.errors.RetryableCommunicationException;
 import badspace.remote.network.FakeNetworkInterface;
 
 import java.time.Duration;
@@ -19,6 +20,7 @@ import java.time.ZoneOffset;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static prototest.example.server.NodeTestEndpoint.proxyFor;
@@ -191,6 +193,71 @@ public class RetryTest {
         // The call has ended, so check the recorded attempts without waiting.
         assertThrows(IllegalStateException.class, () -> network.awaitAttempt(WRITE, 2, Duration.ZERO));
         network.assertAllRulesUsedAndCallsFinished();
+    }
+
+    /** A lost failure response is retried with the same ID, without writing again. */
+    @Test
+    public void aRetryReturnsTheOriginalFailureWithoutRepeatingTheWrite() throws Exception {
+        var writes = new AtomicInteger();
+        var failure = new IllegalStateException("Write failed after changing the partition");
+        var failingServer = new NodeServer() {
+            @Override
+            public void writeToPartition(String name, String data) {
+                super.writeToPartition(name, data);
+                if (writes.incrementAndGet() == 1) {
+                    throw failure;
+                }
+            }
+        };
+        var endpoint = endpoints.track(new NodeTestEndpoint(failingServer, 60000));
+        var failingNetwork = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint)
+                .on(WRITE).onFirstCall().dropResponse();
+        var proxy = proxyFor(failingNetwork.build(), 60000);
+        proxy.connect();
+        proxy.createPartition(PARTITION_NAME);
+
+        assertSame(failure, assertThrows(IllegalStateException.class,
+                () -> proxy.writeToPartition(PARTITION_NAME, "content")));
+
+        var first = failingNetwork.awaitAttempt(WRITE, 1, WAIT);
+        var retry = failingNetwork.awaitAttempt(WRITE, 2, WAIT);
+        assertEquals(first.invocation().args()[0], retry.invocation().args()[0]);
+        assertEquals(1, writes.get());
+        assertFalse(proxy.recoveryRequired());
+        proxy.writeToPartition(PARTITION_NAME, "next");
+        assertEquals(2, writes.get());
+        failingNetwork.assertAllRulesUsedAndCallsFinished();
+    }
+
+    /** A temporary communication failure leaves the request ID available for a retry. */
+    @Test
+    public void aRetryCanCompleteAfterACommunicationFailure() throws Exception {
+        var attempts = new AtomicInteger();
+        var interruptedServer = new NodeServer() {
+            @Override
+            public void writeToPartition(String name, String data) {
+                if (attempts.incrementAndGet() == 1) {
+                    throw new RetryableCommunicationException("Connection lost before the write");
+                }
+                super.writeToPartition(name, data);
+            }
+        };
+        var endpoint = endpoints.track(new NodeTestEndpoint(interruptedServer, 60000));
+        var interruptedNetwork = FakeNetworkInterface.wrap(NodeTestNetwork.class, endpoint);
+        var proxy = proxyFor(interruptedNetwork.build(), WAIT.toMillis());
+        proxy.connect();
+        proxy.createPartition(PARTITION_NAME);
+
+        proxy.writeToPartition(PARTITION_NAME, "content");
+        proxy.commitPartition(PARTITION_NAME);
+
+        var first = interruptedNetwork.awaitAttempt(WRITE, 1, WAIT);
+        var retry = interruptedNetwork.awaitAttempt(WRITE, 2, WAIT);
+        assertEquals(first.invocation().args()[0], retry.invocation().args()[0]);
+        assertEquals(2, attempts.get());
+        assertEquals("content", proxy.readPartitionSnapshot(PARTITION_NAME));
+        assertFalse(proxy.recoveryRequired());
+        interruptedNetwork.assertAllRulesUsedAndCallsFinished();
     }
 
     /**

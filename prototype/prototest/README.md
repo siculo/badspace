@@ -28,8 +28,9 @@ su `127.0.0.1` e una porta assegnata dal sistema.
 operazioni sui token e il messaggio condiviso con token e sequenza.
 [Il contratto delle partizioni](src/main/proto/example/node.proto) importa
 quel messaggio per identificare ciascuna richiesta. I due servizi usano lo
-stesso `ServerSessionEndpoint`, che conserva i risultati delle richieste
-riuscite. Nella demo, `GrpcSessionClient` e `GrpcNodeClient` condividono il
+stesso `ServerSessionEndpoint`, che conserva i valori restituiti e le
+eccezioni applicative per riproporre lo stesso esito in caso di retry.
+Nella demo, `GrpcSessionClient` e `GrpcNodeClient` condividono il
 canale. Ogni RPC ha una propria scadenza. `RemoteCallExecutor` gestisce lo
 stato di recupero del proxy e riusa lo stesso ID quando ritenta una chiamata
 al nodo.

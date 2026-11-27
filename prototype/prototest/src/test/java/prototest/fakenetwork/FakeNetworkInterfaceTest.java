@@ -116,16 +116,26 @@ public class FakeNetworkInterfaceTest {
     }
 
     @Test
-    public void endpointErrorsSkipTheResponsePointAndFinishTheAttempt() throws Exception {
-        FakeNetworkInterface.Selector<NodeTestNetwork> write = n -> n.writeToPartition(any(), any(), any());
-        var node = network.on(write).holdResponse().build();
+    public void aHeldResponseThrowsItsApplicationExceptionOnlyAfterDelivery() throws Exception {
+        FakeNetworkInterface.Selector<NodeTestNetwork> read = n -> n.readPartitionSnapshot(any(), any());
+        var node = network.on(read).holdResponse().build();
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            var result = worker.submit(() -> assertThrows(PartitionNotFoundException.class,
+                    () -> node.readPartitionSnapshot(firstRequestId, "missing")));
+            var attempt = network.awaitAttempt(read, 1);
+            attempt.response().awaitArrival(WAIT);
+            assertFalse(result.isDone());
 
-        assertThrows(PartitionNotFoundException.class,
-                () -> node.writeToPartition(firstRequestId, "missing", "value"));
+            attempt.response().deliver();
 
-        var attempt = network.awaitAttempt(write, 1, Duration.ZERO);
-        assertThrows(IllegalStateException.class, () -> attempt.response().awaitArrival(Duration.ZERO));
-        network.assertAllRulesUsedAndCallsFinished();
+            assertTrue(result.get(5, TimeUnit.SECONDS).getMessage().contains("\"missing\""));
+            network.assertAllRulesUsedAndCallsFinished();
+        } finally {
+            network.releaseHeldMessages();
+            worker.shutdownNow();
+            assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
+        }
     }
 
     @Test

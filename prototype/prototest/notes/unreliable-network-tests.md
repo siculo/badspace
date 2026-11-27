@@ -66,6 +66,8 @@ risultato salvato senza applicare di nuovo l'operazione.
 | `retriesFromDifferentProxiesWithTheSameSequenceApplyEachWriteOnce` | la prima risposta alla scrittura di ciascun proxy va persa | due richieste con lo stesso numero di sequenza producono una sola scrittura ciascuna, su due partizioni distinte |
 | `requiresNodeRecoveryAfterRetryTimeout` | prima richiesta persa, timeout zero | nessun retry: `"Unrecoverable timeout"` e proxy da recuperare |
 | `returnsAServiceExceptionWithoutRetrying` | consegna normale | l'errore del servizio arriva al chiamante dopo un solo tentativo; il proxy resta usabile |
+| `aRetryReturnsTheOriginalFailureWithoutRepeatingTheWrite` | risposta di errore persa dopo una modifica | il retry usa lo stesso ID e restituisce l'eccezione registrata; la scrittura viene eseguita una volta |
+| `aRetryCanCompleteAfterACommunicationFailure` | guasto di comunicazione prima della scrittura | il retry usa lo stesso ID e completa la scrittura |
 
 ## Ingresso in recupero necessario — `RecoveryRequiredTest`
 

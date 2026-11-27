@@ -94,5 +94,5 @@ Il contratto completo è nelle
 
 I limiti del registro delle richieste sono descritti nelle
 [note sulle richieste da più proxy](multiple-proxies.md).
-Il simulatore propaga direttamente le eccezioni del servizio: non simula
-la perdita di una risposta contenente un errore del servizio.
+Il punto di consegna della risposta vale anche per le eccezioni del servizio.
+Un test può trattenere o perdere la risposta prima che l'eccezione arrivi al client.

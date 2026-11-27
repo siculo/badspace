@@ -1,5 +1,6 @@
 package badspace.remote.network;
 
+import badspace.remote.api.errors.CommunicationException;
 import badspace.remote.api.errors.RetryableCommunicationException;
 
 import java.lang.reflect.Array;
@@ -43,8 +44,8 @@ import java.util.function.Predicate;
  * each invocation, including those selected by an every-call rule. A held message ignores
  * transport interruption until the test releases it, then restores the interrupt flag.
  * Tests should call {@link #releaseHeldMessages()} in cleanup before waiting for workers.
- * Endpoint exceptions propagate directly without reaching the response point, so a lost
- * response containing a service error is not simulated.
+ * The response point controls delivery of both return values and application runtime
+ * exceptions. Communication errors and other throwables propagate directly.
  *
  * @param <T> the remote interface
  */
@@ -436,7 +437,11 @@ public final class FakeNetworkInterface<T> {
             try {
                 result = method.invoke(endpoint, args);
             } catch (InvocationTargetException error) {
-                throw error.getCause();
+                var cause = error.getCause();
+                if (cause instanceof RuntimeException && !(cause instanceof CommunicationException)) {
+                    attempt.response.pass(attempt.invocation, "Response missing");
+                }
+                throw cause;
             }
             attempt.response.pass(attempt.invocation, "Response missing");
             return result;
@@ -687,7 +692,7 @@ public final class FakeNetworkInterface<T> {
         }
 
         /**
-         * Registers response loss after successful endpoint execution.
+         * Registers loss of an endpoint result or application exception.
          *
          * @return the network builder
          * @throws IllegalStateException if the network was already built
@@ -718,7 +723,7 @@ public final class FakeNetworkInterface<T> {
 
         /**
          * Registers the rule with explicit request and response modes. The response mode
-         * applies only after the request reaches the endpoint and the endpoint returns normally.
+         * applies to the result or application runtime exception from the endpoint.
          *
          * @param request request delivery mode
          * @param response response delivery mode
@@ -794,7 +799,7 @@ public final class FakeNetworkInterface<T> {
         }
 
         /**
-         * Returns the point after a successful endpoint call, before returning its result.
+         * Returns the point before delivering an endpoint result or application exception.
          *
          * @return the response delivery point
          */

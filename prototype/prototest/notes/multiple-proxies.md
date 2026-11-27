@@ -44,7 +44,8 @@ La chiusura dell'endpoint ferma il timer e revoca tutte le sessioni.
 Finché la sessione esiste, il registro conserva la sequenza più alta tra
 i risultati scaduti. Rifiuta ogni richiesta fino a quella soglia, anche
 se è arrivata fuori ordine e non era ancora stata eseguita. Il registro
-conserva i risultati delle sole operazioni riuscite.
+conserva i valori restituiti e le eccezioni applicative per la stessa durata.
+I guasti di comunicazione seguono il protocollo di retry e recupero.
 
 ## Ripristino del nodo
 

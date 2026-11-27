@@ -1,6 +1,7 @@
 package badspace.remote.server;
 
 import badspace.remote.api.RequestId;
+import badspace.remote.api.errors.CommunicationException;
 import badspace.remote.api.errors.NodeRecoveryRequiredException;
 import badspace.remote.api.errors.SessionUnavailableException;
 
@@ -54,10 +55,21 @@ final class SessionRegistry {
         }
         var saved = session.requests.get(sequence);
         if (saved != null) {
+            if (saved.failure() != null) {
+                throw saved.failure();
+            }
             return (T) saved.result();
         }
-        T result = operation.get();
-        session.requests.put(sequence, new Request(result, clock.millis()));
+        T result;
+        try {
+            result = operation.get();
+        } catch (CommunicationException error) {
+            throw error;
+        } catch (RuntimeException failure) {
+            session.requests.put(sequence, new Request(null, failure, clock.millis()));
+            throw failure;
+        }
+        session.requests.put(sequence, new Request(result, null, clock.millis()));
         return result;
     }
 
@@ -113,5 +125,5 @@ final class SessionRegistry {
         }
     }
 
-    private record Request(Object result, long completedAt) {}
+    private record Request(Object result, RuntimeException failure, long completedAt) {}
 }

@@ -102,8 +102,9 @@ public final class ServerSessionEndpoint implements SessionNetworkInterface, Aut
     }
 
     /**
-     * Runs a new operation under the session lock and records its successful completion.
-     * Retries of a completed operation return without running it again.
+     * Runs a new operation under the session lock and saves its outcome.
+     * A retry returns normally or throws the saved application exception without running
+     * the operation again.
      *
      * @param requestId the ID reused by retries of this operation
      * @param operation the operation to run for a new request
@@ -117,8 +118,9 @@ public final class ServerSessionEndpoint implements SessionNetworkInterface, Aut
     }
 
     /**
-     * Runs a new request or returns its saved result while holding the session lock.
-     * Exceptions propagate to the caller. Only successful results are saved.
+     * Runs a new request or replays its saved outcome while holding the session lock.
+     * Saves return values and application runtime exceptions for the same retention time.
+     * Communication exceptions and other throwables propagate without being saved.
      *
      * @param requestId the ID reused by retries of this operation
      * @param operation the operation to run for a new request
